@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # The app (app/). The other parts (python/, docs/) get their own jobs beside this one.
+  app:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: app/package.json
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      # Electron has no postinstall, so the binary is fetched here.
+      - name: Download the Electron binary
+        run: pnpm exec install-electron
+        working-directory: app/desktop
+      - name: Check the Electron binary exists
+        run: |
+          if [ ! -x node_modules/electron/dist/electron ]; then
+            echo "::error::app/desktop/node_modules/electron/dist/electron is missing. 'pnpm exec install-electron' did not download the binary."
+            exit 1
+          fi
+        working-directory: app/desktop
+      # Runner only: Ubuntu 24.04 runners restrict unprivileged user namespaces, which stops
+      # Chromium's sandbox from starting. This lets it start; the tests never use --no-sandbox.
+      # Never run this on a developer machine.
+      - name: Allow unprivileged user namespaces for Chromium's sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm test:e2e
+      - name: Upload the e2e results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-test-results
+          path: app/desktop/test-results
+          if-no-files-found: ignore

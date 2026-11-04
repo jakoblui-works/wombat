@@ -1,0 +1,7 @@
+packages:
+  - shared
+  - service
+  - desktop
+
+allowBuilds:
+  electron: true

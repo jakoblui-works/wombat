@@ -1,0 +1,318 @@
+// The app's trust boundary, checked against the built app (`out/main/index.js`, rebuilt by
+// `global-setup.ts` before every run). Each test launches its own app, display-less (see
+// `launch`), with `WOMBAT_E2E=1`, which the app uses to keep its window hidden.
+import { existsSync } from "node:fs";
+import path from "node:path";
+import {
+  _electron as electron,
+  expect,
+  test,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test";
+import { API_VERSION } from "@wombat/shared";
+
+// Everything the preload may expose to the page. Adding a global, a name or a function widens
+// what a page (and anything that gets into it) can reach in the host: each is a deliberate,
+// reviewed decision, made here and in the preload together.
+// The globals the preload adds to the page (beyond what a blank page of the same engine has).
+const ALLOWED_BRIDGE_GLOBALS = ["wombat"];
+// The names on `window.wombat`.
+const ALLOWED_BRIDGE_NAMES = ["apiVersion"];
+// The paths under `window.wombat` whose values are functions (e.g. "service.connect").
+const ALLOWED_BRIDGE_FUNCTIONS: string[] = [];
+
+// An outside https URL. Requests to it are answered locally (see `stubOutside`),
+// so if the app let it load it would load, with or without a network.
+const OUTSIDE_URL = "https://example.com/";
+const OUTSIDE_PATTERN = "https://example.com/**";
+// How long a blocked action gets to take effect before we look.
+const SETTLE_MS = 2_000;
+
+// CSP sources that would let outside or inline code run.
+const LOOSE_SOURCES = ["http:", "https:", "data:", "blob:", "filesystem:"];
+const isLoose = (source: string): boolean => LOOSE_SOURCES.includes(source) || source.includes("*");
+const UNSAFE_SCRIPT_SOURCES = ["'unsafe-inline'", "'unsafe-eval'"];
+
+const mainEntry = (): string => {
+  const configFile = test.info().config.configFile;
+  if (!configFile) throw new Error("Run these checks through `playwright test` with app/desktop/playwright.config.ts.");
+  const entry = path.join(path.dirname(configFile), "out", "main", "index.js");
+  if (!existsSync(entry)) {
+    throw new Error(`The built app is missing (${entry}). Build it first: \`pnpm exec electron-vite build\` in app/desktop.`);
+  }
+  return entry;
+};
+
+// Keep test runs off the desktop, whatever the app does (a broken window.open block would
+// otherwise show a real window). Linux only; none of this applies on macOS.
+// - Windows: Electron runs on Chromium's headless display platform, and the env names no X or
+//   Wayland display, so even without that flag it couldn't open a window.
+// - D-Bus: the session bus address is dead, so portal dialogs (file pickers), desktop
+//   notifications and shell.showItemInFolder can't reach the desktop. Unset, GDBus would fall
+//   back to $XDG_RUNTIME_DIR/bus, so it's set rather than removed.
+const HEADLESS_ARGS = ["--ozone-platform=headless"];
+const DISPLAY_ENV = ["DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XAUTHORITY", "ELECTRON_OZONE_PLATFORM_HINT"];
+
+// The app's env, minus the display (above) and ELECTRON_RUN_AS_NODE: when the runner itself is
+// started from an Electron-based tool it inherits that variable, which would make Electron run as plain Node.
+const appEnv = (): Record<string, string> => {
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && key !== "ELECTRON_RUN_AS_NODE" && !DISPLAY_ENV.includes(key)) env[key] = value;
+  }
+  // Unset, Wayland falls back to the socket `wayland-0`; point it at one that can't exist.
+  env["WAYLAND_DISPLAY"] = "/nonexistent/wombat-e2e-no-display";
+  env["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=/nonexistent/wombat-e2e-no-bus";
+  env["WOMBAT_E2E"] = "1";
+  return env;
+};
+
+// Handing an https URL to the host's browser is a legitimate way for the app to handle a link,
+// so the checks don't care whether it happens; but a test must never open the real browser.
+// App code must call `shell.openExternal(...)` at the moment of use, not a copy captured at load.
+const recordOpenExternal = (app: ElectronApplication): Promise<void> =>
+  app.evaluate(({ shell }) => {
+    const opened: string[] = [];
+    (globalThis as { wombatE2eOpenedExternally?: string[] }).wombatE2eOpenedExternally = opened;
+    shell.openExternal = (url: string) => {
+      opened.push(url);
+      return Promise.resolve();
+    };
+  });
+
+const launch = async (): Promise<{ app: ElectronApplication; page: Page }> => {
+  const launched = await electron.launch({
+    args: [...HEADLESS_ARGS, mainEntry()],
+    env: appEnv(),
+    // Without this Playwright adds `--no-sandbox`; the checks must see the real sandbox.
+    chromiumSandbox: true,
+  });
+  await recordOpenExternal(launched);
+  const firstPage = await launched.firstWindow();
+  await firstPage.waitForLoadState("domcontentloaded");
+  return { app: launched, page: firstPage };
+};
+
+// Answer outside requests locally, so the outcome never depends on the network.
+const stubOutside = async (target: ElectronApplication): Promise<void> => {
+  await target.context().route(OUTSIDE_PATTERN, (route) =>
+    route.fulfill({ status: 200, contentType: "text/html", body: "<title>outside</title><p>outside page</p>" }),
+  );
+};
+
+const windowCount = (target: ElectronApplication): Promise<number> =>
+  target.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+
+const directives = (policy: string): Map<string, string[]> => {
+  const map = new Map<string, string[]>();
+  for (const part of policy.split(";")) {
+    const [name, ...sources] = part.trim().toLowerCase().split(/\s+/);
+    if (name && !map.has(name)) map.set(name, sources);
+  }
+  return map;
+};
+
+// What's wrong with one policy; empty when it's strict.
+const cspProblems = (policy: string): string[] => {
+  const d = directives(policy);
+  const problems: string[] = [];
+  const defaults = d.get("default-src");
+  if (!defaults?.includes("'self'")) problems.push("default-src lacks 'self'");
+  if (d.get("object-src")?.join(" ") !== "'none'") problems.push("object-src is not 'none'");
+  if (d.get("base-uri")?.join(" ") !== "'none'") problems.push("base-uri is not 'none'");
+  for (const source of defaults ?? []) {
+    if (isLoose(source)) problems.push(`default-src allows ${source}`);
+  }
+  // The sources that actually govern scripts, per the CSP fallback chain.
+  const scripts = d.get("script-src") ?? defaults ?? [];
+  const governing: [string, string[]][] = [
+    ["script-src", scripts],
+    ["script-src-elem", d.get("script-src-elem") ?? scripts],
+    ["script-src-attr", d.get("script-src-attr") ?? scripts],
+  ];
+  for (const [name, sources] of governing) {
+    for (const source of sources) {
+      if (isLoose(source) || UNSAFE_SCRIPT_SOURCES.includes(source)) {
+        problems.push(`${name} (effective) allows ${source}`);
+      }
+    }
+  }
+  return problems;
+};
+
+let app: ElectronApplication | undefined;
+let page: Page | undefined;
+
+const opened = (): { app: ElectronApplication; page: Page } => {
+  if (!app || !page) throw new Error("The app didn't launch (see beforeEach).");
+  return { app, page };
+};
+
+test.beforeEach(async () => {
+  app = undefined;
+  page = undefined;
+  ({ app, page } = await launch());
+});
+
+test.afterEach(async () => {
+  await app?.close();
+});
+
+test("the page shows the API version that @wombat/shared exports", async () => {
+  const { page } = opened();
+  const version = String(API_VERSION);
+  await expect(page.getByTestId("api-version")).toHaveText(new RegExp(`(^|\\D)${version}(\\D|$)`));
+});
+
+test("the app's window has context isolation and the sandbox on, and Node off", async () => {
+  const { app } = opened();
+  expect(await windowCount(app)).toBe(1);
+  const prefs = await app.evaluate(({ BrowserWindow }) => {
+    // `getLastWebPreferences` exists at runtime but is missing from Electron's typings.
+    type WithPrefs = { getLastWebPreferences?: () => Record<string, unknown> | null };
+    const contents = BrowserWindow.getAllWindows()[0]?.webContents as unknown as WithPrefs | undefined;
+    const last = contents?.getLastWebPreferences?.() ?? null;
+    return last && {
+      contextIsolation: last["contextIsolation"],
+      sandbox: last["sandbox"],
+      nodeIntegration: last["nodeIntegration"],
+    };
+  });
+  expect(prefs, "webContents.getLastWebPreferences() returned nothing").not.toBeNull();
+  expect(prefs).toEqual({ contextIsolation: true, sandbox: true, nodeIntegration: false });
+});
+
+test("window.open from the renderer opens no window", async () => {
+  const { app, page } = opened();
+  await stubOutside(app);
+  const newWindow = app.waitForEvent("window", { timeout: SETTLE_MS }).then(
+    (newPage) => newPage.url(),
+    () => null,
+  );
+  await page.evaluate((url) => {
+    window.open(url);
+  }, OUTSIDE_URL);
+  expect(await newWindow, "a new window opened").toBeNull();
+  expect(await windowCount(app)).toBe(1);
+});
+
+test("navigating the page to an outside https URL leaves it on the app", async () => {
+  const { app, page } = opened();
+  await stubOutside(app);
+  const appUrl = page.url();
+  expect(appUrl).not.toContain("example.com");
+  // The navigation may tear down the context the evaluate runs in; that's an outcome, not an error.
+  await page
+    .evaluate((url) => {
+      location.href = url;
+    }, OUTSIDE_URL)
+    .catch(() => undefined);
+  await page.waitForURL((url) => url.href !== appUrl, { timeout: SETTLE_MS }).catch(() => undefined);
+  // Ask the main process: Playwright keeps waiting on a navigation the app cancelled.
+  const after = await app.evaluate(async ({ BrowserWindow }) => {
+    const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+    if (!contents) return null;
+    const appContent: unknown = await contents.executeJavaScript(
+      `document.querySelector('[data-testid="api-version"]') !== null`,
+    );
+    return { url: contents.getURL(), loading: contents.isLoading(), appContent };
+  });
+  expect(after).toEqual({ url: appUrl, loading: false, appContent: true });
+});
+
+test("the document's CSP is strict and is enforced", async () => {
+  const { page } = opened();
+  const policies = await page.$$eval('meta[http-equiv="Content-Security-Policy" i]', (metas) =>
+    metas.map((meta) => meta.getAttribute("content") ?? ""),
+  );
+  expect(policies.length, "no CSP meta tag in index.html").toBeGreaterThan(0);
+  const report = policies.map((policy) => ({ policy, problems: cspProblems(policy) }));
+  expect(
+    report.some(({ problems }) => problems.length === 0),
+    `no strict CSP among the meta tags: ${JSON.stringify(report, null, 2)}`,
+  ).toBe(true);
+
+  // What the page actually enforces (meta and any header together).
+  const inlineRan = await page.evaluate(() => {
+    const flag = "__wombatInlineRan";
+    const script = document.createElement("script");
+    script.textContent = `window.${flag} = true;`;
+    document.head.append(script);
+    return (window as unknown as Record<string, unknown>)[flag] === true;
+  });
+  // (No eval probe: Playwright's evaluate runs outside the page's CSP, so eval would pass anyway.)
+  expect(inlineRan, "an injected inline script ran").toBe(false);
+});
+
+test("the preload bridge exposes only the allowed globals, names and functions", async () => {
+  const { page } = opened();
+  const bridge = await page.evaluate(() => {
+    // A blank page from the same engine shows which globals are the browser's own;
+    // about:blank needs no fetch, so the strict CSP allows it.
+    const frame = document.createElement("iframe");
+    document.body.append(frame);
+    const blank = frame.contentWindow;
+    const baseline = new Set(blank ? Object.getOwnPropertyNames(blank) : []);
+    frame.remove();
+    const added = Object.getOwnPropertyNames(window)
+      .filter((name) => !baseline.has(name) && !/^\d+$/.test(name))
+      .sort();
+
+    const root = (window as unknown as { wombat?: unknown }).wombat;
+    const functions: string[] = [];
+    const walk = (value: unknown, at: string, depth: number): void => {
+      if (typeof value === "function") functions.push(at);
+      if (value === null || (typeof value !== "object" && typeof value !== "function") || depth > 5) return;
+      for (const key of Object.keys(value)) {
+        walk((value as Record<string, unknown>)[key], at ? `${at}.${key}` : key, depth + 1);
+      }
+    };
+    walk(root, "", 0);
+    return {
+      added,
+      names: root !== null && typeof root === "object" ? Object.keys(root).sort() : null,
+      functions: functions.sort(),
+    };
+  });
+  expect(bridge.names, "window.wombat is missing").not.toBeNull();
+  expect(bridge).toEqual({
+    added: [...ALLOWED_BRIDGE_GLOBALS].sort(),
+    names: [...ALLOWED_BRIDGE_NAMES].sort(),
+    functions: [...ALLOWED_BRIDGE_FUNCTIONS].sort(),
+  });
+});
+
+test("permission requests and checks from the renderer are denied", async () => {
+  const { page } = opened();
+  // Probes whose outcome is decided by the app's permission handlers, not by hardware:
+  // requests (Notification.requestPermission, geolocation) go through the request handler,
+  // checks (Notification.permission, permissions.query) through the check handler.
+  // (No getUserMedia: when allowed it opens the real microphone, and on a machine without one
+  // it fails with NotFoundError, so the result would depend on the hardware.)
+  const outcome = await page.evaluate(async () => {
+    const notificationRequest = await Notification.requestPermission();
+    // Granted, geolocation fails with POSITION_UNAVAILABLE (2) here, as there's no provider;
+    // only a denial gives PERMISSION_DENIED (1).
+    const geolocationError = await new Promise<number | "position">((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        () => resolve("position"),
+        (error) => resolve(error.code),
+        { timeout: 4_000 },
+      );
+    });
+    const queries: Record<string, string> = {};
+    for (const name of ["notifications", "geolocation", "microphone", "camera"]) {
+      queries[name] = await navigator.permissions
+        .query({ name: name as PermissionName })
+        .then((status) => status.state, (error: unknown) => `error: ${String(error)}`);
+    }
+    return { notificationRequest, notificationPermission: Notification.permission, geolocationError, queries };
+  });
+  expect(outcome).toEqual({
+    notificationRequest: "denied",
+    notificationPermission: "denied",
+    geolocationError: 1,
+    queries: { notifications: "denied", geolocation: "denied", microphone: "denied", camera: "denied" },
+  });
+});

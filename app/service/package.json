@@ -1,0 +1,13 @@
+{
+  "name": "@wombat/service",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@wombat/shared": "workspace:*"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  }
+}
