@@ -3,7 +3,10 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@wombat/shared": "workspace:*"
+    "@agentclientprotocol/claude-agent-acp": "0.100.0",
+    "@agentclientprotocol/sdk": "2.4.0",
+    "@wombat/shared": "workspace:*",
+    "zod": "4.6.7"
   },
   "scripts": {
     "start": "node src/main.ts",
