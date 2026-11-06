@@ -1,4 +1,4 @@
-# Wombat
+# <img src="app/desktop/assets/brand/wombat-mark.svg" width="40" height="40" alt="" align="top"> Wombat
 
 Wombat is an agentic development environment for multi-repo projects. It sandboxes the project in a VM so agents can work across all its repos without reaching your machine, and has an app for working with the agents.
 
