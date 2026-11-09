@@ -70,6 +70,8 @@ type ErrorDetail = ErrorBody["error"];
 type Pending = {
   /** Option kind → the agent's optionId, for the kinds it offered. */
   offered: Map<PermissionKind, string>;
+  /** The ACP session that asked; its answer is recorded under the same one. */
+  sessionId: string;
   respond: (response: RequestPermissionResponse) => void;
 };
 
@@ -105,7 +107,7 @@ const ACP_AUTH_REQUIRED = -32000;
 
 const now = () => new Date().toISOString();
 
-const logToStderr: Log = (event, fields) => {
+export const logToStderr: Log = (event, fields) => {
   process.stderr.write(`${JSON.stringify({ at: now(), event, ...fields })}\n`);
 };
 
@@ -242,7 +244,7 @@ export const createManager = ({
     const kind = safeName((update as { sessionUpdate?: unknown } | null)?.sessionUpdate);
     let item: Item | undefined;
     try {
-      item = parseItem({ type: "session_update", seq: 0, agentId, at: now(), update });
+      item = parseItem({ type: "session_update", seq: 0, agentId, at: now(), sessionId, update });
     } catch {
       log("update_invalid", { agentId, kind });
       return;
@@ -254,7 +256,7 @@ export const createManager = ({
     }
     const parsed = item.update;
     safely(agentId, "session_update", () => {
-      appendItems(agentId, [{ type: "session_update", update: parsed }]);
+      appendItems(agentId, [{ type: "session_update", sessionId, update: parsed }]);
       if (parsed.sessionUpdate === "session_info_update" && typeof parsed.title === "string") {
         const current = summaries.get(agentId);
         if (current) putSummary({ ...current, title: parsed.title, lastActivityAt: now() }, "agent_changed");
@@ -264,6 +266,7 @@ export const createManager = ({
 
   const requestPermission = (proc: Proc, request: RequestPermissionRequest) => {
     const { agentId } = proc;
+    const { sessionId } = request;
     const requestId = randomUUID();
     const offered = new Map<PermissionKind, string>();
     for (const option of request.options) {
@@ -275,6 +278,7 @@ export const createManager = ({
       seq: 0,
       agentId,
       at: now(),
+      sessionId,
       requestId,
       toolCall: request.toolCall,
       options: request.options.map((option) => ({ kind: option.kind, name: option.name })),
@@ -285,9 +289,9 @@ export const createManager = ({
     }
     const { toolCall, options } = parsed.data;
     return new Promise<RequestPermissionResponse>((respond) => {
-      proc.pending.set(requestId, { offered, respond });
+      proc.pending.set(requestId, { offered, sessionId, respond });
       safely(agentId, "permission_requested", () => {
-        appendItems(agentId, [{ type: "permission_requested", requestId, toolCall, options }]);
+        appendItems(agentId, [{ type: "permission_requested", sessionId, requestId, toolCall, options }]);
         setState(agentId, "waiting");
       });
       log("permission_requested", { agentId, requestId, options: offered.size });
@@ -563,7 +567,7 @@ export const createManager = ({
       );
     }
     // Stored first: if that fails the request stays open, and the caller can answer it again.
-    appendItems(agentId, [{ type: "permission_answered", requestId, kind }]);
+    appendItems(agentId, [{ type: "permission_answered", sessionId: pending.sessionId, requestId, kind }]);
     proc.pending.delete(requestId);
     if (proc.pending.size === 0) safely(agentId, "permission_answered", () => setState(agentId, "working"));
     log("permission_answered", { agentId, requestId, kind });

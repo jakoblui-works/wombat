@@ -430,6 +430,23 @@ describe("items (lenient)", () => {
     expect(parsed).not.toHaveProperty("commandId");
   });
 
+  test("session updates and permission items keep the ACP sessionId they arrived with, and have no sessionId key without one", () => {
+    const carriers = [
+      item(10, "session_update", { update: agentMessageChunk }),
+      permissionRequested,
+      item(21, "permission_answered", { requestId: "perm_3", kind: "allow_once" }),
+    ];
+    for (const carrier of carriers) {
+      const withSession = { ...carrier, sessionId: "sess_01JBX4Q9M2" };
+      expect(parseItem(withSession), carrier.type).toEqual(withSession);
+      expect(ListItemsResponse.parse({ dbId, seq: 30, items: [withSession], truncated: false }).items, carrier.type).toEqual([
+        withSession,
+      ]);
+      expect(parseItem(carrier), carrier.type).not.toHaveProperty("sessionId");
+      expect(() => parseItem({ ...carrier, sessionId: 42 }), `${carrier.type} with a numeric sessionId`).toThrow();
+    }
+  });
+
   test("parseItem keeps diff content on tool call updates", () => {
     expect(parseItem(item(7, "session_update", { update: toolCallUpdate }))).toMatchObject({
       update: { sessionUpdate: "tool_call_update", content: [diffContent] },

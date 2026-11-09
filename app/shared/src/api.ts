@@ -216,6 +216,8 @@ export type SessionUpdate = z.infer<typeof SessionUpdate>;
 // Items (lenient): an agent's stored history, read through `GET /agents/:id/items`.
 
 const itemFields = { seq: Seq, agentId: z.string(), at: Timestamp };
+/** The ACP session an update or permission request came from; one agent may run more than one (sub-agents). */
+const SessionId = z.string().exactOptional();
 
 export const Item = z.discriminatedUnion("type", [
   z.object({
@@ -224,15 +226,22 @@ export const Item = z.discriminatedUnion("type", [
     text: z.string(),
     commandId: z.string().exactOptional(),
   }),
-  z.object({ ...itemFields, type: z.literal("session_update"), update: SessionUpdate }),
+  z.object({ ...itemFields, type: z.literal("session_update"), sessionId: SessionId, update: SessionUpdate }),
   z.object({
     ...itemFields,
     type: z.literal("permission_requested"),
+    sessionId: SessionId,
     requestId: z.string(),
     toolCall: ToolCallUpdateFields,
     options: knownItems(z.object({ kind: PermissionKind, name: z.string() })),
   }),
-  z.object({ ...itemFields, type: z.literal("permission_answered"), requestId: z.string(), kind: PermissionKind }),
+  z.object({
+    ...itemFields,
+    type: z.literal("permission_answered"),
+    sessionId: SessionId,
+    requestId: z.string(),
+    kind: PermissionKind,
+  }),
   z.object({ ...itemFields, type: z.literal("turn_ended"), stopReason: z.string().min(1) }),
 ]);
 export type Item = z.infer<typeof Item>;

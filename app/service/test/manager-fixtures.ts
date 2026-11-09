@@ -13,7 +13,7 @@ import { onTestFinished } from "vitest";
 
 import { createManager } from "../src/agents/manager.ts";
 import type { Harness } from "../src/harness/harness.ts";
-import { openStore, type Store } from "../src/store/store.ts";
+import { openStore, type Store, type StoreOptions } from "../src/store/store.ts";
 import type { FakeScenario } from "./fake-agent.ts";
 import { fakeHarness } from "./fake-harness.ts";
 import { fakeSystemd, type FakeSystemd, type FakeSystemdOptions } from "./fake-systemd.ts";
@@ -98,6 +98,8 @@ export type SetupOptions = {
    */
   systemd?: "none" | "fake" | "real";
   fake?: FakeSystemdOptions;
+  /** Passed to every openStore of this setup (the cap, for example). */
+  storeOptions?: Omit<StoreOptions, "path">;
 };
 
 export type Setup = {
@@ -138,7 +140,7 @@ const killAll = (pids: number[]) => {
 };
 
 /** A manager on a fresh store and workspace, with every fake scenario available as `fake-<scenario>`. */
-export const setup = ({ systemd = "none", fake }: SetupOptions = {}): Setup => {
+export const setup = ({ systemd = "none", fake, storeOptions = {} }: SetupOptions = {}): Setup => {
   const base = mkdtempSync(join(tmpdir(), "wombat-manager-"));
   const slice = `wombattest${randomUUID().replaceAll("-", "")}.slice`;
   const emptyBin = join(base, "empty-bin");
@@ -190,7 +192,7 @@ export const setup = ({ systemd = "none", fake }: SetupOptions = {}): Setup => {
     rmSync(base, { recursive: true, force: true });
     if (touched.length > 0) throw new Error(`a test touched the service's own slice: ${JSON.stringify(touched)}`);
   });
-  state.store = openStore({ path: storePath });
+  state.store = openStore({ ...storeOptions, path: storePath });
   state.manager = make(state.store);
 
   const setupObject: Setup = {
@@ -225,7 +227,7 @@ export const setup = ({ systemd = "none", fake }: SetupOptions = {}): Setup => {
     restart: async () => {
       await state.manager?.shutdown();
       state.store?.close();
-      state.store = openStore({ path: storePath });
+      state.store = openStore({ ...storeOptions, path: storePath });
       state.manager = make(state.store);
     },
   };
