@@ -8,6 +8,7 @@ import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage 
 import { ErrorBody } from "@wombat/shared/api";
 import { expect, onTestFinished } from "vitest";
 
+import { openCatalog } from "../src/items/catalog.ts";
 import { startServer } from "../src/server/server.ts";
 import { ALL_SCENARIOS, setup, trackedHarness, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
 
@@ -201,7 +202,12 @@ export const openStream = (port: number, options: Omit<RequestOptions, "path" | 
     req.end(data);
   });
 
-export type ServeOptions = SetupOptions & { heartbeatMs?: number; defaultLogLimit?: number };
+export type ServeOptions = SetupOptions & {
+  heartbeatMs?: number;
+  defaultLogLimit?: number;
+  /** An items root for the items routes (a catalog on the fixture's store); without it they aren't configured. */
+  itemsRoot?: string;
+};
 
 export type Served = Setup & {
   port: number;
@@ -218,7 +224,7 @@ export type Served = Setup & {
 };
 
 /** A manager fixture behind a running server; everything is torn down after the test. */
-export const serve = async ({ heartbeatMs, defaultLogLimit, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
+export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
   const t = setup(setupOptions);
   const token = randomBytes(24).toString("base64url");
   const harnesses = ALL_SCENARIOS.map((scenario) => trackedHarness(scenario, t.pidDir));
@@ -246,6 +252,7 @@ export const serve = async ({ heartbeatMs, defaultLogLimit, ...setupOptions }: S
     token,
     ...(heartbeatMs === undefined ? {} : { heartbeatMs }),
     ...(defaultLogLimit === undefined ? {} : { defaultLogLimit }),
+    ...(itemsRoot === undefined ? {} : { items: openCatalog({ root: itemsRoot, store: t.store }) }),
   });
   let closed: Promise<void> | undefined;
   const close = () => (closed ??= server.close());

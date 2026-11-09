@@ -23,6 +23,9 @@ const routes = (agentId: string) => [
   { method: "POST", path: `/agents/${agentId}/stop` },
   { method: "DELETE", path: `/agents/${agentId}` },
   { method: "GET", path: "/events" },
+  { method: "GET", path: "/structures" },
+  { method: "GET", path: "/structures/bugs/items" },
+  { method: "GET", path: "/items/BUG-1" },
   { method: "GET", path: "/no-such-route" },
 ];
 
@@ -75,6 +78,10 @@ describe("port rules", () => {
       expect(s.store.listAgents().map((agent) => agent.id)).toEqual([id]);
       // Control: the same agent answers with the token.
       expect((await s.api("GET", `/agents/${id}/log`)).status).toBe(200);
+      // Control: the items routes exist (not configured on this server), so the refusals above came from the rules.
+      for (const path of ["/structures", "/structures/bugs/items", "/items/BUG-1"]) {
+        expectError(await s.api("GET", path), 409, "items_not_configured", path);
+      }
     },
     TEST_TIMEOUT_MS,
   );
