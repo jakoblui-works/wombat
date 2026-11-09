@@ -3,6 +3,7 @@
 import { AgentSummary, Item } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
+import { EARLY_TITLE } from "../../test/fake-agent.ts";
 import { chunkTexts, isAlive, REPO, setup, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
 
 const isZ = (timestamp: string) => timestamp.endsWith("Z") && new Date(timestamp).toISOString() === timestamp;
@@ -110,6 +111,29 @@ describe("turns", () => {
       const { id } = await t.manager.start("fake-noisy", REPO);
       await t.manager.send(id, { text: "Be loud" });
       expect((await t.turnEnded(id)).stopReason).toBe("end_turn");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "updates sent while the session starts are stored after the agent, in order, and a title among them reaches the summary",
+    async () => {
+      const t = setup();
+      const added: number[] = [];
+      t.manager.onCommitted(({ seq, type }) => {
+        if (type === "agent_added") added.push(seq);
+      });
+      const { id } = await t.manager.start("fake-early-update", REPO);
+      await waitFor("the early updates", () => t.items(id).length === 2);
+
+      const items = t.items(id);
+      expect(items.map((item) => item.type === "session_update" && item.update.sessionUpdate)).toEqual([
+        "available_commands_update",
+        "session_info_update",
+      ]);
+      expect(added).toHaveLength(1);
+      expect(items.every((item) => item.seq > (added[0] ?? Number.POSITIVE_INFINITY))).toBe(true);
+      await waitFor("the title", () => t.agent(id)?.title === EARLY_TITLE);
     },
     TEST_TIMEOUT_MS,
   );

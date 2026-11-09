@@ -1,4 +1,6 @@
 // The store: agent summaries and an append-only log of items, read back after a cursor.
+import { DatabaseSync } from "node:sqlite";
+
 import { Item } from "@wombat/shared/api";
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
@@ -35,15 +37,22 @@ describe("append", () => {
   });
 
   test("a batch that fails stores nothing: no items, no seq taken", () => {
-    const store = open({ path: tempStorePath() });
+    const path = tempStorePath();
+    const store = open({ path });
     store.putAgent(summary("a1"));
     store.append("a1", [textChunk("kept")]);
     const seqBefore = store.currentSeq();
     const itemsBefore = store.items("a1");
 
-    // The middle entry can't be serialized.
+    // A failure after the batch's first item is written, so only a rollback can undo that write and the seqs.
+    const other = new DatabaseSync(path);
+    other.exec(`CREATE TRIGGER fail_on_marker BEFORE INSERT ON items WHEN NEW.body LIKE '%fail-this-insert%'
+                BEGIN SELECT RAISE(ABORT, 'refused by the test'); END`);
+    other.close();
+    expect(() => store.append("a1", [textChunk("first"), textChunk("fail-this-insert"), textChunk("last")])).toThrow();
+    // Failures before any write: an entry that can't be serialized, and an agent that isn't stored.
     const unserializable = { type: "user_message", text: 10n } as unknown as ItemEntry;
-    expect(() => store.append("a1", [textChunk("first"), unserializable, textChunk("last")])).toThrow();
+    expect(() => store.append("a1", [textChunk("first"), unserializable])).toThrow();
     expect(() => store.append("ghost", [textChunk("to nobody")])).toThrow();
 
     expect(store.currentSeq()).toBe(seqBefore);

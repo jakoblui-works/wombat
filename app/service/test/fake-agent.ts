@@ -18,6 +18,7 @@ const SCENARIOS = [
   "spawn-child",
   "unknown-update",
   "detached-holder",
+  "early-update",
 ] as const;
 
 export type FakeScenario = (typeof SCENARIOS)[number];
@@ -28,6 +29,9 @@ const isScenario = (name: string | undefined): name is FakeScenario =>
 // Tests look for these markers in the service's logs, which must never contain them.
 const NOISY_STDERR_MARKER = "stderr-content-must-not-be-logged";
 const SKIPPED_UPDATE_MARKER = "thought-content-must-not-be-logged";
+
+/** The title the early-update scenario sends before its `session/new` answer. */
+export const EARLY_TITLE = "Title sent while the session starts";
 
 // Well past a pipe buffer (~64 KiB), so an agent whose stderr isn't read blocks.
 const NOISY_STDERR_BYTES = 1024 * 1024;
@@ -74,9 +78,16 @@ const run = (scenario: FakeScenario) => {
       agentInfo: { name: "wombat-fake-agent", version: "0.0.0" },
       authMethods: [],
     }))
-    .onRequest("session/new", () => {
+    .onRequest("session/new", async ({ client }) => {
       if (scenario === "auth") throw RequestError.authRequired();
-      return { sessionId: randomUUID() };
+      const sessionId = randomUUID();
+      // claude-agent-acp's command list can be handled by the service before its session/new answer is; sending
+      // the updates first makes that order certain, so the service's hold-and-replay of early updates is exercised.
+      if (scenario === "early-update") {
+        await send(client, sessionId, { sessionUpdate: "available_commands_update", availableCommands: [{ name: "review", description: "Review the diff" }] });
+        await send(client, sessionId, { sessionUpdate: "session_info_update", title: EARLY_TITLE });
+      }
+      return { sessionId };
     })
     .onNotification("session/cancel", ({ params }) => {
       cancelled.add(params.sessionId);

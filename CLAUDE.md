@@ -51,7 +51,7 @@ Wombat is an agentic development environment (ADE) for multi-repo projects. It s
 - The safe choice is the default and the shortest path; unsafe choices are explicit and warn every time.
 - Secret values never appear in the spec, in files inside the repos, or in Wombat's output.
 - Never write `.env` files into worktrees unless a component opts in with `env_file:`.
-- Wombat never handles Claude credentials: no sign-in of its own, no copying or storing tokens. Each user logs in with the `claude` binary through Claude's own flow, or provides an API key as a secret.
+- Wombat never handles Claude credentials: no sign-in of its own, no copying or storing tokens. Each user logs in with the `claude` binary through Claude's own flow. Agents on the host never get `ANTHROPIC_API_KEY` (`harness/env.ts` drops it); an API key as a secret is for the sandbox only.
 
 ## Naming
 

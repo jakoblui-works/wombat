@@ -54,6 +54,7 @@ export const ALL_SCENARIOS: FakeScenario[] = [
   "spawn-child",
   "unknown-update",
   "detached-holder",
+  "early-update",
 ];
 
 export const isAlive = (pid: number) => {
