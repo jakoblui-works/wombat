@@ -1,5 +1,5 @@
 // Shared setup for the store tests: a temp database path, a fake clock, and invented but realistic
-// agent summaries and items.
+// agent summaries and entries.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +7,7 @@ import { join } from "node:path";
 import type { AgentSummary } from "@wombat/shared/api";
 import { onTestFinished } from "vitest";
 
-import { openStore, type ItemEntry } from "../src/store/store.ts";
+import { openStore, type NewLogEntry } from "../src/store/store.ts";
 
 export type Store = ReturnType<typeof openStore>;
 export type StoreOptions = Parameters<typeof openStore>[0];
@@ -53,14 +53,14 @@ export const summary = (id: string, overrides: Partial<AgentSummary> = {}): Agen
   ...overrides,
 });
 
-export const textChunk = (text: string, at?: string): ItemEntry => ({
+export const textChunk = (text: string, at?: string): NewLogEntry => ({
   type: "session_update",
   update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
   ...(at === undefined ? {} : { at }),
 });
 
-/** One of each item type, as a turn with a permission request would produce them. */
-export const realisticTurn: ItemEntry[] = [
+/** One of each entry type, as a turn with a permission request would produce them. */
+export const realisticTurn: NewLogEntry[] = [
   { type: "user_message", text: "Rename the footer link to Imprint", commandId: "cmd_01", at: "2026-11-09T09:01:00.000Z" },
   textChunk("I'll update the footer component.", "2026-11-09T09:01:01.000Z"),
   {

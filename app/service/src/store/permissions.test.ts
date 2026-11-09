@@ -67,7 +67,7 @@ describe("the database is private to its owner", () => {
 
     const reopened = open({ path });
     // The files are real: what the killed session wrote is recovered.
-    expect(reopened.items("a1").items).toHaveLength(1);
+    expect(reopened.readLog("a1").entries).toHaveLength(1);
     expectPrivate(path);
   });
 });

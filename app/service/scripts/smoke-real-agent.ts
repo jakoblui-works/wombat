@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 
-import { AgentSummary, Alert, ListItemsResponse, VersionResponse, type Item } from "@wombat/shared/api";
+import { AgentSummary, Alert, ListLogResponse, VersionResponse, type LogEntry } from "@wombat/shared/api";
 import { DiscoveryFile } from "@wombat/shared/discovery";
 
 import { DEFAULT_SLICE } from "../src/agents/scope.ts";
@@ -62,8 +62,8 @@ const main = async (): Promise<boolean> => {
   let agent: AgentSummary | undefined;
   let sessionId: string | undefined;
   let scopeState = "not checked";
-  const items: Item[] = [];
-  let turnEnded: Item | undefined;
+  const entries: LogEntry[] = [];
+  let turnEnded: LogEntry | undefined;
   let failure: string | undefined;
   const events = new AbortController();
 
@@ -86,12 +86,12 @@ const main = async (): Promise<boolean> => {
     // Report what happened before cleanup, so a cleanup problem can't hide it.
     const kinds: string[] = [];
     const counts = new Map<string, number>();
-    for (const item of items) {
-      const label = item.type === "session_update" ? `session_update:${item.update.sessionUpdate}` : item.type;
+    for (const entry of entries) {
+      const label = entry.type === "session_update" ? `session_update:${entry.update.sessionUpdate}` : entry.type;
       if (kinds.at(-1) !== label) kinds.push(label);
       counts.set(label, (counts.get(label) ?? 0) + 1);
     }
-    console.log(`item types in order: ${kinds.map((k) => `${k} ×${String(counts.get(k))}`).join(", ") || "(none)"}`);
+    console.log(`entry types in order: ${kinds.map((k) => `${k} ×${String(counts.get(k))}`).join(", ") || "(none)"}`);
     console.log(`turn_ended stopReason: ${turnEnded?.type === "turn_ended" ? turnEnded.stopReason : "(none)"}`);
     console.log(`agent id: ${agent?.id ?? "(none)"}`);
     console.log(`scope unit: ${agent ? `wombat-agent-${agent.id}.scope` : "(none)"} is-active: ${scopeState}`);
@@ -126,7 +126,7 @@ const main = async (): Promise<boolean> => {
     console.log(`${DEFAULT_SLICE} state: ${sliceState}`);
 
     let sessionFileRemoved = false;
-    let sessionProblem = sessionId === undefined ? "no session id: no session_update item carried a sessionId" : undefined;
+    let sessionProblem = sessionId === undefined ? "no session id: no session_update entry carried a sessionId" : undefined;
     try {
       const claudeDir = env.CLAUDE_CONFIG_DIR !== undefined && env.CLAUDE_CONFIG_DIR !== "" ? env.CLAUDE_CONFIG_DIR : join(homedir(), ".claude");
       const projectDir = join(claudeDir, "projects", projectFolderName(scratchReal));
@@ -252,13 +252,13 @@ const main = async (): Promise<boolean> => {
       if (!pending) await Promise.race([new Promise<void>((done) => (wake = done)), sleep(2_000)]);
       pending = false;
       for (let more = true; more; ) {
-        const page = ListItemsResponse.parse(await api("GET", `/agents/${agentId}/items?after=${String(cursor)}`));
-        for (const item of page.items) {
-          items.push(item);
-          if (item.type === "turn_ended") turnEnded = item;
-          if (item.type === "session_update" && item.sessionId !== undefined) sessionId ??= item.sessionId;
+        const page = ListLogResponse.parse(await api("GET", `/agents/${agentId}/log?after=${String(cursor)}`));
+        for (const entry of page.entries) {
+          entries.push(entry);
+          if (entry.type === "turn_ended") turnEnded = entry;
+          if (entry.type === "session_update" && entry.sessionId !== undefined) sessionId ??= entry.sessionId;
         }
-        cursor = Math.max(cursor, ...page.items.map((item) => item.seq));
+        cursor = Math.max(cursor, ...page.entries.map((entry) => entry.seq));
         more = page.truncated;
       }
     }

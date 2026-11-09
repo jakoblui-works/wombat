@@ -4,8 +4,8 @@ import { randomUUID } from "node:crypto";
 import type { RequestPermissionRequest, RequestPermissionResponse } from "@agentclientprotocol/sdk";
 import {
   AnswerPermissionRequest,
-  Item,
-  parseItem,
+  LogEntry,
+  parseLogEntry,
   type AgentSummary,
   type ErrorBody,
   type SendMessageRequest,
@@ -13,7 +13,7 @@ import {
 
 import { startAgentProcess, type AgentScope, type Harness } from "../harness/harness.ts";
 import { defaultHarnesses, findHarness } from "../harness/registry.ts";
-import type { ItemEntry, Store } from "../store/store.ts";
+import type { NewLogEntry, Store } from "../store/store.ts";
 import { RepoError, resolveRepo } from "../workspace.ts";
 import { connectAgent, type AcpAgent } from "./acp-client.ts";
 import { createScopes, DEFAULT_SLICE } from "./scope.ts";
@@ -49,7 +49,7 @@ export type Log = (event: string, fields: LogFields) => void;
 export type Committed = {
   seq: number;
   agentId: string;
-  type: "agent_added" | "agent_changed" | "agent_removed" | "items";
+  type: "agent_added" | "agent_changed" | "agent_removed" | "log";
 };
 
 export type ManagerOptions = {
@@ -188,10 +188,10 @@ export const createManager = ({
     emit({ seq, agentId: summary.id, type });
   };
 
-  const appendItems = (agentId: string, entries: ItemEntry[]) => {
+  const appendLog = (agentId: string, entries: NewLogEntry[]) => {
     const seqs = store.append(agentId, entries);
     const last = seqs.at(-1);
-    if (last !== undefined) emit({ seq: last, agentId, type: "items" });
+    if (last !== undefined) emit({ seq: last, agentId, type: "log" });
     return seqs;
   };
 
@@ -227,8 +227,8 @@ export const createManager = ({
     let known = commandIds.get(agentId);
     if (!known) {
       known = new Map();
-      for (const item of store.items(agentId).items) {
-        if (item.type === "user_message" && item.commandId !== undefined) known.set(item.commandId, item.seq);
+      for (const entry of store.readLog(agentId).entries) {
+        if (entry.type === "user_message" && entry.commandId !== undefined) known.set(entry.commandId, entry.seq);
       }
       commandIds.set(agentId, known);
     }
@@ -242,21 +242,21 @@ export const createManager = ({
     }
     const { agentId } = proc;
     const kind = safeName((update as { sessionUpdate?: unknown } | null)?.sessionUpdate);
-    let item: Item | undefined;
+    let entry: LogEntry | undefined;
     try {
-      item = parseItem({ type: "session_update", seq: 0, agentId, at: now(), sessionId, update });
+      entry = parseLogEntry({ type: "session_update", seq: 0, agentId, at: now(), sessionId, update });
     } catch {
       log("update_invalid", { agentId, kind });
       return;
     }
-    if (item?.type !== "session_update") {
+    if (entry?.type !== "session_update") {
       proc.skipped += 1;
       log("update_skipped", { agentId, kind, count: proc.skipped });
       return;
     }
-    const parsed = item.update;
+    const parsed = entry.update;
     safely(agentId, "session_update", () => {
-      appendItems(agentId, [{ type: "session_update", sessionId, update: parsed }]);
+      appendLog(agentId, [{ type: "session_update", sessionId, update: parsed }]);
       if (parsed.sessionUpdate === "session_info_update" && typeof parsed.title === "string") {
         const current = summaries.get(agentId);
         if (current) putSummary({ ...current, title: parsed.title, lastActivityAt: now() }, "agent_changed");
@@ -273,7 +273,7 @@ export const createManager = ({
       const kind = AnswerPermissionRequest.shape.kind.safeParse(option.kind);
       if (kind.success && !offered.has(kind.data)) offered.set(kind.data, option.optionId);
     }
-    const parsed = Item.safeParse({
+    const parsed = LogEntry.safeParse({
       type: "permission_requested",
       seq: 0,
       agentId,
@@ -291,7 +291,7 @@ export const createManager = ({
     return new Promise<RequestPermissionResponse>((respond) => {
       proc.pending.set(requestId, { offered, sessionId, respond });
       safely(agentId, "permission_requested", () => {
-        appendItems(agentId, [{ type: "permission_requested", sessionId, requestId, toolCall, options }]);
+        appendLog(agentId, [{ type: "permission_requested", sessionId, requestId, toolCall, options }]);
         setState(agentId, "waiting");
       });
       log("permission_requested", { agentId, requestId, options: offered.size });
@@ -313,7 +313,7 @@ export const createManager = ({
       proc.turn = false;
       cancelPending(proc);
       safely(agentId, "turn_ended", () => {
-        appendItems(agentId, [{ type: "turn_ended", stopReason }]);
+        appendLog(agentId, [{ type: "turn_ended", stopReason }]);
         setState(agentId, "done");
       });
       log("turn_ended", { agentId, stopReason: safeName(stopReason) });
@@ -534,7 +534,7 @@ export const createManager = ({
     if (proc.turn) {
       throw new AgentError("busy", "The agent is still working on the last message. Wait for it to finish, or cancel it.");
     }
-    const [seq = 0] = appendItems(agentId, [{ type: "user_message", text, ...(commandId === undefined ? {} : { commandId }) }]);
+    const [seq = 0] = appendLog(agentId, [{ type: "user_message", text, ...(commandId === undefined ? {} : { commandId }) }]);
     if (commandId !== undefined) knownCommands(agentId).set(commandId, seq);
     // The message is stored, so it is sent even if the state can't be: its turn ending clears `busy`.
     safely(agentId, "turn_started", () => setState(agentId, "working"));
@@ -556,7 +556,7 @@ export const createManager = ({
     if (!proc || !pending) {
       throw new AgentError(
         "not_found",
-        `There's no open permission request ${requestId} for this agent: it was answered or cancelled, or never asked. Fetch the agent's items for the current one.`,
+        `There's no open permission request ${requestId} for this agent: it was answered or cancelled, or never asked. Fetch the agent's log for the current one.`,
       );
     }
     const optionId = pending.offered.get(kind);
@@ -567,7 +567,7 @@ export const createManager = ({
       );
     }
     // Stored first: if that fails the request stays open, and the caller can answer it again.
-    appendItems(agentId, [{ type: "permission_answered", sessionId: pending.sessionId, requestId, kind }]);
+    appendLog(agentId, [{ type: "permission_answered", sessionId: pending.sessionId, requestId, kind }]);
     proc.pending.delete(requestId);
     if (proc.pending.size === 0) safely(agentId, "permission_answered", () => setState(agentId, "working"));
     log("permission_answered", { agentId, requestId, kind });

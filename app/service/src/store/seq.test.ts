@@ -1,5 +1,5 @@
 // Lasting check (silent failure): seq never skips. One counter across all agents goes up by exactly one
-// per change (item, summary change, delete), is never reused, and carries on across a reopen. The app
+// per change (entry, summary change, delete), is never reused, and carries on across a reopen. The app
 // relies on it to notice gaps.
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,7 +38,7 @@ test("seq never skips: one counter across agents, up by exactly one per change, 
       const path = join(dir, "wombat", "service.db");
       let store: ReturnType<typeof openStore> | undefined;
       try {
-        store = openStore({ path, maxItemBytesPerAgent: CAP });
+        store = openStore({ path, maxLogBytesPerAgent: CAP });
         const dbId = store.dbId;
         const known = new Set<string>();
         let seq = 0;
@@ -47,7 +47,7 @@ test("seq never skips: one counter across agents, up by exactly one per change, 
         for (const step of ops) {
           if (step.op === "reopen") {
             store.close();
-            store = openStore({ path, maxItemBytesPerAgent: CAP });
+            store = openStore({ path, maxLogBytesPerAgent: CAP });
             expect(store.dbId).toBe(dbId);
           } else {
             const id = AGENTS[step.agent] ?? "a1";

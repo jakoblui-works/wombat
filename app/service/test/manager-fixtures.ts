@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { AgentSummary, Item } from "@wombat/shared/api";
+import type { AgentSummary, LogEntry } from "@wombat/shared/api";
 import { onTestFinished } from "vitest";
 
 import { createManager } from "../src/agents/manager.ts";
@@ -120,10 +120,10 @@ export type Setup = {
   committed: Committed[];
   /** Pids of every agent process started so far. */
   pids: () => number[];
-  items: (agentId: string) => Item[];
+  entries: (agentId: string) => LogEntry[];
   agent: (agentId: string) => AgentSummary | undefined;
-  /** Waits until the agent has `count` turn_ended items (default 1), and returns the `count`th. */
-  turnEnded: (agentId: string, count?: number) => Promise<Extract<Item, { type: "turn_ended" }>>;
+  /** Waits until the agent has `count` turn_ended entries (default 1), and returns the `count`th. */
+  turnEnded: (agentId: string, count?: number) => Promise<Extract<LogEntry, { type: "turn_ended" }>>;
   /** Shuts the manager down, reopens the store and creates a new manager on it (a service restart). */
   restart: () => Promise<void>;
 };
@@ -213,12 +213,12 @@ export const setup = ({ systemd = "none", fake, storeOptions = {} }: SetupOption
     logs,
     committed,
     pids,
-    items: (agentId) => setupObject.store.items(agentId).items,
+    entries: (agentId) => setupObject.store.readLog(agentId).entries,
     agent: (agentId) => setupObject.store.listAgents().find((agent) => agent.id === agentId),
     turnEnded: async (agentId, count = 1) => {
-      let ended: Extract<Item, { type: "turn_ended" }>[] = [];
+      let ended: Extract<LogEntry, { type: "turn_ended" }>[] = [];
       await waitFor(`turn ${count} of ${agentId} to end`, () => {
-        ended = setupObject.items(agentId).filter((item) => item.type === "turn_ended");
+        ended = setupObject.entries(agentId).filter((entry) => entry.type === "turn_ended");
         return ended.length >= count;
       });
       const turn = ended[count - 1];
@@ -235,19 +235,19 @@ export const setup = ({ systemd = "none", fake, storeOptions = {} }: SetupOption
   return setupObject;
 };
 
-/** Text of the agent_message_chunk items, in order. */
-export const chunkTexts = (items: Item[]) =>
-  items.flatMap((item) =>
-    item.type === "session_update" &&
-    item.update.sessionUpdate === "agent_message_chunk" &&
-    item.update.content.type === "text"
-      ? [item.update.content.text]
+/** Text of the agent_message_chunk entries, in order. */
+export const chunkTexts = (entries: LogEntry[]) =>
+  entries.flatMap((entry) =>
+    entry.type === "session_update" &&
+    entry.update.sessionUpdate === "agent_message_chunk" &&
+    entry.update.content.type === "text"
+      ? [entry.update.content.text]
       : [],
   );
 
 /** The pid of the child the spawn-child scenario started, from its `{"childPid": n}` chunk. */
-export const childPidOf = (items: Item[]) => {
-  for (const text of chunkTexts(items)) {
+export const childPidOf = (entries: LogEntry[]) => {
+  for (const text of chunkTexts(entries)) {
     try {
       const parsed = JSON.parse(text) as { childPid?: unknown };
       if (typeof parsed.childPid === "number") return parsed.childPid;

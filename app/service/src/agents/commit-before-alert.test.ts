@@ -31,13 +31,13 @@ describe("commit before alert", () => {
         if (!(seq > previous)) problems.push(`${where}: not above the previous seq ${previous}`);
         if (reader.currentSeq() < seq) problems.push(`${where}: not committed yet (store at ${reader.currentSeq()})`);
         const listed = reader.listAgents().some((agent) => agent.id === agentId);
-        if (type === "items" && !reader.items(agentId).items.some((item) => item.seq === seq)) {
-          problems.push(`${where}: item not readable`);
+        if (type === "log" && !reader.readLog(agentId).entries.some((entry) => entry.seq === seq)) {
+          problems.push(`${where}: entry not readable`);
         } else if ((type === "agent_added" || type === "agent_changed") && !listed) {
           problems.push(`${where}: agent not readable`);
         } else if (type === "agent_removed" && listed) {
           problems.push(`${where}: agent still listed`);
-        } else if (!["items", "agent_added", "agent_changed", "agent_removed"].includes(type)) {
+        } else if (!["log", "agent_added", "agent_changed", "agent_removed"].includes(type)) {
           problems.push(`${where}: unknown type`);
         }
       });
@@ -48,7 +48,7 @@ describe("commit before alert", () => {
       const permission = await t.manager.start("fake-permission", REPO);
       await t.manager.send(permission.id, { text: "Edit the notes" });
       await waitFor("a pending permission", () => t.agent(permission.id)?.state === "waiting");
-      const request = t.items(permission.id).find((item) => item.type === "permission_requested");
+      const request = t.entries(permission.id).find((entry) => entry.type === "permission_requested");
       if (request?.type !== "permission_requested") throw new Error("no permission request");
       t.manager.answer(permission.id, request.requestId, "allow_once");
       await t.turnEnded(permission.id);
@@ -65,7 +65,7 @@ describe("commit before alert", () => {
 
       expect(problems).toEqual([]);
       expect(new Set(seen.map((event) => event.type))).toEqual(
-        new Set(["agent_added", "agent_changed", "items", "agent_removed"]),
+        new Set(["agent_added", "agent_changed", "log", "agent_removed"]),
       );
       expect(seen.at(-1)?.seq).toBe(t.store.currentSeq());
     },

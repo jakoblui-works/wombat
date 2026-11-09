@@ -27,7 +27,7 @@ const withChild = async (t: Setup) => {
   await t.turnEnded(id);
   const [agentPid] = t.pids().filter((pid) => !before.has(pid));
   if (agentPid === undefined) throw new Error("no agent pid recorded");
-  const childPid = childPidOf(t.items(id));
+  const childPid = childPidOf(t.entries(id));
   expect(isAlive(agentPid) && isAlive(childPid)).toBe(true);
   return { id, agentPid, childPid };
 };
@@ -83,7 +83,7 @@ describe("commandId", () => {
       const second = await t.manager.send(id, { text: "Again", commandId: "cmd_b" });
       expect(second.seq).not.toBe(first.seq);
       await t.turnEnded(id, 2);
-      const count = (type: string) => t.items(id).filter((item) => item.type === type).length;
+      const count = (type: string) => t.entries(id).filter((entry) => entry.type === type).length;
       expect([count("user_message"), count("turn_ended")]).toEqual([2, 2]);
 
       await t.manager.stop(id);
@@ -102,20 +102,20 @@ describe("stop and delete", () => {
     async () => {
       const t = setup();
       const { id, agentPid, childPid } = await withChild(t);
-      const history = t.items(id);
+      const history = t.entries(id);
 
       await t.manager.stop(id);
       expect(isAlive(agentPid)).toBe(false);
       await gone("the agent's process group", [agentPid, childPid], [agentPid]);
       expect(t.agent(id)?.state).toBe("stopped");
-      expect(t.items(id)).toEqual(history);
+      expect(t.entries(id)).toEqual(history);
       await expect(t.manager.send(id, { text: "Still there?" })).rejects.toMatchObject({ code: "not_running" });
     },
     TEST_TIMEOUT_MS,
   );
 
   test(
-    "delete stops a running agent and removes its summary and items; deleting again or an unknown id is not_found",
+    "delete stops a running agent and removes its summary and entries; deleting again or an unknown id is not_found",
     async () => {
       const t = setup();
       const { id, agentPid, childPid } = await withChild(t);
@@ -124,7 +124,7 @@ describe("stop and delete", () => {
       await t.manager.delete(id);
       await gone("the deleted agent's process group", [agentPid, childPid], [agentPid]);
       expect(t.store.listAgents().map((agent) => agent.id)).toEqual([other.id]);
-      expect(t.store.items(id)).toEqual({ items: [], truncated: false });
+      expect(t.store.readLog(id)).toEqual({ entries: [], truncated: false });
       await expect(t.manager.delete(id)).rejects.toMatchObject({ code: "not_found" });
       await expect(t.manager.delete("no-such-agent")).rejects.toMatchObject({ code: "not_found" });
     },
@@ -157,7 +157,7 @@ describe("start-up and shutdown", () => {
         stopped: "stopped",
       });
       expect(t.store.currentSeq()).toBe(seqBefore + 3);
-      for (const state of states) expect(t.items(state)).toHaveLength(1);
+      for (const state of states) expect(t.entries(state)).toHaveLength(1);
     },
     TEST_TIMEOUT_MS,
   );
@@ -188,7 +188,7 @@ describe("start-up and shutdown", () => {
       const { id } = await t.manager.start("fake-detached-holder", REPO);
       await t.manager.send(id, { text: "Start a background helper" });
       await t.turnEnded(id);
-      const holderPid = childPidOf(t.items(id));
+      const holderPid = childPidOf(t.entries(id));
       // It's in its own process group, so nothing the manager does to the agent's group reaches it.
       const killHolder = () => {
         for (const target of [-holderPid, holderPid]) {

@@ -1,5 +1,5 @@
 // The contract's routes over real HTTP with the fake agents: statuses, response shapes, the error mapping,
-// strict bodies and queries, the body size cap and the items route's cursor and limits.
+// strict bodies and queries, the body size cap and the log route's cursor and limits.
 import { mkdirSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -8,9 +8,9 @@ import {
   AgentSummary,
   ListAgentsResponse,
   ListHarnessesResponse,
-  ListItemsResponse,
+  ListLogResponse,
   VersionResponse,
-  type Item,
+  type LogEntry,
 } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
@@ -24,14 +24,14 @@ const startAgent = async (s: Served, harness: string) => {
   return AgentSummary.parse(response.json);
 };
 
-/** The items route's raw items (unknown fields kept), with a query string. */
-const rawItems = async (s: Served, agentId: string, query = "") => {
-  const response = await s.api("GET", `/agents/${agentId}/items${query}`);
+/** The log route's raw entries (unknown fields kept), with a query string. */
+const rawLog = async (s: Served, agentId: string, query = "") => {
+  const response = await s.api("GET", `/agents/${agentId}/log${query}`);
   expect(response.status, response.text).toBe(200);
-  return response.json as { dbId: string; seq: number; items: { seq: number; type: string }[]; truncated: boolean };
+  return response.json as { dbId: string; seq: number; entries: { seq: number; type: string }[]; truncated: boolean };
 };
 
-const seqs = (items: { seq: number }[]) => items.map((item) => item.seq);
+const seqs = (entries: { seq: number }[]) => entries.map((entry) => entry.seq);
 
 const waitForState = (s: Served, agentId: string, state: AgentSummary["state"]) =>
   waitFor(`agent ${agentId} to be ${state}`, () => s.agent(agentId)?.state === state);
@@ -88,9 +88,9 @@ describe("routes", () => {
       expect(after.status, after.text).toBe(202);
       expect(after.json).toEqual({ seq });
 
-      const { items } = await rawItems(s, id);
-      expect(items.filter((item) => item.type === "user_message")).toHaveLength(1);
-      expect(items.filter((item) => item.type === "turn_ended")).toHaveLength(1);
+      const { entries } = await rawLog(s, id);
+      expect(entries.filter((entry) => entry.type === "user_message")).toHaveLength(1);
+      expect(entries.filter((entry) => entry.type === "turn_ended")).toHaveLength(1);
       expect(s.agent(id)?.state).toBe("done");
     },
     TEST_TIMEOUT_MS,
@@ -103,10 +103,10 @@ describe("routes", () => {
       const permission = await startAgent(s, "fake-permission");
       expect((await s.api("POST", `/agents/${permission.id}/messages`, { text: "Edit the notes" })).status).toBe(202);
       await waitForState(s, permission.id, "waiting");
-      const request = (await rawItems(s, permission.id)).items.find((item) => item.type === "permission_requested") as
-        | Extract<Item, { type: "permission_requested" }>
+      const request = (await rawLog(s, permission.id)).entries.find((entry) => entry.type === "permission_requested") as
+        | Extract<LogEntry, { type: "permission_requested" }>
         | undefined;
-      if (!request) throw new Error("no permission request in the items");
+      if (!request) throw new Error("no permission request in the entries");
 
       const answered = await s.api("POST", `/agents/${permission.id}/permissions/${request.requestId}`, {
         kind: "allow_once",
@@ -114,7 +114,7 @@ describe("routes", () => {
       expect(answered.status, answered.text).toBe(204);
       expect(answered.text).toBe("");
       expect((await s.turnEnded(permission.id)).stopReason).toBe("end_turn");
-      const updates = s.items(permission.id).flatMap((item) => (item.type === "session_update" ? [item.update] : []));
+      const updates = s.entries(permission.id).flatMap((entry) => (entry.type === "session_update" ? [entry.update] : []));
       expect(updates.some((update) => update.sessionUpdate === "tool_call_update" && update.status === "completed")).toBe(true);
 
       const again = await s.api("POST", `/agents/${permission.id}/permissions/${request.requestId}`, {
@@ -132,25 +132,25 @@ describe("routes", () => {
   );
 
   test(
-    "stop answers 204 and keeps the history; DELETE answers 204 and removes the agent and its items; a second DELETE gets 404",
+    "stop answers 204 and keeps the history; DELETE answers 204 and removes the agent and its entries; a second DELETE gets 404",
     async () => {
       const s = await serve();
       const { id } = await startAgent(s, "fake-reply");
       expect((await s.api("POST", `/agents/${id}/messages`, { text: "Say hello" })).status).toBe(202);
       await s.turnEnded(id);
-      const history = (await rawItems(s, id)).items;
+      const history = (await rawLog(s, id)).entries;
 
       const stopped = await s.api("POST", `/agents/${id}/stop`);
       expect(stopped.status, stopped.text).toBe(204);
       const agents = ListAgentsResponse.parse((await s.api("GET", "/agents")).json).agents;
       expect(agents.find((agent) => agent.id === id)?.state).toBe("stopped");
-      expect((await rawItems(s, id)).items).toEqual(history);
+      expect((await rawLog(s, id)).entries).toEqual(history);
       expect((await s.api("POST", `/agents/${id}/stop`)).status, "a second stop").toBe(204);
 
       const deleted = await s.api("DELETE", `/agents/${id}`);
       expect(deleted.status, deleted.text).toBe(204);
       expect(ListAgentsResponse.parse((await s.api("GET", "/agents")).json).agents).toEqual([]);
-      expectError(await s.api("GET", `/agents/${id}/items`), 404, "not_found", "items of a deleted agent");
+      expectError(await s.api("GET", `/agents/${id}/log`), 404, "not_found", "entries of a deleted agent");
       expectError(await s.api("DELETE", `/agents/${id}`), 404, "not_found", "a second DELETE");
     },
     TEST_TIMEOUT_MS,
@@ -162,7 +162,7 @@ describe("routes", () => {
       const s = await serve();
       const unknown = "agt_does_not_exist";
       for (const [method, path, body] of [
-        ["GET", `/agents/${unknown}/items`, undefined],
+        ["GET", `/agents/${unknown}/log`, undefined],
         ["POST", `/agents/${unknown}/messages`, { text: "Hello" }],
         ["POST", `/agents/${unknown}/permissions/req_1`, { kind: "allow_once" }],
         ["POST", `/agents/${unknown}/cancel`, undefined],
@@ -200,11 +200,11 @@ describe("routes", () => {
       const { id } = await startAgent(s, "fake-permission");
       expect((await s.api("POST", `/agents/${id}/messages`, { text: "Edit the notes" })).status).toBe(202);
       await waitForState(s, id, "waiting");
-      const request = s.items(id).find((item) => item.type === "permission_requested");
+      const request = s.entries(id).find((entry) => entry.type === "permission_requested");
       if (request?.type !== "permission_requested") throw new Error("no permission request");
       const answer = `/agents/${id}/permissions/${request.requestId}`;
       const messages = `/agents/${id}/messages`;
-      const items = `/agents/${id}/items`;
+      const logPath = `/agents/${id}/log`;
       const seq = s.store.currentSeq();
       const pids = s.pids().length;
 
@@ -224,14 +224,14 @@ describe("routes", () => {
         ["POST", answer, { optionId: "allow" }],
         ["POST", answer, {}],
         ["POST", answer, "{not json"],
-        ["GET", `${items}?after=1&after=2`, undefined],
-        ["GET", `${items}?limit=1&limit=2`, undefined],
-        ["GET", `${items}?since=1`, undefined],
-        ["GET", `${items}?limit=0`, undefined],
-        ["GET", `${items}?limit=1001`, undefined],
-        ["GET", `${items}?after=-1`, undefined],
-        ["GET", `${items}?after=`, undefined],
-        ["GET", `${items}?limit=`, undefined],
+        ["GET", `${logPath}?after=1&after=2`, undefined],
+        ["GET", `${logPath}?limit=1&limit=2`, undefined],
+        ["GET", `${logPath}?since=1`, undefined],
+        ["GET", `${logPath}?limit=0`, undefined],
+        ["GET", `${logPath}?limit=1001`, undefined],
+        ["GET", `${logPath}?after=-1`, undefined],
+        ["GET", `${logPath}?after=`, undefined],
+        ["GET", `${logPath}?limit=`, undefined],
       ];
       for (const [method, path, body] of bad) {
         expectError(await s.api(method, path, body), 400, "invalid_request", `${method} ${path} ${JSON.stringify(body)}`);
@@ -248,40 +248,40 @@ describe("routes", () => {
   );
 
   test(
-    "the items route returns the items after the cursor, oldest first, at most the limit or the default without one, and passes truncated through",
+    "the log route returns the entries after the cursor, oldest first, at most the limit or the default without one, and passes truncated through",
     async () => {
-      const s = await serve({ defaultItemsLimit: 2 });
+      const s = await serve({ defaultLogLimit: 2 });
       const { id } = await startAgent(s, "fake-reply");
       expect((await s.api("POST", `/agents/${id}/messages`, { text: "Say hello" })).status).toBe(202);
       await s.turnEnded(id);
 
-      const all = await rawItems(s, id, "?limit=1000");
-      expect(ListItemsResponse.parse(all).dbId).toBe(s.store.dbId);
+      const all = await rawLog(s, id, "?limit=1000");
+      expect(ListLogResponse.parse(all).dbId).toBe(s.store.dbId);
       expect(all.seq).toBe(s.store.currentSeq());
       expect(all.truncated).toBe(false);
-      expect(all.items).toEqual(s.store.items(id).items);
-      const allSeqs = seqs(all.items);
+      expect(all.entries).toEqual(s.store.readLog(id).entries);
+      const allSeqs = seqs(all.entries);
       expect(allSeqs.length).toBeGreaterThanOrEqual(4);
       expect([...allSeqs].sort((a, b) => a - b)).toEqual(allSeqs);
 
       const cursor = allSeqs[1] ?? 0;
-      expect((await rawItems(s, id, `?after=${cursor}&limit=1000`)).items).toEqual(
-        all.items.filter((item) => item.seq > cursor),
+      expect((await rawLog(s, id, `?after=${cursor}&limit=1000`)).entries).toEqual(
+        all.entries.filter((entry) => entry.seq > cursor),
       );
-      expect(seqs((await rawItems(s, id, `?after=${cursor}&limit=1`)).items)).toEqual(
+      expect(seqs((await rawLog(s, id, `?after=${cursor}&limit=1`)).entries)).toEqual(
         allSeqs.filter((seq) => seq > cursor).slice(0, 1),
       );
-      expect(seqs((await rawItems(s, id)).items), "the default limit").toEqual(allSeqs.slice(0, 2));
-      expect(seqs((await rawItems(s, id, "?limit=3")).items), "a limit above the default").toEqual(allSeqs.slice(0, 3));
-      expect((await rawItems(s, id, `?after=${allSeqs.at(-1) ?? 0}`)).items).toEqual([]);
+      expect(seqs((await rawLog(s, id)).entries), "the default limit").toEqual(allSeqs.slice(0, 2));
+      expect(seqs((await rawLog(s, id, "?limit=3")).entries), "a limit above the default").toEqual(allSeqs.slice(0, 3));
+      expect((await rawLog(s, id, `?after=${allSeqs.at(-1) ?? 0}`)).entries).toEqual([]);
 
-      const capped = await serve({ storeOptions: { maxItemBytesPerAgent: 1 } });
+      const capped = await serve({ storeOptions: { maxLogBytesPerAgent: 1 } });
       const small = await startAgent(capped, "fake-reply");
       expect((await capped.api("POST", `/agents/${small.id}/messages`, { text: "Say hello" })).status).toBe(202);
       await capped.turnEnded(small.id);
-      const dropped = await rawItems(capped, small.id);
+      const dropped = await rawLog(capped, small.id);
       expect(dropped.truncated).toBe(true);
-      expect(dropped.items).toEqual(capped.store.items(small.id).items);
+      expect(dropped.entries).toEqual(capped.store.readLog(small.id).entries);
     },
     TEST_TIMEOUT_MS,
   );

@@ -1,4 +1,4 @@
-// The wire contract: requests, responses, items read through the API, and alerts on the stream.
+// The wire contract: requests, responses, entries read through the API, and alerts on the stream.
 import type { SessionUpdate as AcpSessionUpdate } from "@agentclientprotocol/sdk";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
@@ -9,16 +9,16 @@ import {
   ErrorBody,
   ListAgentsResponse,
   ListHarnessesResponse,
-  ListItemsQuery,
-  ListItemsResponse,
+  ListLogQuery,
+  ListLogResponse,
   SendMessageRequest,
   SessionUpdate,
   StartAgentRequest,
   VersionResponse,
   parseAlert,
-  parseItem,
+  parseLogEntry,
 } from "./api.ts";
-import type { Item } from "./api.ts";
+import type { LogEntry } from "./api.ts";
 
 // Invented samples in the shapes the service and claude-agent-acp really produce.
 
@@ -110,8 +110,8 @@ const renderedUpdates = [
   availableCommandsUpdate,
 ];
 
-/** An item as the items route sends it: `seq`, `type`, `agentId`, `at`, plus the type's fields. */
-const item = (seq: number, type: string, fields: Record<string, unknown> = {}) => ({ seq, type, agentId, at, ...fields });
+/** An entry as the log route sends it: `seq`, `type`, `agentId`, `at`, plus the type's fields. */
+const logEntry = (seq: number, type: string, fields: Record<string, unknown> = {}) => ({ seq, type, agentId, at, ...fields });
 
 const permissionToolCall = {
   toolCallId: "toolu_01A",
@@ -120,7 +120,7 @@ const permissionToolCall = {
   content: [diffContent],
 };
 
-const permissionRequested = item(20, "permission_requested", {
+const permissionRequested = logEntry(20, "permission_requested", {
   requestId: "perm_3",
   toolCall: permissionToolCall,
   options: [
@@ -130,18 +130,18 @@ const permissionRequested = item(20, "permission_requested", {
   ],
 });
 
-const sampleItems = [
-  item(1, "user_message", { text: "Make the header padding match the footer." }),
-  item(2, "user_message", { text: "Also check the mobile breakpoint.", commandId: "cmd_01JC2" }),
-  ...renderedUpdates.map((update, i) => item(10 + i, "session_update", { update })),
+const sampleLogEntries = [
+  logEntry(1, "user_message", { text: "Make the header padding match the footer." }),
+  logEntry(2, "user_message", { text: "Also check the mobile breakpoint.", commandId: "cmd_01JC2" }),
+  ...renderedUpdates.map((update, i) => logEntry(10 + i, "session_update", { update })),
   permissionRequested,
-  item(21, "permission_answered", { requestId: "perm_3", kind: "allow_once" }),
-  item(22, "turn_ended", { stopReason: "end_turn" }),
-  item(23, "turn_ended", { stopReason: "cancelled" }),
-  { ...item(24, "turn_ended", { stopReason: "end_turn" }), at: "2026-11-09T11:02:11.120+01:00" }, // offset allowed, as in AgentSummary
+  logEntry(21, "permission_answered", { requestId: "perm_3", kind: "allow_once" }),
+  logEntry(22, "turn_ended", { stopReason: "end_turn" }),
+  logEntry(23, "turn_ended", { stopReason: "cancelled" }),
+  { ...logEntry(24, "turn_ended", { stopReason: "end_turn" }), at: "2026-11-09T11:02:11.120+01:00" }, // offset allowed, as in AgentSummary
 ];
 
-const alertTypes = ["agent_added", "agent_changed", "agent_removed", "items"] as const;
+const alertTypes = ["agent_added", "agent_changed", "agent_removed", "log"] as const;
 
 const without = (value: object, field: string): Record<string, unknown> =>
   Object.fromEntries(Object.entries(value).filter(([key]) => key !== field));
@@ -260,57 +260,57 @@ describe("request bodies (strict)", () => {
   });
 });
 
-// `GET /agents/:id/items?after=&limit=`, read from query-string values.
-describe("ListItemsQuery (strict, from query strings)", () => {
+// `GET /agents/:id/log?after=&limit=`, read from query-string values.
+describe("ListLogQuery (strict, from query strings)", () => {
   test("after defaults to 0 and limit stays absent", () => {
-    const parsed = ListItemsQuery.parse({});
+    const parsed = ListLogQuery.parse({});
     expect(parsed).toEqual({ after: 0 });
     expect(parsed).not.toHaveProperty("limit");
   });
 
   test("after and limit are read as integers from strings", () => {
-    expect(ListItemsQuery.parse({ after: "17", limit: "50" })).toEqual({ after: 17, limit: 50 });
-    expect(ListItemsQuery.parse({ after: "0" })).toEqual({ after: 0 });
+    expect(ListLogQuery.parse({ after: "17", limit: "50" })).toEqual({ after: 17, limit: 50 });
+    expect(ListLogQuery.parse({ after: "0" })).toEqual({ after: 0 });
   });
 
   test("limit accepts 1 to 1000", () => {
     for (const limit of ["1", "1000"]) {
-      expect(ListItemsQuery.parse({ limit }), limit).toMatchObject({ limit: Number(limit) });
+      expect(ListLogQuery.parse({ limit }), limit).toMatchObject({ limit: Number(limit) });
     }
   });
 
   test("after rejects negative, non-integer and non-numeric values", () => {
     for (const after of ["-1", "1.5", "abc", "1e400"]) {
-      expect(ListItemsQuery.safeParse({ after }).success, after).toBe(false);
+      expect(ListLogQuery.safeParse({ after }).success, after).toBe(false);
     }
   });
 
   test("limit rejects values outside 1-1000, non-integers and non-numbers", () => {
     for (const limit of ["0", "1001", "-3", "2.5", "abc"]) {
-      expect(ListItemsQuery.safeParse({ limit }).success, limit).toBe(false);
+      expect(ListLogQuery.safeParse({ limit }).success, limit).toBe(false);
     }
   });
 
   test("plain numbers are read as well as numeric strings", () => {
-    expect(ListItemsQuery.parse({ after: 17, limit: 50 })).toEqual({ after: 17, limit: 50 });
+    expect(ListLogQuery.parse({ after: 17, limit: 50 })).toEqual({ after: 17, limit: 50 });
   });
 
   test("an empty value for after or limit is rejected, not read as 0", () => {
     for (const query of [{ after: "" }, { limit: "" }, { after: " " }]) {
-      expect(ListItemsQuery.safeParse(query).success, JSON.stringify(query)).toBe(false);
+      expect(ListLogQuery.safeParse(query).success, JSON.stringify(query)).toBe(false);
     }
   });
 
   test("a repeated key (an array value) is rejected", () => {
-    expect(ListItemsQuery.safeParse({ after: "3" }).success).toBe(true); // control: a single value parses
+    expect(ListLogQuery.safeParse({ after: "3" }).success).toBe(true); // control: a single value parses
     for (const query of [{ after: ["3", "5"] }, { limit: ["10", "20"] }, { after: ["3"] }]) {
-      expect(ListItemsQuery.safeParse(query).success, JSON.stringify(query)).toBe(false);
+      expect(ListLogQuery.safeParse(query).success, JSON.stringify(query)).toBe(false);
     }
   });
 
   test("unknown query keys are rejected", () => {
     for (const query of [{ before: "3" }, { after: "1", cursor: "x" }]) {
-      expect(ListItemsQuery.safeParse(query).success, JSON.stringify(query)).toBe(false);
+      expect(ListLogQuery.safeParse(query).success, JSON.stringify(query)).toBe(false);
     }
   });
 });
@@ -417,68 +417,68 @@ describe("responses (lenient)", () => {
   });
 });
 
-describe("items (lenient)", () => {
-  test("parseItem reads a realistic sample of every item type unchanged", () => {
-    for (const sample of sampleItems) {
-      expect(parseItem(sample), `${sample.type} ${sample.seq}`).toEqual(sample);
+describe("LogEntry (lenient)", () => {
+  test("parseLogEntry reads a realistic sample of every entry type unchanged", () => {
+    for (const sample of sampleLogEntries) {
+      expect(parseLogEntry(sample), `${sample.type} ${sample.seq}`).toEqual(sample);
     }
   });
 
   test("a user message without a commandId has no commandId key", () => {
-    const parsed = parseItem(item(1, "user_message", { text: "Make the header padding match the footer." }));
+    const parsed = parseLogEntry(logEntry(1, "user_message", { text: "Make the header padding match the footer." }));
     expect(parsed).toMatchObject({ type: "user_message", text: "Make the header padding match the footer." });
     expect(parsed).not.toHaveProperty("commandId");
   });
 
-  test("session updates and permission items keep the ACP sessionId they arrived with, and have no sessionId key without one", () => {
+  test("session updates and permission entries keep the ACP sessionId they arrived with, and have no sessionId key without one", () => {
     const carriers = [
-      item(10, "session_update", { update: agentMessageChunk }),
+      logEntry(10, "session_update", { update: agentMessageChunk }),
       permissionRequested,
-      item(21, "permission_answered", { requestId: "perm_3", kind: "allow_once" }),
+      logEntry(21, "permission_answered", { requestId: "perm_3", kind: "allow_once" }),
     ];
     for (const carrier of carriers) {
       const withSession = { ...carrier, sessionId: "sess_01JBX4Q9M2" };
-      expect(parseItem(withSession), carrier.type).toEqual(withSession);
-      expect(ListItemsResponse.parse({ dbId, seq: 30, items: [withSession], truncated: false }).items, carrier.type).toEqual([
+      expect(parseLogEntry(withSession), carrier.type).toEqual(withSession);
+      expect(ListLogResponse.parse({ dbId, seq: 30, entries: [withSession], truncated: false }).entries, carrier.type).toEqual([
         withSession,
       ]);
-      expect(parseItem(carrier), carrier.type).not.toHaveProperty("sessionId");
-      expect(() => parseItem({ ...carrier, sessionId: 42 }), `${carrier.type} with a numeric sessionId`).toThrow();
+      expect(parseLogEntry(carrier), carrier.type).not.toHaveProperty("sessionId");
+      expect(() => parseLogEntry({ ...carrier, sessionId: 42 }), `${carrier.type} with a numeric sessionId`).toThrow();
     }
   });
 
-  test("parseItem keeps diff content on tool call updates", () => {
-    expect(parseItem(item(7, "session_update", { update: toolCallUpdate }))).toMatchObject({
+  test("parseLogEntry keeps diff content on tool call updates", () => {
+    expect(parseLogEntry(logEntry(7, "session_update", { update: toolCallUpdate }))).toMatchObject({
       update: { sessionUpdate: "tool_call_update", content: [diffContent] },
     });
   });
 
-  test("parseItem ignores items of types it doesn't know, agent state included", () => {
+  test("parseLogEntry ignores entries of types it doesn't know, agent state included", () => {
     for (const type of ["state_changed", "assistant_message", "future_type"]) {
-      expect(parseItem(item(30, type, { text: "x", state: "done" })), type).toBeUndefined();
+      expect(parseLogEntry(logEntry(30, type, { text: "x", state: "done" })), type).toBeUndefined();
     }
   });
 
-  test("parseItem ignores session updates of kinds we don't render", () => {
+  test("parseLogEntry ignores session updates of kinds we don't render", () => {
     for (const update of [
       { sessionUpdate: "plan", entries: [{ content: "Read the header", priority: "high", status: "pending" }] },
       { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Thinking about padding." } },
       { sessionUpdate: "some_future_kind" },
     ]) {
-      expect(parseItem(item(40, "session_update", { update })), update.sessionUpdate).toBeUndefined();
+      expect(parseLogEntry(logEntry(40, "session_update", { update })), update.sessionUpdate).toBeUndefined();
     }
   });
 
-  test("parseItem accepts any non-empty stopReason and rejects an empty one", () => {
+  test("parseLogEntry accepts any non-empty stopReason and rejects an empty one", () => {
     for (const stopReason of ["end_turn", "max_tokens", "refusal", "some_future_reason"]) {
-      expect(parseItem(item(41, "turn_ended", { stopReason })), stopReason).toMatchObject({ type: "turn_ended", stopReason });
+      expect(parseLogEntry(logEntry(41, "turn_ended", { stopReason })), stopReason).toMatchObject({ type: "turn_ended", stopReason });
     }
-    expect(() => parseItem(item(41, "turn_ended", { stopReason: "" }))).toThrow();
+    expect(() => parseLogEntry(logEntry(41, "turn_ended", { stopReason: "" }))).toThrow();
   });
 
-  test("parseItem drops unknown permission option kinds and keeps the known ones", () => {
-    const parsed = parseItem(
-      item(42, "permission_requested", {
+  test("parseLogEntry drops unknown permission option kinds and keeps the known ones", () => {
+    const parsed = parseLogEntry(
+      logEntry(42, "permission_requested", {
         requestId: "perm_4",
         toolCall: { toolCallId: "toolu_01C", title: "Run pnpm test", kind: "execute" },
         options: [
@@ -495,35 +495,35 @@ describe("items (lenient)", () => {
     ]);
   });
 
-  test("parseItem drops unknown tool call content items and keeps the update", () => {
+  test("parseLogEntry drops unknown tool call content items and keeps the update", () => {
     const content = [diffContent, { type: "terminal", terminalId: "term_1" }];
     for (const update of [
       { ...toolCall, content },
       { ...toolCallUpdate, content },
     ]) {
-      const parsed = parseItem(item(43, "session_update", { update }));
+      const parsed = parseLogEntry(logEntry(43, "session_update", { update }));
       expect(parsed, update.sessionUpdate).toMatchObject({ update: { sessionUpdate: update.sessionUpdate } });
       const kept = parsed?.type === "session_update" ? parsed.update : undefined;
       expect(kept && "content" in kept ? kept.content : undefined, update.sessionUpdate).toEqual([diffContent]);
     }
   });
 
-  test("parseItem ignores unknown fields on known items and updates", () => {
+  test("parseLogEntry ignores unknown fields on known entries and updates", () => {
     expect(
-      parseItem({
-        ...item(30, "session_update", { update: { ...usageUpdate, _meta: { vendor: "x" }, cacheHits: 3 } }),
+      parseLogEntry({
+        ...logEntry(30, "session_update", { update: { ...usageUpdate, _meta: { vendor: "x" }, cacheHits: 3 } }),
         origin: "store",
       }),
     ).toMatchObject({ seq: 30, agentId, at, update: { sessionUpdate: "usage_update" } });
-    expect(parseItem({ ...item(31, "turn_ended", { stopReason: "end_turn" }), durationMs: 812 })).toMatchObject({
+    expect(parseLogEntry({ ...logEntry(31, "turn_ended", { stopReason: "end_turn" }), durationMs: 812 })).toMatchObject({
       type: "turn_ended",
       stopReason: "end_turn",
     });
   });
 
-  test("parseItem rejects malformed known items", () => {
-    const turnEnded = item(1, "turn_ended", { stopReason: "end_turn" });
-    expect(parseItem(turnEnded)).toBeDefined(); // control: the well-formed item parses
+  test("parseLogEntry rejects malformed known entries", () => {
+    const turnEnded = logEntry(1, "turn_ended", { stopReason: "end_turn" });
+    expect(parseLogEntry(turnEnded)).toBeDefined(); // control: the well-formed entry parses
     for (const bad of [
       without(turnEnded, "seq"),
       { ...turnEnded, seq: -1 },
@@ -532,83 +532,83 @@ describe("items (lenient)", () => {
       without(turnEnded, "agentId"),
       without(turnEnded, "at"),
       { ...turnEnded, at: "yesterday" },
-      item(1, "user_message"), // no text
-      item(1, "user_message", { text: 42 }),
-      item(1, "permission_answered", { requestId: "p", kind: "allow" }),
-      item(1, "permission_answered", { kind: "allow_once" }), // no requestId
-      item(1, "permission_answered", { requestId: "p" }), // no permission kind
+      logEntry(1, "user_message"), // no text
+      logEntry(1, "user_message", { text: 42 }),
+      logEntry(1, "permission_answered", { requestId: "p", kind: "allow" }),
+      logEntry(1, "permission_answered", { kind: "allow_once" }), // no requestId
+      logEntry(1, "permission_answered", { requestId: "p" }), // no permission kind
       without(permissionRequested, "toolCall"),
-      item(1, "session_update"), // no update
-      item(1, "session_update", { update: { sessionUpdate: "usage_update", used: "lots" } }),
-      item(1, "session_update", { update: { sessionUpdate: "tool_call_update", content: [diffContent] } }), // no toolCallId
+      logEntry(1, "session_update"), // no update
+      logEntry(1, "session_update", { update: { sessionUpdate: "usage_update", used: "lots" } }),
+      logEntry(1, "session_update", { update: { sessionUpdate: "tool_call_update", content: [diffContent] } }), // no toolCallId
     ]) {
-      expect(() => parseItem(bad), JSON.stringify(bad)).toThrow();
+      expect(() => parseLogEntry(bad), JSON.stringify(bad)).toThrow();
     }
   });
 
-  test("parseItem rejects input that is not an item at all", () => {
-    expect(parseItem(sampleItems[0])).toBeDefined(); // control: an item parses
+  test("parseLogEntry rejects input that is not an entry at all", () => {
+    expect(parseLogEntry(sampleLogEntries[0])).toBeDefined(); // control: an entry parses
     for (const bad of [null, undefined, "turn_ended", 42, [], {}, { seq: 1 }]) {
-      expect(() => parseItem(bad), JSON.stringify(bad)).toThrow();
+      expect(() => parseLogEntry(bad), JSON.stringify(bad)).toThrow();
     }
   });
 
-  test("parseItem's result is the Item union", () => {
-    expectTypeOf(parseItem).returns.toEqualTypeOf<Item | undefined>();
-    expectTypeOf<Item["type"]>().toEqualTypeOf<
+  test("parseLogEntry's result is the LogEntry union", () => {
+    expectTypeOf(parseLogEntry).returns.toEqualTypeOf<LogEntry | undefined>();
+    expectTypeOf<LogEntry["type"]>().toEqualTypeOf<
       "user_message" | "session_update" | "permission_requested" | "permission_answered" | "turn_ended"
     >();
-    expectTypeOf<Extract<Item, { type: "permission_answered" }>["kind"]>().toEqualTypeOf<
+    expectTypeOf<Extract<LogEntry, { type: "permission_answered" }>["kind"]>().toEqualTypeOf<
       "allow_once" | "allow_always" | "reject_once" | "reject_always"
     >();
   });
 });
 
-describe("ListItemsResponse (lenient)", () => {
-  const known = sampleItems.slice(0, 3);
-  const unknownType = item(5, "state_changed", { state: "done" });
-  const unknownUpdate = item(6, "session_update", { update: { sessionUpdate: "plan", entries: [] } });
+describe("ListLogResponse (lenient)", () => {
+  const known = sampleLogEntries.slice(0, 3);
+  const unknownType = logEntry(5, "state_changed", { state: "done" });
+  const unknownUpdate = logEntry(6, "session_update", { update: { sessionUpdate: "plan", entries: [] } });
 
-  test("reads dbId, seq, items and truncated", () => {
+  test("reads dbId, seq, entries and truncated", () => {
     for (const truncated of [false, true]) {
-      const parsed = ListItemsResponse.parse({ dbId, seq: 99, items: known, truncated });
-      expect(parsed, String(truncated)).toEqual({ dbId, seq: 99, items: known, truncated });
+      const parsed = ListLogResponse.parse({ dbId, seq: 99, entries: known, truncated });
+      expect(parsed, String(truncated)).toEqual({ dbId, seq: 99, entries: known, truncated });
     }
-    expect(ListItemsResponse.parse({ dbId, seq: 0, items: [], truncated: false }).items).toEqual([]);
+    expect(ListLogResponse.parse({ dbId, seq: 0, entries: [], truncated: false }).entries).toEqual([]);
   });
 
-  test("drops items it doesn't know and keeps the others in order", () => {
+  test("drops entries it doesn't know and keeps the others in order", () => {
     const [first, second, third] = known;
-    const parsed = ListItemsResponse.parse({
+    const parsed = ListLogResponse.parse({
       dbId,
       seq: 99,
-      items: [first, unknownType, second, unknownUpdate, third],
+      entries: [first, unknownType, second, unknownUpdate, third],
       truncated: false,
     });
-    expect(parsed.items).toEqual([first, second, third]);
+    expect(parsed.entries).toEqual([first, second, third]);
   });
 
-  test("fails on a malformed known item", () => {
-    const body = { dbId, seq: 99, items: [...known, item(7, "turn_ended", { stopReason: "" })], truncated: false };
-    expect(ListItemsResponse.safeParse(body).success).toBe(false);
+  test("fails on a malformed known entry", () => {
+    const body = { dbId, seq: 99, entries: [...known, logEntry(7, "turn_ended", { stopReason: "" })], truncated: false };
+    expect(ListLogResponse.safeParse(body).success).toBe(false);
   });
 
   test("ignores unknown fields", () => {
-    expect(ListItemsResponse.parse({ dbId, seq: 99, items: known, truncated: false, nextAfter: 12 })).toMatchObject({
+    expect(ListLogResponse.parse({ dbId, seq: 99, entries: known, truncated: false, nextAfter: 12 })).toMatchObject({
       dbId,
       seq: 99,
     });
   });
 
-  test("requires a non-empty dbId, seq, items and a boolean truncated", () => {
-    const body = { dbId, seq: 99, items: known, truncated: false };
-    expect(ListItemsResponse.safeParse(body).success).toBe(true); // control: the full body parses
-    for (const field of ["dbId", "seq", "items", "truncated"]) {
-      expect(ListItemsResponse.safeParse(without(body, field)).success, field).toBe(false);
+  test("requires a non-empty dbId, seq, entries and a boolean truncated", () => {
+    const body = { dbId, seq: 99, entries: known, truncated: false };
+    expect(ListLogResponse.safeParse(body).success).toBe(true); // control: the full body parses
+    for (const field of ["dbId", "seq", "entries", "truncated"]) {
+      expect(ListLogResponse.safeParse(without(body, field)).success, field).toBe(false);
     }
-    expect(ListItemsResponse.safeParse({ ...body, seq: -1 }).success).toBe(false);
-    expect(ListItemsResponse.safeParse({ ...body, dbId: "" }).success).toBe(false);
-    expect(ListItemsResponse.safeParse({ ...body, truncated: "false" }).success).toBe(false);
+    expect(ListLogResponse.safeParse({ ...body, seq: -1 }).success).toBe(false);
+    expect(ListLogResponse.safeParse({ ...body, dbId: "" }).success).toBe(false);
+    expect(ListLogResponse.safeParse({ ...body, truncated: "false" }).success).toBe(false);
   });
 });
 
@@ -628,7 +628,7 @@ describe("alerts (lenient)", () => {
       update: agentMessageChunk,
       text: "Make the header padding match the footer.",
       agent: doneAgent,
-      items: sampleItems,
+      entries: sampleLogEntries,
       title: "Tidy the header styles",
       toolCall: permissionToolCall,
       error: { code: "auth_required", message: "Not logged in." },
@@ -675,41 +675,41 @@ describe("alerts (lenient)", () => {
   });
 
   test("parseAlert rejects input that is not an alert at all", () => {
-    expect(parseAlert(alert("items"))).toBeDefined(); // control: an alert parses
-    for (const bad of [null, undefined, "items", 42, [], {}, { seq: 1 }]) {
+    expect(parseAlert(alert("log"))).toBeDefined(); // control: an alert parses
+    for (const bad of [null, undefined, "log", 42, [], {}, { seq: 1 }]) {
       expect(() => parseAlert(bad), JSON.stringify(bad)).toThrow();
     }
   });
 
   test("parseAlert's result is the Alert union", () => {
     expectTypeOf(parseAlert).returns.toEqualTypeOf<Alert | undefined>();
-    expectTypeOf<Alert["type"]>().toEqualTypeOf<"agent_added" | "agent_changed" | "agent_removed" | "items">();
+    expectTypeOf<Alert["type"]>().toEqualTypeOf<"agent_added" | "agent_changed" | "agent_removed" | "log">();
   });
 });
 
-// ACP-derived values the app tolerates: one tool call reaches the app on three item paths.
+// ACP-derived values the app tolerates: one tool call reaches the app on three entry paths.
 const toolCallFields = without(toolCall, "sessionUpdate");
 
 const toolCallPaths = [
   {
     path: "session_update tool_call",
-    item: (fields: Record<string, unknown>) => item(50, "session_update", { update: { ...toolCall, ...fields } }),
-    pick: (parsed: Item | undefined): unknown => (parsed?.type === "session_update" ? parsed.update : undefined),
+    logEntry: (fields: Record<string, unknown>) => logEntry(50, "session_update", { update: { ...toolCall, ...fields } }),
+    pick: (parsed: LogEntry | undefined): unknown => (parsed?.type === "session_update" ? parsed.update : undefined),
   },
   {
     path: "session_update tool_call_update",
-    item: (fields: Record<string, unknown>) => item(51, "session_update", { update: { ...toolCallUpdate, ...fields } }),
-    pick: (parsed: Item | undefined): unknown => (parsed?.type === "session_update" ? parsed.update : undefined),
+    logEntry: (fields: Record<string, unknown>) => logEntry(51, "session_update", { update: { ...toolCallUpdate, ...fields } }),
+    pick: (parsed: LogEntry | undefined): unknown => (parsed?.type === "session_update" ? parsed.update : undefined),
   },
   {
     path: "permission_requested toolCall",
-    item: (fields: Record<string, unknown>) =>
-      item(52, "permission_requested", {
+    logEntry: (fields: Record<string, unknown>) =>
+      logEntry(52, "permission_requested", {
         requestId: "perm_5",
         toolCall: { ...toolCallFields, ...fields },
         options: [{ kind: "allow_once", name: "Allow" }],
       }),
-    pick: (parsed: Item | undefined): unknown => (parsed?.type === "permission_requested" ? parsed.toolCall : undefined),
+    pick: (parsed: LogEntry | undefined): unknown => (parsed?.type === "permission_requested" ? parsed.toolCall : undefined),
   },
 ];
 
@@ -733,16 +733,16 @@ const unsupportedBlocks = [
   { block: { type: "video", uri: "file:///work/site-web/demo.mp4" }, original: "video" },
 ];
 
-const chunkItem = (content: unknown) =>
-  item(53, "session_update", { update: { sessionUpdate: "agent_message_chunk", content } });
+const chunkEntry = (content: unknown) =>
+  logEntry(53, "session_update", { update: { sessionUpdate: "agent_message_chunk", content } });
 
 const chunkContentOf = (block: unknown): unknown => {
-  const parsed = parseItem(chunkItem(block));
+  const parsed = parseLogEntry(chunkEntry(block));
   return parsed?.type === "session_update" && "content" in parsed.update ? parsed.update.content : undefined;
 };
 
 const toolContentOf = (entry: (typeof toolCallPaths)[number], content: unknown[]): unknown[] =>
-  (entry.pick(parseItem(entry.item({ content }))) as { content: unknown[] }).content;
+  (entry.pick(parseLogEntry(entry.logEntry({ content }))) as { content: unknown[] }).content;
 
 // A content block the app doesn't render reads as the same placeholder in a message chunk and on every tool call path.
 const expectPlaceholderEverywhere = (block: unknown, original: string) => {
@@ -759,7 +759,7 @@ const expectPlaceholderEverywhere = (block: unknown, original: string) => {
 describe("ACP-derived values (tolerated)", () => {
   test("an image in a supported format is kept in an agent message chunk", () => {
     for (const image of supportedImages) {
-      expect(parseItem(chunkItem(image)), image.mimeType).toMatchObject({
+      expect(parseLogEntry(chunkEntry(image)), image.mimeType).toMatchObject({
         update: { sessionUpdate: "agent_message_chunk", content: { type: "image", mimeType: image.mimeType, data: image.data } },
       });
     }
@@ -767,7 +767,7 @@ describe("ACP-derived values (tolerated)", () => {
 
   test("other non-text agent message content becomes an unsupported placeholder", () => {
     for (const { block, original } of unsupportedBlocks) {
-      const parsed = parseItem(chunkItem(block));
+      const parsed = parseLogEntry(chunkEntry(block));
       const update = parsed?.type === "session_update" ? parsed.update : undefined;
       expect(update, JSON.stringify(block)).toMatchObject({ sessionUpdate: "agent_message_chunk" });
       expect(update && "content" in update ? update.content : undefined, JSON.stringify(block)).toEqual({
@@ -778,8 +778,8 @@ describe("ACP-derived values (tolerated)", () => {
   });
 
   test("an unknown tool kind reads as other and an unknown status is dropped", () => {
-    for (const { path, item: make, pick } of toolCallPaths) {
-      const parsed = pick(parseItem(make({ kind: "browse", status: "queued" })));
+    for (const { path, logEntry: make, pick } of toolCallPaths) {
+      const parsed = pick(parseLogEntry(make({ kind: "browse", status: "queued" })));
       expect(parsed, path).toMatchObject({ toolCallId: "toolu_01A", kind: "other" });
       expect(parsed, path).not.toHaveProperty("status");
     }
@@ -787,8 +787,8 @@ describe("ACP-derived values (tolerated)", () => {
 
   test("a malformed tool call location is dropped and the others are kept", () => {
     const locations = [{ path: "/work/site-web/a.ts", line: 3 }, { line: 5 }, { path: 42 }, { path: "/work/site-web/b.ts" }];
-    for (const { path, item: make, pick } of toolCallPaths) {
-      const parsed = pick(parseItem(make({ locations })));
+    for (const { path, logEntry: make, pick } of toolCallPaths) {
+      const parsed = pick(parseLogEntry(make({ locations })));
       expect(parsed, path).toMatchObject({
         locations: [{ path: "/work/site-web/a.ts", line: 3 }, { path: "/work/site-web/b.ts" }],
       });
@@ -797,9 +797,9 @@ describe("ACP-derived values (tolerated)", () => {
   });
 
   test("a known tool status survives on every path", () => {
-    for (const { path, item: make, pick } of toolCallPaths) {
+    for (const { path, logEntry: make, pick } of toolCallPaths) {
       for (const status of ["pending", "in_progress", "completed", "failed"]) {
-        expect(pick(parseItem(make({ status }))), `${path} ${status}`).toMatchObject({ status });
+        expect(pick(parseLogEntry(make({ status }))), `${path} ${status}`).toMatchObject({ status });
       }
     }
   });
@@ -807,8 +807,8 @@ describe("ACP-derived values (tolerated)", () => {
   test("an image in a supported format is kept in tool call content on every path", () => {
     for (const image of supportedImages) {
       const content = [diffContent, { type: "content", content: image }];
-      for (const { path, item: make, pick } of toolCallPaths) {
-        const parsed = pick(parseItem(make({ content })));
+      for (const { path, logEntry: make, pick } of toolCallPaths) {
+        const parsed = pick(parseLogEntry(make({ content })));
         expect((parsed as { content: unknown[] }).content, `${path} ${image.mimeType}`).toMatchObject([
           diffContent,
           { type: "content", content: { type: "image", mimeType: image.mimeType, data: image.data } },
@@ -820,8 +820,8 @@ describe("ACP-derived values (tolerated)", () => {
   test("other non-text tool call content becomes an unsupported placeholder on every path", () => {
     for (const { block, original } of unsupportedBlocks) {
       const content = [diffContent, { type: "terminal", terminalId: "term_1" }, { type: "content", content: block }];
-      for (const { path, item: make, pick } of toolCallPaths) {
-        const parsed = pick(parseItem(make({ content })));
+      for (const { path, logEntry: make, pick } of toolCallPaths) {
+        const parsed = pick(parseLogEntry(make({ content })));
         expect((parsed as { content: unknown[] }).content, `${path} ${JSON.stringify(block)}`).toEqual([
           diffContent,
           { type: "content", content: { type: "unsupported", original } },
@@ -880,7 +880,7 @@ describe("ACP-derived values (tolerated)", () => {
   });
 
   test("a malformed text block throws in a message chunk but is dropped from tool call content", () => {
-    expect(() => parseItem(chunkItem({ type: "text" }))).toThrow();
+    expect(() => parseLogEntry(chunkEntry({ type: "text" }))).toThrow();
     for (const entry of toolCallPaths) {
       expect(toolContentOf(entry, [diffContent, { type: "content", content: { type: "text" } }]), entry.path).toEqual([
         diffContent,
@@ -889,8 +889,8 @@ describe("ACP-derived values (tolerated)", () => {
   });
 
   test("a command whose input has an unknown shape is kept with a null input", () => {
-    const parsed = parseItem(
-      item(54, "session_update", {
+    const parsed = parseLogEntry(
+      logEntry(54, "session_update", {
         update: {
           sessionUpdate: "available_commands_update",
           availableCommands: [
@@ -956,8 +956,8 @@ describe("session updates", () => {
     expectTypeOf<FromAcp<SessionUpdate>>().toExtend<AcpSessionUpdate>();
   });
 
-  test("the session update an item carries is the SessionUpdate schema's type", () => {
-    expectTypeOf<Extract<Item, { type: "session_update" }>["update"]>().toEqualTypeOf<SessionUpdate>();
+  test("the session update an entry carries is the SessionUpdate schema's type", () => {
+    expectTypeOf<Extract<LogEntry, { type: "session_update" }>["update"]>().toEqualTypeOf<SessionUpdate>();
   });
 
   test("message and tool call content can carry the unsupported placeholder", () => {

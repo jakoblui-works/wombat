@@ -201,7 +201,7 @@ export const openStream = (port: number, options: Omit<RequestOptions, "path" | 
     req.end(data);
   });
 
-export type ServeOptions = SetupOptions & { heartbeatMs?: number; defaultItemsLimit?: number };
+export type ServeOptions = SetupOptions & { heartbeatMs?: number; defaultLogLimit?: number };
 
 export type Served = Setup & {
   port: number;
@@ -218,7 +218,7 @@ export type Served = Setup & {
 };
 
 /** A manager fixture behind a running server; everything is torn down after the test. */
-export const serve = async ({ heartbeatMs, defaultItemsLimit, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
+export const serve = async ({ heartbeatMs, defaultLogLimit, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
   const t = setup(setupOptions);
   const token = randomBytes(24).toString("base64url");
   const harnesses = ALL_SCENARIOS.map((scenario) => trackedHarness(scenario, t.pidDir));
@@ -245,7 +245,7 @@ export const serve = async ({ heartbeatMs, defaultItemsLimit, ...setupOptions }:
     harnesses,
     token,
     ...(heartbeatMs === undefined ? {} : { heartbeatMs }),
-    ...(defaultItemsLimit === undefined ? {} : { defaultItemsLimit }),
+    ...(defaultLogLimit === undefined ? {} : { defaultLogLimit }),
   });
   let closed: Promise<void> | undefined;
   const close = () => (closed ??= server.close());

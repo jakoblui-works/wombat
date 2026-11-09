@@ -12,7 +12,7 @@ export type AlertStreamsOptions = {
 
 /**
  * `GET /events`: one alert per committed change, from the moment the stream is opened (no replay; the app
- * catches up through the items route). Alerts carry ids and seqs only, never agent content.
+ * catches up through the log route). Alerts carry ids and seqs only, never agent content.
  */
 export const createAlertStreams = ({ onCommitted, dbId, heartbeatMs }: AlertStreamsOptions) => {
   const open = new Set<() => void>();

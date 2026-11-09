@@ -151,7 +151,7 @@ describe("real systemd", () => {
       const { id } = await t.manager.start("fake-detached-holder", REPO);
       await t.manager.send(id, { text: "Start a background helper" });
       await t.turnEnded(id);
-      const helperPid = childPidOf(t.items(id));
+      const helperPid = childPidOf(t.entries(id));
       onTestFinished(() => {
         try {
           process.kill(helperPid, "SIGKILL");

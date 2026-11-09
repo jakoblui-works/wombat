@@ -16,7 +16,7 @@ const routes = (agentId: string) => [
   { method: "GET", path: "/harnesses" },
   { method: "GET", path: "/agents" },
   { method: "POST", path: "/agents", body: { harness: "fake-reply", repo: REPO } },
-  { method: "GET", path: `/agents/${agentId}/items` },
+  { method: "GET", path: `/agents/${agentId}/log` },
   { method: "POST", path: `/agents/${agentId}/messages`, body: { text: "Refused prompt" } },
   { method: "POST", path: `/agents/${agentId}/permissions/req_1`, body: { kind: "allow_once" } },
   { method: "POST", path: `/agents/${agentId}/cancel` },
@@ -74,7 +74,7 @@ describe("port rules", () => {
       expect(s.pids()).toHaveLength(pids);
       expect(s.store.listAgents().map((agent) => agent.id)).toEqual([id]);
       // Control: the same agent answers with the token.
-      expect((await s.api("GET", `/agents/${id}/items`)).status).toBe(200);
+      expect((await s.api("GET", `/agents/${id}/log`)).status).toBe(200);
     },
     TEST_TIMEOUT_MS,
   );

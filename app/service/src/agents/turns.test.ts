@@ -1,6 +1,6 @@
 // Agent manager: turns against the fake agent: replies, crashes, cancel, busy, unknown update kinds and a
 // talkative stderr.
-import { AgentSummary, Item } from "@wombat/shared/api";
+import { AgentSummary, LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
 import { EARLY_TITLE } from "../../test/fake-agent.ts";
@@ -10,7 +10,7 @@ const isZ = (timestamp: string) => timestamp.endsWith("Z") && new Date(timestamp
 
 describe("turns", () => {
   test(
-    "a reply turn: start records the session, the prompt and each chunk are items, the turn ends end_turn, state done→working→done",
+    "a reply turn: start records the session, the prompt and each chunk are entries, the turn ends end_turn, state done→working→done",
     async () => {
       const t = setup();
       const started = await t.manager.start("fake-reply", REPO);
@@ -28,12 +28,12 @@ describe("turns", () => {
       const ended = await t.turnEnded(started.id);
       expect(ended.stopReason).toBe("end_turn");
 
-      const items = t.items(started.id);
-      for (const item of items) expect(Item.parse(item)).toEqual(item);
-      expect(items[0]).toMatchObject({ type: "user_message", text: "Say hello", commandId: "cmd_1", seq });
-      expect(chunkTexts(items).length).toBeGreaterThan(0);
-      expect(chunkTexts(items).every((text) => text !== "")).toBe(true);
-      expect(items.at(-1)?.type).toBe("turn_ended");
+      const entries = t.entries(started.id);
+      for (const entry of entries) expect(LogEntry.parse(entry)).toEqual(entry);
+      expect(entries[0]).toMatchObject({ type: "user_message", text: "Say hello", commandId: "cmd_1", seq });
+      expect(chunkTexts(entries).length).toBeGreaterThan(0);
+      expect(chunkTexts(entries).every((text) => text !== "")).toBe(true);
+      expect(entries.at(-1)?.type).toBe("turn_ended");
 
       await waitFor("state done", () => t.agent(started.id)?.state === "done");
       expect(states).toContain("working");
@@ -42,7 +42,7 @@ describe("turns", () => {
       // Every timestamp the manager writes is UTC with Z (the store sorts them as text).
       const summary = t.agent(started.id);
       expect(summary && [summary.startedAt, summary.lastActivityAt].every(isZ)).toBe(true);
-      expect(items.every((item) => isZ(item.at))).toBe(true);
+      expect(entries.every((entry) => isZ(entry.at))).toBe(true);
     },
     TEST_TIMEOUT_MS,
   );
@@ -56,7 +56,7 @@ describe("turns", () => {
       await waitFor("state error", () => t.agent(id)?.state === "error");
 
       expect(t.agent(id)?.error?.message).toBeTruthy();
-      expect(t.items(id).filter((item) => item.type === "turn_ended" && item.stopReason === "end_turn")).toEqual([]);
+      expect(t.entries(id).filter((entry) => entry.type === "turn_ended" && entry.stopReason === "end_turn")).toEqual([]);
       await expect(t.manager.send(id, { text: "Again" })).rejects.toMatchObject({ code: "not_running" });
       await waitFor("the crashed process to be gone", () => t.pids().every((pid) => !isAlive(pid)));
     },
@@ -72,7 +72,7 @@ describe("turns", () => {
       await waitFor("state working", () => t.agent(id)?.state === "working");
 
       await expect(t.manager.send(id, { text: "Are you there?" })).rejects.toMatchObject({ code: "busy" });
-      expect(t.items(id).filter((item) => item.type === "user_message")).toHaveLength(1);
+      expect(t.entries(id).filter((entry) => entry.type === "user_message")).toHaveLength(1);
 
       await t.manager.cancel(id);
       expect((await t.turnEnded(id)).stopReason).toBe("cancelled");
@@ -95,10 +95,10 @@ describe("turns", () => {
       await t.manager.send(id, { text: "Think first" });
       expect((await t.turnEnded(id)).stopReason).toBe("end_turn");
 
-      const items = t.items(id);
-      for (const item of items) expect(Item.parse(item)).toEqual(item);
-      expect(chunkTexts(items).length).toBeGreaterThan(0);
-      expect(JSON.stringify(items)).not.toContain("agent_thought_chunk");
+      const entries = t.entries(id);
+      for (const entry of entries) expect(LogEntry.parse(entry)).toEqual(entry);
+      expect(chunkTexts(entries).length).toBeGreaterThan(0);
+      expect(JSON.stringify(entries)).not.toContain("agent_thought_chunk");
       expect(t.logs.map((line) => line.event)).toContain("update_skipped");
     },
     TEST_TIMEOUT_MS,
@@ -124,15 +124,15 @@ describe("turns", () => {
         if (type === "agent_added") added.push(seq);
       });
       const { id } = await t.manager.start("fake-early-update", REPO);
-      await waitFor("the early updates", () => t.items(id).length === 2);
+      await waitFor("the early updates", () => t.entries(id).length === 2);
 
-      const items = t.items(id);
-      expect(items.map((item) => item.type === "session_update" && item.update.sessionUpdate)).toEqual([
+      const entries = t.entries(id);
+      expect(entries.map((entry) => entry.type === "session_update" && entry.update.sessionUpdate)).toEqual([
         "available_commands_update",
         "session_info_update",
       ]);
       expect(added).toHaveLength(1);
-      expect(items.every((item) => item.seq > (added[0] ?? Number.POSITIVE_INFINITY))).toBe(true);
+      expect(entries.every((entry) => entry.seq > (added[0] ?? Number.POSITIVE_INFINITY))).toBe(true);
       await waitFor("the title", () => t.agent(id)?.title === EARLY_TITLE);
     },
     TEST_TIMEOUT_MS,

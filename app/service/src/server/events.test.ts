@@ -32,7 +32,7 @@ describe("GET /events", () => {
 
       const expected = s.committed.filter((event) => event.seq > openedAt);
       expect(expected.map((event) => event.type)).toEqual(
-        expect.arrayContaining(["agent_added", "agent_changed", "items", "agent_removed"]),
+        expect.arrayContaining(["agent_added", "agent_changed", "log", "agent_removed"]),
       );
       await stream.until("an alert for every committed change", (open) => alertsOf(open).length >= expected.length);
       const removal = expected.at(-1);

@@ -2,31 +2,31 @@
 // tool content or agent stderr ever reaches a log line.
 import { randomUUID } from "node:crypto";
 
-import type { Item } from "@wombat/shared/api";
+import type { LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
 import { killedUnits, sliceStops } from "../../test/fake-systemd.ts";
 import { chunkTexts, REPO, setup, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
 
 // Markers fixed by the fake scenarios' contract: the noisy scenario's stderr, and the text of the update the
-// unknown-update scenario sends (it isn't stored, so it can't be read back from the items).
+// unknown-update scenario sends (it isn't stored, so it can't be read back from the entries).
 const NOISY_STDERR_MARKER = "stderr-content-must-not-be-logged";
 const SKIPPED_UPDATE_MARKER = "thought-content-must-not-be-logged";
 // What the fake systemctl prints on stdout and stderr when it fails.
 const SYSTEMCTL_OUTPUT_MARKER = "systemctl-output-must-not-be-logged";
 
-/** Every piece of agent or user content in the items: texts, tool titles, diff paths and texts, option names. */
-const contentOf = (items: Item[]) =>
-  items.flatMap((item): string[] => {
-    switch (item.type) {
+/** Every piece of agent or user content in the entries: texts, tool titles, diff paths and texts, option names. */
+const contentOf = (entries: LogEntry[]) =>
+  entries.flatMap((entry): string[] => {
+    switch (entry.type) {
       case "user_message":
-        return [item.text];
+        return [entry.text];
       case "permission_requested":
-        return [item.toolCall.title ?? "", ...item.options.map((option) => option.name)];
+        return [entry.toolCall.title ?? "", ...entry.options.map((option) => option.name)];
       case "session_update": {
-        const { update } = item;
+        const { update } = entry;
         if (update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update") {
-          return chunkTexts([item]);
+          return chunkTexts([entry]);
         }
         return [
           update.title ?? "",
@@ -63,7 +63,7 @@ describe("no agent content in logs", () => {
       ids.push(permission.id);
       await t.manager.send(permission.id, { text: prompt("permission") });
       await waitFor("a pending permission", () => t.agent(permission.id)?.state === "waiting");
-      const request = t.items(permission.id).find((item) => item.type === "permission_requested");
+      const request = t.entries(permission.id).find((entry) => entry.type === "permission_requested");
       if (request?.type !== "permission_requested") throw new Error("no permission request");
       t.manager.answer(permission.id, request.requestId, "allow_once");
       await t.turnEnded(permission.id);
@@ -73,7 +73,7 @@ describe("no agent content in logs", () => {
       await t.manager.send(crash.id, { text: prompt("crash") });
       await waitFor("the crash recorded", () => t.agent(crash.id)?.state === "error");
 
-      const content = [...new Set([...ids.flatMap((id) => contentOf(t.items(id))), NOISY_STDERR_MARKER, SKIPPED_UPDATE_MARKER])]
+      const content = [...new Set([...ids.flatMap((id) => contentOf(t.entries(id))), NOISY_STDERR_MARKER, SKIPPED_UPDATE_MARKER])]
         .map((text) => text.trim())
         .filter((text) => text.length >= 4);
       expect(content.length).toBeGreaterThan(ids.length);

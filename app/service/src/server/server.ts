@@ -5,13 +5,13 @@ import { getRequestListener } from "@hono/node-server";
 import { API_VERSION } from "@wombat/shared";
 import {
   AnswerPermissionRequest,
-  ListItemsQuery,
+  ListLogQuery,
   SendMessageRequest,
   StartAgentRequest,
   type ErrorBody,
   type ListAgentsResponse,
   type ListHarnessesResponse,
-  type ListItemsResponse,
+  type ListLogResponse,
   type VersionResponse,
 } from "@wombat/shared/api";
 import { Hono, type Context } from "hono";
@@ -35,8 +35,8 @@ export type ServerOptions = {
   /** 0 (the default) picks a free port. */
   port?: number;
   heartbeatMs?: number;
-  /** The items route's limit when the request sends none. */
-  defaultItemsLimit?: number;
+  /** The log route's limit when the request sends none. */
+  defaultLogLimit?: number;
   /** Ids and names only, like the manager's log. */
   log?: Log;
 };
@@ -99,7 +99,7 @@ export const startServer = async ({
   token,
   port = 0,
   heartbeatMs = 15_000,
-  defaultItemsLimit = 1000,
+  defaultLogLimit = 1000,
   log = logToStderr,
 }: ServerOptions): Promise<{ port: number; close: () => Promise<void> }> => {
   if (token.length < MIN_TOKEN_LENGTH) {
@@ -136,8 +136,8 @@ export const startServer = async ({
     return c.json(await manager.start(harness, repo), 201);
   });
 
-  app.get("/agents/:id/items", (c) => {
-    const query = ListItemsQuery.safeParse(queryValues(c));
+  app.get("/agents/:id/log", (c) => {
+    const query = ListLogQuery.safeParse(queryValues(c));
     if (!query.success) {
       throw new InvalidRequest(
         `The query doesn't match the API contract (${describeIssues(query.error)}). Fix it and send it again.`,
@@ -147,9 +147,9 @@ export const startServer = async ({
     if (!store.listAgents().some((agent) => agent.id === agentId)) {
       return errorResponse(c, 404, "not_found", `There's no agent ${agentId}. List the agents to see which exist.`);
     }
-    const { after, limit = defaultItemsLimit } = query.data;
-    const { items, truncated } = store.items(agentId, after, limit);
-    return c.json({ dbId: store.dbId, seq: store.currentSeq(), items, truncated } satisfies ListItemsResponse);
+    const { after, limit = defaultLogLimit } = query.data;
+    const { entries, truncated } = store.readLog(agentId, after, limit);
+    return c.json({ dbId: store.dbId, seq: store.currentSeq(), entries, truncated } satisfies ListLogResponse);
   });
 
   app.post("/agents/:id/messages", async (c) => {

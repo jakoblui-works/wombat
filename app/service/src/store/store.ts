@@ -3,21 +3,21 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import type { AgentSummary, Item } from "@wombat/shared/api";
+import type { AgentSummary, LogEntry } from "@wombat/shared/api";
 
-/** The default cap on one agent's stored items, in bytes of their stored JSON. */
-export const ITEM_BYTES_PER_AGENT = 16 * 1024 * 1024;
+/** The default cap on one agent's stored entries, in bytes of their stored JSON. */
+export const LOG_BYTES_PER_AGENT = 16 * 1024 * 1024;
 
 const SCHEMA_VERSION = 1;
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
-/** An item as handed to `append`: the store adds `seq` and `agentId`, and `at` when it's missing. */
-export type ItemEntry = DistributiveOmit<Item, "seq" | "agentId" | "at"> & { at?: string };
+/** An entry as handed to `append`: the store adds `seq` and `agentId`, and `at` when it's missing. */
+export type NewLogEntry = DistributiveOmit<LogEntry, "seq" | "agentId" | "at"> & { at?: string };
 
 export type StoreOptions = {
   path: string;
-  maxItemBytesPerAgent?: number;
+  maxLogBytesPerAgent?: number;
   now?: () => Date;
   newDbId?: () => string;
 };
@@ -28,13 +28,13 @@ export type Store = {
   /** The last seq handed out; 0 for a fresh database. */
   currentSeq: () => number;
   /** Stores the entries as one transaction and returns their seqs; throws, storing nothing, on failure. */
-  append: (agentId: string, entries: ItemEntry[]) => number[];
+  append: (agentId: string, entries: NewLogEntry[]) => number[];
   putAgent: (summary: AgentSummary) => number;
   listAgents: () => AgentSummary[];
-  /** Removes the agent and all its items; undefined (and no seq taken) when it isn't stored. */
+  /** Removes the agent and all its entries; undefined (and no seq taken) when it isn't stored. */
   deleteAgent: (agentId: string) => number | undefined;
-  /** `truncated` is true exactly when an item of this agent after `after` was dropped by the cap. */
-  items: (agentId: string, after?: number, limit?: number) => { items: Item[]; truncated: boolean };
+  /** `truncated` is true exactly when an entry of this agent after `after` was dropped by the cap. */
+  readLog: (agentId: string, after?: number, limit?: number) => { entries: LogEntry[]; truncated: boolean };
   close: () => void;
 };
 
@@ -42,23 +42,23 @@ const PRIVATE_DIR = 0o700;
 const PRIVATE_FILE = 0o600;
 
 // The seq counter lives in `meta` rather than coming from a rowid, which would reuse seqs after deletes.
-// `dropped_through` is the highest seq of the agent's items the cap removed, which answers `truncated`.
+// `dropped_through` is the highest seq of the agent's entries the cap removed, which answers `truncated`.
 const SCHEMA = `
   CREATE TABLE meta (key TEXT PRIMARY KEY, value ANY NOT NULL) STRICT;
   CREATE TABLE agents (
     id TEXT PRIMARY KEY,
     started_at TEXT NOT NULL,
     summary TEXT NOT NULL,
-    item_bytes INTEGER NOT NULL DEFAULT 0,
+    log_bytes INTEGER NOT NULL DEFAULT 0,
     dropped_through INTEGER NOT NULL DEFAULT 0
   ) STRICT;
-  CREATE TABLE items (
+  CREATE TABLE log_entries (
     seq INTEGER PRIMARY KEY,
     agent_id TEXT NOT NULL,
     bytes INTEGER NOT NULL,
     body TEXT NOT NULL
   ) STRICT;
-  CREATE INDEX items_by_agent ON items (agent_id, seq);
+  CREATE INDEX log_entries_by_agent ON log_entries (agent_id, seq);
 `;
 
 /** SQLite creates these with the database's mode; ones left looser are tightened on open. */
@@ -86,12 +86,12 @@ const asString = (value: unknown) => {
 };
 
 /**
- * Opens (or creates) the database at `path`: agent summaries and an append-only log of their items, with one
+ * Opens (or creates) the database at `path`: agent summaries and an append-only log of their entries, with one
  * seq counter across all agents.
  */
 export const openStore = ({
   path,
-  maxItemBytesPerAgent = ITEM_BYTES_PER_AGENT,
+  maxLogBytesPerAgent = LOG_BYTES_PER_AGENT,
   now = () => new Date(),
   newDbId = randomUUID,
 }: StoreOptions): Store => {
@@ -151,15 +151,15 @@ export const openStore = ({
     ),
     listAgents: db.prepare("SELECT summary FROM agents ORDER BY started_at, id"),
     deleteAgent: db.prepare("DELETE FROM agents WHERE id = ?"),
-    deleteAgentItems: db.prepare("DELETE FROM items WHERE agent_id = ?"),
-    insertItem: db.prepare("INSERT INTO items (seq, agent_id, bytes, body) VALUES (?, ?, ?, ?)"),
-    addBytes: db.prepare("UPDATE agents SET item_bytes = item_bytes + ? WHERE id = ? RETURNING item_bytes"),
-    oldestItems: db.prepare("SELECT seq, bytes FROM items WHERE agent_id = ? ORDER BY seq"),
-    dropItems: db.prepare("DELETE FROM items WHERE agent_id = ? AND seq <= ?"),
+    deleteAgentLog: db.prepare("DELETE FROM log_entries WHERE agent_id = ?"),
+    insertLogEntry: db.prepare("INSERT INTO log_entries (seq, agent_id, bytes, body) VALUES (?, ?, ?, ?)"),
+    addBytes: db.prepare("UPDATE agents SET log_bytes = log_bytes + ? WHERE id = ? RETURNING log_bytes"),
+    oldestLogEntries: db.prepare("SELECT seq, bytes FROM log_entries WHERE agent_id = ? ORDER BY seq"),
+    dropLogEntries: db.prepare("DELETE FROM log_entries WHERE agent_id = ? AND seq <= ?"),
     recordDropped: db.prepare(
-      "UPDATE agents SET item_bytes = item_bytes - ?, dropped_through = max(dropped_through, ?) WHERE id = ?",
+      "UPDATE agents SET log_bytes = log_bytes - ?, dropped_through = max(dropped_through, ?) WHERE id = ?",
     ),
-    items: db.prepare("SELECT seq, body FROM items WHERE agent_id = ? AND seq > ? ORDER BY seq LIMIT ?"),
+    logEntries: db.prepare("SELECT seq, body FROM log_entries WHERE agent_id = ? AND seq > ? ORDER BY seq LIMIT ?"),
     droppedThrough: db.prepare("SELECT dropped_through FROM agents WHERE id = ?"),
   };
 
@@ -171,44 +171,44 @@ export const openStore = ({
     return Array.from({ length: count }, (_, index) => last - count + 1 + index);
   };
 
-  /** Deletes the agent's oldest items until its total fits the cap, always keeping the newest. */
+  /** Deletes the agent's oldest entries until its total fits the cap, always keeping the newest. */
   const enforceCap = (agentId: string, totalBytes: number) => {
     let remaining = totalBytes;
     let dropThrough: number | undefined;
     let droppedBytes = 0;
     let previous: { seq: number; bytes: number } | undefined;
-    for (const row of statements.oldestItems.iterate(agentId)) {
-      if (remaining <= maxItemBytesPerAgent) break;
+    for (const row of statements.oldestLogEntries.iterate(agentId)) {
+      if (remaining <= maxLogBytesPerAgent) break;
       // Each row is dropped only once a newer one is known to exist.
       if (previous !== undefined) {
         dropThrough = previous.seq;
         droppedBytes += previous.bytes;
         remaining -= previous.bytes;
-        if (remaining <= maxItemBytesPerAgent) break;
+        if (remaining <= maxLogBytesPerAgent) break;
       }
       previous = { seq: asNumber(row.seq), bytes: asNumber(row.bytes) };
     }
     if (dropThrough === undefined) return;
-    statements.dropItems.run(agentId, dropThrough);
+    statements.dropLogEntries.run(agentId, dropThrough);
     statements.recordDropped.run(droppedBytes, dropThrough, agentId);
   };
 
-  const append = (agentId: string, entries: ItemEntry[]) => {
+  const append = (agentId: string, entries: NewLogEntry[]) => {
     // Serialized before the transaction, so an entry that can't be stored fails the batch before any write.
     const bodies = entries.map((entry) => JSON.stringify({ ...entry, at: entry.at ?? now().toISOString() }));
     return transaction(() => {
       if (statements.agentExists.get(agentId) === undefined) {
-        throw new Error(`Can't store items for agent ${agentId}: it isn't in the store. Add it with putAgent first.`);
+        throw new Error(`Can't store entries for agent ${agentId}: it isn't in the store. Add it with putAgent first.`);
       }
       const seqs = takeSeqs(bodies.length);
       let bytes = 0;
       bodies.forEach((body, index) => {
         const size = Buffer.byteLength(body);
         bytes += size;
-        statements.insertItem.run(seqs[index] ?? 0, agentId, size, body);
+        statements.insertLogEntry.run(seqs[index] ?? 0, agentId, size, body);
       });
-      const total = asNumber(statements.addBytes.get(bytes, agentId)?.item_bytes);
-      if (total > maxItemBytesPerAgent) enforceCap(agentId, total);
+      const total = asNumber(statements.addBytes.get(bytes, agentId)?.log_bytes);
+      if (total > maxLogBytesPerAgent) enforceCap(agentId, total);
       return seqs;
     });
   };
@@ -228,18 +228,18 @@ export const openStore = ({
   const deleteAgent = (agentId: string) =>
     transaction(() => {
       if (statements.deleteAgent.run(agentId).changes === 0) return undefined;
-      statements.deleteAgentItems.run(agentId);
+      statements.deleteAgentLog.run(agentId);
       const [seq = 0] = takeSeqs(1);
       return seq;
     });
 
-  const items = (agentId: string, after = 0, limit?: number) => {
+  const readLog = (agentId: string, after = 0, limit?: number) => {
     // A negative LIMIT means no limit in SQLite.
-    const rows = statements.items.all(agentId, after, limit ?? -1);
+    const rows = statements.logEntries.all(agentId, after, limit ?? -1);
     const droppedThrough = statements.droppedThrough.get(agentId)?.dropped_through;
     return {
-      items: rows.map(
-        (row) => ({ ...(JSON.parse(asString(row.body)) as ItemEntry), seq: asNumber(row.seq), agentId }) as Item,
+      entries: rows.map(
+        (row) => ({ ...(JSON.parse(asString(row.body)) as NewLogEntry), seq: asNumber(row.seq), agentId }) as LogEntry,
       ),
       truncated: droppedThrough !== undefined && asNumber(droppedThrough) > after,
     };
@@ -252,7 +252,7 @@ export const openStore = ({
     putAgent,
     listAgents,
     deleteAgent,
-    items,
+    readLog,
     close: () => db.close(),
   };
 };

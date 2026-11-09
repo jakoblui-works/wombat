@@ -1,22 +1,22 @@
 // Agent manager: permission requests answered by kind, their errors, and cancel while one is pending.
-import type { Item } from "@wombat/shared/api";
+import type { LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
 import { REPO, setup, TEST_TIMEOUT_MS, thrown, waitFor, type Setup } from "../../test/manager-fixtures.ts";
 
-type Requested = Extract<Item, { type: "permission_requested" }>;
+type Requested = Extract<LogEntry, { type: "permission_requested" }>;
 
 /** Starts the permission scenario and waits until its request is pending. */
 const pendingRequest = async (t: Setup) => {
   const { id } = await t.manager.start("fake-permission", REPO);
   await t.manager.send(id, { text: "Edit the notes" });
   await waitFor("state waiting", () => t.agent(id)?.state === "waiting");
-  const request = t.items(id).find((item): item is Requested => item.type === "permission_requested");
-  if (!request) throw new Error("no permission_requested item while waiting");
+  const request = t.entries(id).find((entry): entry is Requested => entry.type === "permission_requested");
+  if (!request) throw new Error("no permission_requested entry while waiting");
   return { id, request };
 };
 
-const after = (items: Item[], seq: number) => items.filter((item) => item.seq > seq);
+const after = (entries: LogEntry[], seq: number) => entries.filter((entry) => entry.seq > seq);
 
 describe("permissions", () => {
   test.each([
@@ -28,8 +28,8 @@ describe("permissions", () => {
       const t = setup();
       const { id, request } = await pendingRequest(t);
 
-      const toolCall = t.items(id).find(
-        (item) => item.type === "session_update" && item.update.sessionUpdate === "tool_call",
+      const toolCall = t.entries(id).find(
+        (entry) => entry.type === "session_update" && entry.update.sessionUpdate === "tool_call",
       );
       expect(toolCall).toMatchObject({
         update: { kind: "edit", content: [expect.objectContaining({ type: "diff", newText: expect.any(String) as unknown })] },
@@ -42,7 +42,7 @@ describe("permissions", () => {
       expect((await t.turnEnded(id)).stopReason).toBe("end_turn");
       await waitFor("state done", () => t.agent(id)?.state === "done");
 
-      const later = after(t.items(id), request.seq);
+      const later = after(t.entries(id), request.seq);
       expect(later[0]).toMatchObject({ type: "permission_answered", requestId: request.requestId, kind });
       expect(later).toContainEqual(
         expect.objectContaining({ update: expect.objectContaining({ sessionUpdate: "tool_call_update", status }) as unknown }),
@@ -65,12 +65,12 @@ describe("permissions", () => {
         code: "kind_not_offered",
       });
       expect(t.agent(id)?.state).toBe("waiting");
-      expect(t.items(id).filter((item) => item.type === "permission_answered")).toEqual([]);
+      expect(t.entries(id).filter((entry) => entry.type === "permission_answered")).toEqual([]);
 
       t.manager.answer(id, request.requestId, "reject_once");
       expect(thrown(() => t.manager.answer(id, request.requestId, "allow_once"))).toMatchObject({ code: "not_found" });
       await t.turnEnded(id);
-      expect(t.items(id).filter((item) => item.type === "permission_answered")).toHaveLength(1);
+      expect(t.entries(id).filter((entry) => entry.type === "permission_answered")).toHaveLength(1);
     },
     TEST_TIMEOUT_MS,
   );
@@ -84,7 +84,7 @@ describe("permissions", () => {
       await t.manager.cancel(id);
       expect((await t.turnEnded(id)).stopReason).toBe("cancelled");
       await waitFor("state done", () => t.agent(id)?.state === "done");
-      expect(t.items(id).filter((item) => item.type === "permission_answered")).toEqual([]);
+      expect(t.entries(id).filter((entry) => entry.type === "permission_answered")).toEqual([]);
       expect(thrown(() => t.manager.answer(id, request.requestId, "allow_once"))).toMatchObject({ code: "not_found" });
     },
     TEST_TIMEOUT_MS,

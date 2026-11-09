@@ -1,8 +1,8 @@
 // The agent service's wire contract. Request bodies are strict (the service rejects
-// unknown fields); responses, items and alerts are lenient (the app ignores unknown fields),
+// unknown fields); responses, entries and alerts are lenient (the app ignores unknown fields),
 // so additive changes within one API_VERSION never break an older app.
 //
-// Content is stored by the service and read through the API as items. The stream
+// Content is stored by the service and read through the API as entries. The stream
 // (`GET /events`) sends alerts only, each after its change is committed: an alert says that
 // something changed, never what. A heartbeat comment line (`: ping`) every ~15 s keeps the
 // stream open and isn't an alert.
@@ -60,10 +60,10 @@ const queryInt = (message: string, min: number, max = Number.MAX_SAFE_INTEGER) =
     .union([z.number(), z.string().regex(/^\d+$/).transform(Number)], { error: message })
     .pipe(z.int({ error: message }).min(min, { error: message }).max(max, { error: message }));
 
-/** `GET /agents/:id/items?after=&limit=`: items with `seq` above `after`, at most `limit` of them. */
-export const ListItemsQuery = z.strictObject(
+/** `GET /agents/:id/log?after=&limit=`: entries with `seq` above `after`, at most `limit` of them. */
+export const ListLogQuery = z.strictObject(
   {
-    after: queryInt("after must be a whole number of 0 or more (an item seq)", 0).default(0),
+    after: queryInt("after must be a whole number of 0 or more (an entry seq)", 0).default(0),
     limit: queryInt("limit must be a whole number from 1 to 1000", 1, 1000).optional(),
   },
   {
@@ -71,7 +71,7 @@ export const ListItemsQuery = z.strictObject(
       issue.code === "unrecognized_keys" ? "unknown query parameter; send only after and limit" : undefined,
   },
 );
-export type ListItemsQuery = z.infer<typeof ListItemsQuery>;
+export type ListLogQuery = z.infer<typeof ListLogQuery>;
 
 // Responses (lenient)
 
@@ -213,22 +213,22 @@ export const SessionUpdate = z.discriminatedUnion("sessionUpdate", [
 ]);
 export type SessionUpdate = z.infer<typeof SessionUpdate>;
 
-// Items (lenient): an agent's stored history, read through `GET /agents/:id/items`.
+// Log entries (lenient): an agent's stored history, read through `GET /agents/:id/log`.
 
-const itemFields = { seq: Seq, agentId: z.string(), at: Timestamp };
+const logEntryFields = { seq: Seq, agentId: z.string(), at: Timestamp };
 /** The ACP session an update or permission request came from; one agent may run more than one (sub-agents). */
 const SessionId = z.string().exactOptional();
 
-export const Item = z.discriminatedUnion("type", [
+export const LogEntry = z.discriminatedUnion("type", [
   z.object({
-    ...itemFields,
+    ...logEntryFields,
     type: z.literal("user_message"),
     text: z.string(),
     commandId: z.string().exactOptional(),
   }),
-  z.object({ ...itemFields, type: z.literal("session_update"), sessionId: SessionId, update: SessionUpdate }),
+  z.object({ ...logEntryFields, type: z.literal("session_update"), sessionId: SessionId, update: SessionUpdate }),
   z.object({
-    ...itemFields,
+    ...logEntryFields,
     type: z.literal("permission_requested"),
     sessionId: SessionId,
     requestId: z.string(),
@@ -236,17 +236,17 @@ export const Item = z.discriminatedUnion("type", [
     options: knownItems(z.object({ kind: PermissionKind, name: z.string() })),
   }),
   z.object({
-    ...itemFields,
+    ...logEntryFields,
     type: z.literal("permission_answered"),
     sessionId: SessionId,
     requestId: z.string(),
     kind: PermissionKind,
   }),
-  z.object({ ...itemFields, type: z.literal("turn_ended"), stopReason: z.string().min(1) }),
+  z.object({ ...logEntryFields, type: z.literal("turn_ended"), stopReason: z.string().min(1) }),
 ]);
-export type Item = z.infer<typeof Item>;
+export type LogEntry = z.infer<typeof LogEntry>;
 
-const itemTypes = new Set<unknown>(Item.options.map((option) => option.shape.type.value));
+const logEntryTypes = new Set<unknown>(LogEntry.options.map((option) => option.shape.type.value));
 const updateKinds: Record<SessionUpdate["sessionUpdate"], true> = {
   agent_message_chunk: true,
   tool_call: true,
@@ -256,11 +256,11 @@ const updateKinds: Record<SessionUpdate["sessionUpdate"], true> = {
   available_commands_update: true,
 };
 
-/** An item of a type, or carrying a session update kind, that this app doesn't know (newer service). */
-const isUnknownItem = (data: unknown) => {
+/** An entry of a type, or carrying a session update kind, that this app doesn't know (newer service). */
+const isUnknownLogEntry = (data: unknown) => {
   if (typeof data !== "object" || data === null) return false;
   const { type, update } = data as { type?: unknown; update?: unknown };
-  if (typeof type === "string" && !itemTypes.has(type)) return true;
+  if (typeof type === "string" && !logEntryTypes.has(type)) return true;
   if (type === "session_update" && typeof update === "object" && update !== null) {
     const updateKind = (update as { sessionUpdate?: unknown }).sessionUpdate;
     return typeof updateKind === "string" && !Object.hasOwn(updateKinds, updateKind);
@@ -269,22 +269,22 @@ const isUnknownItem = (data: unknown) => {
 };
 
 /**
- * Parses one item from the service. Returns undefined for item types and session update
- * kinds this app doesn't know (newer service); throws on a malformed known item.
+ * Parses one entry from the service. Returns undefined for entry types and session update
+ * kinds this app doesn't know (newer service); throws on a malformed known entry.
  */
-export const parseItem = (data: unknown): Item | undefined => (isUnknownItem(data) ? undefined : Item.parse(data));
+export const parseLogEntry = (data: unknown): LogEntry | undefined => (isUnknownLogEntry(data) ? undefined : LogEntry.parse(data));
 
-export const ListItemsResponse = z.object({
+export const ListLogResponse = z.object({
   dbId: DbId,
   seq: Seq,
-  // Unknown items are dropped as parseItem would; a malformed known one fails the parse.
-  items: z
+  // Unknown entries are dropped as parseLogEntry would; a malformed known one fails the parse.
+  entries: z
     .array(z.unknown())
-    .transform((items) => items.filter((value) => !isUnknownItem(value)))
-    .pipe(z.array(Item)),
+    .transform((entries) => entries.filter((value) => !isUnknownLogEntry(value)))
+    .pipe(z.array(LogEntry)),
   truncated: z.boolean(),
 });
-export type ListItemsResponse = z.infer<typeof ListItemsResponse>;
+export type ListLogResponse = z.infer<typeof ListLogResponse>;
 
 // Alerts (lenient), sent over `GET /events` after the change is committed.
 
@@ -295,7 +295,7 @@ export type ListItemsResponse = z.infer<typeof ListItemsResponse>;
 export const Alert = z.object({
   seq: Seq,
   dbId: DbId,
-  type: z.enum(["agent_added", "agent_changed", "agent_removed", "items"]),
+  type: z.enum(["agent_added", "agent_changed", "agent_removed", "log"]),
   agentId: z.string(),
 });
 export type Alert = z.infer<typeof Alert>;

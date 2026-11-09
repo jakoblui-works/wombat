@@ -1,11 +1,11 @@
-// The store: agent summaries and an append-only log of items, read back after a cursor.
+// The store: agent summaries and an append-only log of entries, read back after a cursor.
 import { DatabaseSync } from "node:sqlite";
 
-import { Item } from "@wombat/shared/api";
+import { LogEntry } from "@wombat/shared/api";
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
-import type { ItemEntry } from "./store.ts";
+import type { NewLogEntry } from "./store.ts";
 import {
   fakeClock,
   open,
@@ -17,9 +17,9 @@ import {
   type Store,
 } from "../../test/store-fixtures.ts";
 
-const textOf = (item: Item) =>
-  item.type === "session_update" && item.update.sessionUpdate === "agent_message_chunk" && item.update.content.type === "text"
-    ? item.update.content.text
+const textOf = (entry: LogEntry) =>
+  entry.type === "session_update" && entry.update.sessionUpdate === "agent_message_chunk" && entry.update.content.type === "text"
+    ? entry.update.content.text
     : undefined;
 
 describe("append", () => {
@@ -31,39 +31,39 @@ describe("append", () => {
     const seqs = store.append("a1", realisticTurn);
 
     expect(seqs).toEqual(realisticTurn.map((_, index) => before + 1 + index));
-    const { items } = store.items("a1");
-    expect(items.map((item) => item.seq)).toEqual(seqs);
-    expect(items.map((item) => item.type)).toEqual(realisticTurn.map((entry) => entry.type));
+    const { entries } = store.readLog("a1");
+    expect(entries.map((entry) => entry.seq)).toEqual(seqs);
+    expect(entries.map((entry) => entry.type)).toEqual(realisticTurn.map((entry) => entry.type));
   });
 
-  test("a batch that fails stores nothing: no items, no seq taken", () => {
+  test("a batch that fails stores nothing: no entries, no seq taken", () => {
     const path = tempStorePath();
     const store = open({ path });
     store.putAgent(summary("a1"));
     store.append("a1", [textChunk("kept")]);
     const seqBefore = store.currentSeq();
-    const itemsBefore = store.items("a1");
+    const logBefore = store.readLog("a1");
 
-    // A failure after the batch's first item is written, so only a rollback can undo that write and the seqs.
+    // A failure after the batch's first entry is written, so only a rollback can undo that write and the seqs.
     const other = new DatabaseSync(path);
-    other.exec(`CREATE TRIGGER fail_on_marker BEFORE INSERT ON items WHEN NEW.body LIKE '%fail-this-insert%'
+    other.exec(`CREATE TRIGGER fail_on_marker BEFORE INSERT ON log_entries WHEN NEW.body LIKE '%fail-this-insert%'
                 BEGIN SELECT RAISE(ABORT, 'refused by the test'); END`);
     other.close();
     expect(() => store.append("a1", [textChunk("first"), textChunk("fail-this-insert"), textChunk("last")])).toThrow();
     // Failures before any write: an entry that can't be serialized, and an agent that isn't stored.
-    const unserializable = { type: "user_message", text: 10n } as unknown as ItemEntry;
+    const unserializable = { type: "user_message", text: 10n } as unknown as NewLogEntry;
     expect(() => store.append("a1", [textChunk("first"), unserializable])).toThrow();
     expect(() => store.append("ghost", [textChunk("to nobody")])).toThrow();
 
     expect(store.currentSeq()).toBe(seqBefore);
-    expect(store.items("a1")).toEqual(itemsBefore);
-    expect(store.items("ghost")).toEqual({ items: [], truncated: false });
+    expect(store.readLog("a1")).toEqual(logBefore);
+    expect(store.readLog("ghost")).toEqual({ entries: [], truncated: false });
     expect(store.append("a1", [textChunk("next")])).toEqual([seqBefore + 1]);
   });
 });
 
 describe("persistence", () => {
-  test("reopening keeps dbId, currentSeq, the latest summaries and every item", () => {
+  test("reopening keeps dbId, currentSeq, the latest summaries and every entry", () => {
     const path = tempStorePath();
     const store = open({ path, now: fakeClock() });
     store.putAgent(summary("a1"));
@@ -75,8 +75,8 @@ describe("persistence", () => {
       dbId: store.dbId,
       seq: store.currentSeq(),
       agents: store.listAgents(),
-      a1: store.items("a1"),
-      a2: store.items("a2"),
+      a1: store.readLog("a1"),
+      a2: store.readLog("a2"),
     };
     store.close();
 
@@ -85,11 +85,11 @@ describe("persistence", () => {
       dbId: reopened.dbId,
       seq: reopened.currentSeq(),
       agents: reopened.listAgents(),
-      a1: reopened.items("a1"),
-      a2: reopened.items("a2"),
+      a1: reopened.readLog("a1"),
+      a2: reopened.readLog("a2"),
     }).toEqual(before);
-    expect(before.a1.items).toHaveLength(realisticTurn.length);
-    expect(before.a2.items).toHaveLength(2);
+    expect(before.a1.entries).toHaveLength(realisticTurn.length);
+    expect(before.a2.entries).toHaveLength(2);
   });
 
   test("a new database file gets a new dbId and starts empty", () => {
@@ -117,8 +117,8 @@ describe("persistence", () => {
   });
 });
 
-describe("items", () => {
-  test("returns exactly this agent's items after the cursor, oldest first, at most limit", () => {
+describe("readLog", () => {
+  test("returns exactly this agent's entries after the cursor, oldest first, at most limit", () => {
     const agents = ["a1", "a2", "a3"];
     fc.assert(
       fc.property(
@@ -149,15 +149,15 @@ describe("items", () => {
             const id = agents[query.agent] ?? "never-seen";
             const after = query.after % (store.currentSeq() + 3);
             const expected = model
-              .filter((item) => item.agentId === id && item.seq > after)
+              .filter((entry) => entry.agentId === id && entry.seq > after)
               .slice(0, query.limit ?? Number.POSITIVE_INFINITY);
-            const result = store.items(id, after, query.limit);
+            const result = store.readLog(id, after, query.limit);
             expect(result.truncated).toBe(false);
-            expect(result.items.map((item) => ({ seq: item.seq, agentId: item.agentId, text: textOf(item) }))).toEqual(
+            expect(result.entries.map((entry) => ({ seq: entry.seq, agentId: entry.agentId, text: textOf(entry) }))).toEqual(
               expected,
             );
           }
-          for (const id of agents) expect(store.items(id)).toEqual(store.items(id, 0));
+          for (const id of agents) expect(store.readLog(id)).toEqual(store.readLog(id, 0));
           store.close();
         },
       ),
@@ -165,21 +165,21 @@ describe("items", () => {
     );
   });
 
-  test("come back as valid shared Items, unchanged, with at defaulting to now", () => {
+  test("come back as valid shared log entries, unchanged, with at defaulting to now", () => {
     const now = new Date("2026-11-09T12:34:56.000Z");
     const store = open({ path: tempStorePath(), now: () => now });
     store.putAgent(summary("a1"));
     const withoutAt = textChunk("No timestamp given.");
 
     const seqs = store.append("a1", [...realisticTurn, withoutAt]);
-    const { items } = store.items("a1");
+    const { entries } = store.readLog("a1");
 
-    expect(items).toHaveLength(realisticTurn.length + 1);
-    for (const item of items) expect(Item.parse(item)).toEqual(item);
-    expect(items.slice(0, realisticTurn.length)).toEqual(
+    expect(entries).toHaveLength(realisticTurn.length + 1);
+    for (const entry of entries) expect(LogEntry.parse(entry)).toEqual(entry);
+    expect(entries.slice(0, realisticTurn.length)).toEqual(
       realisticTurn.map((entry, index) => ({ ...entry, seq: seqs[index], agentId: "a1" })),
     );
-    const last = items.at(-1);
+    const last = entries.at(-1);
     expect(last).toMatchObject({ ...withoutAt, seq: seqs.at(-1), agentId: "a1" });
     expect(Date.parse(last?.at ?? "")).toBe(now.getTime());
   });
@@ -189,8 +189,8 @@ describe("the per-agent size cap", () => {
   /** A cap chosen by the test; the product's constant is never assumed. */
   const CAP = 4096;
 
-  test("past the cap the oldest items go, the newest stay, other agents are untouched, and truncated says so", () => {
-    const store = open({ path: tempStorePath(), maxItemBytesPerAgent: CAP });
+  test("past the cap the oldest entries go, the newest stay, other agents are untouched, and truncated says so", () => {
+    const store = open({ path: tempStorePath(), maxLogBytesPerAgent: CAP });
     store.putAgent(summary("big"));
     store.putAgent(summary("small"));
     const smallChunks = ["one", "two", "three", "four"].map((word) => textChunk(`${word} ${"s".repeat(CAP / 16)}`));
@@ -202,50 +202,50 @@ describe("the per-agent size cap", () => {
     );
     smallSeqs.push(...store.append("small", smallChunks.slice(2)));
 
-    const kept = store.items("big").items;
-    const keptSeqs = kept.map((item) => item.seq);
+    const kept = store.readLog("big").entries;
+    const keptSeqs = kept.map((entry) => entry.seq);
     expect(keptSeqs.length).toBeGreaterThan(0);
     expect(keptSeqs.length).toBeLessThan(bigSeqs.length);
     // Oldest deleted first: what's kept is the newest run of the batch.
     expect(keptSeqs).toEqual(bigSeqs.slice(bigSeqs.length - keptSeqs.length));
-    expect(kept.reduce((bytes, item) => bytes + Buffer.byteLength(textOf(item) ?? ""), 0)).toBeLessThanOrEqual(CAP);
+    expect(kept.reduce((bytes, entry) => bytes + Buffer.byteLength(textOf(entry) ?? ""), 0)).toBeLessThanOrEqual(CAP);
 
     const oldestKept = keptSeqs[0] ?? 0;
-    expect(store.items("big", 0).truncated).toBe(true);
-    expect(store.items("big", oldestKept - 2).truncated).toBe(true);
-    expect(store.items("big", oldestKept - 1)).toEqual({ items: kept, truncated: false });
+    expect(store.readLog("big", 0).truncated).toBe(true);
+    expect(store.readLog("big", oldestKept - 2).truncated).toBe(true);
+    expect(store.readLog("big", oldestKept - 1)).toEqual({ entries: kept, truncated: false });
 
-    expect(store.items("small")).toMatchObject({ truncated: false });
-    expect(store.items("small").items.map((item) => item.seq)).toEqual(smallSeqs);
+    expect(store.readLog("small")).toMatchObject({ truncated: false });
+    expect(store.readLog("small").entries.map((entry) => entry.seq)).toEqual(smallSeqs);
   });
 
-  test("the newest item survives even when it alone is over the cap", () => {
-    const store = open({ path: tempStorePath(), maxItemBytesPerAgent: CAP });
+  test("the newest entry survives even when it alone is over the cap", () => {
+    const store = open({ path: tempStorePath(), maxLogBytesPerAgent: CAP });
     store.putAgent(summary("a1"));
     store.append("a1", [textChunk("first"), textChunk("second")]);
     const [hugeSeq] = store.append("a1", [textChunk(`huge ${"h".repeat(CAP * 2)}`)]);
 
-    const result = store.items("a1");
-    expect(result.items.map((item) => item.seq)).toEqual([hugeSeq]);
+    const result = store.readLog("a1");
+    expect(result.entries.map((entry) => entry.seq)).toEqual([hugeSeq]);
     expect(result.truncated).toBe(true);
   });
 });
 
 describe("deleteAgent", () => {
-  test("removes the summary and every item of that agent, for good, and leaves the others", () => {
+  test("removes the summary and every entry of that agent, for good, and leaves the others", () => {
     const path = tempStorePath();
     const store = open({ path });
     store.putAgent(summary("gone"));
     store.putAgent(summary("stays"));
     store.append("gone", realisticTurn);
     store.append("stays", [textChunk("Still here.")]);
-    const stays = store.items("stays");
+    const stays = store.readLog("stays");
 
     expect(store.deleteAgent("gone")).toEqual(expect.any(Number));
     expect(store.listAgents().map((agent) => agent.id)).toEqual(["stays"]);
-    expect(store.items("gone")).toEqual({ items: [], truncated: false });
+    expect(store.readLog("gone")).toEqual({ entries: [], truncated: false });
     expect(() => store.append("gone", [textChunk("late")])).toThrow();
-    expect(store.items("stays")).toEqual(stays);
+    expect(store.readLog("stays")).toEqual(stays);
     expect(store.deleteAgent("gone")).toBeUndefined();
 
     store.close();
@@ -253,6 +253,6 @@ describe("deleteAgent", () => {
     expect(reopened.listAgents().map((agent) => agent.id)).toEqual(["stays"]);
     // The same id added again starts with no history.
     reopened.putAgent(summary("gone"));
-    expect(reopened.items("gone")).toEqual({ items: [], truncated: false });
+    expect(reopened.readLog("gone")).toEqual({ entries: [], truncated: false });
   });
 });
