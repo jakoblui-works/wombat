@@ -8,7 +8,7 @@ Early. Milestone 1: the app (a desktop app and its agent service, running on the
 
 ## Run the app
 
-From `app/`, with Node 24 or newer and pnpm 12 (the `packageManager` field in `app/package.json` pins the version):
+From `app/`, with Node 26 or newer (`.tool-versions` at the repo root pins the version for asdf) and pnpm 12 (the `packageManager` field in `app/package.json` pins the version):
 
 ```sh
 pnpm install
@@ -32,3 +32,5 @@ pnpm test:e2e
 ## License
 
 Apache-2.0, see [LICENSE](LICENSE).
+
+The Apache-2.0 license covers Wombat's own code. Dependencies keep their own licenses, which aren't all open source: the Claude Agent SDK, used through `claude-agent-acp`, is under Anthropic's terms. They're installed from their registries, not included in this repo.
