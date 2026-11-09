@@ -3,7 +3,7 @@
 // a structure's access level covers exactly its own files, so a nested hidden structure's items never show
 // through its parent.
 import { glob, lstat, readdir, readFile } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { join, matchesGlob, relative, sep } from "node:path";
 
 import { StructureSettings, type Problem } from "@wombat/shared/items";
 import { isCollection, LineCounter, parseDocument, type Document } from "yaml";
@@ -53,6 +53,13 @@ export const structureFolders = async (root: string): Promise<{ folders: string[
   await visit("");
   return { folders: folders.sort(), unreadable };
 };
+
+/** True for a path the scan never enters: one with a dot folder or node_modules in it, or a dot file. */
+export const isSkippedPath = (path: string) => path.split("/").some(skipped);
+
+/** True when a folder-relative path matches one of a free structure's `include` globs. */
+export const isIncluded = (settings: StructureSettings, path: string) =>
+  (settings.include ?? []).some((pattern) => matchesGlob(path, pattern.replace(/^(\.\/)+/, "")));
 
 /** The structure folder a root-relative file belongs to: the nearest of `folders` above it. */
 export const ownerOf = (folders: Set<string>, file: string): string | undefined => {
@@ -113,8 +120,11 @@ export const readSettings = async (file: string): Promise<SettingsResult> => {
   };
 };
 
-/** True when a folder on the way from `folder` to `file` (both absolute, the file inside) is a symlink. */
-const throughSymlink = async (folder: string, file: string) => {
+/**
+ * True when a folder on the way from `folder` to `file` (both absolute, the file inside) is a symlink. Throws
+ * ENOENT when one of the folders doesn't exist.
+ */
+export const throughSymlink = async (folder: string, file: string) => {
   const segments = relative(folder, file).split(sep).slice(0, -1);
   let path = folder;
   for (const segment of segments) {
@@ -153,7 +163,7 @@ export const structureFiles = async (root: string, folder: string, settings: Str
   try {
     for await (const match of glob(settings.include, { cwd: absolute })) {
       const path = match.split(sep).join("/");
-      if (!path.endsWith(".md") || path.split("/").some(skipped)) continue;
+      if (!path.endsWith(".md") || isSkippedPath(path)) continue;
       const file = join(absolute, match);
       if (relative(absolute, file).startsWith("..")) continue;
       try {

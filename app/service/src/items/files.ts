@@ -1,9 +1,10 @@
 // Reading and writing item files. Every write under an items root, the catalog's first-sight assignments and the
-// writer's changes alike, runs through that root's one queue, compares the file's version just before writing,
-// and replaces the file atomically, so a hand edit or a parallel write is never overwritten unseen.
+// writer's changes alike, runs through that root's one queue. A change or delete compares the file's version
+// just before it lands and a create refuses a file that already exists; files are replaced atomically. So a hand
+// edit or a parallel write is never overwritten unseen.
 import { createHash, randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
-import { chmod, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, link, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
 /** sha256 (hex) of a file's bytes: an item's version. */
@@ -25,12 +26,44 @@ export const readVersioned = async (path: string): Promise<VersionedFile | undef
   return { bytes, text: bytes.toString("utf8"), version: versionOf(bytes) };
 };
 
+/** The file isn't at the version a write or delete was based on; nothing was changed. */
+export class VersionChanged extends Error {
+  constructor(path: string) {
+    super(`${path} changed since it was read; read it again and redo the change.`);
+    this.name = "VersionChanged";
+  }
+}
+
+/** Throws VersionChanged unless the file is at `version`. */
+const expectVersion = async (path: string, version: string | undefined) => {
+  if (version !== undefined && (await readVersioned(path))?.version !== version) throw new VersionChanged(path);
+};
+
+/** The items root's filesystem can't do what a create needs (hard links). */
+export class NoHardLinks extends Error {
+  constructor(path: string, code: string, cause: unknown) {
+    super(`Can't create files in ${dirname(path)}: its filesystem doesn't support hard links (${code}); keep the items root on a local filesystem.`, { cause });
+    this.name = "NoHardLinks";
+  }
+}
+
+/** Filesystems that can't hard-link answer `link()` with one of these. */
+const NO_HARD_LINKS = new Set(["EPERM", "ENOTSUP", "EXDEV"]);
+
+export type WriteOptions = {
+  /** The file must not exist yet. */
+  create?: boolean;
+  /** The version the file must still have; compared after the temp file is written, just before it lands. */
+  expectedVersion?: string;
+};
+
 /**
  * Replaces (or creates) the file through a temp file in the same folder and a rename, so a reader sees the old
  * file or the new one, never half of one. An existing file keeps its mode. The temp name starts with a dot and
- * ends in `.tmp`, so a scan never takes it for an item.
+ * ends in `.tmp`, so a scan never takes it for an item. With `create`, the temp file is hard-linked into place,
+ * which fails with EEXIST instead of replacing a file made in the meantime.
  */
-export const writeAtomic = async (path: string, data: string | Uint8Array) => {
+export const writeAtomic = async (path: string, data: string | Uint8Array, { create = false, expectedVersion }: WriteOptions = {}) => {
   const temp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
   let mode: number | undefined;
   try {
@@ -41,11 +74,30 @@ export const writeAtomic = async (path: string, data: string | Uint8Array) => {
   try {
     await writeFile(temp, data, { flag: "wx" });
     if (mode !== undefined) await chmod(temp, mode);
-    await rename(temp, path);
-  } catch (error) {
+    if (create) await linkNew(temp, path);
+    else {
+      await expectVersion(path, expectedVersion);
+      await rename(temp, path);
+    }
+  } finally {
     await rm(temp, { force: true });
-    throw error;
   }
+};
+
+const linkNew = async (temp: string, path: string) => {
+  try {
+    await link(temp, path);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code ?? "";
+    if (!NO_HARD_LINKS.has(code)) throw error;
+    throw new NoHardLinks(path, code, error);
+  }
+};
+
+/** Deletes the file if it's still at `version`, compared just before the unlink. */
+export const removeUnchanged = async (path: string, version: string) => {
+  await expectVersion(path, version);
+  await unlink(path);
 };
 
 const queues = new Map<string, Promise<unknown>>();

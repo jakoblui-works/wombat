@@ -93,9 +93,10 @@ export type ErrorBody = z.infer<typeof ErrorBody>;
 
 /**
  * The items routes' error codes: `items_not_configured` when the service runs without an items root,
- * `structure_not_found` and `item_not_found` for an unknown structure id or handle.
+ * `structure_not_found` and `item_not_found` for an unknown structure id or handle, `items_not_writable` when the
+ * items root's filesystem can't take the service's writes.
  */
-export const ItemsErrorCode = z.enum(["items_not_configured", "structure_not_found", "item_not_found"]);
+export const ItemsErrorCode = z.enum(["items_not_configured", "structure_not_found", "item_not_found", "items_not_writable"]);
 export type ItemsErrorCode = z.infer<typeof ItemsErrorCode>;
 
 export const VersionResponse = z.object({ apiVersion: z.int() });

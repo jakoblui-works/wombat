@@ -5,14 +5,13 @@
 // in a structure with problems, in a file without a valid title, or outside every structure is ever written.
 import { randomUUIDv7 } from "node:crypto";
 import { join } from "node:path";
-import { isDeepStrictEqual } from "node:util";
 
 import type { Item, Problem, StructureSettings } from "@wombat/shared/items";
 
 import type { Log } from "../agents/manager.ts";
 import type { Store } from "../store/store.ts";
-import { queueWrite, readVersioned, writeAtomic } from "./files.ts";
-import { addKeyEdits, applyEdits, parseItemFile, scalarRange, type ParsedItemFile, type TextEdit } from "./item-file.ts";
+import { queueWrite, readVersioned, VersionChanged, writeAtomic } from "./files.ts";
+import { addKeyEdits, checkedText, parseItemFile, scalarRange, type ParsedItemFile, type TextEdit } from "./item-file.ts";
 import { folderProblem, ownerOf, readSettings, SETTINGS_FILE, structureFiles, structureFolders } from "./structures.ts";
 import { isUuid, parseHandle, validateOwnKeys, validateProperties, type LinkLookup } from "./validate.ts";
 
@@ -45,7 +44,7 @@ export type Catalog = {
 
 export type CatalogOptions = { root: string; store: Store; log?: Log };
 
-type ValidStructure = Extract<LoadedStructure, { id: string }>;
+export type ValidStructure = Extract<LoadedStructure, { id: string }>;
 
 /** A read file with what writing it on first sight needs. */
 type Entry = {
@@ -111,8 +110,19 @@ const emptyItem = (structure: ValidStructure, path: string, version: string, pro
   structure: structure.id,
 });
 
-/** One full read of the root, and the first-sight writes it calls for. */
-const load = async (root: string): Promise<{ snapshot: Snapshot; assignments: Assignment[]; floors: Map<string, number> }> => {
+/** One full read of the root: what it holds, and what writing to it needs. */
+export type RootRead = {
+  snapshot: Snapshot;
+  /** The first-sight writes the read calls for. */
+  assignments: Assignment[];
+  /** Handle prefix → the highest number a handle or alias on disk has. */
+  floors: Map<string, number>;
+  /** What a link value names, across every item read. */
+  links: LinkLookup;
+};
+
+/** Reads the whole root without writing anything; writers call it inside the root's write queue. */
+export const readRoot = async (root: string): Promise<RootRead> => {
   const { folders, unreadable } = await structureFolders(root);
   const folderSet = new Set(folders);
   const structures: LoadedStructure[] = await Promise.all(
@@ -241,7 +251,7 @@ const load = async (root: string): Promise<{ snapshot: Snapshot; assignments: As
   }
 
   const sorted = entries.map((entry) => entry.item).sort((a, b) => a.path.localeCompare(b.path));
-  return { snapshot: { structures, items: sorted }, assignments, floors };
+  return { snapshot: { structures, items: sorted }, assignments, floors, links };
 };
 
 /** How a first-sight write ended: `stale` when the file changed since it was read (the next pass retries). */
@@ -250,10 +260,7 @@ type Outcome = { kind: "written" } | { kind: "stale" } | { kind: "failed"; probl
 /** The field a first-sight write is about, for its problem. */
 const fieldOf = ({ needsId, needsHandle, rewrites }: Assignment) => (needsId ? "id" : needsHandle ? "handle" : ([...rewrites.keys()][0] ?? "id"));
 
-/**
- * The file after the edits, or undefined when the edits would change more than the keys they add or rewrite
- * (frontmatter the added lines don't fit into, a title or body that moved).
- */
+/** The file after the edits, or undefined when the edits would change more than the keys they add or rewrite. */
 const checkedEdit = (parsed: ParsedItemFile, added: { id?: string; handle?: string }, rewrites: Map<string, string>) => {
   const edits: TextEdit[] = addKeyEdits(parsed, added);
   for (const [name, target] of rewrites) {
@@ -261,11 +268,7 @@ const checkedEdit = (parsed: ParsedItemFile, added: { id?: string; handle?: stri
     if (range === undefined) return undefined;
     edits.push({ ...range, text: target });
   }
-  const text = applyEdits(parsed.text, edits);
-  const after = parseItemFile(text);
-  const expected = { ...parsed.data, ...added, ...Object.fromEntries(rewrites) };
-  if (!after.ok || after.title !== parsed.title || after.body !== parsed.body || !isDeepStrictEqual(after.data, expected)) return undefined;
-  return text;
+  return checkedText(parsed, edits, { data: { ...parsed.data, ...added, ...Object.fromEntries(rewrites) }, title: parsed.title, body: parsed.body });
 };
 
 /**
@@ -291,10 +294,11 @@ const assign = (root: string, store: Store, log: Log | undefined, floors: Map<st
     const handle = needsHandle ? `${settings.prefix}-${store.nextHandleNumber(settings.id, floors.get(settings.prefix) ?? 0)}` : "";
     const text = checkedEdit(entry.parsed, keys(id, handle), rewrites);
     if (text === undefined) throw new Error(`The first-sight edit of ${entry.item.path} passed its check with stand-in values but not with the real ones.`);
-    await writeAtomic(entry.file, text);
+    await writeAtomic(entry.file, text, { expectedVersion: entry.item.version });
     log?.("item_first_sight", { structure: settings.id, handle: needsHandle ? handle : (entry.item.handle ?? ""), linksRewritten: rewrites.size });
     return { kind: "written" };
   }).catch((error: unknown): Outcome => {
+    if (error instanceof VersionChanged) return { kind: "stale" };
     const code = (error as NodeJS.ErrnoException).code ?? "unknown error";
     log?.("item_first_sight_failed", { structure: settings.id, item: entry.item.handle ?? entry.item.id ?? "", error: code });
     return {
@@ -312,7 +316,7 @@ export const openCatalog = ({ root, store, log }: CatalogOptions): Catalog => {
     /** Root-relative path → why its write failed; not retried within this read. */
     const failed = new Map<string, Problem>();
     for (let pass = 1; ; pass += 1) {
-      const { snapshot: read, assignments, floors } = await load(root);
+      const { snapshot: read, assignments, floors } = await readRoot(root);
       for (const item of read.items) {
         const problem = failed.get(item.path);
         if (problem !== undefined) item.problems.push(problem);

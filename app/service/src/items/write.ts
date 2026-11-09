@@ -1,11 +1,23 @@
-// STUB from the test-writer (step 5b, S1): the interface of interface-S1.md "Service modules" (T3) so the tests
-// compile and fail on their own assertions. The T3 builder replaces this file. `openWriter` is the test-writer's
-// assumption for how the three write functions get their root and store (the interface lists only the functions).
+// Creating, changing and deleting item files. Each write runs in the root's write queue on a fresh read of the
+// root, is refused when the file changed since the version the caller read, and is parsed again before it's
+// written: a write either reads back exactly as intended or doesn't happen. Updates touch only the bytes of the
+// fields they set, so comments, key order and line endings stay as they were typed.
+import { randomUUIDv7 } from "node:crypto";
+import { lstat } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
+
+import type { Problem } from "@wombat/shared/items";
+import { stringify } from "yaml";
+
 import type { Log } from "../agents/manager.ts";
 import type { Store } from "../store/store.ts";
-import type { LoadedItem, Problem } from "./catalog.ts";
+import { readRoot, type LoadedItem, type RootRead, type ValidStructure } from "./catalog.ts";
+import { NoHardLinks, queueWrite, readVersioned, removeUnchanged, VersionChanged, versionOf, writeAtomic } from "./files.ts";
+import { bodyEdit, checkedText, parseItemFile, readsBackAs, setKeyEdits, titleEdit, type ParsedItemFile } from "./item-file.ts";
+import { isIncluded, isSkippedPath, joinRootPath, ownerOf, SETTINGS_FILE, throughSymlink } from "./structures.ts";
+import { OWN_KEYS, validateProperties, type LinkLookup } from "./validate.ts";
 
-export type ItemWriteErrorCode = "stale_version" | "invalid_fields" | "item_not_found" | "field_not_writable";
+export type ItemWriteErrorCode = "stale_version" | "invalid_fields" | "item_not_found" | "structure_not_found" | "field_not_writable" | "items_not_writable";
 
 /** Why a write was refused; nothing on disk changed. */
 export class ItemWriteError extends Error {
@@ -24,7 +36,7 @@ export type NewItem = {
   title: string;
   body: string;
   properties: Record<string, unknown>;
-  /** Free naming only: the file's path in the structure. */
+  /** Free naming only: the file's path relative to the structure's folder, with `/`. */
   file?: string;
 };
 
@@ -32,13 +44,281 @@ export type Writer = {
   createItem(structureId: string, item: NewItem): Promise<LoadedItem>;
   /** One or more fields, title and body included; refused when the file changed since `baseVersion`. */
   updateItem(handle: string, fields: Record<string, unknown>, baseVersion: string): Promise<LoadedItem>;
+  /** The handle's number stays taken: the store's counter never goes back. */
   deleteItem(handle: string, baseVersion: string): Promise<void>;
 };
 
 export type WriterOptions = { root: string; store: Store; log?: Log };
 
-export const openWriter = (opts: WriterOptions): Writer => {
-  // Opening succeeds so the catalog's tests can open both; every write is refused until the writer exists.
-  const notYet = () => Promise.reject(new Error(`not implemented (items root ${opts.root})`));
-  return { createItem: notYet, updateItem: notYet, deleteItem: notYet };
+const SLUG_LENGTH = 50;
+
+/** Lowercase ASCII words of the title joined by `-`, cut at a word to at most 50 characters. */
+export const slugOf = (title: string) => {
+  const words = title.normalize("NFKD").toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  let slug = "";
+  for (const word of words) {
+    const next = slug === "" ? word : `${slug}-${word}`;
+    if (next.length > SLUG_LENGTH) return slug === "" ? word.slice(0, SLUG_LENGTH) : slug;
+    slug = next;
+  }
+  return slug;
 };
+
+/** A value as one line of YAML that reads back as the same value. */
+const yamlValue = (value: unknown) => {
+  const text = stringify(value, { lineWidth: 0 }).replace(/\n$/, "");
+  // Multi-line strings would become block scalars; a JSON string is a one-line YAML double-quoted scalar.
+  return text.includes("\n") ? JSON.stringify(value) : text;
+};
+
+const invalid = (message: string, problems: Problem[]) => new ItemWriteError("invalid_fields", message, problems);
+
+/** The problems' messages, for an error message. */
+const listed = (problems: Problem[]) => problems.map((problem) => problem.message).join("; ");
+
+const refuseOwnKeys = (keys: string[], what: string) => {
+  const own = keys.filter((key) => OWN_KEYS.has(key));
+  if (own.length > 0) {
+    throw new ItemWriteError(
+      "field_not_writable",
+      `${own.join(", ")}: the service sets ${own.length === 1 ? "this field" : "these fields"}, so ${what} can't; leave ${own.length === 1 ? "it" : "them"} out (a handle changes only by hand, with the old one kept in aliases).`,
+    );
+  }
+};
+
+/** Problems of a title: one line of text, not empty. Returns the title as it reads back (trimmed). */
+const checkTitle = (title: unknown): { title: string; problems: Problem[] } => {
+  if (typeof title !== "string") return { title: "", problems: [{ field: "title", message: "title: takes text, like Login times out" }] };
+  if (/[\r\n\u2028\u2029]/.test(title)) return { title, problems: [{ field: "title", message: "title: takes one line; move the rest into the body" }] };
+  const trimmed = title.trim();
+  return { title: trimmed, problems: trimmed === "" ? [{ field: "title", message: "title: can't be empty; give the item a title" }] : [] };
+};
+
+const checkBody = (body: unknown): Problem[] => (typeof body === "string" ? [] : [{ field: "body", message: "body: takes text (an empty body is \"\")" }]);
+
+/** A structure items can be written to: one with settings and no problems. */
+const writableStructure = (structure: ValidStructure, action: string) => {
+  if (structure.problems.length > 0) {
+    throw invalid(
+      `The structure ${structure.id} has problems (${listed(structure.problems)}), so no item in it can be ${action}; fix its ${SETTINGS_FILE} first.`,
+      structure.problems,
+    );
+  }
+};
+
+/**
+ * The property values to write, with link values given as a handle or alias replaced by the target's id (links
+ * store ids). Throws `invalid_fields` when the item's frontmatter `data` with them doesn't validate.
+ */
+const checkProperties = (structure: ValidStructure, data: Record<string, unknown>, set: string[], links: LinkLookup, extra: Problem[]) => {
+  const validated = validateProperties(structure.settings, data, links);
+  const problems = [...extra, ...validated.problems];
+  if (problems.length > 0) throw invalid(`The fields don't fit the structure ${structure.id}: ${listed(problems)}. Nothing was written.`, problems);
+  const values = { ...data };
+  for (const key of set) {
+    const id = validated.rewrites.get(key);
+    if (id !== undefined) values[key] = id;
+  }
+  return values;
+};
+
+/** The item as written, from its text. */
+const loadedItem = (structure: ValidStructure, path: string, text: string, links: LinkLookup): LoadedItem => {
+  const parsed = parseItemFile(text) as ParsedItemFile;
+  const { id, handle, aliases } = parsed.data;
+  return {
+    id: id as string,
+    handle: handle as string,
+    aliases: Array.isArray(aliases) ? aliases.filter((alias): alias is string => typeof alias === "string") : [],
+    title: parsed.title,
+    body: parsed.body,
+    properties: validateProperties(structure.settings, parsed.data, links).properties,
+    path,
+    version: versionOf(Buffer.from(text, "utf8")),
+    problems: [],
+    structure: structure.id,
+  };
+};
+
+/** A path that doesn't exist, or runs through a file where a folder should be. */
+const isMissingPath = (error: unknown) => ["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "");
+
+/** Problems of a free structure's `file`, checked like a file someone made by hand. */
+const checkFreeFile = async (root: string, structure: ValidStructure, file: unknown, folders: Set<string>): Promise<Problem[]> => {
+  const problem = (message: string): Problem[] => [{ field: "file", message: `file: ${message}` }];
+  if (typeof file !== "string" || file === "") return problem(`${structure.id} names files freely, so give the new file's path in its folder, like notes.md`);
+  const segments = file.split("/");
+  if (isAbsolute(file) || file.includes("\\") || segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+    return problem(`${file} must be a plain path relative to the structure's folder, with / and without "..", like guides/setup.md`);
+  }
+  if (!file.endsWith(".md")) return problem(`${file} must end in .md`);
+  if (isSkippedPath(file)) return problem(`${file} is in a dot folder or node_modules, or is a dot file, which are never read; pick another path`);
+  if (!isIncluded(structure.settings, file)) {
+    return problem(`${file} doesn't match the structure's include (${(structure.settings.include ?? []).join(", ")}); pick a path it matches`);
+  }
+  const rootPath = joinRootPath(structure.path, file);
+  if (ownerOf(folders, rootPath) !== structure.path) return problem(`${file} is inside another structure's folder; create it there instead`);
+  const folder = join(root, structure.path);
+  const absolute = join(root, rootPath);
+  try {
+    if (await throughSymlink(folder, absolute)) return problem(`${file} goes through a symlinked folder, which is never read; pick a path in a real folder`);
+  } catch (error) {
+    if (isMissingPath(error)) return problem(`the folder of ${file} doesn't exist; create it first or pick an existing folder`);
+    throw error;
+  }
+  try {
+    await lstat(absolute);
+    return problem(`${file} already exists; pick another path, or update that item`);
+  } catch (error) {
+    if (!isMissingPath(error)) throw error;
+  }
+  return [];
+};
+
+/** The item named by a handle (or alias) in a fresh read, if it can be written. */
+const writableItem = (read: RootRead, handle: string, baseVersion: string, action: string) => {
+  const { items, structures } = read.snapshot;
+  const item = items.find((candidate) => candidate.handle === handle) ?? items.find((candidate) => candidate.aliases.includes(handle));
+  if (item === undefined) throw new ItemWriteError("item_not_found", `No item has the handle ${handle}; check it, or list the structure's items to find the right one.`);
+  const structure = structures.find((candidate): candidate is ValidStructure => candidate.id === item.structure);
+  if (structure === undefined) throw new Error(`The item ${handle} was read in the structure ${item.structure}, which the same read doesn't list.`);
+  if (item.version !== baseVersion) {
+    throw new ItemWriteError("stale_version", `${handle} changed since it was read (by hand or by another write), so it wasn't ${action}; read it again and redo the change on the new version.`);
+  }
+  writableStructure(structure, action);
+  if (item.problems.length > 0) {
+    throw invalid(`${handle} has problems on disk (${listed(item.problems)}), so it can't be ${action}; fix the file (${item.path}) by hand first.`, item.problems);
+  }
+  if (item.id === null) {
+    throw invalid(`${handle} has no id yet, so it can't be ${action}; read its structure so it gets one, then try again.`, [
+      { field: "id", message: "id: none yet; reading the structure assigns one" },
+    ]);
+  }
+  return { item, structure };
+};
+
+/** Runs a write, turning a version change found just before it landed into `stale_version`. */
+const staleIfChanged = async (handle: string, action: string, write: () => Promise<void>) => {
+  try {
+    await write();
+  } catch (error) {
+    if (!(error instanceof VersionChanged)) throw error;
+    throw new ItemWriteError("stale_version", `${handle} changed while it was being ${action} (by hand or by another program), so it wasn't; read it again and redo the change.`);
+  }
+};
+
+export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
+  createItem: (structureId, item) =>
+    queueWrite(root, async () => {
+      refuseOwnKeys(Object.keys(item.properties), "a new item's properties");
+      const read = await readRoot(root);
+      const structure = read.snapshot.structures.find((candidate): candidate is ValidStructure => candidate.id === structureId);
+      if (structure === undefined) {
+        throw new ItemWriteError("structure_not_found", `No structure has the id ${structureId}; use the id from its ${SETTINGS_FILE} (a structure with broken settings has none until it's fixed).`);
+      }
+      writableStructure(structure, "created");
+      const { settings } = structure;
+
+      const { title, problems: titleProblems } = checkTitle(item.title);
+      const problems = [...titleProblems, ...checkBody(item.body)];
+      const folders = new Set(read.snapshot.structures.map((candidate) => candidate.path));
+      if (settings.naming === "free") problems.push(...(await checkFreeFile(root, structure, item.file, folders)));
+      else if (item.file !== undefined) problems.push({ field: "file", message: `file: ${structure.id} names its files by handle, so leave file out` });
+      const given = Object.fromEntries(Object.entries(item.properties).filter(([, value]) => value !== undefined && value !== null));
+      // Declared order, then anything undeclared (which validation refuses), so files read like their settings.
+      const keys = [...Object.keys(settings.properties).filter((key) => key in given), ...Object.keys(given).filter((key) => !(key in settings.properties))];
+      const values = checkProperties(structure, Object.fromEntries(keys.map((key) => [key, given[key]])), keys, read.links, problems);
+
+      const textFor = (id: string, handle: string) => {
+        const lines = [`id: ${id}`, `handle: ${handle}`, ...keys.map((key) => `${key}: ${yamlValue(values[key])}`)];
+        const text = `---\n${lines.join("\n")}\n---\n# ${title}\n${item.body}`;
+        return readsBackAs(text, { data: { id, handle, ...values }, title, body: item.body }) ? text : undefined;
+      };
+      // Checked with stand-in values before the number is taken, so a refused create takes no number.
+      if (textFor(randomUUIDv7(), `${settings.prefix}-1`) === undefined) {
+        throw invalid("The item wouldn't read back as given; check the title and the property values for characters YAML or markdown treat specially.", []);
+      }
+      const id = randomUUIDv7();
+      const handle = `${settings.prefix}-${store.nextHandleNumber(settings.id, read.floors.get(settings.prefix) ?? 0)}`;
+      const text = textFor(id, handle);
+      if (text === undefined) throw new Error(`The new item ${handle} passed its read-back check with stand-in values but not with the real ones.`);
+      const file = settings.naming === "free" ? (item.file ?? "") : [handle, slugOf(title)].filter(Boolean).join("-") + ".md";
+      const path = joinRootPath(structure.path, file);
+      try {
+        await writeAtomic(join(root, path), text, { create: true });
+      } catch (error) {
+        if (error instanceof NoHardLinks) throw new ItemWriteError("items_not_writable", error.message);
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        throw invalid(`${path} was created by someone else meanwhile; nothing was written, so try again${settings.naming === "free" ? " with another file" : ""}.`, [
+          { field: "file", message: `file: ${path} already exists` },
+        ]);
+      }
+      log?.("item_created", { structure: settings.id, handle });
+      return loadedItem(structure, path, text, read.links);
+    }),
+
+  updateItem: (handle, fields, baseVersion) =>
+    queueWrite(root, async () => {
+      const names = Object.keys(fields);
+      refuseOwnKeys(names, "an update");
+      if (names.length === 0) throw invalid("The update names no fields; give at least one field to change.", []);
+      const read = await readRoot(root);
+      const { item, structure } = writableItem(read, handle, baseVersion, "updated");
+      const file = join(root, item.path);
+      // Read again just before the edit: the full read above took a while, and a hand edit may have landed since.
+      const current = await readVersioned(file);
+      const parsed = current === undefined ? undefined : parseItemFile(current.text);
+      if (current?.version !== baseVersion || parsed?.ok !== true) {
+        throw new ItemWriteError("stale_version", `${handle} changed since it was read, so it wasn't updated; read it again and redo the change.`);
+      }
+
+      const problems: Problem[] = [];
+      let title = parsed.title;
+      let body = parsed.body;
+      if ("title" in fields) {
+        const checked = checkTitle(fields.title);
+        problems.push(...checked.problems);
+        title = checked.title;
+      }
+      if ("body" in fields) {
+        problems.push(...checkBody(fields.body));
+        body = typeof fields.body === "string" ? fields.body : body;
+      }
+      const set = names.filter((name) => name !== "title" && name !== "body");
+      const data = { ...parsed.data };
+      for (const key of set) {
+        const value = fields[key];
+        if (value === null || value === undefined) delete data[key];
+        else data[key] = value;
+      }
+      const values = checkProperties(structure, data, set, read.links, problems);
+
+      const keyEdits = setKeyEdits(
+        parsed,
+        set.map((key) => [key, key in values ? yamlValue(values[key]) : null]),
+      );
+      const titleChange = title === parsed.title ? undefined : titleEdit(parsed, title ?? "");
+      const bodyChange = body === parsed.body ? undefined : bodyEdit(parsed, body ?? "");
+      const text =
+        keyEdits === undefined || (title !== parsed.title && titleChange === undefined) || (body !== parsed.body && bodyChange === undefined)
+          ? undefined
+          : checkedText(parsed, [...keyEdits, ...(titleChange ? [titleChange] : []), ...(bodyChange ? [bodyChange] : [])], { data: values, title, body });
+      if (text === undefined) {
+        throw invalid(
+          `${names.join(", ")}: can't be changed without touching more of ${handle} than the fields named (an anchor or alias, or a value YAML can't edit in place); change it by hand in ${item.path}.`,
+          [],
+        );
+      }
+      await staleIfChanged(handle, "updated", () => writeAtomic(file, text, { expectedVersion: baseVersion }));
+      log?.("item_updated", { structure: structure.id, handle, fields: names.length });
+      return loadedItem(structure, item.path, text, read.links);
+    }),
+
+  deleteItem: (handle, baseVersion) =>
+    queueWrite(root, async () => {
+      const read = await readRoot(root);
+      const { item, structure } = writableItem(read, handle, baseVersion, "deleted");
+      await staleIfChanged(handle, "deleted", () => removeUnchanged(join(root, item.path), baseVersion));
+      log?.("item_deleted", { structure: structure.id, handle });
+    }),
+});

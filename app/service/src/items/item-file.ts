@@ -1,6 +1,8 @@
 // One item file's text: the YAML frontmatter between `---` lines, the title (the first non-blank line after it,
 // a `# ` heading) and the body (everything after the title line). Parsing keeps the offsets that edits need, so
 // an edit replaces only the bytes it's about and every other byte (comments, key order, CRLF) stays.
+import { isDeepStrictEqual } from "node:util";
+
 import { isMap, isScalar, LineCounter, parseDocument, type Pair, type YAMLMap } from "yaml";
 
 import type { Problem } from "@wombat/shared/items";
@@ -15,6 +17,8 @@ export type ParsedItemFile = {
   map: YAMLMap | null;
   /** Offset of the frontmatter's first line (after the opening `---`); null when the file has no frontmatter. */
   frontmatterStart: number | null;
+  /** Offset of the closing `---` line, where added keys go; null when the file has no frontmatter. */
+  frontmatterEnd: number | null;
   /** Offset of the text after a leading BOM: where a new frontmatter block goes. */
   textStart: number;
   /** The frontmatter as plain values. */
@@ -22,6 +26,8 @@ export type ParsedItemFile = {
   /** Null when the file has no title line; then `body` is null too. */
   title: string | null;
   body: string | null;
+  /** The title line's offsets without its line ending, and whether it has one; null when the file has no title line. */
+  titleLine: { start: number; end: number; hasEol: boolean } | null;
   /** Title problems (a first-sight write needs none); the frontmatter's are the validator's. */
   problems: Problem[];
 };
@@ -69,6 +75,7 @@ export const parseItemFile = (text: string): ItemFile => {
   const lines = linesOf(text, start);
   /** Where the frontmatter would go: after the BOM, or after the opening fence. */
   let frontmatterStart: number | null = null;
+  let frontmatterEnd: number | null = null;
   let contentStart = start;
   let map: YAMLMap | null = null;
   let data: Record<string, unknown> = {};
@@ -79,6 +86,7 @@ export const parseItemFile = (text: string): ItemFile => {
     const closing = lines[close];
     if (closing === undefined) throw new Error("unreachable: the closing line was found");
     frontmatterStart = lines[0].next;
+    frontmatterEnd = closing.start;
     contentStart = closing.next;
     const source = text.slice(frontmatterStart, closing.start);
     const lineCounter = new LineCounter();
@@ -111,16 +119,19 @@ export const parseItemFile = (text: string): ItemFile => {
   const problems: Problem[] = [];
   let title: string | null = null;
   let body: string | null = null;
+  let titleOffsets: ParsedItemFile["titleLine"] = null;
   if (titleLine === undefined || !titleLine.text.startsWith("# ")) {
     const where = titleLine === undefined ? {} : { line: titleIndex + 1 };
     problems.push({ field: "title", ...where, message: "title: no title; start the text after the frontmatter with a # heading, like # Login times out" });
   } else {
     title = titleLine.text.slice(2).trim();
     body = text.slice(titleLine.next);
+    const end = text[titleLine.end - 1] === "\r" ? titleLine.end - 1 : titleLine.end;
+    titleOffsets = { start: titleLine.start, end, hasEol: titleLine.next > titleLine.end };
     if (title === "") problems.push({ field: "title", line: titleIndex + 1, message: "title: the # heading is empty; give the item a title" });
   }
 
-  return { ok: true, text, eol, map, frontmatterStart, textStart: start, data, title, body, problems };
+  return { ok: true, text, eol, map, frontmatterStart, frontmatterEnd, textStart: start, data, title, body, titleLine: titleOffsets, problems };
 };
 
 /** The frontmatter pair of `key`, if the file has one. */
@@ -171,4 +182,72 @@ export const addKeyEdits = (file: ParsedItemFile, added: { id?: string; handle?:
     return [{ start: at, end: at, text: lines.join("") }];
   }
   return [{ start: file.frontmatterStart, end: file.frontmatterStart, text: lines.join("") }];
+};
+
+/**
+ * The edits that set frontmatter keys to values written as one line of YAML: an existing value is replaced in
+ * place (a comment after it stays), a missing key gets a line at the end of the frontmatter, and null removes
+ * the key's line. Undefined when the file has no frontmatter or a key has no value node to replace.
+ */
+export const setKeyEdits = (file: ParsedItemFile, values: [key: string, value: string | null][]): TextEdit[] | undefined => {
+  const { frontmatterStart: offset, frontmatterEnd, text } = file;
+  if (offset === null || frontmatterEnd === null) return undefined;
+  const edits: TextEdit[] = [];
+  const added: string[] = [];
+  for (const [key, value] of values) {
+    const pair = pairOf(file, key);
+    if (pair === undefined) {
+      if (value !== null) added.push(`${keyIndent(file)}${key}: ${value}${file.eol}`);
+      continue;
+    }
+    const keyRange = isScalar(pair.key) ? pair.key.range : undefined;
+    const valueRange = (pair.value as { range?: [number, number, number] } | null)?.range;
+    if (keyRange == null || valueRange == null) return undefined;
+    if (value === null) {
+      const start = text.lastIndexOf("\n", offset + keyRange[0] - 1) + 1;
+      const newline = text.indexOf("\n", offset + Math.max(keyRange[1], valueRange[1]) - 1);
+      edits.push({ start, end: newline === -1 ? frontmatterEnd : newline + 1, text: "" });
+      continue;
+    }
+    // An empty value (`key:`) has an empty range right after the colon.
+    const empty = valueRange[0] === valueRange[1];
+    // A block scalar's range takes in its last line break, which the next key's line needs.
+    let end = offset + valueRange[1];
+    if (text[end - 1] === "\n") end -= text[end - 2] === "\r" ? 2 : 1;
+    edits.push({ start: offset + valueRange[0], end, text: empty ? ` ${value}` : value });
+  }
+  // One insertion, so added keys keep the order they were given in.
+  if (added.length > 0) edits.push({ start: frontmatterEnd, end: frontmatterEnd, text: added.join("") });
+  return edits;
+};
+
+/** The edit that replaces the title line's text, keeping its line ending; undefined when the file has no title line. */
+export const titleEdit = (file: ParsedItemFile, title: string): TextEdit | undefined =>
+  file.titleLine === null ? undefined : { start: file.titleLine.start, end: file.titleLine.end, text: `# ${title}` };
+
+/** The edit that replaces everything after the title line; undefined when the file has no title line. */
+export const bodyEdit = (file: ParsedItemFile, body: string): TextEdit | undefined => {
+  const { titleLine, text, eol } = file;
+  if (titleLine === null) return undefined;
+  const start = text.length - (file.body ?? "").length;
+  // A title on the file's last line, without a line ending, needs one before a body.
+  return { start, end: text.length, text: (titleLine.hasEol || body === "" ? "" : eol) + body };
+};
+
+/** What an edited file must read back as. */
+export type Expected = { data: Record<string, unknown>; title: string | null; body: string | null };
+
+/**
+ * The text after the edits, or undefined when it doesn't read back as `expected`: an edit that would change
+ * anything it isn't about (frontmatter the new lines don't fit into, a title or body that moved) is never written.
+ */
+export const checkedText = (file: ParsedItemFile, edits: TextEdit[], expected: Expected): string | undefined => {
+  const text = applyEdits(file.text, edits);
+  return readsBackAs(text, expected) ? text : undefined;
+};
+
+/** True when `text` parses with exactly the expected frontmatter, title and body. */
+export const readsBackAs = (text: string, expected: Expected) => {
+  const after = parseItemFile(text);
+  return after.ok && after.title === expected.title && after.body === expected.body && isDeepStrictEqual(after.data, expected.data);
 };
