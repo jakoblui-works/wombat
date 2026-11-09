@@ -645,8 +645,8 @@ describe("alerts (lenient)", () => {
     }
   });
 
-  test("no agent content in alerts: the Alert type has only seq, dbId, type and agentId", () => {
-    expectTypeOf<keyof Alert>().toEqualTypeOf<"seq" | "dbId" | "type" | "agentId">();
+  test("no agent content in alerts: an agent alert has only seq, dbId, type and agentId", () => {
+    expectTypeOf<keyof Exclude<Alert, { type: "proposal" }>>().toEqualTypeOf<"seq" | "dbId" | "type" | "agentId">();
   });
 
   test("parseAlert ignores alert types it doesn't know", () => {
@@ -683,7 +683,25 @@ describe("alerts (lenient)", () => {
 
   test("parseAlert's result is the Alert union", () => {
     expectTypeOf(parseAlert).returns.toEqualTypeOf<Alert | undefined>();
-    expectTypeOf<Alert["type"]>().toEqualTypeOf<"agent_added" | "agent_changed" | "agent_removed" | "log">();
+    expectTypeOf<Alert["type"]>().toEqualTypeOf<"agent_added" | "agent_changed" | "agent_removed" | "log" | "proposal">();
+  });
+
+  // A proposal alert tells the app to refetch proposals; like agent alerts it carries ids only, so a proposed
+  // title or body never reaches a desktop notification. Agent alerts keep needing agentId.
+  test("a proposal alert parses with ids only; unknown types are still ignored; agent alerts still need agentId", () => {
+    const proposal = { seq: 61, dbId, type: "proposal", proposalId: "prp_0196f3c2" };
+    const content = { agentId, title: "Login times out", fields: { body: "Steps: …" }, reason: "Seen twice" };
+    for (const [via, parsed] of [
+      ["parseAlert", parseAlert({ ...proposal, ...content })],
+      ["Alert.parse", Alert.parse({ ...proposal, ...content })],
+    ] as const) {
+      expect(parsed, via).toEqual(proposal);
+    }
+    expect(() => parseAlert(without(proposal, "proposalId"))).toThrow();
+    expect(parseAlert({ ...proposal, type: "proposal_changed" })).toBeUndefined();
+    for (const type of alertTypes) {
+      expect(() => parseAlert({ seq: 62, dbId, type, proposalId: proposal.proposalId }), type).toThrow();
+    }
   });
 });
 

@@ -5,7 +5,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./api": "./src/api.ts",
-    "./discovery": "./src/discovery.ts"
+    "./discovery": "./src/discovery.ts",
+    "./items": "./src/items.ts"
   },
   "scripts": {
     "test": "vitest run",

@@ -8,18 +8,11 @@
 // stream open and isn't an alert.
 import { z } from "zod";
 
+import { Item, ItemSummary, knownItems, Proposal, ProposalStatus, StructureSummary } from "./items.ts";
+
 const Seq = z.int().nonnegative();
 const Timestamp = z.iso.datetime({ offset: true });
 const DbId = z.string().min(1);
-
-/** Keeps the items that match `item` and drops the rest (newer kinds we don't know). */
-const knownItems = <T extends z.ZodType>(item: T) =>
-  z.array(z.unknown()).transform((items) =>
-    items.flatMap((value) => {
-      const result = item.safeParse(value);
-      return result.success ? [result.data] : [];
-    }),
-  );
 
 /** `"."` (the workspace root) or relative segments: no absolute, `..`, `.`, empty segments, backslashes or control characters. */
 const isRepoPath = (path: string) =>
@@ -73,6 +66,20 @@ export const ListLogQuery = z.strictObject(
 );
 export type ListLogQuery = z.infer<typeof ListLogQuery>;
 
+/** `GET /proposals?status=`: every proposal, or those with one status. */
+export const ListProposalsQuery = z.strictObject(
+  {
+    status: z
+      .enum(ProposalStatus.options, { error: "status must be one of pending, approved, rejected or conflict" })
+      .exactOptional(),
+  },
+  {
+    error: (issue) =>
+      issue.code === "unrecognized_keys" ? "unknown query parameter; send only status" : undefined,
+  },
+);
+export type ListProposalsQuery = z.infer<typeof ListProposalsQuery>;
+
 // Responses (lenient)
 
 const ErrorDetail = z.object({
@@ -83,6 +90,13 @@ const ErrorDetail = z.object({
 
 export const ErrorBody = z.object({ error: ErrorDetail });
 export type ErrorBody = z.infer<typeof ErrorBody>;
+
+/**
+ * The items routes' error codes: `items_not_configured` when the service runs without an items root,
+ * `structure_not_found` and `item_not_found` for an unknown structure id or handle.
+ */
+export const ItemsErrorCode = z.enum(["items_not_configured", "structure_not_found", "item_not_found"]);
+export type ItemsErrorCode = z.infer<typeof ItemsErrorCode>;
 
 export const VersionResponse = z.object({ apiVersion: z.int() });
 export type VersionResponse = z.infer<typeof VersionResponse>;
@@ -213,6 +227,24 @@ export const SessionUpdate = z.discriminatedUnion("sessionUpdate", [
 ]);
 export type SessionUpdate = z.infer<typeof SessionUpdate>;
 
+// Items and proposals (lenient), read by the app; the shapes live in `items.ts`.
+
+/** `GET /structures`: every structure under the items root, hidden ones and broken settings included. */
+export const ListStructuresResponse = z.object({ structures: z.array(StructureSummary) });
+export type ListStructuresResponse = z.infer<typeof ListStructuresResponse>;
+
+/** `GET /structures/:id/items`: every file of the structure, invalid ones included. */
+export const ListItemsResponse = z.object({ items: z.array(ItemSummary) });
+export type ListItemsResponse = z.infer<typeof ListItemsResponse>;
+
+/** `GET /items/:handle`: one item by handle or alias, with its body. */
+export const GetItemResponse = Item;
+export type GetItemResponse = z.infer<typeof GetItemResponse>;
+
+/** `GET /proposals`: the proposals matching ListProposalsQuery. */
+export const ListProposalsResponse = z.object({ proposals: z.array(Proposal) });
+export type ListProposalsResponse = z.infer<typeof ListProposalsResponse>;
+
 // Log entries (lenient): an agent's stored history, read through `GET /agents/:id/log`.
 
 const logEntryFields = { seq: Seq, agentId: z.string(), at: Timestamp };
@@ -288,19 +320,25 @@ export type ListLogResponse = z.infer<typeof ListLogResponse>;
 
 // Alerts (lenient), sent over `GET /events` after the change is committed.
 
+const AgentAlertType = z.enum(["agent_added", "agent_changed", "agent_removed", "log"]);
+
 /**
- * Says that something changed for an agent, up to `seq`; the app fetches the change.
- * Unknown fields are stripped, so an alert never carries agent content even if one is sent.
+ * Says that something changed, up to `seq`; the app fetches the change. An agent alert names the agent, a
+ * `proposal` alert the proposal. Alerts carry ids only: unknown fields are stripped, so an alert never carries
+ * agent or item content even if one is sent.
  */
-export const Alert = z.object({
-  seq: Seq,
-  dbId: DbId,
-  type: z.enum(["agent_added", "agent_changed", "agent_removed", "log"]),
-  agentId: z.string(),
-});
+export const Alert = z.discriminatedUnion("type", [
+  z.object({
+    seq: Seq,
+    dbId: DbId,
+    type: AgentAlertType,
+    agentId: z.string(),
+  }),
+  z.object({ seq: Seq, dbId: DbId, type: z.literal("proposal"), proposalId: z.string() }),
+]);
 export type Alert = z.infer<typeof Alert>;
 
-const alertTypes = new Set<unknown>(Alert.shape.type.options);
+const alertTypes = new Set<unknown>([...AgentAlertType.options, "proposal"]);
 
 /** Parses one alert. Returns undefined for alert types this app doesn't know (newer service); throws on a malformed known alert. */
 export const parseAlert = (data: unknown): Alert | undefined => {
