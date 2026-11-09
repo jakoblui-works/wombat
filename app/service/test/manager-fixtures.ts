@@ -1,5 +1,8 @@
 // Shared setup for the agent manager tests: a temp workspace with one repo, a temp store, fake agents that
-// record their pids, a capturing logger and the committed events, all torn down after the test.
+// record their pids, a capturing logger and the committed events, all torn down after the test. Each test gets
+// its own systemd slice; by default the manager sees no systemd at all (an empty PATH dir).
+import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +16,7 @@ import type { Harness } from "../src/harness/harness.ts";
 import { openStore, type Store } from "../src/store/store.ts";
 import type { FakeScenario } from "./fake-agent.ts";
 import { fakeHarness } from "./fake-harness.ts";
+import { fakeSystemd, type FakeSystemd, type FakeSystemdOptions } from "./fake-systemd.ts";
 
 /** Per-test timeout and how long a test waits for an agent to get somewhere, in one place. */
 export const TEST_TIMEOUT_MS = 15_000;
@@ -84,8 +88,27 @@ export const thrown = (call: () => unknown): unknown => {
   return undefined;
 };
 
+/** The slice the real service uses; no test may ever touch it. */
+export const SERVICE_SLICE = "wombat-agents.slice";
+
+export type SetupOptions = {
+  /**
+   * "none" (default): no systemd-run or systemctl on the manager's PATH. "fake": the recording fakes from
+   * fake-systemd.ts, configured by `fake`. "real": the service's own environment, so the real user manager.
+   */
+  systemd?: "none" | "fake" | "real";
+  fake?: FakeSystemdOptions;
+};
+
 export type Setup = {
   manager: Manager;
+  /**
+   * This test's own slice, `wombattest<uuid without dashes>.slice`, passed to the manager. Dash-free: systemd
+   * nests slices on every `-`, so this one sits directly under -.slice and stopping it leaves no parents behind.
+   */
+  slice: string;
+  /** The fakes, when `systemd` is "fake". */
+  systemd: FakeSystemd | undefined;
   store: Store;
   storePath: string;
   root: string;
@@ -115,8 +138,14 @@ const killAll = (pids: number[]) => {
 };
 
 /** A manager on a fresh store and workspace, with every fake scenario available as `fake-<scenario>`. */
-export const setup = (): Setup => {
+export const setup = ({ systemd = "none", fake }: SetupOptions = {}): Setup => {
   const base = mkdtempSync(join(tmpdir(), "wombat-manager-"));
+  const slice = `wombattest${randomUUID().replaceAll("-", "")}.slice`;
+  const emptyBin = join(base, "empty-bin");
+  mkdirSync(emptyBin);
+  const fakes = systemd === "fake" ? fakeSystemd(fake) : undefined;
+  const env: NodeJS.ProcessEnv =
+    systemd === "real" ? process.env : { ...process.env, PATH: fakes ? fakes.binDir : emptyBin };
   const root = join(base, "workspace");
   mkdirSync(join(root, REPO), { recursive: true });
   const pidDir = join(base, "pids");
@@ -132,7 +161,8 @@ export const setup = (): Setup => {
       workspaceRoot: root,
       harnesses,
       log: (event: string, fields: LogLine["fields"]) => logs.push({ event, fields }),
-      env: process.env,
+      env,
+      slice,
     });
     manager.onCommitted((event: Committed) => committed.push(event));
     return manager;
@@ -149,12 +179,16 @@ export const setup = (): Setup => {
       // Shut down by the test, or broken: the kill below covers it.
     }
     killAll(pids());
+    if (systemd === "real") spawnSync("systemctl", ["--user", "stop", slice], { stdio: "ignore", timeout: 10_000 });
+    const touched = fakes?.calls().filter(({ args }) => args.some((arg) => arg.includes(SERVICE_SLICE))) ?? [];
+    fakes?.remove();
     try {
       state.store?.close();
     } catch {
       // Already closed.
     }
     rmSync(base, { recursive: true, force: true });
+    if (touched.length > 0) throw new Error(`a test touched the service's own slice: ${JSON.stringify(touched)}`);
   });
   state.store = openStore({ path: storePath });
   state.manager = make(state.store);
@@ -168,6 +202,8 @@ export const setup = (): Setup => {
       if (!state.store) throw new Error("no store");
       return state.store;
     },
+    slice,
+    systemd: fakes,
     storePath,
     root,
     pidDir,

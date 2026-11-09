@@ -11,11 +11,12 @@ import {
   type SendMessageRequest,
 } from "@wombat/shared/api";
 
-import { startAgentProcess, type Harness } from "../harness/harness.ts";
+import { startAgentProcess, type AgentScope, type Harness } from "../harness/harness.ts";
 import { defaultHarnesses, findHarness } from "../harness/registry.ts";
 import type { ItemEntry, Store } from "../store/store.ts";
 import { RepoError, resolveRepo } from "../workspace.ts";
 import { connectAgent, type AcpAgent } from "./acp-client.ts";
+import { createScopes, DEFAULT_SLICE } from "./scope.ts";
 
 export type AgentErrorCode =
   | "not_found"
@@ -59,6 +60,8 @@ export type ManagerOptions = {
   log?: Log;
   /** What each agent's environment is filtered from (see `agentEnv`). */
   env?: NodeJS.ProcessEnv;
+  /** The systemd slice agents' scopes go in; everything in it is stopped at start-up and shutdown. */
+  slice?: string;
 };
 
 type PermissionKind = AnswerPermissionRequest["kind"];
@@ -74,6 +77,12 @@ type Pending = {
 type Proc = {
   agentId: string;
   pid: number | undefined;
+  /** The agent's systemd scope, when it runs in one. */
+  unit: string | undefined;
+  /** Set once the process exited: killing its scope, which ends what outlived it there. */
+  scopeKilled: Promise<void> | undefined;
+  /** When the process exited (ms since the epoch); the close grace counts from here. */
+  exitedAt: number | undefined;
   acp: AcpAgent;
   closed: Promise<void>;
   sessionId: string;
@@ -117,6 +126,13 @@ const rpcCode = (error: unknown) =>
     ? (error as { code: number }).code
     : undefined;
 
+/** Waits for `promise`, but no longer than `ms`: it goes on in the background. */
+const settleWithin = async (promise: Promise<void>, ms: number) => {
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([promise, new Promise<void>((resolve) => (timer = setTimeout(resolve, ms)))]);
+  clearTimeout(timer);
+};
+
 const withTimeout = <T>(promise: Promise<T>, ms: number, error: () => Error): Promise<T> => {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -144,6 +160,7 @@ export const createManager = ({
   harnesses = defaultHarnesses,
   log = logToStderr,
   env = process.env,
+  slice = DEFAULT_SLICE,
 }: ManagerOptions) => {
   const listeners = new Set<(event: Committed) => void>();
   const summaries = new Map(store.listAgents().map((agent) => [agent.id, agent]));
@@ -151,6 +168,7 @@ export const createManager = ({
   // commandId → seq of its user_message, per agent; loaded from the store on first use.
   const commandIds = new Map<string, Map<string, number>>();
   let shuttingDown: Promise<void> | undefined;
+  const scopes = createScopes({ slice, env, log });
 
   const emit = (event: Committed) => {
     for (const listener of [...listeners]) {
@@ -313,12 +331,15 @@ export const createManager = ({
     }
   };
 
-  const spawnAgent = (agentId: string, harness: Harness, cwd: string): Proc => {
-    const child: ChildProcessWithoutNullStreams = startAgentProcess(harness.spawn(cwd, env));
+  const spawnAgent = (agentId: string, harness: Harness, cwd: string, scope: AgentScope | undefined): Proc => {
+    const child: ChildProcessWithoutNullStreams = startAgentProcess(harness.spawn(cwd, env), scope ? { scope } : {});
     const { promise: closed, resolve: markClosed } = Promise.withResolvers<void>();
     const proc: Proc = {
       agentId,
       pid: child.pid,
+      unit: scope?.unit,
+      scopeKilled: undefined,
+      exitedAt: undefined,
       acp: connectAgent(child, {
         update: (sessionId, update) => handleUpdate(proc, sessionId, update),
         permission: (request) => requestPermission(proc, request),
@@ -362,8 +383,11 @@ export const createManager = ({
     });
     let closeTimer: NodeJS.Timeout | undefined;
     child.once("exit", (code, signal) => {
+      proc.exitedAt = Date.now();
       // Helpers the agent started (claude-agent-acp's native `claude`) share its group and must not outlive it.
       killGroup(child.pid, "SIGKILL");
+      // The scope also holds helpers that left the group or session; collected once empty, so this ends it.
+      if (proc.unit !== undefined) proc.scopeKilled = scopes.kill(agentId, proc.unit);
       // `close` waits for every holder of the agent's stdio, and a helper in a group of its own may hold it for
       // good: past the grace period the pipes are dropped and the agent counts as ended.
       closeTimer = setTimeout(() => {
@@ -388,6 +412,11 @@ export const createManager = ({
     } finally {
       clearTimeout(timer);
     }
+    // A user manager that doesn't answer must not hang a stop: the kill goes on in the background.
+    if (proc.scopeKilled) {
+      const left = (proc.exitedAt ?? Date.now()) + CLOSE_GRACE_MS - Date.now();
+      await settleWithin(proc.scopeKilled, Math.max(0, left));
+    }
   };
 
   const startFailure = (error: unknown, harness: Harness, proc: Proc) => {
@@ -398,6 +427,16 @@ export const createManager = ({
         "auth_required",
         `${harness.name} needs a login before it can start a session. Log in, then start the agent again.`,
         harness.loginHint,
+      );
+    }
+    if (proc.acp.isClosed() && proc.unit !== undefined) {
+      // systemd-run exits without running the agent when it can't create the scope; from here that looks
+      // like an agent that ended at once, so both are named.
+      return new AgentError(
+        "agent_failed",
+        `The agent process ended before its session started: either its systemd scope (${proc.unit}) couldn't be ` +
+          `created, or ${harness.name} failed. Check that \`systemctl --user\` works and that ${harness.name} is ` +
+          "installed and runs, then try again.",
       );
     }
     const what = proc.acp.isClosed()
@@ -432,7 +471,10 @@ export const createManager = ({
     }
 
     const agentId = randomUUID();
-    const proc = spawnAgent(agentId, harness, cwd);
+    const scope = await scopes.scopeFor(agentId);
+    // Shutdown may have begun while the scopes were being set up.
+    assertOpen();
+    const proc = spawnAgent(agentId, harness, cwd, scope);
     procs.set(agentId, proc);
     log("agent_starting", { agentId, harness: harness.id });
     const tooSlow = () =>
@@ -569,12 +611,13 @@ export const createManager = ({
     log("agent_deleted", { agentId });
   };
 
-  /** Ends every agent's process group; later calls fail. Agents it ends are recorded as stopped. */
+  /** Ends every agent's process group and scope, then the slice; later calls fail. Agents it ends are recorded as stopped. */
   const shutdown = () => {
     shuttingDown ??= (async () => {
       const running = [...procs.values()];
       for (const proc of running) proc.ending ??= "stop";
       await Promise.all(running.map(terminate));
+      await scopes.stopSlice();
       log("shutdown", { agents: running.length });
     })();
     return shuttingDown;
