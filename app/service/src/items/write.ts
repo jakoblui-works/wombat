@@ -6,7 +6,7 @@ import { randomUUIDv7 } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
-import type { Problem } from "@wombat/shared/items";
+import type { Problem, StructureSettings } from "@wombat/shared/items";
 import { stringify } from "yaml";
 
 import type { Log } from "../agents/manager.ts";
@@ -46,6 +46,11 @@ export type Writer = {
   updateItem(handle: string, fields: Record<string, unknown>, baseVersion: string): Promise<LoadedItem>;
   /** The handle's number stays taken: the store's counter never goes back. */
   deleteItem(handle: string, baseVersion: string): Promise<void>;
+  /**
+   * The problems of `file` as a new item's path in a free-named structure, without writing anything. A path in
+   * one of `unseen` (folders relative to the root) gets the problem of a folder that doesn't exist.
+   */
+  checkNewFile(structureId: string, file: unknown, unseen?: readonly string[]): Promise<Problem[]>;
 };
 
 export type WriterOptions = { root: string; store: Store; log?: Log };
@@ -87,14 +92,14 @@ const refuseOwnKeys = (keys: string[], what: string) => {
 };
 
 /** Problems of a title: one line of text, not empty. Returns the title as it reads back (trimmed). */
-const checkTitle = (title: unknown): { title: string; problems: Problem[] } => {
+export const checkTitle = (title: unknown): { title: string; problems: Problem[] } => {
   if (typeof title !== "string") return { title: "", problems: [{ field: "title", message: "title: takes text, like Login times out" }] };
   if (/[\r\n\u2028\u2029]/.test(title)) return { title, problems: [{ field: "title", message: "title: takes one line; move the rest into the body" }] };
   const trimmed = title.trim();
   return { title: trimmed, problems: trimmed === "" ? [{ field: "title", message: "title: can't be empty; give the item a title" }] : [] };
 };
 
-const checkBody = (body: unknown): Problem[] => (typeof body === "string" ? [] : [{ field: "body", message: "body: takes text (an empty body is \"\")" }]);
+export const checkBody = (body: unknown): Problem[] => (typeof body === "string" ? [] : [{ field: "body", message: "body: takes text (an empty body is \"\")" }]);
 
 /** A structure items can be written to: one with settings and no problems. */
 const writableStructure = (structure: ValidStructure, action: string) => {
@@ -107,12 +112,29 @@ const writableStructure = (structure: ValidStructure, action: string) => {
 };
 
 /**
- * The property values to write, with link values given as a handle or alias replaced by the target's id (links
- * store ids). Throws `invalid_fields` when the item's frontmatter `data` with them doesn't validate.
+ * D15: a problem of a declared property's value, which a write may leave in place (and fix). Every other problem
+ * (a duplicate id, handle or alias, no title, an unparseable file, an undeclared key) is about the item's identity.
  */
-const checkProperties = (structure: ValidStructure, data: Record<string, unknown>, set: string[], links: LinkLookup, extra: Problem[]) => {
+export const isValueProblem = (settings: StructureSettings, problem: Problem) =>
+  problem.field !== undefined && Object.hasOwn(settings.properties, problem.field);
+
+/**
+ * D15, compared by field: the problems a write adds, on a field it sets or on a field that had none before. A
+ * problem that names no field is always added.
+ */
+export const addedProblems = (before: Problem[], after: Problem[], set: readonly string[]) => {
+  const had = new Set(before.map((problem) => problem.field));
+  return after.filter((problem) => problem.field === undefined || set.includes(problem.field) || !had.has(problem.field));
+};
+
+/**
+ * The property values to write, with link values given as a handle or alias replaced by the target's id (links
+ * store ids). Throws `invalid_fields` when the item's frontmatter `data` with them gets a problem it didn't have
+ * (`before`, the item's value problems): on a field the write sets, or on one that was fine.
+ */
+const checkProperties = (structure: ValidStructure, data: Record<string, unknown>, set: string[], links: LinkLookup, extra: Problem[], before: Problem[] = []) => {
   const validated = validateProperties(structure.settings, data, links);
-  const problems = [...extra, ...validated.problems];
+  const problems = [...extra, ...addedProblems(before, validated.problems, set)];
   if (problems.length > 0) throw invalid(`The fields don't fit the structure ${structure.id}: ${listed(problems)}. Nothing was written.`, problems);
   const values = { ...data };
   for (const key of set) {
@@ -122,29 +144,32 @@ const checkProperties = (structure: ValidStructure, data: Record<string, unknown
   return values;
 };
 
-/** The item as written, from its text. */
+/** The item as written, from its text, with the value problems it kept (D15). */
 const loadedItem = (structure: ValidStructure, path: string, text: string, links: LinkLookup): LoadedItem => {
   const parsed = parseItemFile(text) as ParsedItemFile;
   const { id, handle, aliases } = parsed.data;
+  const validated = validateProperties(structure.settings, parsed.data, links);
   return {
     id: id as string,
     handle: handle as string,
     aliases: Array.isArray(aliases) ? aliases.filter((alias): alias is string => typeof alias === "string") : [],
     title: parsed.title,
     body: parsed.body,
-    properties: validateProperties(structure.settings, parsed.data, links).properties,
+    properties: validated.properties,
     path,
     version: versionOf(Buffer.from(text, "utf8")),
-    problems: [],
+    problems: validated.problems,
     structure: structure.id,
   };
 };
 
+const missingFolder = (file: string) => `the folder of ${file} doesn't exist; create it first or pick an existing folder`;
+
 /** A path that doesn't exist, or runs through a file where a folder should be. */
 const isMissingPath = (error: unknown) => ["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "");
 
-/** Problems of a free structure's `file`, checked like a file someone made by hand. */
-const checkFreeFile = async (root: string, structure: ValidStructure, file: unknown, folders: Set<string>): Promise<Problem[]> => {
+/** Problems of a free structure's `file`, checked like a file someone made by hand; `unseen` folders read as missing. */
+const checkFreeFile = async (root: string, structure: ValidStructure, file: unknown, folders: Set<string>, unseen: readonly string[] = []): Promise<Problem[]> => {
   const problem = (message: string): Problem[] => [{ field: "file", message: `file: ${message}` }];
   if (typeof file !== "string" || file === "") return problem(`${structure.id} names files freely, so give the new file's path in its folder, like notes.md`);
   const segments = file.split("/");
@@ -157,13 +182,15 @@ const checkFreeFile = async (root: string, structure: ValidStructure, file: unkn
     return problem(`${file} doesn't match the structure's include (${(structure.settings.include ?? []).join(", ")}); pick a path it matches`);
   }
   const rootPath = joinRootPath(structure.path, file);
-  if (ownerOf(folders, rootPath) !== structure.path) return problem(`${file} is inside another structure's folder; create it there instead`);
+  const owner = ownerOf(folders, rootPath);
+  if (owner !== undefined && unseen.includes(owner)) return problem(missingFolder(file));
+  if (owner !== structure.path) return problem(`${file} is inside another structure's folder; create it there instead`);
   const folder = join(root, structure.path);
   const absolute = join(root, rootPath);
   try {
     if (await throughSymlink(folder, absolute)) return problem(`${file} goes through a symlinked folder, which is never read; pick a path in a real folder`);
   } catch (error) {
-    if (isMissingPath(error)) return problem(`the folder of ${file} doesn't exist; create it first or pick an existing folder`);
+    if (isMissingPath(error)) return problem(missingFolder(file));
     throw error;
   }
   try {
@@ -175,21 +202,32 @@ const checkFreeFile = async (root: string, structure: ValidStructure, file: unkn
   return [];
 };
 
-/** The item named by a handle (or alias) in a fresh read, if it can be written. */
-const writableItem = (read: RootRead, handle: string, baseVersion: string, action: string) => {
+/**
+ * The item named by a handle (or alias) in a fresh read, if it can be written (D15): an update needs an item whose
+ * only problems are property values; a delete needs a file that parses and a handle no other file has.
+ */
+const writableItem = (read: RootRead, handle: string, baseVersion: string, action: "updated" | "deleted") => {
   const { items, structures } = read.snapshot;
   const item = items.find((candidate) => candidate.handle === handle) ?? items.find((candidate) => candidate.aliases.includes(handle));
   if (item === undefined) throw new ItemWriteError("item_not_found", `No item has the handle ${handle}; check it, or list the structure's items to find the right one.`);
   const structure = structures.find((candidate): candidate is ValidStructure => candidate.id === item.structure);
   if (structure === undefined) throw new Error(`The item ${handle} was read in the structure ${item.structure}, which the same read doesn't list.`);
+  // A handle other files share is refused before the version: which file the caller read can't be told, so
+  // stale_version would send it round a re-read loop it can't leave.
+  const shared = item.problems.filter((problem) => problem.field === "handle" || problem.field === "aliases");
+  if (shared.length > 0) {
+    throw invalid(`${handle} names more than one file (${listed(shared)}), so it can't be ${action}; fix the handles by hand first.`, shared);
+  }
   if (item.version !== baseVersion) {
     throw new ItemWriteError("stale_version", `${handle} changed since it was read (by hand or by another write), so it wasn't ${action}; read it again and redo the change on the new version.`);
   }
   writableStructure(structure, action);
-  if (item.problems.length > 0) {
-    throw invalid(`${handle} has problems on disk (${listed(item.problems)}), so it can't be ${action}; fix the file (${item.path}) by hand first.`, item.problems);
+  const blocking = action === "updated" ? item.problems.filter((problem) => !isValueProblem(structure.settings, problem)) : [];
+  if (blocking.length > 0 || item.handle === null) {
+    const problems = blocking.length > 0 ? blocking : item.problems;
+    throw invalid(`${handle} has problems on disk (${listed(problems)}), so it can't be ${action}; fix the file (${item.path}) by hand first.`, problems);
   }
-  if (item.id === null) {
+  if (action === "updated" && item.id === null) {
     throw invalid(`${handle} has no id yet, so it can't be ${action}; read its structure so it gets one, then try again.`, [
       { field: "id", message: "id: none yet; reading the structure assigns one" },
     ]);
@@ -291,7 +329,7 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
         if (value === null || value === undefined) delete data[key];
         else data[key] = value;
       }
-      const values = checkProperties(structure, data, set, read.links, problems);
+      const values = checkProperties(structure, data, set, read.links, problems, item.problems);
 
       const keyEdits = setKeyEdits(
         parsed,
@@ -321,4 +359,14 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
       await staleIfChanged(handle, "deleted", () => removeUnchanged(join(root, item.path), baseVersion));
       log?.("item_deleted", { structure: structure.id, handle });
     }),
+
+  checkNewFile: async (structureId, file, unseen = []) => {
+    const read = await readRoot(root);
+    const structure = read.snapshot.structures.find((candidate): candidate is ValidStructure => candidate.id === structureId);
+    if (structure === undefined) {
+      throw new ItemWriteError("structure_not_found", `No structure has the id ${structureId}; use the id from its ${SETTINGS_FILE}.`);
+    }
+    const folders = new Set(read.snapshot.structures.map((candidate) => candidate.path));
+    return checkFreeFile(root, structure, file, folders, unseen);
+  },
 });
