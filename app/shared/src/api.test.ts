@@ -1,6 +1,4 @@
-// Step 4 wire contract. T1 wrote the contract; T2 revised it (alerts on the stream, content as items
-// through the API, the stopped state). Tests marked "T2" turn green with T2; the rest are T1's, kept
-// or moved from events onto items.
+// The wire contract: requests, responses, items read through the API, and alerts on the stream.
 import type { SessionUpdate as AcpSessionUpdate } from "@agentclientprotocol/sdk";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
@@ -213,7 +211,6 @@ describe("request bodies (strict)", () => {
     expect(SendMessageRequest.safeParse({ text: "hi", attachments: [] }).success).toBe(false);
   });
 
-  // T2
   test("SendMessageRequest keeps a commandId of 1-64 letters, digits, - or _", () => {
     for (const commandId of ["c", "cmd_01JC2", "A-b_9", "3f2b8c1e-7a4d-4e1b-9c0a-2d5e6f7a8b9c", "x".repeat(64)]) {
       expect(SendMessageRequest.parse({ text: "Run the tests.", commandId }), commandId).toEqual({
@@ -223,13 +220,11 @@ describe("request bodies (strict)", () => {
     }
   });
 
-  // T2
   test("SendMessageRequest's commandId is optional", () => {
     const parsed = SendMessageRequest.parse({ text: "Run the tests." });
     expect(parsed).not.toHaveProperty("commandId");
   });
 
-  // T2
   test("SendMessageRequest rejects a commandId that is empty, too long, has other characters or isn't a string", () => {
     for (const commandId of ["", "x".repeat(65), "cmd 1", "cmd.1", "cmd/1", "cmd:1", "cmd\n", "é", 42, null]) {
       expect(SendMessageRequest.safeParse({ text: "Run the tests.", commandId }).success, JSON.stringify(commandId)).toBe(
@@ -238,7 +233,6 @@ describe("request bodies (strict)", () => {
     }
   });
 
-  // T2
   test("SendMessageRequest stays strict with a commandId", () => {
     for (const extra of [{ attachments: [] }, { requestId: "r1" }, { command_id: "cmd_1" }]) {
       const body = { text: "Run the tests.", commandId: "cmd_01JC2", ...extra };
@@ -266,7 +260,7 @@ describe("request bodies (strict)", () => {
   });
 });
 
-// T2: `GET /agents/:id/items?after=&limit=`, read from query-string values.
+// `GET /agents/:id/items?after=&limit=`, read from query-string values.
 describe("ListItemsQuery (strict, from query strings)", () => {
   test("after defaults to 0 and limit stays absent", () => {
     const parsed = ListItemsQuery.parse({});
@@ -335,7 +329,7 @@ describe("responses (lenient)", () => {
     expect(ListHarnessesResponse.safeParse([{ id: "claude-code" }]).success).toBe(false);
   });
 
-  test("AgentSummary accepts a realistic summary in every state, including stopped (T2)", () => {
+  test("AgentSummary accepts a realistic summary in every state, including stopped", () => {
     for (const state of ["working", "waiting", "done", "error", "stopped"]) {
       expect(AgentSummary.safeParse({ ...doneAgent, state }).success, state).toBe(true);
     }
@@ -382,12 +376,10 @@ describe("responses (lenient)", () => {
     }
   });
 
-  // T2
   test("AgentSummary's state is exactly the five contract states", () => {
     expectTypeOf<AgentSummary["state"]>().toEqualTypeOf<"working" | "waiting" | "done" | "error" | "stopped">();
   });
 
-  // T2
   test("ListAgentsResponse reads dbId, seq and the agents", () => {
     const parsed = ListAgentsResponse.parse({ dbId, seq: 42, agents: [doneAgent], server: "x" });
     expect(parsed).toMatchObject({ dbId, seq: 42 });
@@ -395,7 +387,6 @@ describe("responses (lenient)", () => {
     expect(ListAgentsResponse.parse({ dbId, seq: 0, agents: [] }).agents).toEqual([]);
   });
 
-  // T2
   test("ListAgentsResponse requires a non-empty dbId and a seq", () => {
     for (const body of [
       { seq: 42, agents: [doneAgent] },
@@ -426,7 +417,6 @@ describe("responses (lenient)", () => {
   });
 });
 
-// T2 (the rules moved here from T1's events).
 describe("items (lenient)", () => {
   test("parseItem reads a realistic sample of every item type unchanged", () => {
     for (const sample of sampleItems) {
@@ -557,7 +547,6 @@ describe("items (lenient)", () => {
   });
 });
 
-// T2
 describe("ListItemsResponse (lenient)", () => {
   const known = sampleItems.slice(0, 3);
   const unknownType = item(5, "state_changed", { state: "done" });
@@ -606,7 +595,6 @@ describe("ListItemsResponse (lenient)", () => {
   });
 });
 
-// T2
 describe("alerts (lenient)", () => {
   const alert = (type: string, seq = 60) => ({ seq, dbId, type, agentId });
 
