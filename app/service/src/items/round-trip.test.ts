@@ -120,7 +120,18 @@ describe("item file round trip", () => {
         expect(read?.properties).toEqual(properties);
         expect(read?.version).toBe(item.version);
       }),
-      { numRuns: 30 },
+      {
+        // The titles and bodies most likely to break a round trip run first, every time, and count toward the
+        // 15 runs; the rest are random. Each run costs a create and a full read of the root, so 15 keep the test
+        // well inside the timeout when the whole workspace's suites run in parallel.
+        examples: [
+          [{ title: "Größe prüfen", body: "", project: undefined, parent: undefined }],
+          [{ title: "No final newline", body: "\nLast line without one", project: "platform", parent: IDS.bl1 }],
+          [{ title: "Looks like markup", body: "---\n# Not the title\n\n  indented: yes\n---\n", project: "wombat", parent: undefined }],
+          [{ title: "Blank lines only", body: "\n\n\n", project: undefined, parent: IDS.bl2 }],
+        ],
+        numRuns: 15,
+      },
     );
   });
 });
