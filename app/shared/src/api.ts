@@ -1,10 +1,16 @@
 // The agent service's wire contract. Request bodies are strict (the service rejects
-// unknown fields); responses and events are lenient (the app ignores unknown fields),
+// unknown fields); responses, items and alerts are lenient (the app ignores unknown fields),
 // so additive changes within one API_VERSION never break an older app.
+//
+// Content is stored by the service and read through the API as items. The stream
+// (`GET /events`) sends alerts only, each after its change is committed: an alert says that
+// something changed, never what. A heartbeat comment line (`: ping`) every ~15 s keeps the
+// stream open and isn't an alert.
 import { z } from "zod";
 
 const Seq = z.int().nonnegative();
 const Timestamp = z.iso.datetime({ offset: true });
+const DbId = z.string().min(1);
 
 /** Keeps the items that match `item` and drops the rest (newer kinds we don't know). */
 const knownItems = <T extends z.ZodType>(item: T) =>
@@ -37,11 +43,35 @@ export type StartAgentRequest = z.infer<typeof StartAgentRequest>;
 
 export const SendMessageRequest = z.strictObject({
   text: z.string().regex(/\S/, { message: "text is empty; send the prompt text" }),
+  /** Set by the app so a retry after a lost response isn't sent twice. */
+  commandId: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,64}$/, { message: "commandId must be 1-64 letters, digits, - or _" })
+    .exactOptional(),
 });
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 
 export const AnswerPermissionRequest = z.strictObject({ kind: PermissionKind });
 export type AnswerPermissionRequest = z.infer<typeof AnswerPermissionRequest>;
+
+/** A whole number from `min` to `max`, from a query-string value (digits only) or a number; `""`, `" "` and repeated keys fail with `message`. */
+const queryInt = (message: string, min: number, max = Number.MAX_SAFE_INTEGER) =>
+  z
+    .union([z.number(), z.string().regex(/^\d+$/).transform(Number)], { error: message })
+    .pipe(z.int({ error: message }).min(min, { error: message }).max(max, { error: message }));
+
+/** `GET /agents/:id/items?after=&limit=`: items with `seq` above `after`, at most `limit` of them. */
+export const ListItemsQuery = z.strictObject(
+  {
+    after: queryInt("after must be a whole number of 0 or more (an item seq)", 0).default(0),
+    limit: queryInt("limit must be a whole number from 1 to 1000", 1, 1000).optional(),
+  },
+  {
+    error: (issue) =>
+      issue.code === "unrecognized_keys" ? "unknown query parameter; send only after and limit" : undefined,
+  },
+);
+export type ListItemsQuery = z.infer<typeof ListItemsQuery>;
 
 // Responses (lenient)
 
@@ -64,7 +94,7 @@ export const AgentSummary = z.object({
   id: z.string(),
   harness: z.string(),
   repo: z.string(),
-  state: z.enum(["working", "waiting", "done", "error"]),
+  state: z.enum(["working", "waiting", "done", "error", "stopped"]),
   sessionId: z.string(),
   title: z.string().exactOptional(),
   capabilities: z.object({ loadSession: z.boolean() }),
@@ -74,7 +104,7 @@ export const AgentSummary = z.object({
 });
 export type AgentSummary = z.infer<typeof AgentSummary>;
 
-export const ListAgentsResponse = z.object({ seq: Seq, agents: z.array(AgentSummary) });
+export const ListAgentsResponse = z.object({ dbId: DbId, seq: Seq, agents: z.array(AgentSummary) });
 export type ListAgentsResponse = z.infer<typeof ListAgentsResponse>;
 
 // ACP session updates we render: a subset of the fields of ACP v1's `SessionUpdate`.
@@ -183,34 +213,31 @@ export const SessionUpdate = z.discriminatedUnion("sessionUpdate", [
 ]);
 export type SessionUpdate = z.infer<typeof SessionUpdate>;
 
-// Events (lenient), sent over `GET /events` with `seq` as the SSE id.
+// Items (lenient): an agent's stored history, read through `GET /agents/:id/items`.
 
-export const ServiceEvent = z.discriminatedUnion("type", [
-  z.object({ seq: Seq, type: z.literal("snapshot"), agents: z.array(AgentSummary) }),
-  z.object({ seq: Seq, type: z.literal("agent_added"), agent: AgentSummary }),
-  z.object({ seq: Seq, type: z.literal("agent_changed"), agent: AgentSummary }),
-  z.object({ seq: Seq, type: z.literal("agent_removed"), agentId: z.string() }),
-  z.object({ seq: Seq, type: z.literal("session_update"), agentId: z.string(), update: SessionUpdate }),
+const itemFields = { seq: Seq, agentId: z.string(), at: Timestamp };
+
+export const Item = z.discriminatedUnion("type", [
   z.object({
-    seq: Seq,
+    ...itemFields,
+    type: z.literal("user_message"),
+    text: z.string(),
+    commandId: z.string().exactOptional(),
+  }),
+  z.object({ ...itemFields, type: z.literal("session_update"), update: SessionUpdate }),
+  z.object({
+    ...itemFields,
     type: z.literal("permission_requested"),
-    agentId: z.string(),
     requestId: z.string(),
     toolCall: ToolCallUpdateFields,
     options: knownItems(z.object({ kind: PermissionKind, name: z.string() })),
   }),
-  z.object({
-    seq: Seq,
-    type: z.literal("permission_answered"),
-    agentId: z.string(),
-    requestId: z.string(),
-    kind: PermissionKind,
-  }),
-  z.object({ seq: Seq, type: z.literal("turn_ended"), agentId: z.string(), stopReason: z.string().min(1) }),
+  z.object({ ...itemFields, type: z.literal("permission_answered"), requestId: z.string(), kind: PermissionKind }),
+  z.object({ ...itemFields, type: z.literal("turn_ended"), stopReason: z.string().min(1) }),
 ]);
-export type ServiceEvent = z.infer<typeof ServiceEvent>;
+export type Item = z.infer<typeof Item>;
 
-const eventTypes = new Set<unknown>(ServiceEvent.options.map((option) => option.shape.type.value));
+const itemTypes = new Set<unknown>(Item.options.map((option) => option.shape.type.value));
 const updateKinds: Record<SessionUpdate["sessionUpdate"], true> = {
   agent_message_chunk: true,
   tool_call: true,
@@ -220,18 +247,57 @@ const updateKinds: Record<SessionUpdate["sessionUpdate"], true> = {
   available_commands_update: true,
 };
 
-/**
- * Parses one event from the service. Returns undefined for event types and session
- * update kinds this app doesn't know (newer service); throws on a malformed known event.
- */
-export const parseServiceEvent = (data: unknown): ServiceEvent | undefined => {
-  if (typeof data === "object" && data !== null) {
-    const { type, update } = data as { type?: unknown; update?: unknown };
-    if (typeof type === "string" && !eventTypes.has(type)) return undefined;
-    if (type === "session_update" && typeof update === "object" && update !== null) {
-      const kind = (update as { sessionUpdate?: unknown }).sessionUpdate;
-      if (typeof kind === "string" && !Object.hasOwn(updateKinds, kind)) return undefined;
-    }
+/** An item of a type, or carrying a session update kind, that this app doesn't know (newer service). */
+const isUnknownItem = (data: unknown) => {
+  if (typeof data !== "object" || data === null) return false;
+  const { type, update } = data as { type?: unknown; update?: unknown };
+  if (typeof type === "string" && !itemTypes.has(type)) return true;
+  if (type === "session_update" && typeof update === "object" && update !== null) {
+    const updateKind = (update as { sessionUpdate?: unknown }).sessionUpdate;
+    return typeof updateKind === "string" && !Object.hasOwn(updateKinds, updateKind);
   }
-  return ServiceEvent.parse(data);
+  return false;
+};
+
+/**
+ * Parses one item from the service. Returns undefined for item types and session update
+ * kinds this app doesn't know (newer service); throws on a malformed known item.
+ */
+export const parseItem = (data: unknown): Item | undefined => (isUnknownItem(data) ? undefined : Item.parse(data));
+
+export const ListItemsResponse = z.object({
+  dbId: DbId,
+  seq: Seq,
+  // Unknown items are dropped as parseItem would; a malformed known one fails the parse.
+  items: z
+    .array(z.unknown())
+    .transform((items) => items.filter((value) => !isUnknownItem(value)))
+    .pipe(z.array(Item)),
+  truncated: z.boolean(),
+});
+export type ListItemsResponse = z.infer<typeof ListItemsResponse>;
+
+// Alerts (lenient), sent over `GET /events` after the change is committed.
+
+/**
+ * Says that something changed for an agent, up to `seq`; the app fetches the change.
+ * Unknown fields are stripped, so an alert never carries agent content even if one is sent.
+ */
+export const Alert = z.object({
+  seq: Seq,
+  dbId: DbId,
+  type: z.enum(["agent_added", "agent_changed", "agent_removed", "items"]),
+  agentId: z.string(),
+});
+export type Alert = z.infer<typeof Alert>;
+
+const alertTypes = new Set<unknown>(Alert.shape.type.options);
+
+/** Parses one alert. Returns undefined for alert types this app doesn't know (newer service); throws on a malformed known alert. */
+export const parseAlert = (data: unknown): Alert | undefined => {
+  if (typeof data === "object" && data !== null) {
+    const { type } = data as { type?: unknown };
+    if (typeof type === "string" && !alertTypes.has(type)) return undefined;
+  }
+  return Alert.parse(data);
 };

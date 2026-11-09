@@ -1,20 +1,26 @@
-// Task 1 (wire contract): every test in this file belongs to step 4, task 1.
+// Step 4 wire contract. T1 wrote the contract; T2 revised it (alerts on the stream, content as items
+// through the API, the stopped state). Tests marked "T2" turn green with T2; the rest are T1's, kept
+// or moved from events onto items.
 import type { SessionUpdate as AcpSessionUpdate } from "@agentclientprotocol/sdk";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 import {
   AgentSummary,
+  Alert,
   AnswerPermissionRequest,
   ErrorBody,
   ListAgentsResponse,
   ListHarnessesResponse,
+  ListItemsQuery,
+  ListItemsResponse,
   SendMessageRequest,
   SessionUpdate,
   StartAgentRequest,
   VersionResponse,
-  parseServiceEvent,
+  parseAlert,
+  parseItem,
 } from "./api.ts";
-import type { ServiceEvent } from "./api.ts";
+import type { Item } from "./api.ts";
 
 // Invented samples in the shapes the service and claude-agent-acp really produce.
 
@@ -29,6 +35,10 @@ const doneAgent = {
   startedAt: "2026-11-04T09:15:00.000Z",
   lastActivityAt: "2026-11-04T09:21:42.512Z",
 };
+
+const dbId = "db_5c1e9a0f7b2d";
+const agentId = doneAgent.id;
+const at = "2026-11-09T10:02:11.120Z";
 
 const agentMessageChunk = {
   sessionUpdate: "agent_message_chunk",
@@ -102,39 +112,38 @@ const renderedUpdates = [
   availableCommandsUpdate,
 ];
 
-const sampleEvents = [
-  { seq: 1, type: "snapshot", agents: [doneAgent] },
-  { seq: 2, type: "snapshot", agents: [] },
-  { seq: 3, type: "agent_added", agent: doneAgent },
-  { seq: 4, type: "agent_changed", agent: { ...doneAgent, state: "working" } },
-  { seq: 5, type: "agent_removed", agentId: "agt_7f3c2a" },
-  ...renderedUpdates.map((update, i) => ({
-    seq: 10 + i,
-    type: "session_update",
-    agentId: "agt_7f3c2a",
-    update,
-  })),
-  {
-    seq: 20,
-    type: "permission_requested",
-    agentId: "agt_7f3c2a",
-    requestId: "perm_3",
-    toolCall: {
-      toolCallId: "toolu_01A",
-      title: "Edit src/components/header/header.tsx",
-      kind: "edit",
-      content: [diffContent],
-    },
-    options: [
-      { kind: "allow_once", name: "Allow" },
-      { kind: "allow_always", name: "Always allow" },
-      { kind: "reject_once", name: "Reject" },
-    ],
-  },
-  { seq: 21, type: "permission_answered", agentId: "agt_7f3c2a", requestId: "perm_3", kind: "allow_once" },
-  { seq: 22, type: "turn_ended", agentId: "agt_7f3c2a", stopReason: "end_turn" },
-  { seq: 23, type: "turn_ended", agentId: "agt_7f3c2a", stopReason: "cancelled" },
+/** An item as the items route sends it: `seq`, `type`, `agentId`, `at`, plus the type's fields. */
+const item = (seq: number, type: string, fields: Record<string, unknown> = {}) => ({ seq, type, agentId, at, ...fields });
+
+const permissionToolCall = {
+  toolCallId: "toolu_01A",
+  title: "Edit src/components/header/header.tsx",
+  kind: "edit",
+  content: [diffContent],
+};
+
+const permissionRequested = item(20, "permission_requested", {
+  requestId: "perm_3",
+  toolCall: permissionToolCall,
+  options: [
+    { kind: "allow_once", name: "Allow" },
+    { kind: "allow_always", name: "Always allow" },
+    { kind: "reject_once", name: "Reject" },
+  ],
+});
+
+const sampleItems = [
+  item(1, "user_message", { text: "Make the header padding match the footer." }),
+  item(2, "user_message", { text: "Also check the mobile breakpoint.", commandId: "cmd_01JC2" }),
+  ...renderedUpdates.map((update, i) => item(10 + i, "session_update", { update })),
+  permissionRequested,
+  item(21, "permission_answered", { requestId: "perm_3", kind: "allow_once" }),
+  item(22, "turn_ended", { stopReason: "end_turn" }),
+  item(23, "turn_ended", { stopReason: "cancelled" }),
+  { ...item(24, "turn_ended", { stopReason: "end_turn" }), at: "2026-11-09T11:02:11.120+01:00" }, // offset allowed, as in AgentSummary
 ];
+
+const alertTypes = ["agent_added", "agent_changed", "agent_removed", "items"] as const;
 
 const without = (value: object, field: string): Record<string, unknown> =>
   Object.fromEntries(Object.entries(value).filter(([key]) => key !== field));
@@ -204,6 +213,39 @@ describe("request bodies (strict)", () => {
     expect(SendMessageRequest.safeParse({ text: "hi", attachments: [] }).success).toBe(false);
   });
 
+  // T2
+  test("SendMessageRequest keeps a commandId of 1-64 letters, digits, - or _", () => {
+    for (const commandId of ["c", "cmd_01JC2", "A-b_9", "3f2b8c1e-7a4d-4e1b-9c0a-2d5e6f7a8b9c", "x".repeat(64)]) {
+      expect(SendMessageRequest.parse({ text: "Run the tests.", commandId }), commandId).toEqual({
+        text: "Run the tests.",
+        commandId,
+      });
+    }
+  });
+
+  // T2
+  test("SendMessageRequest's commandId is optional", () => {
+    const parsed = SendMessageRequest.parse({ text: "Run the tests." });
+    expect(parsed).not.toHaveProperty("commandId");
+  });
+
+  // T2
+  test("SendMessageRequest rejects a commandId that is empty, too long, has other characters or isn't a string", () => {
+    for (const commandId of ["", "x".repeat(65), "cmd 1", "cmd.1", "cmd/1", "cmd:1", "cmd\n", "é", 42, null]) {
+      expect(SendMessageRequest.safeParse({ text: "Run the tests.", commandId }).success, JSON.stringify(commandId)).toBe(
+        false,
+      );
+    }
+  });
+
+  // T2
+  test("SendMessageRequest stays strict with a commandId", () => {
+    for (const extra of [{ attachments: [] }, { requestId: "r1" }, { command_id: "cmd_1" }]) {
+      const body = { text: "Run the tests.", commandId: "cmd_01JC2", ...extra };
+      expect(SendMessageRequest.safeParse(body).success, JSON.stringify(extra)).toBe(false);
+    }
+  });
+
   test("AnswerPermissionRequest accepts each permission kind", () => {
     for (const kind of permissionKinds) {
       expect(AnswerPermissionRequest.safeParse({ kind }).success, kind).toBe(true);
@@ -224,6 +266,61 @@ describe("request bodies (strict)", () => {
   });
 });
 
+// T2: `GET /agents/:id/items?after=&limit=`, read from query-string values.
+describe("ListItemsQuery (strict, from query strings)", () => {
+  test("after defaults to 0 and limit stays absent", () => {
+    const parsed = ListItemsQuery.parse({});
+    expect(parsed).toEqual({ after: 0 });
+    expect(parsed).not.toHaveProperty("limit");
+  });
+
+  test("after and limit are read as integers from strings", () => {
+    expect(ListItemsQuery.parse({ after: "17", limit: "50" })).toEqual({ after: 17, limit: 50 });
+    expect(ListItemsQuery.parse({ after: "0" })).toEqual({ after: 0 });
+  });
+
+  test("limit accepts 1 to 1000", () => {
+    for (const limit of ["1", "1000"]) {
+      expect(ListItemsQuery.parse({ limit }), limit).toMatchObject({ limit: Number(limit) });
+    }
+  });
+
+  test("after rejects negative, non-integer and non-numeric values", () => {
+    for (const after of ["-1", "1.5", "abc", "1e400"]) {
+      expect(ListItemsQuery.safeParse({ after }).success, after).toBe(false);
+    }
+  });
+
+  test("limit rejects values outside 1-1000, non-integers and non-numbers", () => {
+    for (const limit of ["0", "1001", "-3", "2.5", "abc"]) {
+      expect(ListItemsQuery.safeParse({ limit }).success, limit).toBe(false);
+    }
+  });
+
+  test("plain numbers are read as well as numeric strings", () => {
+    expect(ListItemsQuery.parse({ after: 17, limit: 50 })).toEqual({ after: 17, limit: 50 });
+  });
+
+  test("an empty value for after or limit is rejected, not read as 0", () => {
+    for (const query of [{ after: "" }, { limit: "" }, { after: " " }]) {
+      expect(ListItemsQuery.safeParse(query).success, JSON.stringify(query)).toBe(false);
+    }
+  });
+
+  test("a repeated key (an array value) is rejected", () => {
+    expect(ListItemsQuery.safeParse({ after: "3" }).success).toBe(true); // control: a single value parses
+    for (const query of [{ after: ["3", "5"] }, { limit: ["10", "20"] }, { after: ["3"] }]) {
+      expect(ListItemsQuery.safeParse(query).success, JSON.stringify(query)).toBe(false);
+    }
+  });
+
+  test("unknown query keys are rejected", () => {
+    for (const query of [{ before: "3" }, { after: "1", cursor: "x" }]) {
+      expect(ListItemsQuery.safeParse(query).success, JSON.stringify(query)).toBe(false);
+    }
+  });
+});
+
 describe("responses (lenient)", () => {
   test("VersionResponse reads the api version and ignores unknown fields", () => {
     expect(VersionResponse.parse({ apiVersion: 1 })).toMatchObject({ apiVersion: 1 });
@@ -238,8 +335,8 @@ describe("responses (lenient)", () => {
     expect(ListHarnessesResponse.safeParse([{ id: "claude-code" }]).success).toBe(false);
   });
 
-  test("AgentSummary accepts a realistic summary in every state", () => {
-    for (const state of ["working", "waiting", "done", "error"]) {
+  test("AgentSummary accepts a realistic summary in every state, including stopped (T2)", () => {
+    for (const state of ["working", "waiting", "done", "error", "stopped"]) {
       expect(AgentSummary.safeParse({ ...doneAgent, state }).success, state).toBe(true);
     }
     expect(AgentSummary.safeParse(without(doneAgent, "title")).success).toBe(true);
@@ -279,22 +376,35 @@ describe("responses (lenient)", () => {
     expect(AgentSummary.safeParse({ ...doneAgent, startedAt: "yesterday" }).success).toBe(false);
   });
 
-  test("AgentSummary rejects a state outside the four contract states", () => {
-    for (const state of ["paused", "idle", ""]) {
+  test("AgentSummary rejects a state outside the contract states", () => {
+    for (const state of ["paused", "idle", "Stopped", ""]) {
       expect(AgentSummary.safeParse({ ...doneAgent, state }).success, state).toBe(false);
     }
   });
 
-  test("AgentSummary's state is exactly the four contract states", () => {
-    expectTypeOf<AgentSummary["state"]>().toEqualTypeOf<"working" | "waiting" | "done" | "error">();
+  // T2
+  test("AgentSummary's state is exactly the five contract states", () => {
+    expectTypeOf<AgentSummary["state"]>().toEqualTypeOf<"working" | "waiting" | "done" | "error" | "stopped">();
   });
 
-  test("ListAgentsResponse reads seq and the agents", () => {
-    const parsed = ListAgentsResponse.parse({ seq: 42, agents: [doneAgent] });
-    expect(parsed.seq).toBe(42);
+  // T2
+  test("ListAgentsResponse reads dbId, seq and the agents", () => {
+    const parsed = ListAgentsResponse.parse({ dbId, seq: 42, agents: [doneAgent], server: "x" });
+    expect(parsed).toMatchObject({ dbId, seq: 42 });
     expect(parsed.agents).toHaveLength(1);
-    expect(ListAgentsResponse.parse({ seq: 0, agents: [] }).agents).toEqual([]);
-    expect(ListAgentsResponse.safeParse({ agents: [doneAgent] }).success).toBe(false);
+    expect(ListAgentsResponse.parse({ dbId, seq: 0, agents: [] }).agents).toEqual([]);
+  });
+
+  // T2
+  test("ListAgentsResponse requires a non-empty dbId and a seq", () => {
+    for (const body of [
+      { seq: 42, agents: [doneAgent] },
+      { dbId: "", seq: 42, agents: [doneAgent] },
+      { dbId: 7, seq: 42, agents: [doneAgent] },
+      { dbId, agents: [doneAgent] },
+    ]) {
+      expect(ListAgentsResponse.safeParse(body).success, JSON.stringify(body)).toBe(false);
+    }
   });
 
   test("ErrorBody accepts errors with and without a hint and ignores unknown fields", () => {
@@ -316,170 +426,285 @@ describe("responses (lenient)", () => {
   });
 });
 
-describe("events (lenient)", () => {
-  test("parseServiceEvent accepts a realistic sample of every event type", () => {
-    for (const sample of sampleEvents) {
-      const event = parseServiceEvent(sample);
-      expect(event, sample.type).toBeDefined();
-      expect(event).toMatchObject({ seq: sample.seq, type: sample.type });
+// T2 (the rules moved here from T1's events).
+describe("items (lenient)", () => {
+  test("parseItem reads a realistic sample of every item type unchanged", () => {
+    for (const sample of sampleItems) {
+      expect(parseItem(sample), `${sample.type} ${sample.seq}`).toEqual(sample);
     }
   });
 
-  test("parseServiceEvent keeps diff content on tool call updates", () => {
-    const event = parseServiceEvent({ seq: 7, type: "session_update", agentId: "agt_7f3c2a", update: toolCallUpdate });
-    expect(event).toMatchObject({ update: { sessionUpdate: "tool_call_update", content: [diffContent] } });
+  test("a user message without a commandId has no commandId key", () => {
+    const parsed = parseItem(item(1, "user_message", { text: "Make the header padding match the footer." }));
+    expect(parsed).toMatchObject({ type: "user_message", text: "Make the header padding match the footer." });
+    expect(parsed).not.toHaveProperty("commandId");
   });
 
-  test("parseServiceEvent ignores session updates of kinds we don't render", () => {
+  test("parseItem keeps diff content on tool call updates", () => {
+    expect(parseItem(item(7, "session_update", { update: toolCallUpdate }))).toMatchObject({
+      update: { sessionUpdate: "tool_call_update", content: [diffContent] },
+    });
+  });
+
+  test("parseItem ignores items of types it doesn't know, agent state included", () => {
+    for (const type of ["state_changed", "assistant_message", "future_type"]) {
+      expect(parseItem(item(30, type, { text: "x", state: "done" })), type).toBeUndefined();
+    }
+  });
+
+  test("parseItem ignores session updates of kinds we don't render", () => {
     for (const update of [
       { sessionUpdate: "plan", entries: [{ content: "Read the header", priority: "high", status: "pending" }] },
       { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Thinking about padding." } },
       { sessionUpdate: "some_future_kind" },
     ]) {
-      const event = { seq: 40, type: "session_update", agentId: "agt_7f3c2a", update };
-      expect(parseServiceEvent(event), update.sessionUpdate).toBeUndefined();
+      expect(parseItem(item(40, "session_update", { update })), update.sessionUpdate).toBeUndefined();
     }
   });
 
-  test("parseServiceEvent accepts any non-empty stopReason and rejects an empty one", () => {
+  test("parseItem accepts any non-empty stopReason and rejects an empty one", () => {
     for (const stopReason of ["end_turn", "max_tokens", "refusal", "some_future_reason"]) {
-      const event = parseServiceEvent({ seq: 41, type: "turn_ended", agentId: "agt_7f3c2a", stopReason });
-      expect(event, stopReason).toMatchObject({ type: "turn_ended", stopReason });
+      expect(parseItem(item(41, "turn_ended", { stopReason })), stopReason).toMatchObject({ type: "turn_ended", stopReason });
     }
-    expect(() => parseServiceEvent({ seq: 41, type: "turn_ended", agentId: "agt_7f3c2a", stopReason: "" })).toThrow();
+    expect(() => parseItem(item(41, "turn_ended", { stopReason: "" }))).toThrow();
   });
 
-  test("parseServiceEvent drops unknown permission option kinds and keeps the known ones", () => {
-    const event = parseServiceEvent({
-      seq: 42,
-      type: "permission_requested",
-      agentId: "agt_7f3c2a",
-      requestId: "perm_4",
-      toolCall: { toolCallId: "toolu_01C", title: "Run pnpm test", kind: "execute" },
-      options: [
-        { kind: "allow_once", name: "Allow" },
-        { kind: "allow_for_session", name: "Allow for this session" },
-        { kind: "reject_once", name: "Reject" },
-      ],
-    });
-    expect(event).toMatchObject({ type: "permission_requested", requestId: "perm_4" });
-    expect(event?.type === "permission_requested" ? event.options : undefined).toEqual([
+  test("parseItem drops unknown permission option kinds and keeps the known ones", () => {
+    const parsed = parseItem(
+      item(42, "permission_requested", {
+        requestId: "perm_4",
+        toolCall: { toolCallId: "toolu_01C", title: "Run pnpm test", kind: "execute" },
+        options: [
+          { kind: "allow_once", name: "Allow" },
+          { kind: "allow_for_session", name: "Allow for this session" },
+          { kind: "reject_once", name: "Reject" },
+        ],
+      }),
+    );
+    expect(parsed).toMatchObject({ type: "permission_requested", requestId: "perm_4" });
+    expect(parsed?.type === "permission_requested" ? parsed.options : undefined).toEqual([
       { kind: "allow_once", name: "Allow" },
       { kind: "reject_once", name: "Reject" },
     ]);
   });
 
-  test("parseServiceEvent drops unknown tool call content items and keeps the update", () => {
+  test("parseItem drops unknown tool call content items and keeps the update", () => {
     const content = [diffContent, { type: "terminal", terminalId: "term_1" }];
     for (const update of [
       { ...toolCall, content },
       { ...toolCallUpdate, content },
     ]) {
-      const event = parseServiceEvent({ seq: 43, type: "session_update", agentId: "agt_7f3c2a", update });
-      expect(event, update.sessionUpdate).toMatchObject({ update: { sessionUpdate: update.sessionUpdate } });
-      const parsed = event?.type === "session_update" ? event.update : undefined;
-      expect(parsed && "content" in parsed ? parsed.content : undefined, update.sessionUpdate).toEqual([diffContent]);
+      const parsed = parseItem(item(43, "session_update", { update }));
+      expect(parsed, update.sessionUpdate).toMatchObject({ update: { sessionUpdate: update.sessionUpdate } });
+      const kept = parsed?.type === "session_update" ? parsed.update : undefined;
+      expect(kept && "content" in kept ? kept.content : undefined, update.sessionUpdate).toEqual([diffContent]);
     }
   });
 
-  test("parseServiceEvent ignores unknown event types", () => {
-    for (const type of ["agent_paused", "heartbeat", "future_thing"]) {
-      expect(parseServiceEvent({ seq: 99, type, agentId: "agt_7f3c2a" }), type).toBeUndefined();
-    }
-  });
-
-  test("parseServiceEvent ignores unknown fields on known events and updates", () => {
-    const event = parseServiceEvent({
-      seq: 30,
-      type: "session_update",
-      agentId: "agt_7f3c2a",
-      origin: "replay",
-      update: { ...usageUpdate, _meta: { vendor: "x" }, cacheHits: 3 },
+  test("parseItem ignores unknown fields on known items and updates", () => {
+    expect(
+      parseItem({
+        ...item(30, "session_update", { update: { ...usageUpdate, _meta: { vendor: "x" }, cacheHits: 3 } }),
+        origin: "store",
+      }),
+    ).toMatchObject({ seq: 30, agentId, at, update: { sessionUpdate: "usage_update" } });
+    expect(parseItem({ ...item(31, "turn_ended", { stopReason: "end_turn" }), durationMs: 812 })).toMatchObject({
+      type: "turn_ended",
+      stopReason: "end_turn",
     });
-    expect(event).toMatchObject({ seq: 30, agentId: "agt_7f3c2a", update: { sessionUpdate: "usage_update" } });
-    expect(parseServiceEvent({ seq: 31, type: "agent_removed", agentId: "agt_7f3c2a", reason: "deleted" })).toMatchObject(
-      { type: "agent_removed", agentId: "agt_7f3c2a" },
-    );
   });
 
-  test("parseServiceEvent rejects malformed known events", () => {
+  test("parseItem rejects malformed known items", () => {
+    const turnEnded = item(1, "turn_ended", { stopReason: "end_turn" });
+    expect(parseItem(turnEnded)).toBeDefined(); // control: the well-formed item parses
     for (const bad of [
-      { type: "agent_removed", agentId: "agt_7f3c2a" }, // no seq
-      { seq: -1, type: "agent_removed", agentId: "agt_7f3c2a" },
-      { seq: 1.5, type: "agent_removed", agentId: "agt_7f3c2a" },
-      { seq: "3", type: "agent_removed", agentId: "agt_7f3c2a" },
-      { seq: 1, type: "agent_added" }, // no agent
-      { seq: 1, type: "agent_added", agent: { id: "agt_7f3c2a" } }, // not a summary
-      { seq: 1, type: "permission_answered", agentId: "a", requestId: "p", kind: "allow" },
-      { seq: 1, type: "session_update", agentId: "a", update: { sessionUpdate: "usage_update", used: "lots" } },
-      {
-        seq: 1,
-        type: "session_update",
-        agentId: "a",
-        update: { sessionUpdate: "tool_call_update", content: [diffContent] }, // no toolCallId
-      },
+      without(turnEnded, "seq"),
+      { ...turnEnded, seq: -1 },
+      { ...turnEnded, seq: 1.5 },
+      { ...turnEnded, seq: "3" },
+      without(turnEnded, "agentId"),
+      without(turnEnded, "at"),
+      { ...turnEnded, at: "yesterday" },
+      item(1, "user_message"), // no text
+      item(1, "user_message", { text: 42 }),
+      item(1, "permission_answered", { requestId: "p", kind: "allow" }),
+      item(1, "permission_answered", { kind: "allow_once" }), // no requestId
+      item(1, "permission_answered", { requestId: "p" }), // no permission kind
+      without(permissionRequested, "toolCall"),
+      item(1, "session_update"), // no update
+      item(1, "session_update", { update: { sessionUpdate: "usage_update", used: "lots" } }),
+      item(1, "session_update", { update: { sessionUpdate: "tool_call_update", content: [diffContent] } }), // no toolCallId
     ]) {
-      expect(() => parseServiceEvent(bad), JSON.stringify(bad)).toThrow();
+      expect(() => parseItem(bad), JSON.stringify(bad)).toThrow();
     }
   });
 
-  test("parseServiceEvent rejects input that is not an event at all", () => {
-    for (const bad of [null, undefined, "snapshot", 42, [], {}, { seq: 1 }]) {
-      expect(() => parseServiceEvent(bad), JSON.stringify(bad)).toThrow();
+  test("parseItem rejects input that is not an item at all", () => {
+    expect(parseItem(sampleItems[0])).toBeDefined(); // control: an item parses
+    for (const bad of [null, undefined, "turn_ended", 42, [], {}, { seq: 1 }]) {
+      expect(() => parseItem(bad), JSON.stringify(bad)).toThrow();
     }
   });
 
-  test("parseServiceEvent's result is the ServiceEvent union", () => {
-    expectTypeOf(parseServiceEvent).returns.toEqualTypeOf<ServiceEvent | undefined>();
-    expectTypeOf<ServiceEvent["type"]>().toEqualTypeOf<
-      | "snapshot"
-      | "agent_added"
-      | "agent_changed"
-      | "agent_removed"
-      | "session_update"
-      | "permission_requested"
-      | "permission_answered"
-      | "turn_ended"
+  test("parseItem's result is the Item union", () => {
+    expectTypeOf(parseItem).returns.toEqualTypeOf<Item | undefined>();
+    expectTypeOf<Item["type"]>().toEqualTypeOf<
+      "user_message" | "session_update" | "permission_requested" | "permission_answered" | "turn_ended"
+    >();
+    expectTypeOf<Extract<Item, { type: "permission_answered" }>["kind"]>().toEqualTypeOf<
+      "allow_once" | "allow_always" | "reject_once" | "reject_always"
     >();
   });
 });
 
-// ACP-derived values the app tolerates: one tool call reaches the app on three paths.
+// T2
+describe("ListItemsResponse (lenient)", () => {
+  const known = sampleItems.slice(0, 3);
+  const unknownType = item(5, "state_changed", { state: "done" });
+  const unknownUpdate = item(6, "session_update", { update: { sessionUpdate: "plan", entries: [] } });
+
+  test("reads dbId, seq, items and truncated", () => {
+    for (const truncated of [false, true]) {
+      const parsed = ListItemsResponse.parse({ dbId, seq: 99, items: known, truncated });
+      expect(parsed, String(truncated)).toEqual({ dbId, seq: 99, items: known, truncated });
+    }
+    expect(ListItemsResponse.parse({ dbId, seq: 0, items: [], truncated: false }).items).toEqual([]);
+  });
+
+  test("drops items it doesn't know and keeps the others in order", () => {
+    const [first, second, third] = known;
+    const parsed = ListItemsResponse.parse({
+      dbId,
+      seq: 99,
+      items: [first, unknownType, second, unknownUpdate, third],
+      truncated: false,
+    });
+    expect(parsed.items).toEqual([first, second, third]);
+  });
+
+  test("fails on a malformed known item", () => {
+    const body = { dbId, seq: 99, items: [...known, item(7, "turn_ended", { stopReason: "" })], truncated: false };
+    expect(ListItemsResponse.safeParse(body).success).toBe(false);
+  });
+
+  test("ignores unknown fields", () => {
+    expect(ListItemsResponse.parse({ dbId, seq: 99, items: known, truncated: false, nextAfter: 12 })).toMatchObject({
+      dbId,
+      seq: 99,
+    });
+  });
+
+  test("requires a non-empty dbId, seq, items and a boolean truncated", () => {
+    const body = { dbId, seq: 99, items: known, truncated: false };
+    expect(ListItemsResponse.safeParse(body).success).toBe(true); // control: the full body parses
+    for (const field of ["dbId", "seq", "items", "truncated"]) {
+      expect(ListItemsResponse.safeParse(without(body, field)).success, field).toBe(false);
+    }
+    expect(ListItemsResponse.safeParse({ ...body, seq: -1 }).success).toBe(false);
+    expect(ListItemsResponse.safeParse({ ...body, dbId: "" }).success).toBe(false);
+    expect(ListItemsResponse.safeParse({ ...body, truncated: "false" }).success).toBe(false);
+  });
+});
+
+// T2
+describe("alerts (lenient)", () => {
+  const alert = (type: string, seq = 60) => ({ seq, dbId, type, agentId });
+
+  test("parseAlert reads every alert type", () => {
+    for (const type of alertTypes) {
+      expect(parseAlert(alert(type)), type).toEqual(alert(type));
+    }
+  });
+
+  // Lasting invariant: desktop notifications are built from alerts, so an alert must never carry agent
+  // content, even when the service (by a bug) sends some. Mutation check: make Alert pass unknown fields through.
+  test("no agent content in alerts: content fields sent with an alert are stripped", () => {
+    const content = {
+      update: agentMessageChunk,
+      text: "Make the header padding match the footer.",
+      agent: doneAgent,
+      items: sampleItems,
+      title: "Tidy the header styles",
+      toolCall: permissionToolCall,
+      error: { code: "auth_required", message: "Not logged in." },
+    };
+    for (const type of alertTypes) {
+      const sent = { ...alert(type), ...content };
+      for (const [via, parsed] of [
+        ["parseAlert", parseAlert(sent)],
+        ["Alert.parse", Alert.parse(sent)],
+      ] as const) {
+        expect(parsed, `${via} ${type}`).toEqual(alert(type));
+        expect(Object.keys(parsed ?? {}).sort(), `${via} ${type}`).toEqual(["agentId", "dbId", "seq", "type"]);
+      }
+    }
+  });
+
+  test("no agent content in alerts: the Alert type has only seq, dbId, type and agentId", () => {
+    expectTypeOf<keyof Alert>().toEqualTypeOf<"seq" | "dbId" | "type" | "agentId">();
+  });
+
+  test("parseAlert ignores alert types it doesn't know", () => {
+    for (const type of ["agent_paused", "heartbeat", "future_thing"]) {
+      expect(parseAlert(alert(type)), type).toBeUndefined();
+    }
+  });
+
+  test("parseAlert rejects malformed known alerts, and agentId is required on every type", () => {
+    for (const type of alertTypes) {
+      expect(parseAlert(alert(type)), type).toBeDefined(); // control: the well-formed alert parses
+      for (const field of ["seq", "dbId", "agentId"]) {
+        expect(() => parseAlert(without(alert(type), field)), `${type} without ${field}`).toThrow();
+      }
+      for (const bad of [
+        { ...alert(type), seq: -1 },
+        { ...alert(type), seq: 1.5 },
+        { ...alert(type), seq: "3" },
+        { ...alert(type), agentId: 7 },
+        { ...alert(type), dbId: 7 },
+        { ...alert(type), dbId: "" },
+      ]) {
+        expect(() => parseAlert(bad), JSON.stringify(bad)).toThrow();
+      }
+    }
+  });
+
+  test("parseAlert rejects input that is not an alert at all", () => {
+    expect(parseAlert(alert("items"))).toBeDefined(); // control: an alert parses
+    for (const bad of [null, undefined, "items", 42, [], {}, { seq: 1 }]) {
+      expect(() => parseAlert(bad), JSON.stringify(bad)).toThrow();
+    }
+  });
+
+  test("parseAlert's result is the Alert union", () => {
+    expectTypeOf(parseAlert).returns.toEqualTypeOf<Alert | undefined>();
+    expectTypeOf<Alert["type"]>().toEqualTypeOf<"agent_added" | "agent_changed" | "agent_removed" | "items">();
+  });
+});
+
+// ACP-derived values the app tolerates: one tool call reaches the app on three item paths.
 const toolCallFields = without(toolCall, "sessionUpdate");
 
 const toolCallPaths = [
   {
     path: "session_update tool_call",
-    event: (fields: Record<string, unknown>) => ({
-      seq: 50,
-      type: "session_update",
-      agentId: "agt_7f3c2a",
-      update: { ...toolCall, ...fields },
-    }),
-    pick: (event: ServiceEvent | undefined): unknown => (event?.type === "session_update" ? event.update : undefined),
+    item: (fields: Record<string, unknown>) => item(50, "session_update", { update: { ...toolCall, ...fields } }),
+    pick: (parsed: Item | undefined): unknown => (parsed?.type === "session_update" ? parsed.update : undefined),
   },
   {
     path: "session_update tool_call_update",
-    event: (fields: Record<string, unknown>) => ({
-      seq: 51,
-      type: "session_update",
-      agentId: "agt_7f3c2a",
-      update: { ...toolCallUpdate, ...fields },
-    }),
-    pick: (event: ServiceEvent | undefined): unknown => (event?.type === "session_update" ? event.update : undefined),
+    item: (fields: Record<string, unknown>) => item(51, "session_update", { update: { ...toolCallUpdate, ...fields } }),
+    pick: (parsed: Item | undefined): unknown => (parsed?.type === "session_update" ? parsed.update : undefined),
   },
   {
     path: "permission_requested toolCall",
-    event: (fields: Record<string, unknown>) => ({
-      seq: 52,
-      type: "permission_requested",
-      agentId: "agt_7f3c2a",
-      requestId: "perm_5",
-      toolCall: { ...toolCallFields, ...fields },
-      options: [{ kind: "allow_once", name: "Allow" }],
-    }),
-    pick: (event: ServiceEvent | undefined): unknown =>
-      event?.type === "permission_requested" ? event.toolCall : undefined,
+    item: (fields: Record<string, unknown>) =>
+      item(52, "permission_requested", {
+        requestId: "perm_5",
+        toolCall: { ...toolCallFields, ...fields },
+        options: [{ kind: "allow_once", name: "Allow" }],
+      }),
+    pick: (parsed: Item | undefined): unknown => (parsed?.type === "permission_requested" ? parsed.toolCall : undefined),
   },
 ];
 
@@ -503,20 +728,16 @@ const unsupportedBlocks = [
   { block: { type: "video", uri: "file:///work/site-web/demo.mp4" }, original: "video" },
 ];
 
-const chunkEvent = (content: unknown) => ({
-  seq: 53,
-  type: "session_update",
-  agentId: "agt_7f3c2a",
-  update: { sessionUpdate: "agent_message_chunk", content },
-});
+const chunkItem = (content: unknown) =>
+  item(53, "session_update", { update: { sessionUpdate: "agent_message_chunk", content } });
 
 const chunkContentOf = (block: unknown): unknown => {
-  const event = parseServiceEvent(chunkEvent(block));
-  return event?.type === "session_update" && "content" in event.update ? event.update.content : undefined;
+  const parsed = parseItem(chunkItem(block));
+  return parsed?.type === "session_update" && "content" in parsed.update ? parsed.update.content : undefined;
 };
 
 const toolContentOf = (entry: (typeof toolCallPaths)[number], content: unknown[]): unknown[] =>
-  (entry.pick(parseServiceEvent(entry.event({ content }))) as { content: unknown[] }).content;
+  (entry.pick(parseItem(entry.item({ content }))) as { content: unknown[] }).content;
 
 // A content block the app doesn't render reads as the same placeholder in a message chunk and on every tool call path.
 const expectPlaceholderEverywhere = (block: unknown, original: string) => {
@@ -533,8 +754,7 @@ const expectPlaceholderEverywhere = (block: unknown, original: string) => {
 describe("ACP-derived values (tolerated)", () => {
   test("an image in a supported format is kept in an agent message chunk", () => {
     for (const image of supportedImages) {
-      const event = parseServiceEvent(chunkEvent(image));
-      expect(event, image.mimeType).toMatchObject({
+      expect(parseItem(chunkItem(image)), image.mimeType).toMatchObject({
         update: { sessionUpdate: "agent_message_chunk", content: { type: "image", mimeType: image.mimeType, data: image.data } },
       });
     }
@@ -542,8 +762,8 @@ describe("ACP-derived values (tolerated)", () => {
 
   test("other non-text agent message content becomes an unsupported placeholder", () => {
     for (const { block, original } of unsupportedBlocks) {
-      const event = parseServiceEvent(chunkEvent(block));
-      const update = event?.type === "session_update" ? event.update : undefined;
+      const parsed = parseItem(chunkItem(block));
+      const update = parsed?.type === "session_update" ? parsed.update : undefined;
       expect(update, JSON.stringify(block)).toMatchObject({ sessionUpdate: "agent_message_chunk" });
       expect(update && "content" in update ? update.content : undefined, JSON.stringify(block)).toEqual({
         type: "unsupported",
@@ -553,8 +773,8 @@ describe("ACP-derived values (tolerated)", () => {
   });
 
   test("an unknown tool kind reads as other and an unknown status is dropped", () => {
-    for (const { path, event, pick } of toolCallPaths) {
-      const parsed = pick(parseServiceEvent(event({ kind: "browse", status: "queued" })));
+    for (const { path, item: make, pick } of toolCallPaths) {
+      const parsed = pick(parseItem(make({ kind: "browse", status: "queued" })));
       expect(parsed, path).toMatchObject({ toolCallId: "toolu_01A", kind: "other" });
       expect(parsed, path).not.toHaveProperty("status");
     }
@@ -562,8 +782,8 @@ describe("ACP-derived values (tolerated)", () => {
 
   test("a malformed tool call location is dropped and the others are kept", () => {
     const locations = [{ path: "/work/site-web/a.ts", line: 3 }, { line: 5 }, { path: 42 }, { path: "/work/site-web/b.ts" }];
-    for (const { path, event, pick } of toolCallPaths) {
-      const parsed = pick(parseServiceEvent(event({ locations })));
+    for (const { path, item: make, pick } of toolCallPaths) {
+      const parsed = pick(parseItem(make({ locations })));
       expect(parsed, path).toMatchObject({
         locations: [{ path: "/work/site-web/a.ts", line: 3 }, { path: "/work/site-web/b.ts" }],
       });
@@ -572,9 +792,9 @@ describe("ACP-derived values (tolerated)", () => {
   });
 
   test("a known tool status survives on every path", () => {
-    for (const { path, event, pick } of toolCallPaths) {
+    for (const { path, item: make, pick } of toolCallPaths) {
       for (const status of ["pending", "in_progress", "completed", "failed"]) {
-        expect(pick(parseServiceEvent(event({ status }))), `${path} ${status}`).toMatchObject({ status });
+        expect(pick(parseItem(make({ status }))), `${path} ${status}`).toMatchObject({ status });
       }
     }
   });
@@ -582,8 +802,8 @@ describe("ACP-derived values (tolerated)", () => {
   test("an image in a supported format is kept in tool call content on every path", () => {
     for (const image of supportedImages) {
       const content = [diffContent, { type: "content", content: image }];
-      for (const { path, event, pick } of toolCallPaths) {
-        const parsed = pick(parseServiceEvent(event({ content })));
+      for (const { path, item: make, pick } of toolCallPaths) {
+        const parsed = pick(parseItem(make({ content })));
         expect((parsed as { content: unknown[] }).content, `${path} ${image.mimeType}`).toMatchObject([
           diffContent,
           { type: "content", content: { type: "image", mimeType: image.mimeType, data: image.data } },
@@ -595,8 +815,8 @@ describe("ACP-derived values (tolerated)", () => {
   test("other non-text tool call content becomes an unsupported placeholder on every path", () => {
     for (const { block, original } of unsupportedBlocks) {
       const content = [diffContent, { type: "terminal", terminalId: "term_1" }, { type: "content", content: block }];
-      for (const { path, event, pick } of toolCallPaths) {
-        const parsed = pick(parseServiceEvent(event({ content })));
+      for (const { path, item: make, pick } of toolCallPaths) {
+        const parsed = pick(parseItem(make({ content })));
         expect((parsed as { content: unknown[] }).content, `${path} ${JSON.stringify(block)}`).toEqual([
           diffContent,
           { type: "content", content: { type: "unsupported", original } },
@@ -632,9 +852,9 @@ describe("ACP-derived values (tolerated)", () => {
     expect(chunkContentOf(image)).toMatchObject({ type: "image", mimeType: "image/png", data: pixel });
     expect(chunkContentOf(image)).not.toHaveProperty("uri");
     for (const entry of toolCallPaths) {
-      const [, item] = toolContentOf(entry, [diffContent, { type: "content", content: image }]);
-      expect(item, entry.path).toMatchObject({ type: "content", content: { type: "image", data: pixel } });
-      expect((item as { content: unknown }).content, entry.path).not.toHaveProperty("uri");
+      const [, kept] = toolContentOf(entry, [diffContent, { type: "content", content: image }]);
+      expect(kept, entry.path).toMatchObject({ type: "content", content: { type: "image", data: pixel } });
+      expect((kept as { content: unknown }).content, entry.path).not.toHaveProperty("uri");
     }
   });
 
@@ -655,7 +875,7 @@ describe("ACP-derived values (tolerated)", () => {
   });
 
   test("a malformed text block throws in a message chunk but is dropped from tool call content", () => {
-    expect(() => parseServiceEvent(chunkEvent({ type: "text" }))).toThrow();
+    expect(() => parseItem(chunkItem({ type: "text" }))).toThrow();
     for (const entry of toolCallPaths) {
       expect(toolContentOf(entry, [diffContent, { type: "content", content: { type: "text" } }]), entry.path).toEqual([
         diffContent,
@@ -664,20 +884,19 @@ describe("ACP-derived values (tolerated)", () => {
   });
 
   test("a command whose input has an unknown shape is kept with a null input", () => {
-    const event = parseServiceEvent({
-      seq: 54,
-      type: "session_update",
-      agentId: "agt_7f3c2a",
-      update: {
-        sessionUpdate: "available_commands_update",
-        availableCommands: [
-          { name: "deploy", description: "Deploy a preview", input: { schema: {} } },
-          { name: "test", description: "Run the tests", input: { hint: "test name pattern" } },
-          { name: "review", description: "Review the current changes" },
-        ],
-      },
-    });
-    expect(event).toMatchObject({
+    const parsed = parseItem(
+      item(54, "session_update", {
+        update: {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [
+            { name: "deploy", description: "Deploy a preview", input: { schema: {} } },
+            { name: "test", description: "Run the tests", input: { hint: "test name pattern" } },
+            { name: "review", description: "Review the current changes" },
+          ],
+        },
+      }),
+    );
+    expect(parsed).toMatchObject({
       update: {
         availableCommands: [
           { name: "deploy", description: "Deploy a preview", input: null },
@@ -686,7 +905,8 @@ describe("ACP-derived values (tolerated)", () => {
         ],
       },
     });
-    const commands = event?.type === "session_update" && "availableCommands" in event.update ? event.update.availableCommands : [];
+    const commands =
+      parsed?.type === "session_update" && "availableCommands" in parsed.update ? parsed.update.availableCommands : [];
     expect(commands[2]).not.toHaveProperty("input");
   });
 });
@@ -715,8 +935,8 @@ describe("session updates", () => {
   type Acp<K extends SessionUpdate["sessionUpdate"]> = Extract<AcpSessionUpdate, { sessionUpdate: K }>;
   type FromAcp<T> = T extends { type: "unsupported" }
     ? never
-    : T extends readonly (infer Item)[]
-      ? FromAcp<Item>[]
+    : T extends readonly (infer Element)[]
+      ? FromAcp<Element>[]
       : T extends object
         ? { [K in keyof T]: FromAcp<T[K]> }
         : T;
@@ -729,6 +949,10 @@ describe("session updates", () => {
     expectTypeOf<FromAcp<Ours<"usage_update">>>().toExtend<Acp<"usage_update">>();
     expectTypeOf<FromAcp<Ours<"available_commands_update">>>().toExtend<Acp<"available_commands_update">>();
     expectTypeOf<FromAcp<SessionUpdate>>().toExtend<AcpSessionUpdate>();
+  });
+
+  test("the session update an item carries is the SessionUpdate schema's type", () => {
+    expectTypeOf<Extract<Item, { type: "session_update" }>["update"]>().toEqualTypeOf<SessionUpdate>();
   });
 
   test("message and tool call content can carry the unsupported placeholder", () => {
