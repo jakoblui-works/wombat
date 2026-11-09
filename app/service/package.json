@@ -12,6 +12,7 @@
   },
   "scripts": {
     "start": "node src/main.ts",
+    "smoke:real-agent": "node scripts/smoke-real-agent.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p ."
   },
