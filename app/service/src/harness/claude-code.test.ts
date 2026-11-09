@@ -32,3 +32,15 @@ test("the Claude Code command line comes from the harness alone; only cwd follow
   }
   expect(specs.flatMap((spec) => [spec.command, ...spec.args]).join(" ")).not.toMatch(/\$\(x\)|touch pwned/);
 });
+
+test("the Claude Code harness passes CLAUDE_CONFIG_DIR through when it's set, and leaves it out when it isn't", () => {
+  const base = { HOME: "/home/dev", PATH: "/usr/bin" };
+  const configDir = "/home/dev/.config/claude profiles/work";
+
+  const set = claudeCode.spawn("/home/dev/work/repo", { ...base, CLAUDE_CONFIG_DIR: configDir }).env;
+  expect(set).toHaveProperty("CLAUDE_CONFIG_DIR", configDir);
+
+  for (const source of [base, { ...base, CLAUDE_CONFIG_DIR: undefined }]) {
+    expect(claudeCode.spawn("/home/dev/work/repo", source).env).not.toHaveProperty("CLAUDE_CONFIG_DIR");
+  }
+});

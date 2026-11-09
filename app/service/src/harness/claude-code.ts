@@ -34,6 +34,12 @@ const binEntry = (): string => {
   return entry;
 };
 
+/** Where the user's claude login lives, when they moved it; claude-agent-acp reads it from its environment. */
+const declaredEnv = (source: NodeJS.ProcessEnv): Record<string, string> => {
+  const configDir = source.CLAUDE_CONFIG_DIR;
+  return typeof configDir === "string" ? { CLAUDE_CONFIG_DIR: configDir } : {};
+};
+
 export const claudeCode: Harness = {
   id: "claude-code",
   name: "Claude Code",
@@ -42,6 +48,6 @@ export const claudeCode: Harness = {
     command: process.execPath,
     args: [binEntry()],
     cwd,
-    env: agentEnv(source),
+    env: agentEnv(source, declaredEnv(source)),
   }),
 };
