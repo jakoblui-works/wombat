@@ -8,7 +8,7 @@ Early. Milestone 1: the app (a desktop app and its agent service, running on the
 
 ## Run the app
 
-From `app/`, with Node 24 or newer and pnpm 12 (the `packageManager` field in `app/package.json` pins the version):
+From `app/`, with Node 26 or newer (`.tool-versions` at the repo root pins the version for asdf) and pnpm 12 (the `packageManager` field in `app/package.json` pins the version):
 
 ```sh
 pnpm install
