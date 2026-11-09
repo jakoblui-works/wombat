@@ -8,7 +8,7 @@ import type { AgentSummary, LogEntry } from "@wombat/shared/api";
 /** The default cap on one agent's stored entries, in bytes of their stored JSON. */
 export const LOG_BYTES_PER_AGENT = 16 * 1024 * 1024;
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -35,6 +35,11 @@ export type Store = {
   deleteAgent: (agentId: string) => number | undefined;
   /** `truncated` is true exactly when an entry of this agent after `after` was dropped by the cap. */
   readLog: (agentId: string, after?: number, limit?: number) => { entries: LogEntry[]; truncated: boolean };
+  /**
+   * The next handle number of a structure: one above both the last number it gave and `floor` (the highest
+   * number on disk), remembered so a deleted item's number is never given again.
+   */
+  nextHandleNumber: (structure: string, floor: number) => number;
   close: () => void;
 };
 
@@ -43,7 +48,7 @@ const PRIVATE_FILE = 0o600;
 
 // The seq counter lives in `meta` rather than coming from a rowid, which would reuse seqs after deletes.
 // `dropped_through` is the highest seq of the agent's entries the cap removed, which answers `truncated`.
-const SCHEMA = `
+const SCHEMA_V1 = `
   CREATE TABLE meta (key TEXT PRIMARY KEY, value ANY NOT NULL) STRICT;
   CREATE TABLE agents (
     id TEXT PRIMARY KEY,
@@ -59,6 +64,27 @@ const SCHEMA = `
     body TEXT NOT NULL
   ) STRICT;
   CREATE INDEX log_entries_by_agent ON log_entries (agent_id, seq);
+`;
+
+// Items: `item_counters.last` is the last handle number given per structure id. A proposal names its item by id
+// (`item_id`, null for a pending create), since handles change by hand; `fields` and `problem` are JSON.
+const SCHEMA_V2 = `
+  CREATE TABLE item_counters (structure TEXT PRIMARY KEY, last INTEGER NOT NULL) STRICT;
+  CREATE TABLE proposals (
+    id TEXT PRIMARY KEY,
+    structure TEXT NOT NULL,
+    item_id TEXT,
+    kind TEXT NOT NULL CHECK (kind IN ('create', 'update', 'delete')),
+    fields TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    base_version TEXT,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'conflict')),
+    agent_id TEXT NOT NULL,
+    at TEXT NOT NULL,
+    decided_at TEXT,
+    problem TEXT
+  ) STRICT;
+  CREATE INDEX proposals_by_status ON proposals (status, at);
 `;
 
 /** SQLite creates these with the database's mode; ones left looser are tightened on open. */
@@ -87,7 +113,7 @@ const asString = (value: unknown) => {
 
 /**
  * Opens (or creates) the database at `path`: agent summaries and an append-only log of their entries, with one
- * seq counter across all agents.
+ * seq counter across all agents, and the items' handle counters and proposals. An older schema is upgraded in place.
  */
 export const openStore = ({
   path,
@@ -122,12 +148,16 @@ export const openStore = ({
     db.exec("PRAGMA journal_mode = WAL");
     // Commits are durable before the service alerts about them; WAL's usual NORMAL could lose the last ones.
     db.exec("PRAGMA synchronous = FULL");
-    if (version === 0) {
+    if (version < SCHEMA_VERSION) {
+      // One transaction from any older version, so a failed upgrade leaves the file as it was.
       transaction(() => {
-        db.exec(SCHEMA);
-        const insertMeta = db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)");
-        insertMeta.run("db_id", newDbId());
-        insertMeta.run("seq", 0);
+        if (version < 1) {
+          db.exec(SCHEMA_V1);
+          const insertMeta = db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)");
+          insertMeta.run("db_id", newDbId());
+          insertMeta.run("seq", 0);
+        }
+        if (version < 2) db.exec(SCHEMA_V2);
         db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       });
     }
@@ -161,6 +191,10 @@ export const openStore = ({
     ),
     logEntries: db.prepare("SELECT seq, body FROM log_entries WHERE agent_id = ? AND seq > ? ORDER BY seq LIMIT ?"),
     droppedThrough: db.prepare("SELECT dropped_through FROM agents WHERE id = ?"),
+    nextHandleNumber: db.prepare(
+      `INSERT INTO item_counters (structure, last) VALUES (?, ? + 1)
+       ON CONFLICT (structure) DO UPDATE SET last = max(last, excluded.last - 1) + 1 RETURNING last`,
+    ),
   };
 
   const currentSeq = () => asNumber(statements.seq.get()?.value);
@@ -245,6 +279,9 @@ export const openStore = ({
     };
   };
 
+  const nextHandleNumber = (structure: string, floor: number) =>
+    transaction(() => asNumber(statements.nextHandleNumber.get(structure, floor)?.last));
+
   return {
     dbId,
     currentSeq,
@@ -253,6 +290,7 @@ export const openStore = ({
     listAgents,
     deleteAgent,
     readLog,
+    nextHandleNumber,
     close: () => db.close(),
   };
 };

@@ -1,0 +1,68 @@
+// Lasting check (silent failure): invalid items stay visible. A file the catalog can't parse or
+// validate is listed as invalid with a reason naming the field or line, never dropped, and never takes the
+// valid items or the list down with it. The HTTP half is server/items-invalid-visible.test.ts.
+import { describe, expect, test } from "vitest";
+
+import type { LoadedItem, Problem } from "./catalog.ts";
+import { FIXTURE_FILES, INVALID_BUGS, itemAt, mdFilesIn, openItems, readAt, writeAt, writeRoot } from "../../test/items-fixtures.ts";
+
+const names = (problems: Problem[], fields: string[]) =>
+  problems.some(
+    (problem) =>
+      (problem.field !== undefined && fields.includes(problem.field)) ||
+      fields.some((field) => problem.message.includes(field)),
+  );
+
+const describeProblems = (item: LoadedItem) => JSON.stringify(item.problems);
+
+describe("invalid items stay visible", () => {
+  test("every broken file is listed with a reason naming its field or line, beside every valid item", async () => {
+    const root = writeRoot(FIXTURE_FILES);
+    const { catalog } = openItems(root);
+
+    const bugs = await catalog.items("bugs");
+
+    // Nothing dropped: one listed item per file in the folder.
+    expect(bugs.map((item) => item.path.split("/").at(-1)).sort()).toEqual(mdFilesIn(root, "bugs").sort());
+    for (const { file, what, names: expected } of INVALID_BUGS) {
+      const item = itemAt(bugs, `bugs/${file}`);
+      expect(item.problems.length, `${what} (${file}) is invalid`).toBeGreaterThan(0);
+      if ("line" in expected) {
+        expect(
+          item.problems.some((problem) => problem.line !== undefined),
+          `${what}: a problem names the line: ${describeProblems(item)}`,
+        ).toBe(true);
+        expect(item.handle, `${what}: the handle of a file that can't be parsed`).toBeNull();
+      } else {
+        expect(names(item.problems, expected.fields), `${what}: a problem names ${expected.fields.join(" or ")}: ${describeProblems(item)}`).toBe(true);
+      }
+    }
+    for (const file of ["bugs/BUG-1-login-times-out.md", "bugs/hero-caption.md"]) {
+      expect(itemAt(bugs, file).problems, `${file} stays valid beside the broken ones`).toEqual([]);
+    }
+    // The other structures are unaffected.
+    expect((await catalog.items("backlog")).every((item) => item.problems.length === 0)).toBe(true);
+  });
+
+  test("an invalid item that has a handle is still found by it, with its problems", async () => {
+    const { catalog } = openItems(writeRoot(FIXTURE_FILES));
+
+    const item = await catalog.resolve("BUG-12");
+
+    expect(item?.path).toMatch(/BUG-12-missing-repo\.md$/);
+    expect(item?.problems.length).toBeGreaterThan(0);
+  });
+
+  test("a valid file broken by hand between two reads is listed as invalid on the second, not served stale", async () => {
+    const root = writeRoot(FIXTURE_FILES);
+    const { catalog } = openItems(root);
+    const file = "bugs/hero-caption.md";
+    expect(itemAt(await catalog.items("bugs"), file).problems).toEqual([]);
+
+    writeAt(root, file, readAt(root, file).replace("repo: site-web\n", "repo: site-web\nseverty: high\n"));
+
+    const second = itemAt(await catalog.items("bugs"), file);
+    expect(names(second.problems, ["severty"]), describeProblems(second)).toBe(true);
+    expect(second.handle).toBe("BUG-2");
+  });
+});
