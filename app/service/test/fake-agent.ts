@@ -1,15 +1,53 @@
 // A scripted ACP v1 agent for tests, run as `node fake-agent.ts <scenario>`. Stdout carries ACP only.
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { writeSync } from "node:fs";
 import { Readable, Writable } from "node:stream";
 
 import { agent, ndJsonStream, RequestError, type AgentContext, type SessionUpdate } from "@agentclientprotocol/sdk";
 
-const SCENARIOS = ["reply", "permission", "image", "auth", "crash", "hang", "env"] as const;
+const SCENARIOS = [
+  "reply",
+  "permission",
+  "image",
+  "auth",
+  "crash",
+  "hang",
+  "env",
+  "noisy",
+  "spawn-child",
+  "unknown-update",
+  "detached-holder",
+] as const;
 
 export type FakeScenario = (typeof SCENARIOS)[number];
 
 const isScenario = (name: string | undefined): name is FakeScenario =>
   (SCENARIOS as readonly (string | undefined)[]).includes(name);
+
+// Tests look for these markers in the service's logs, which must never contain them.
+const NOISY_STDERR_MARKER = "stderr-content-must-not-be-logged";
+const SKIPPED_UPDATE_MARKER = "thought-content-must-not-be-logged";
+
+// Well past a pipe buffer (~64 KiB), so an agent whose stderr isn't read blocks.
+const NOISY_STDERR_BYTES = 1024 * 1024;
+
+/**
+ * Writes all of `data` to `fd` before returning, as a blocking write would: Node's `process.stderr.write` queues
+ * in memory instead, and the fd is non-blocking, so a full pipe answers EAGAIN until the reader drains it.
+ */
+const writeAllSync = (fd: number, data: Buffer) => {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  let offset = 0;
+  while (offset < data.length) {
+    try {
+      offset += writeSync(fd, data, offset);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EAGAIN") throw error;
+      Atomics.wait(pause, 0, 0, 5);
+    }
+  }
+};
 
 // A 1x1 transparent PNG.
 const PNG_BASE64 =
@@ -96,6 +134,35 @@ const run = (scenario: FakeScenario) => {
           return { stopReason: "cancelled" };
         case "env":
           await send(client, sessionId, text(JSON.stringify(Object.keys(process.env).sort())));
+          return { stopReason: "end_turn" };
+        case "noisy": {
+          const line = `${NOISY_STDERR_MARKER} ${"x".repeat(64)}\n`;
+          writeAllSync(2, Buffer.from(line.repeat(Math.ceil(NOISY_STDERR_BYTES / line.length))));
+          await send(client, sessionId, text("Finished after a lot of logging."));
+          return { stopReason: "end_turn" };
+        }
+        case "spawn-child": {
+          // Not detached: the child stays in the agent's process group, as an agent's helpers would.
+          const child = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], { stdio: "ignore" });
+          await send(client, sessionId, text(JSON.stringify({ childPid: child.pid })));
+          return { stopReason: "end_turn" };
+        }
+        case "detached-holder": {
+          // In a process group of its own, holding the agent's stderr open after the agent is gone.
+          const child = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
+            detached: true,
+            stdio: ["ignore", "ignore", "inherit"],
+          });
+          await send(client, sessionId, text(JSON.stringify({ childPid: child.pid })));
+          return { stopReason: "end_turn" };
+        }
+        case "unknown-update":
+          await send(client, sessionId, {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: SKIPPED_UPDATE_MARKER },
+          });
+          await send(client, sessionId, text("Thinking is over."));
+          await send(client, sessionId, text(" Here is the answer."));
           return { stopReason: "end_turn" };
         case "auth":
           break;
