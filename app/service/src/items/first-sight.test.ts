@@ -76,10 +76,10 @@ const BUGS_ROOT = { "bugs/_structure.yaml": BUGS_SETTINGS, "backlog/_structure.y
 const readOnce = async (files: Record<string, string>, structure: string, file: string) => {
   const root = writeRoot(files);
   const opened = openItems(root);
-  const item = itemAt(await opened.catalog.items(structure), file);
+  const item = itemAt((await opened.catalog.snapshot()).items.filter((item) => item.structure === structure), file);
   const written = readAt(root, file);
   if (written !== files[file]) {
-    const reread = itemAt(await opened.reopen().catalog.items(structure), file);
+    const reread = itemAt((await opened.reopen().catalog.snapshot()).items.filter((item) => item.structure === structure), file);
     expect(reread.problems, `the written file reads back valid:\n${JSON.stringify(written)}`).toEqual([]);
     expect(reread.id).toBe(item.id);
   }
@@ -159,7 +159,7 @@ describe("first sight", () => {
     const root = writeRoot({ "_structure.yaml": DOCS_SETTINGS, "guides/deploy.md": original });
     const { catalog } = openItems(root);
 
-    const item = itemAt(await catalog.items("docs"), "guides/deploy.md");
+    const item = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "docs"), "guides/deploy.md");
     const written = readAt(root, "guides/deploy.md");
 
     expect(item.problems).toEqual([]);
@@ -175,7 +175,7 @@ describe("first sight", () => {
     const root = writeRoot({ ...VALID_FILES, "bugs/BUG-5-by-handle.md": byHandle, "bugs/BUG-6-by-alias.md": byAlias });
     const { catalog } = openItems(root);
 
-    const bugs = await catalog.items("bugs");
+    const bugs = (await catalog.snapshot()).items.filter((item) => item.structure === "bugs");
 
     expect(itemAt(bugs, "bugs/BUG-5-by-handle.md").properties.blocks).toBe(IDS.bl2);
     expect(itemAt(bugs, "bugs/BUG-6-by-alias.md").properties.blocks).toBe(IDS.bl1);
@@ -189,7 +189,7 @@ describe("first sight", () => {
     const root = writeRoot({ ...VALID_FILES, "bugs/BUG-7-wrong.md": wrongStructure, "bugs/BUG-8-unknown.md": unknown });
     const { catalog } = openItems(root);
 
-    const bugs = await catalog.items("bugs");
+    const bugs = (await catalog.snapshot()).items.filter((item) => item.structure === "bugs");
 
     for (const [file, text] of [
       ["bugs/BUG-7-wrong.md", wrongStructure],

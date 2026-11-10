@@ -4,6 +4,7 @@
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
+import { findByHandle } from "./catalog.ts";
 import { IDS, VALID_FILES, expectWriteError, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 
 const FILE = "bugs/BUG-1-login-times-out.md";
@@ -29,7 +30,7 @@ describe("item file round trip", () => {
   ])("updating $field changes only its line, keeps the path, and reads back", async ({ field, value, line }) => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);
-    const before = itemAt(await catalog.items("bugs"), FILE);
+    const before = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE);
 
     const updated = await writer.updateItem("BUG-1", { [field]: value }, before.version);
 
@@ -38,7 +39,7 @@ describe("item file round trip", () => {
     expect(changed, `changed lines\n${after}`).toHaveLength(1);
     expect(lines(after)[changed[0] ?? -1]).toMatch(line);
 
-    const reread = itemAt(await catalog.items("bugs"), FILE);
+    const reread = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE);
     const readValue = field === "title" ? reread.title : reread.properties[field];
     expect(readValue).toEqual(value);
     expect(reread.problems).toEqual([]);
@@ -51,7 +52,7 @@ describe("item file round trip", () => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);
     const file = "bugs/hero-caption.md";
-    const before = itemAt(await catalog.items("bugs"), file);
+    const before = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), file);
 
     await writer.updateItem("BUG-2", { noted: "2026-11-06" }, before.version);
 
@@ -60,13 +61,13 @@ describe("item file round trip", () => {
     expect(added).toHaveLength(1);
     expect(added[0]).toMatch(/^noted:/);
     expect(lines(after).filter((line) => line !== added[0])).toEqual(lines(VALID_FILES[file] ?? ""));
-    expect(itemAt(await catalog.items("bugs"), file).properties.noted).toBe("2026-11-06");
+    expect(itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), file).properties.noted).toBe("2026-11-06");
   });
 
   test("updating the body keeps the frontmatter and the title line byte for byte", async () => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);
-    const before = itemAt(await catalog.items("bugs"), FILE);
+    const before = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE);
     const body = "\nSteps:\r\n1. Sign in.\n\n<!-- kept as written -->\n    indented code\n";
 
     await writer.updateItem("BUG-1", { body }, before.version);
@@ -75,7 +76,7 @@ describe("item file round trip", () => {
     const titleLine = "# Login times out after 30 seconds\n";
     const head = ORIGINAL.slice(0, ORIGINAL.indexOf(titleLine) + titleLine.length);
     expect(after.startsWith(head)).toBe(true);
-    expect(itemAt(await catalog.items("bugs"), FILE).body).toBe(body);
+    expect(itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE).body).toBe(body);
   });
 
   test("an update that can't change only its field (a value shared through a YAML anchor) is refused, the file unchanged", async () => {
@@ -85,7 +86,7 @@ describe("item file round trip", () => {
     const text = `---\nid: 0196f3c2-5e00-7000-8000-000000000031\nhandle: BUG-3\nrepo: &r api\nnote: *r\n---\n# Shares a value by anchor\n\nBody.\n`;
     const root = writeRoot({ ...VALID_FILES, [file]: text });
     const { catalog, writer } = openItems(root);
-    const before = itemAt(await catalog.items("bugs"), file);
+    const before = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), file);
     expect(before.problems, "the anchored file is a valid item").toEqual([]);
     expect(before.properties.note).toBe("api");
 
@@ -111,7 +112,7 @@ describe("item file round trip", () => {
         const properties = { ...(project === undefined ? {} : { project }), ...(parent === undefined ? {} : { parent }) };
 
         const item = await writer.createItem("backlog", { title, body, properties });
-        const read = await catalog.resolve(item.handle ?? "");
+        const read = findByHandle((await catalog.snapshot()).items, item.handle ?? "");
 
         expect(read?.problems).toEqual([]);
         expect(read?.id).toBe(item.id);

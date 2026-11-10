@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, test, onTestFinished } from "vitest";
 
-import { openCatalog } from "./catalog.ts";
+import { findByHandle, openCatalog } from "./catalog.ts";
 import { DOCS_SETTINGS, IDS, VALID_FILES, handleNumber, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 
 const UNASSIGNED = "---\nproject: wombat\n---\n# Typed by hand\n";
@@ -14,7 +14,7 @@ describe("next handle number", () => {
     // BL-1 has the alias BL-3, the highest number on disk.
     const { catalog } = openItems(writeRoot({ ...VALID_FILES, "backlog/typed.md": UNASSIGNED }));
 
-    const item = itemAt(await catalog.items("backlog"), "backlog/typed.md");
+    const item = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "backlog"), "backlog/typed.md");
 
     expect(item.handle).toBe("BL-4");
   });
@@ -23,7 +23,7 @@ describe("next handle number", () => {
     const opened = openItems(writeRoot({ ...VALID_FILES, "backlog/typed.md": UNASSIGNED }));
     for (let given = 0; given < 9; given += 1) opened.store.nextHandleNumber("backlog", 0);
 
-    const item = itemAt(await opened.catalog.items("backlog"), "backlog/typed.md");
+    const item = itemAt((await opened.catalog.snapshot()).items.filter((item) => item.structure === "backlog"), "backlog/typed.md");
 
     expect(handleNumber(item.handle)).toBe(10);
     expect(opened.store.nextHandleNumber("backlog", 0)).toBe(11);
@@ -42,7 +42,7 @@ describe("structure problems", () => {
     });
     const { catalog } = openItems(root);
 
-    const structures = await catalog.structures();
+    const structures = (await catalog.snapshot()).structures;
 
     const at = (path: string) => structures.find((loaded) => loaded.path === path);
     expect(at("bugs")?.problems.map((problem) => problem.field)).toEqual(["id"]);
@@ -52,14 +52,14 @@ describe("structure problems", () => {
     expect(readAt(root, "old-bugs/typed.md")).toBe("# Typed by hand\n");
     // The docs at the root are unaffected.
     expect(at("")?.problems).toEqual([]);
-    expect((await catalog.items("docs")).map((item) => item.problems)).toEqual([[], []]);
+    expect((await catalog.snapshot()).items.filter((item) => item.structure === "docs").map((item) => item.problems)).toEqual([[], []]);
   });
 
   test("a link to an unknown structure names the property's `to`", async () => {
     const root = writeRoot({ ...VALID_FILES, "tasks/_structure.yaml": structure("tasks", "TSK", "properties:\n  epic: { type: link, to: epics }\n") });
     const { catalog } = openItems(root);
 
-    const tasks = (await catalog.structures()).find((loaded) => loaded.id === "tasks");
+    const tasks = (await catalog.snapshot()).structures.find((loaded) => loaded.id === "tasks");
 
     expect(tasks?.problems).toEqual([expect.objectContaining({ field: "properties.epic.to" })]);
     expect(tasks?.problems[0]?.message).toContain("epics");
@@ -90,9 +90,9 @@ describe("resolve", () => {
   test("finds an item by its handle and by an alias; an unknown handle is undefined", async () => {
     const { catalog } = openItems(writeRoot(VALID_FILES));
 
-    expect((await catalog.resolve("BL-1"))?.id).toBe(IDS.bl1);
-    expect((await catalog.resolve("BL-3"))?.id).toBe(IDS.bl1);
-    expect(await catalog.resolve("BL-99")).toBeUndefined();
+    expect(findByHandle((await catalog.snapshot()).items, "BL-1")?.id).toBe(IDS.bl1);
+    expect(findByHandle((await catalog.snapshot()).items, "BL-3")?.id).toBe(IDS.bl1);
+    expect(findByHandle((await catalog.snapshot()).items, "BL-99")).toBeUndefined();
   });
 });
 
@@ -104,7 +104,7 @@ describe("free structure membership", () => {
     const root = writeRoot({ "_structure.yaml": DOCS_SETTINGS, "architecture.md": "# Architecture\n" });
     symlinkSync(outside, join(root, "guides"));
 
-    const docs = await openItems(root).catalog.items("docs");
+    const docs = (await openItems(root).catalog.snapshot()).items.filter((item) => item.structure === "docs");
 
     expect(docs.map((item) => item.path)).toEqual(["architecture.md"]);
     expect(readAt(outside, "secret.md")).toBe("# Outside the items root\n");
@@ -119,7 +119,7 @@ describe("free structure membership through a symlinked folder", () => {
     });
     symlinkSync(join(root, "guides"), join(root, "manuals"));
 
-    const docs = await openItems(root).catalog.items("docs");
+    const docs = (await openItems(root).catalog.snapshot()).items.filter((item) => item.structure === "docs");
 
     expect(docs.map((item) => [item.path, item.problems])).toEqual([
       ["architecture.md", []],
@@ -140,7 +140,7 @@ describe("links rewritten on first sight", () => {
       "bugs/BUG-5-linked.md": linking,
     });
 
-    const item = itemAt(await openItems(root).catalog.items("bugs"), "bugs/BUG-5-linked.md");
+    const item = itemAt((await openItems(root).catalog.snapshot()).items.filter((item) => item.structure === "bugs"), "bugs/BUG-5-linked.md");
 
     expect(readAt(root, "bugs/BUG-5-linked.md")).toBe(linking);
     expect(item.problems.map((problem) => problem.field)).toEqual(["blocks"]);
@@ -156,7 +156,7 @@ describe.skipIf(process.getuid?.() === 0)("folders the service can't use", () =>
     const catalog = openCatalog({ root, store: openItems(root).store, log: (event) => events.push(event) });
     chmodSync(join(root, "backlog"), 0o555);
     try {
-      const item = itemAt(await catalog.items("backlog"), "backlog/typed.md");
+      const item = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "backlog"), "backlog/typed.md");
 
       expect(item.id).toBeNull();
       expect(item.problems.map((problem) => problem.field)).toEqual(["id"]);

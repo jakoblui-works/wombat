@@ -32,7 +32,8 @@ import type { z } from "zod";
 
 import { AgentError, type AgentErrorCode, type Manager } from "../agents/manager.ts";
 import { openAccess, ProposalError, type ProposalErrorCode } from "../items/access.ts";
-import type { Catalog, LoadedItem, LoadedStructure } from "../items/catalog.ts";
+import { findByHandle, type Catalog, type LoadedItem, type LoadedStructure } from "../items/catalog.ts";
+import { setOwn } from "../items/validate.ts";
 import type { Writer } from "../items/write.ts";
 import type { Harness } from "../harness/harness.ts";
 import { logToStderr, type Log } from "../log.ts";
@@ -134,7 +135,7 @@ const withLinks = (item: LoadedItem, structures: LoadedStructure[], handles: Map
   for (const [name, property] of Object.entries(settings.properties)) {
     const value = properties[name];
     if (property.type === "link" && typeof value === "string") {
-      properties[name] = { id: value, handle: handles.get(value) ?? null };
+      setOwn(properties, name, { id: value, handle: handles.get(value) ?? null });
     }
   }
   return { ...rest, properties };
@@ -299,8 +300,7 @@ export const startServer = async ({
     if (!items) return notConfigured(c);
     const handle = c.req.param("handle");
     const { structures, items: all } = await items.snapshot();
-    const found =
-      all.find((item) => item.handle === handle) ?? all.find((item) => item.aliases.includes(handle));
+    const found = findByHandle(all, handle);
     if (!found) {
       return errorResponse(
         c,

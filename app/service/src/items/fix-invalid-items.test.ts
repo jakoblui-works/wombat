@@ -13,7 +13,7 @@ import { ItemWriteError } from "./write.ts";
 import { ACCESS_FILES, AGENT, HIDDEN, MARKER, expectRefused, leaks, openAccessRoot, refusal, snapshotFiles } from "../../test/access-fixtures.ts";
 import { FIXTURE_FILES, expectWriteError, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 
-const versionOf = async (opened: ReturnType<typeof openItems>, file: string) => itemAt(await opened.catalog.items("bugs"), file).version;
+const versionOf = async (opened: ReturnType<typeof openItems>, file: string) => itemAt((await opened.catalog.snapshot()).items.filter((item) => item.structure === "bugs"), file).version;
 
 const refused = async (call: Promise<unknown>, what: string) => {
   let error: unknown;
@@ -34,7 +34,7 @@ describe("changing invalid items", () => {
 
     // Another field changes; the existing value problem stays and nothing new appears.
     await opened.writer.updateItem("BUG-13", { note: "Seen on the mobile build" }, await versionOf(opened, unknownOption));
-    expect(itemAt(await opened.catalog.items("bugs"), unknownOption).properties.note).toBe("Seen on the mobile build");
+    expect(itemAt((await opened.catalog.snapshot()).items.filter((item) => item.structure === "bugs"), unknownOption).properties.note).toBe("Seen on the mobile build");
 
     // A field that was fine gets a problem: refused, file unchanged.
     const before = readAt(root, unknownOption);
@@ -44,7 +44,7 @@ describe("changing invalid items", () => {
     // Fixing the values makes both items valid.
     await opened.writer.updateItem("BUG-13", { repo: "api" }, await versionOf(opened, unknownOption));
     await opened.writer.updateItem("BUG-12", { repo: "site-web" }, await versionOf(opened, missingRequired));
-    const bugs = await opened.catalog.items("bugs");
+    const bugs = (await opened.catalog.snapshot()).items.filter((item) => item.structure === "bugs");
     expect(itemAt(bugs, unknownOption).problems).toEqual([]);
     expect(itemAt(bugs, missingRequired).problems).toEqual([]);
   });
@@ -85,7 +85,7 @@ describe("changing invalid items", () => {
     const before = snapshotFiles(root);
 
     for (const file of ["backlog/BL-1-items.md", "backlog/BL-1-copy.md"]) {
-      const version = itemAt(await catalog.items("backlog"), file).version;
+      const version = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "backlog"), file).version;
       await expectRefused(access.update(AGENT, "BL-1", { owner: "Kim" }, version), "invalid_fields", `update, ${file}`);
       await expectRefused(access.remove(AGENT, "BL-1", version), "invalid_fields", `remove, ${file}`);
     }

@@ -26,9 +26,9 @@ const workspace = () => {
 /** Every problem message the catalog reports for the root: none may reach the file. */
 const problemTexts = async (catalog: Catalog) => {
   const texts: string[] = [];
-  for (const structure of await catalog.structures()) {
+  for (const structure of (await catalog.snapshot()).structures) {
     texts.push(...structure.problems.map((problem) => problem.message));
-    if (structure.id !== null) for (const item of await catalog.items(structure.id)) texts.push(...item.problems.map((problem) => problem.message));
+    if (structure.id !== null) for (const item of (await catalog.snapshot()).items.filter((item) => item.structure === structure.id)) texts.push(...item.problems.map((problem) => problem.message));
   }
   return texts;
 };
@@ -78,7 +78,7 @@ properties:
     const { catalog } = openItems(writeRoot(files));
     const problems = await problemTexts(catalog);
     expect(problems.length, "the root has the problems this test is about").toBeGreaterThanOrEqual(5);
-    const refused = (await catalog.structures()).filter((structure) => structure.problems.some((problem) => problem.field === "instructions" || problem.field === "access"));
+    const refused = (await catalog.snapshot()).structures.filter((structure) => structure.problems.some((problem) => problem.field === "instructions" || problem.field === "access"));
     expect(refused, "the edit structure's settings are refused").toHaveLength(1);
 
     const text = (await renderInstructions(catalog)) ?? "";

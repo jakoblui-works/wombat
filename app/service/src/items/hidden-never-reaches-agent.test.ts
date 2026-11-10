@@ -163,7 +163,7 @@ describe("hidden never reaches an agent", () => {
       "backlog/BL-3-owner-typo.md": `---\nid: 0196f3c2-9c00-7000-8000-000000000003\nhandle: BL-3\nproject: nope\nowner: 5\n---\n# An owner typed as a number\n\nInvented.\n`,
     };
     const { access, catalog } = openAccessRoot(files);
-    const fromCatalog = itemAt(await catalog.items("backlog"), "backlog/BL-3-owner-typo.md").problems;
+    const fromCatalog = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "backlog"), "backlog/BL-3-owner-typo.md").problems;
     expect(fromCatalog.map((problem) => problem.field).sort(), "the file has a problem on each value").toEqual(["owner", "project"]);
 
     expect((await access.get("BL-3")).problems, "get").toEqual(fromCatalog);

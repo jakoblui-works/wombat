@@ -33,7 +33,7 @@ describe("a write's two reads agree", () => {
   test("an update judged on a full read of other bytes than the file's is refused as stale, by the write and its dry run", async () => {
     const root = writeRoot({ ...VALID_FILES, [FILE]: UNTITLED });
     const { catalog, writer } = openItems(root);
-    const base = itemAt(await catalog.items("bugs"), FILE);
+    const base = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE);
     expect(base.problems.length, "the base has a problem only a hand edit fixes").toBeGreaterThan(0);
 
     for (const [what, call] of [

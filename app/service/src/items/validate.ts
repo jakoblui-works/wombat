@@ -1,6 +1,6 @@
 // An item's frontmatter checked against its structure's settings: only `id`, `handle`, `aliases` and the declared
 // properties, each value of its property's type. Links are checked through `links`, which knows every item.
-import type { Problem, Property, StructureSettings } from "@wombat/shared/items";
+import { HANDLE_PREFIX_PATTERN, OWN_KEYS, type Problem, type Property, type StructureSettings } from "@wombat/shared/items";
 
 /** The value of `key` when the record has it as its own key; never a member every object inherits (`toString`). */
 export const ownValue = (record: Record<string, unknown>, key: string): unknown => (Object.hasOwn(record, key) ? record[key] : undefined);
@@ -14,13 +14,10 @@ export const setOwn = (record: Record<string, unknown>, key: string, value: unkn
   Object.defineProperty(record, key, { value, writable: true, enumerable: true, configurable: true });
 };
 
-/** The item's own keys; every other frontmatter key must be a property. */
-export const OWN_KEYS = new Set(["id", "handle", "aliases"]);
-
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const isUuid = (value: unknown): value is string => typeof value === "string" && UUID.test(value);
-const HANDLE = /^([A-Z][A-Z0-9]{0,9})-([1-9][0-9]*)$/;
+const HANDLE = new RegExp(`^(${HANDLE_PREFIX_PATTERN})-([1-9][0-9]*)$`);
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /** The prefix and number of a handle like `BUG-14`; undefined for anything else. */

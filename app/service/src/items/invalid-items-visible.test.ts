@@ -3,7 +3,7 @@
 // valid items or the list down with it. The HTTP half is server/items-invalid-visible.test.ts.
 import { describe, expect, test } from "vitest";
 
-import type { LoadedItem, Problem } from "./catalog.ts";
+import { findByHandle, type LoadedItem, type Problem } from "./catalog.ts";
 import { FIXTURE_FILES, INVALID_BUGS, itemAt, mdFilesIn, openItems, readAt, writeAt, writeRoot } from "../../test/items-fixtures.ts";
 
 const names = (problems: Problem[], fields: string[]) =>
@@ -20,7 +20,7 @@ describe("invalid items stay visible", () => {
     const root = writeRoot(FIXTURE_FILES);
     const { catalog } = openItems(root);
 
-    const bugs = await catalog.items("bugs");
+    const bugs = (await catalog.snapshot()).items.filter((item) => item.structure === "bugs");
 
     // Nothing dropped: one listed item per file in the folder.
     expect(bugs.map((item) => item.path.split("/").at(-1)).sort()).toEqual(mdFilesIn(root, "bugs").sort());
@@ -41,13 +41,13 @@ describe("invalid items stay visible", () => {
       expect(itemAt(bugs, file).problems, `${file} stays valid beside the broken ones`).toEqual([]);
     }
     // The other structures are unaffected.
-    expect((await catalog.items("backlog")).every((item) => item.problems.length === 0)).toBe(true);
+    expect((await catalog.snapshot()).items.filter((item) => item.structure === "backlog").every((item) => item.problems.length === 0)).toBe(true);
   });
 
   test("an invalid item that has a handle is still found by it, with its problems", async () => {
     const { catalog } = openItems(writeRoot(FIXTURE_FILES));
 
-    const item = await catalog.resolve("BUG-12");
+    const item = findByHandle((await catalog.snapshot()).items, "BUG-12");
 
     expect(item?.path).toMatch(/BUG-12-missing-repo\.md$/);
     expect(item?.problems.length).toBeGreaterThan(0);
@@ -57,11 +57,11 @@ describe("invalid items stay visible", () => {
     const root = writeRoot(FIXTURE_FILES);
     const { catalog } = openItems(root);
     const file = "bugs/hero-caption.md";
-    expect(itemAt(await catalog.items("bugs"), file).problems).toEqual([]);
+    expect(itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), file).problems).toEqual([]);
 
     writeAt(root, file, readAt(root, file).replace("repo: site-web\n", "repo: site-web\nseverty: high\n"));
 
-    const second = itemAt(await catalog.items("bugs"), file);
+    const second = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), file);
     expect(names(second.problems, ["severty"]), describeProblems(second)).toBe(true);
     expect(second.handle).toBe("BUG-2");
   });
@@ -75,8 +75,8 @@ describe("invalid items stay visible", () => {
       const root = writeRoot({ ...FIXTURE_FILES, [file]: `---\nhandle: BUG-30\nrepo: api\n${key}: hi\n---\n# A key named ${key}\n\nInvented.\n` });
       const { catalog } = openItems(root);
 
-      const structures = await catalog.structures();
-      const bugs = await catalog.items("bugs");
+      const structures = (await catalog.snapshot()).structures;
+      const bugs = (await catalog.snapshot()).items.filter((item) => item.structure === "bugs");
 
       expect(structures.length, "the structures still list").toBeGreaterThan(0);
       expect(bugs.map((item) => item.path.split("/").at(-1)).sort()).toEqual(mdFilesIn(root, "bugs").sort());

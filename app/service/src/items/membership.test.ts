@@ -5,6 +5,7 @@
 // are never scanned; a file outside every structure is left alone.
 import { describe, expect, test } from "vitest";
 
+import { findByHandle } from "./catalog.ts";
 import { BACKLOG_SETTINGS, BUGS_SETTINGS, DOCS_SETTINGS, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 
 let serial = 0;
@@ -47,12 +48,12 @@ describe("membership", () => {
     const root = writeRoot(FILES);
     const { catalog } = openItems(root);
 
-    const structures = await catalog.structures();
+    const structures = (await catalog.snapshot()).structures;
     expect(structures.map((structure) => structure.id).sort()).toEqual(["archive", "backlog", "bugs", "docs"]);
 
     const listed: Record<string, string[]> = {};
     for (const id of ["docs", "bugs", "archive", "backlog"]) {
-      listed[id] = (await catalog.items(id)).map((loaded) => loaded.handle ?? loaded.path).sort();
+      listed[id] = ((await catalog.snapshot()).items.filter((item) => item.structure === id)).map((loaded) => loaded.handle ?? loaded.path).sort();
     }
     expect(listed).toEqual({
       docs: ["DOC-1", "DOC-2"],
@@ -65,8 +66,8 @@ describe("membership", () => {
   test("a hidden nested structure's item resolves as its own, never as the parent's", async () => {
     const { catalog } = openItems(writeRoot(FILES));
 
-    const archived = await catalog.resolve("ARC-1");
-    const bugs = await catalog.items("bugs");
+    const archived = findByHandle((await catalog.snapshot()).items, "ARC-1");
+    const bugs = (await catalog.snapshot()).items.filter((item) => item.structure === "bugs");
 
     expect(archived?.path).toMatch(/(^|\/)bugs\/archive\/ARC-1-old\.md$/);
     expect(bugs.some((loaded) => loaded.path.includes("archive/"))).toBe(false);
@@ -79,8 +80,8 @@ describe("membership", () => {
     });
     const { catalog } = openItems(root);
 
-    const docs = (await catalog.items("docs")).map((loaded) => loaded.handle);
-    const bugs = (await catalog.items("bugs")).map((loaded) => loaded.handle);
+    const docs = ((await catalog.snapshot()).items.filter((item) => item.structure === "docs")).map((loaded) => loaded.handle);
+    const bugs = ((await catalog.snapshot()).items.filter((item) => item.structure === "bugs")).map((loaded) => loaded.handle);
 
     expect(docs).not.toContain("BUG-1");
     expect(bugs).toEqual(["BUG-1"]);
@@ -90,8 +91,7 @@ describe("membership", () => {
     const root = writeRoot(FILES);
     const { catalog } = openItems(root);
 
-    await catalog.structures();
-    for (const id of ["docs", "bugs", "archive", "backlog"]) await catalog.items(id);
+    for (let read = 0; read < 5; read += 1) await catalog.snapshot();
 
     for (const file of ["roadmap.md", "bugs/notes/triage.md", "guides/old/v1-setup.md", ".drafts/DRF-1.md", "node_modules/some-pkg/VND-1.md"]) {
       expect(readAt(root, file), file).toBe(FILES[file]);

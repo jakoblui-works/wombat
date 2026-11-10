@@ -6,16 +6,16 @@ import { randomUUIDv7 } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
-import type { Problem, StructureSettings } from "@wombat/shared/items";
+import { ITEM_FIELDS, OWN_KEYS, type Problem, type StructureSettings } from "@wombat/shared/items";
 import { stringify } from "yaml";
 
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
-import { readRoot, type LoadedItem, type RootRead, type ValidStructure } from "./catalog.ts";
+import { findByHandle, loadItem, readRoot, type LoadedItem, type RootRead, type ValidStructure } from "./catalog.ts";
 import { NoHardLinks, queueWrite, readAtVersion, removeUnchanged, VersionChanged, versionOf, writeAtomic, type VersionedFile } from "./files.ts";
 import { bodyEdit, checkedText, parseItemFile, readsBackAs, setKeyEdits, titleEdit, type ParsedItemFile } from "./item-file.ts";
 import { isIncluded, isSkippedPath, joinRootPath, ownerOf, SETTINGS_FILE, throughSymlink } from "./structures.ts";
-import { OWN_KEYS, setOwn, validateProperties, type LinkLookup } from "./validate.ts";
+import { setOwn, validateProperties, type LinkLookup } from "./validate.ts";
 
 export type ItemWriteErrorCode = "stale_version" | "invalid_fields" | "item_not_found" | "structure_not_found" | "field_not_writable" | "items_not_writable";
 
@@ -114,14 +114,14 @@ export class StructureProblemsError extends ItemWriteError {
 }
 
 /** Problems of a title: one line of text, not empty. Returns the title as it reads back (trimmed). */
-export const checkTitle = (title: unknown): { title: string; problems: Problem[] } => {
+const checkTitle = (title: unknown): { title: string; problems: Problem[] } => {
   if (typeof title !== "string") return { title: "", problems: [{ field: "title", message: "title: takes text, like Login times out" }] };
   if (/[\r\n\u2028\u2029]/.test(title)) return { title, problems: [{ field: "title", message: "title: takes one line; move the rest into the body" }] };
   const trimmed = title.trim();
   return { title: trimmed, problems: trimmed === "" ? [{ field: "title", message: "title: can't be empty; give the item a title" }] : [] };
 };
 
-export const checkBody = (body: unknown): Problem[] => (typeof body === "string" ? [] : [{ field: "body", message: "body: takes text (an empty body is \"\")" }]);
+const checkBody = (body: unknown): Problem[] => (typeof body === "string" ? [] : [{ field: "body", message: "body: takes text (an empty body is \"\")" }]);
 
 /** A structure items can be written to: one with settings and no problems. */
 const writableStructure = (structure: ValidStructure, action: string) => {
@@ -137,14 +137,14 @@ const writableStructure = (structure: ValidStructure, action: string) => {
  * D15: a problem of a declared property's value, which a write may leave in place (and fix). Every other problem
  * (a duplicate id, handle or alias, no title, an unparseable file, an undeclared key) is about the item's identity.
  */
-export const isValueProblem = (settings: StructureSettings, problem: Problem) =>
+const isValueProblem = (settings: StructureSettings, problem: Problem) =>
   problem.field !== undefined && Object.hasOwn(settings.properties, problem.field);
 
 /**
  * D15, compared by field: the problems a write adds, on a field it sets or on a field that had none before. A
  * problem that names no field is always added.
  */
-export const addedProblems = (before: Problem[], after: Problem[], set: readonly string[]) => {
+const addedProblems = (before: Problem[], after: Problem[], set: readonly string[]) => {
   const had = new Set(before.map((problem) => problem.field));
   return after.filter((problem) => problem.field === undefined || set.includes(problem.field) || !had.has(problem.field));
 };
@@ -161,29 +161,14 @@ const checkProperties = (structure: ValidStructure, data: Record<string, unknown
   const values = { ...data };
   for (const key of set) {
     const id = validated.rewrites.get(key);
-    if (id !== undefined) values[key] = id;
+    if (id !== undefined) setOwn(values, key, id);
   }
   return values;
 };
 
-/** The item as written, from its text, with the value problems it kept (D15). */
-const loadedItem = (structure: ValidStructure, path: string, text: string, links: LinkLookup): LoadedItem => {
-  const parsed = parseItemFile(text) as ParsedItemFile;
-  const { id, handle, aliases } = parsed.data;
-  const validated = validateProperties(structure.settings, parsed.data, links);
-  return {
-    id: id as string,
-    handle: handle as string,
-    aliases: Array.isArray(aliases) ? aliases.filter((alias): alias is string => typeof alias === "string") : [],
-    title: parsed.title,
-    body: parsed.body,
-    properties: validated.properties,
-    path,
-    version: versionOf(Buffer.from(text, "utf8")),
-    problems: validated.problems,
-    structure: structure.id,
-  };
-};
+/** The item as written, from its text, with the value problems it kept (D15); the write checked that it parses. */
+const loadedItem = (structure: ValidStructure, path: string, text: string, links: LinkLookup): LoadedItem =>
+  loadItem(structure, path, parseItemFile(text) as ParsedItemFile, versionOf(Buffer.from(text, "utf8")), links).item;
 
 const missingFolder = (file: string) => `the folder of ${file} doesn't exist; create it first or pick an existing folder`;
 
@@ -231,7 +216,7 @@ const checkFreeFile = async (root: string, structure: ValidStructure, file: unkn
  */
 const writableItem = async (root: string, read: RootRead, handle: string, baseVersion: string, action: "updated" | "deleted") => {
   const { items, structures } = read.snapshot;
-  const item = items.find((candidate) => candidate.handle === handle) ?? items.find((candidate) => candidate.aliases.includes(handle));
+  const item = findByHandle(items, handle);
   if (item === undefined) throw new ItemWriteError("item_not_found", `No item has the handle ${handle}; check it, or list the structure's items to find the right one.`);
   const structure = structures.find((candidate): candidate is ValidStructure => candidate.id === item.structure);
   if (structure === undefined) throw new Error(`The item ${handle} was read in the structure ${item.structure}, which the same read doesn't list.`);
@@ -338,7 +323,7 @@ const checkUpdate = async (root: string, handle: string, fields: Record<string, 
     problems.push(...checkBody(fields.body));
     body = typeof fields.body === "string" ? fields.body : body;
   }
-  const set = names.filter((name) => name !== "title" && name !== "body");
+  const set = names.filter((name) => !ITEM_FIELDS.has(name));
   const data = { ...parsed.data };
   for (const key of set) {
     const value = fields[key];

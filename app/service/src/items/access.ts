@@ -6,11 +6,11 @@
 // before anything is written or stored. Approving applies a proposal through the writer on the version the agent
 // read, under the structure's settings as they are now; anything changed since makes it a conflict, never an
 // overwrite.
-import type { Problem, Proposal, ProposalStatus } from "@wombat/shared/items";
+import { ITEM_FIELDS, OWN_KEYS, type Problem, type Proposal, type ProposalStatus } from "@wombat/shared/items";
 
 import { logToStderr, type Log } from "../log.ts";
 import type { Store, StoredProposal } from "../store/store.ts";
-import type { Catalog, LoadedItem, Snapshot, ValidStructure } from "./catalog.ts";
+import { findByHandle, type Catalog, type LoadedItem, type Snapshot, type ValidStructure } from "./catalog.ts";
 import { SETTINGS_FILE } from "./structures.ts";
 import { ownValue, propertyOf, setOwn } from "./validate.ts";
 import { ItemWriteError, StructureProblemsError, type Writer } from "./write.ts";
@@ -101,9 +101,6 @@ const TOOLS = {
 type Change = keyof typeof TOOLS;
 type Family = "edit" | "propose";
 
-/** A create's fields that aren't properties. */
-const ITEM_FIELDS = new Set(["title", "body"]);
-
 /** One read of the root as an agent may see it. */
 type View = {
   snapshot: Snapshot;
@@ -154,9 +151,6 @@ const mentionsHidden = (view: View, text: string) => {
 
 const listed = (problems: Problem[]) => problems.map((problem) => problem.message).join("; ");
 
-/** Fields whose problems can name another file or structure: an item's own keys, and a link's target. */
-const NAMING_FIELDS = new Set(["id", "handle", "aliases"]);
-
 /**
  * Problems with any that can name another file (a field-less one, an id, handle or alias clash, a link) and names
  * something hidden replaced by one that doesn't. With `structure`, the item's link properties count; without it
@@ -168,7 +162,7 @@ const scrubbed = (view: View, problems: Problem[], where: string, structure?: Va
     const canName =
       structure === undefined ||
       field === undefined ||
-      NAMING_FIELDS.has(field) ||
+      OWN_KEYS.has(field) ||
       (!ITEM_FIELDS.has(field) && !Object.hasOwn(structure.settings.properties, field)) ||
       propertyOf(structure.settings, field)?.type === "link";
     if (!canName || !mentionsHidden(view, problem.message)) return problem;
@@ -198,13 +192,9 @@ const structureFor = (view: View, id: string) => {
   return structure;
 };
 
-/** A visible item by handle, then by alias. */
-const findItem = (items: LoadedItem[], handle: string) =>
-  items.find((item) => item.handle === handle) ?? items.find((item) => item.aliases.includes(handle));
-
 /** A visible item and its structure, or not_found. */
 const itemFor = (view: View, handle: string) => {
-  const item = findItem(view.items, handle);
+  const item = findByHandle(view.items, handle);
   const structure = item === undefined ? undefined : view.structures.get(item.structure);
   if (item?.handle == null || structure === undefined) throw noItem(handle);
   return { item, structure, handle: item.handle };
@@ -244,7 +234,7 @@ const linksToIds = (view: View, structure: ValidStructure, values: Record<string
     const property = propertyOf(structure.settings, name);
     if (property?.type !== "link" || typeof value !== "string") continue;
     if (!view.structures.has(property.to)) throw noItem(value);
-    const target = findItem(view.items, value);
+    const target = findByHandle(view.items, value);
     if (target === undefined) throw noItem(value);
     if (target.structure !== property.to) {
       const message = `${name}: links to items of ${property.to}, and ${value} is in ${target.structure}; link an item of ${property.to} by its handle`;
@@ -330,7 +320,7 @@ const agentStructure = (view: View, structure: ValidStructure): AgentStructure =
 const linkHandle = (view: View, to: string, value: unknown) => {
   if (typeof value !== "string" || !view.structures.has(to)) return null;
   const inTarget = view.items.filter((item) => item.structure === to);
-  return (inTarget.find((item) => item.id === value) ?? findItem(inTarget, value))?.handle ?? null;
+  return (inTarget.find((item) => item.id === value) ?? findByHandle(inTarget, value))?.handle ?? null;
 };
 
 /**

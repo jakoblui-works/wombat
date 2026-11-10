@@ -48,8 +48,17 @@ export type Naming = z.infer<typeof Naming>;
 export const Instructions = z.enum(["off", "full", "index"]);
 export type Instructions = z.infer<typeof Instructions>;
 
+/** The frontmatter keys that name an item, which the service sets; every other frontmatter key is a property. */
+export const OWN_KEYS: ReadonlySet<string> = new Set(["id", "handle", "aliases"]);
+
+/** An item's fields that live in its markdown, not its frontmatter: the `# ` heading and the text after it. */
+export const ITEM_FIELDS: ReadonlySet<string> = new Set(["title", "body"]);
+
 /** Names an item's own fields take; a property can't use them. */
-const RESERVED_NAMES = new Set(["id", "handle", "aliases", "title", "body"]);
+const RESERVED_NAMES: ReadonlySet<string> = new Set([...OWN_KEYS, ...ITEM_FIELDS]);
+
+/** The pattern of a handle prefix (`BUG` in `BUG-14`), as regex source to build the prefix's and a handle's regex from. */
+export const HANDLE_PREFIX_PATTERN = "[A-Z][A-Z0-9]{0,9}";
 
 /**
  * A glob relative to the structure's folder. Refuses the obvious escapes (absolute paths, `..`, backslashes)
@@ -185,7 +194,7 @@ export const StructureSettings = z
       id: structureId("id", "bugs"),
       name: z.string(takes("name", "text", "name: Bugs")).min(1, { error: "name: give the structure a name to show in the app, like name: Bugs" }),
       /** The handle prefix: `BUG` in `BUG-14`. */
-      prefix: z.string(takes("prefix", "a handle prefix", "prefix: BUG")).regex(/^[A-Z][A-Z0-9]{0,9}$/, {
+      prefix: z.string(takes("prefix", "a handle prefix", "prefix: BUG")).regex(new RegExp(`^${HANDLE_PREFIX_PATTERN}$`), {
         error: "prefix: an uppercase letter, then up to 9 uppercase letters or digits, like prefix: BUG",
       }),
       access: z.enum(Access.options, takes("access", "hidden, read, propose or edit", "access: propose")),
@@ -236,7 +245,7 @@ export const StructureSettings = z
       refuse(["locked"], `locked: a ${access} structure is closed to agent changes as a whole; remove locked, or set access: propose or edit`);
     } else {
       settings.locked.forEach((field, index) => {
-        if (field !== "title" && field !== "body" && !Object.hasOwn(properties, field)) {
+        if (!ITEM_FIELDS.has(field) && !Object.hasOwn(properties, field)) {
           refuse(["locked", index], `locked: "${field}" is not a field of this structure; name title, body or a property`);
         }
       });

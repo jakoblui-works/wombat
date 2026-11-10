@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
+import { findByHandle } from "./catalog.ts";
 import { VALID_FILES, handleNumber, openItems, writeRoot } from "../../test/items-fixtures.ts";
 
 const idea = (title: string) => ({ title, body: "\nInvented for the test.\n", properties: { project: "wombat" } });
@@ -19,7 +20,7 @@ describe("handle numbers", () => {
     given.push(handleNumber(a.handle));
     await first.writer.deleteItem(a.handle ?? "", a.version);
     expect(existsSync(join(root, a.path))).toBe(false);
-    expect(await first.catalog.resolve(a.handle ?? "")).toBeUndefined();
+    expect(findByHandle((await first.catalog.snapshot()).items, a.handle ?? "")).toBeUndefined();
 
     const b = await first.writer.createItem("backlog", idea("Second idea"));
     given.push(handleNumber(b.handle));

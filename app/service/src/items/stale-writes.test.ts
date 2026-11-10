@@ -15,7 +15,7 @@ describe("stale writes are refused", () => {
   test("an update or a delete based on the version before a hand edit is refused and the edit stays", async () => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);
-    const before = itemAt(await catalog.items("bugs"), FILE);
+    const before = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE);
     const handEdited = `${readAt(root, FILE)}\nAlso seen on production, 2026-11-08.\n`;
     writeAt(root, FILE, handEdited);
 
@@ -30,7 +30,7 @@ describe("stale writes are refused", () => {
   test("a version is good for one write: a second write based on it is refused", async () => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);
-    const base = itemAt(await catalog.items("bugs"), FILE).version;
+    const base = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE).version;
 
     await writer.updateItem("BUG-1", { order: 3 }, base);
     const afterFirst = readAt(root, FILE);
@@ -43,7 +43,7 @@ describe("stale writes are refused", () => {
   test("two updates at once on the same base: exactly one lands, the other is refused", async () => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);
-    const base = itemAt(await catalog.items("bugs"), FILE).version;
+    const base = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE).version;
 
     const results = await Promise.allSettled([
       writer.updateItem("BUG-1", { repo: "site-web" }, base),
@@ -54,7 +54,7 @@ describe("stale writes are refused", () => {
     const refused = results.find((result) => result.status === "rejected");
     expect(refused?.reason).toBeInstanceOf(ItemWriteError);
     expect((refused?.reason as ItemWriteError).code).toBe("stale_version");
-    const item = itemAt(await catalog.items("bugs"), FILE);
+    const item = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE);
     const landed = [item.properties.repo === "site-web", item.properties.note === "Changed by the second writer"];
     expect(landed.filter(Boolean)).toHaveLength(1);
   });

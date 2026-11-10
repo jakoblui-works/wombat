@@ -32,19 +32,36 @@ export type LoadedItem = Item & { structure: string };
 /** Everything under the root from one read. */
 export type Snapshot = { structures: LoadedStructure[]; items: LoadedItem[] };
 
+/** The item a handle names: by handle first, then by alias; with clashing handles, the first in `items` (by path in a snapshot). */
+export const findByHandle = (items: readonly LoadedItem[], handle: string): LoadedItem | undefined =>
+  items.find((item) => item.handle === handle) ?? items.find((item) => item.aliases.includes(handle));
+
 export type Catalog = {
-  /** Structures and items from one read, for callers that need both (counts per structure). */
+  /** The structures and their items, invalid ones included, from one read. */
   snapshot(): Promise<Snapshot>;
-  structures(): Promise<LoadedStructure[]>;
-  /** The structure's items, invalid ones included; empty for an unknown structure. */
-  items(structureId: string): Promise<LoadedItem[]>;
-  /** By handle first, then by alias; with clashing handles, the first by path. */
-  resolve(handleOrAlias: string): Promise<LoadedItem | undefined>;
 };
 
 export type CatalogOptions = { root: string; store: Store; log?: Log };
 
 export type ValidStructure = Extract<LoadedStructure, { id: string }>;
+
+/** A file as read, before its item is loaded: what checking it against the other files needs. */
+type FileRead = {
+  structure: ValidStructure;
+  /** Relative to the root, with `/`. */
+  path: string;
+  /** Absolute path. */
+  file: string;
+  /** "" when the file can't be read. */
+  version: string;
+  /** Undefined when the file can't be read or parsed; then `problems` says why. */
+  parsed: ParsedItemFile | undefined;
+  /** Whether writing the text back keeps the file's bytes: it's valid UTF-8. */
+  writable: boolean;
+  names: ItemNames;
+  /** The file's problems besides its own keys', title's and properties': its bytes', and clashes with other files. */
+  problems: Problem[];
+};
 
 /** A read file with what writing it on first sight needs. */
 type Entry = {
@@ -97,6 +114,46 @@ const checkStructures = (structures: LoadedStructure[]) => {
   }
 };
 
+type ItemNames = Pick<LoadedItem, "id" | "handle" | "aliases">;
+
+/** The names a file's frontmatter gives its item; a value that isn't text names nothing. */
+const namesOf = ({ id, handle, aliases }: Record<string, unknown>): ItemNames => ({
+  id: typeof id === "string" ? id : null,
+  handle: typeof handle === "string" ? handle : null,
+  aliases: Array.isArray(aliases) ? aliases.filter((alias): alias is string => typeof alias === "string") : [],
+});
+
+/**
+ * A file that parses, as an item of `structure`, with the link values its properties give as a handle, to rewrite
+ * to the target's id. Its problems are its own keys', then `parsed.problems`, then its properties': the catalog's
+ * set. Problems of the file's bytes and clashes with other files are the caller's; it adds them to
+ * `parsed.problems`, so they read before the properties'. Without `links` the properties aren't read: a file the
+ * service can't write back gets no property checks, as no link in it can be rewritten.
+ */
+export const loadItem = (
+  structure: ValidStructure,
+  path: string,
+  parsed: ParsedItemFile,
+  version: string,
+  links: LinkLookup | undefined,
+): { item: LoadedItem; rewrites: Map<string, string> } => {
+  const validated = links === undefined ? undefined : validateProperties(structure.settings, parsed.data, links);
+  return {
+    item: {
+      ...namesOf(parsed.data),
+      title: parsed.title,
+      body: parsed.body,
+      properties: validated?.properties ?? {},
+      path,
+      version,
+      problems: [...validateOwnKeys(structure.settings, parsed.data), ...parsed.problems, ...(validated?.problems ?? [])],
+      structure: structure.id,
+    },
+    rewrites: validated?.rewrites ?? new Map<string, string>(),
+  };
+};
+
+/** An item whose file can't be read or parsed: only where it is, and why. */
 const emptyItem = (structure: ValidStructure, path: string, version: string, problems: Problem[]): LoadedItem => ({
   id: null,
   handle: null,
@@ -140,77 +197,66 @@ export const readRoot = async (root: string): Promise<RootRead> => {
     structures.find((structure) => structure.path === owner)?.problems.push(folderProblem(folder, error));
   }
 
-  const entries: Entry[] = [];
+  const reads: FileRead[] = [];
+  const unnamed: ItemNames = { id: null, handle: null, aliases: [] };
   for (const structure of structures) {
     if (structure.id === null) continue;
     const { files, problems } = await structureFiles(root, structure.path, structure.settings, folderSet);
     structure.problems.push(...problems);
     for (const path of files) {
       const file = join(root, path);
+      const unread = { structure, path, file, parsed: undefined, writable: false, names: unnamed };
       let read;
       try {
         read = await readVersioned(file);
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code ?? "unknown error";
-        entries.push({ item: emptyItem(structure, path, "", [{ message: `file: can't be read (${code}); check its permissions` }]), structure, file, parsed: undefined });
+        reads.push({ ...unread, version: "", problems: [{ message: `file: can't be read (${code}); check its permissions` }] });
         continue;
       }
       if (read === undefined) continue;
       const parsed = parseItemFile(read.text);
       if (!parsed.ok) {
-        entries.push({ item: emptyItem(structure, path, read.version, parsed.problems), structure, file, parsed: undefined });
+        reads.push({ ...unread, version: read.version, problems: parsed.problems });
         continue;
       }
-      const { id, handle, aliases } = parsed.data;
-      const item: LoadedItem = {
-        id: typeof id === "string" ? id : null,
-        handle: typeof handle === "string" ? handle : null,
-        aliases: Array.isArray(aliases) ? aliases.filter((alias): alias is string => typeof alias === "string") : [],
-        title: parsed.title,
-        body: parsed.body,
-        properties: {},
-        path,
-        version: read.version,
-        problems: [...validateOwnKeys(structure.settings, parsed.data), ...parsed.problems],
-        structure: structure.id,
-      };
       // Text that isn't valid UTF-8 wouldn't survive a write byte for byte.
       const writable = Buffer.from(read.text, "utf8").equals(read.bytes);
-      if (!writable) item.problems.push({ message: "file: not valid UTF-8; save it as UTF-8" });
-      entries.push({ item, structure, file, parsed: writable ? parsed : undefined });
+      const problems: Problem[] = writable ? [] : [{ message: "file: not valid UTF-8; save it as UTF-8" }];
+      reads.push({ structure, path, file, version: read.version, parsed, writable, names: namesOf(parsed.data), problems });
     }
   }
 
   // Ids, handles and aliases across the root.
-  const byId = new Map<string, Entry[]>();
-  const byName = new Map<string, { entry: Entry; as: "handle" | "aliases" }[]>();
+  const byId = new Map<string, FileRead[]>();
+  const byName = new Map<string, { read: FileRead; as: "handle" | "aliases" }[]>();
   const floors = new Map<string, number>();
   const noteNumber = (name: string) => {
     const parsed = parseHandle(name);
     if (parsed !== undefined) floors.set(parsed.prefix, Math.max(floors.get(parsed.prefix) ?? 0, parsed.number));
   };
-  for (const entry of entries) {
-    const { id, handle, aliases } = entry.item;
-    if (id !== null) byId.set(id, [...(byId.get(id) ?? []), entry]);
+  for (const read of reads) {
+    const { id, handle, aliases } = read.names;
+    if (id !== null) byId.set(id, [...(byId.get(id) ?? []), read]);
     for (const [name, as] of [...(handle === null ? [] : [[handle, "handle"] as const]), ...aliases.map((alias) => [alias, "aliases"] as const)]) {
       noteNumber(name);
       const named = byName.get(name) ?? [];
-      if (!named.some((other) => other.entry === entry)) byName.set(name, [...named, { entry, as }]);
+      if (!named.some((other) => other.read === read)) byName.set(name, [...named, { read, as }]);
     }
   }
   for (const [id, same] of byId) {
     if (same.length < 2) continue;
-    for (const entry of same) {
-      const others = same.filter((other) => other !== entry).map((other) => other.item.path);
-      entry.item.problems.push({ field: "id", message: `id: ${id} is also the id of ${others.join(", ")}; ids are unique, so remove the id line from the copy to give it a new one` });
+    for (const read of same) {
+      const others = same.filter((other) => other !== read).map((other) => other.path);
+      read.problems.push({ field: "id", message: `id: ${id} is also the id of ${others.join(", ")}; ids are unique, so remove the id line from the copy to give it a new one` });
     }
   }
   for (const [name, named] of byName) {
     if (named.length < 2) continue;
-    for (const { entry, as } of named) {
-      const others = named.filter((other) => other.entry !== entry).map((other) => `the ${other.as === "handle" ? "handle" : "alias"} of ${other.entry.item.path}`);
+    for (const { read, as } of named) {
+      const others = named.filter((other) => other.read !== read).map((other) => `the ${other.as === "handle" ? "handle" : "alias"} of ${other.read.path}`);
       const what = as === "handle" ? "handle" : "aliases";
-      entry.item.problems.push({ field: what, message: `${what}: ${name} is also ${others.join(", ")}; handles and aliases are unique, so change or remove one by hand` });
+      read.problems.push({ field: what, message: `${what}: ${name} is also ${others.join(", ")}; handles and aliases are unique, so change or remove one by hand` });
     }
   }
 
@@ -220,21 +266,27 @@ export const readRoot = async (root: string): Promise<RootRead> => {
     const named = byName.get(value);
     if (named === undefined) return { kind: "none", reason: targets === undefined ? "is no item's handle" : `is the id of an item outside ${to}` };
     if (named.length > 1) return { kind: "none", reason: "names more than one item" };
-    const [{ entry } = { entry: undefined }] = named;
-    if (entry?.structure.id !== to) return { kind: "none", reason: `is an item of ${entry?.structure.id ?? "no structure"}, not ${to}` };
+    const [{ read } = { read: undefined }] = named;
+    if (read?.structure.id !== to) return { kind: "none", reason: `is an item of ${read?.structure.id ?? "no structure"}, not ${to}` };
     // Rewriting to an id that isn't unique, or isn't an id, would turn a findable handle into a wrong link.
-    const { id } = entry.item;
+    const { id } = read.names;
     if (!isUuid(id) || byId.get(id)?.length !== 1) return { kind: "none", reason: "has no valid id yet" };
     return { kind: "handle", id };
   };
 
+  const entries: Entry[] = [];
   const assignments: Assignment[] = [];
-  for (const entry of entries) {
-    const { parsed, item, structure } = entry;
-    if (parsed === undefined) continue;
-    const validated = validateProperties(structure.settings, parsed.data, links);
-    item.properties = validated.properties;
-    item.problems.push(...validated.problems);
+  for (const read of reads) {
+    const { structure, path, file, version, parsed } = read;
+    if (parsed === undefined) {
+      entries.push({ item: emptyItem(structure, path, version, read.problems), structure, file, parsed: undefined });
+      continue;
+    }
+    const withProblems = { ...parsed, problems: [...parsed.problems, ...read.problems] };
+    const { item, rewrites } = loadItem(structure, path, withProblems, version, read.writable ? links : undefined);
+    const entry: Entry = { item, structure, file, parsed: read.writable ? parsed : undefined };
+    entries.push(entry);
+    if (!read.writable) continue;
     const needsId = parsed.data.id === undefined;
     const needsHandle = parsed.data.handle === undefined;
     if (structure.problems.length > 0) {
@@ -245,8 +297,8 @@ export const readRoot = async (root: string): Promise<RootRead> => {
     }
     // Without a valid title the file's shape is in doubt (a stray fence, text before the heading): never written.
     if (parsed.problems.length > 0) continue;
-    if (needsId || needsHandle || validated.rewrites.size > 0) {
-      assignments.push({ entry: { ...entry, parsed }, needsId, needsHandle, rewrites: validated.rewrites });
+    if (needsId || needsHandle || rewrites.size > 0) {
+      assignments.push({ entry: { ...entry, parsed }, needsId, needsHandle, rewrites });
     }
   }
 
@@ -336,13 +388,5 @@ export const openCatalog = ({ root, store, log }: CatalogOptions): Catalog => {
       });
     }
   };
-  return {
-    snapshot,
-    structures: async () => (await snapshot()).structures,
-    items: async (structureId) => (await snapshot()).items.filter((item) => item.structure === structureId),
-    resolve: async (handleOrAlias) => {
-      const { items } = await snapshot();
-      return items.find((item) => item.handle === handleOrAlias) ?? items.find((item) => item.aliases.includes(handleOrAlias));
-    },
-  };
+  return { snapshot };
 };

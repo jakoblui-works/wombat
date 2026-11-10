@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
+import { findByHandle } from "./catalog.ts";
 import {
   BUGS_SETTINGS,
   BACKLOG_SETTINGS,
@@ -29,12 +30,12 @@ describe("IDs never change on read", () => {
   test("an assigned id and handle stay the same on later reads and after a restart, and the file isn't written again", async () => {
     const root = writeRoot({ ...VALID_FILES, "bugs/typed.md": UNASSIGNED });
     const first = openItems(root);
-    const assigned = itemAt(await first.catalog.items("bugs"), "bugs/typed.md");
+    const assigned = itemAt((await first.catalog.snapshot()).items.filter((item) => item.structure === "bugs"), "bugs/typed.md");
     const bytes = readAt(root, "bugs/typed.md");
 
-    const again = itemAt(await first.catalog.items("bugs"), "bugs/typed.md");
+    const again = itemAt((await first.catalog.snapshot()).items.filter((item) => item.structure === "bugs"), "bugs/typed.md");
     const restarted = first.reopen();
-    const afterRestart = itemAt(await restarted.catalog.items("bugs"), "bugs/typed.md");
+    const afterRestart = itemAt((await restarted.catalog.snapshot()).items.filter((item) => item.structure === "bugs"), "bugs/typed.md");
 
     expect(assigned.id).not.toBeNull();
     for (const item of [again, afterRestart]) {
@@ -52,11 +53,11 @@ describe("IDs never change on read", () => {
     });
     const { catalog, store } = openItems(root);
 
-    const [a, b] = await Promise.all([catalog.items("bugs"), catalog.items("bugs"), catalog.resolve("BUG-1")]);
+    const [a, b] = await Promise.all([catalog.snapshot(), catalog.snapshot(), catalog.snapshot()]);
 
     const onDisk = readAt(root, "bugs/typed.md");
-    for (const items of [a, b]) {
-      const item = itemAt(items, "bugs/typed.md");
+    for (const { items } of [a, b]) {
+      const item = itemAt(items.filter((item) => item.structure === "bugs"), "bugs/typed.md");
       expect(item.id).toBe(frontmatterValue(onDisk, "id"));
       expect(item.handle).toBe(frontmatterValue(onDisk, "handle"));
     }
@@ -70,8 +71,7 @@ describe("IDs never change on read", () => {
     const root = writeRoot(FIXTURE_FILES);
     const { catalog } = openItems(root);
 
-    for (const structure of ["bugs", "backlog", "docs"]) await catalog.items(structure);
-    await catalog.structures();
+    for (let read = 0; read < 4; read += 1) await catalog.snapshot();
 
     for (const file of ["bugs/BUG-16-copied.md", "bugs/BUG-17-copy-of-16.md", "bugs/BUG-1-login-times-out.md", "backlog/BL-2-proposal-view.md", "broken/BRK-1-orphan.md"]) {
       expect(readAt(root, file), file).toBe(FIXTURE_FILES[file]);
@@ -84,7 +84,7 @@ describe("IDs never change on write", () => {
   test.each(["id", "handle", "aliases"])("an update setting `%s` is refused and the file is unchanged", async (field) => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);
-    const item = itemAt(await catalog.items("bugs"), "bugs/BUG-1-login-times-out.md");
+    const item = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), "bugs/BUG-1-login-times-out.md");
     const value = field === "id" ? randomUUID() : field === "handle" ? "BUG-77" : ["BUG-78"];
 
     await expectWriteError(writer.updateItem("BUG-1", { [field]: value }, item.version), "field_not_writable", field);
@@ -95,7 +95,7 @@ describe("IDs never change on write", () => {
   test("an id survives title, body and property updates", async () => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);
-    let version = itemAt(await catalog.items("backlog"), "backlog/BL-2-proposal-view.md").version;
+    let version = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "backlog"), "backlog/BL-2-proposal-view.md").version;
 
     for (const fields of [{ title: "A view for agents' proposals" }, { body: "\nStep 7, after the app.\n" }, { project: "platform" }]) {
       const updated = await writer.updateItem("BL-2", fields, version);
@@ -116,16 +116,16 @@ describe("IDs never change on write", () => {
       readAt(root, "backlog/items-ideas.md").replace("handle: BL-1\naliases: [BL-3]", "handle: BL-30\naliases: [BL-3, BL-1]"),
     );
 
-    const child = itemAt(await catalog.items("backlog"), "backlog/BL-2-proposal-view.md");
+    const child = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "backlog"), "backlog/BL-2-proposal-view.md");
     expect(child.problems).toEqual([]);
     expect(child.properties.parent).toBe(IDS.bl1);
-    expect((await catalog.resolve("BL-30"))?.id).toBe(IDS.bl1);
-    expect((await catalog.resolve("BL-1"))?.id).toBe(IDS.bl1);
+    expect(findByHandle((await catalog.snapshot()).items, "BL-30")?.id).toBe(IDS.bl1);
+    expect(findByHandle((await catalog.snapshot()).items, "BL-1")?.id).toBe(IDS.bl1);
 
     // A write to the child keeps the link as the id; a write to the renamed target keeps its path and id.
     const updated = await writer.updateItem("BL-2", { title: "A view for proposals, step 7" }, child.version);
     expect(updated.properties.parent).toBe(IDS.bl1);
-    const target = await catalog.resolve("BL-30");
+    const target = findByHandle((await catalog.snapshot()).items, "BL-30");
     const renamed = await writer.updateItem("BL-30", { project: "platform" }, target?.version ?? "");
     expect(renamed.id).toBe(IDS.bl1);
     expect(renamed.path).toMatch(/(^|\/)backlog\/items-ideas\.md$/);

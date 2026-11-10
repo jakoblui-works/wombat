@@ -41,7 +41,7 @@ describe("created files", () => {
     const item = await writer.createItem("docs", { title: "Deploying", body: "\nPush to main.\n", properties: {}, file: "guides/deploying.md" });
 
     expect(item.path).toBe("guides/deploying.md");
-    expect(itemAt(await catalog.items("docs"), "guides/deploying.md").problems).toEqual([]);
+    expect(itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "docs"), "guides/deploying.md").problems).toEqual([]);
   });
 
   test.each([
@@ -102,7 +102,7 @@ describe("invalid writes", () => {
   ])("an update with $what is refused, naming it, and the file is unchanged", async ({ fields, names }) => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);
-    const { version } = itemAt(await catalog.items("bugs"), BUG_FILE);
+    const { version } = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), BUG_FILE);
 
     const refused = await writer.updateItem("BUG-1", fields, version).then(
       () => undefined,
@@ -129,7 +129,7 @@ describe("property values", () => {
   test("a handle or alias given in a link field is stored as the target's id, on update and on create", async () => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);
-    const { version } = itemAt(await catalog.items("bugs"), BUG_FILE);
+    const { version } = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), BUG_FILE);
 
     await writer.updateItem("BUG-1", { blocks: "BL-2" }, version);
     const created = await writer.createItem("bugs", { title: "Blocked by an alias", body: "", properties: { repo: "api", blocks: "BL-3" } });
@@ -141,7 +141,7 @@ describe("property values", () => {
   test("null removes a property's line and keeps every other byte", async () => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);
-    const { version } = itemAt(await catalog.items("bugs"), BUG_FILE);
+    const { version } = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), BUG_FILE);
 
     await writer.updateItem("BUG-1", { note: null }, version);
 
@@ -151,7 +151,7 @@ describe("property values", () => {
   test("null on a required property is refused and the file is unchanged", async () => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);
-    const { version } = itemAt(await catalog.items("bugs"), BUG_FILE);
+    const { version } = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), BUG_FILE);
 
     await expectWriteError(writer.updateItem("BUG-1", { repo: null }, version), "invalid_fields");
 
@@ -162,7 +162,7 @@ describe("property values", () => {
     const original = (VALID_FILES[BUG_FILE] ?? "").replace("note: Seen after the session cookie change\n", "note: |\n  Seen twice,\n  both on staging.\n");
     const root = writeRoot({ ...VALID_FILES, [BUG_FILE]: original });
     const { catalog, writer } = openItems(root);
-    const { version } = itemAt(await catalog.items("bugs"), BUG_FILE);
+    const { version } = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), BUG_FILE);
 
     await writer.updateItem("BUG-1", { note: "Seen once" }, version);
 
@@ -176,7 +176,7 @@ describe("property values", () => {
       .replaceAll("\n", "\r\n");
     const root = writeRoot({ ...VALID_FILES, [BUG_FILE]: original });
     const { catalog, writer } = openItems(root);
-    const { version } = itemAt(await catalog.items("bugs"), BUG_FILE);
+    const { version } = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), BUG_FILE);
 
     await writer.updateItem("BUG-1", { note: "Seen once" }, version);
 
