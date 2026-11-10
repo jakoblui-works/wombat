@@ -12,6 +12,7 @@ import { stringify } from "yaml";
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { findByHandle, loadItem, readRoot, type LoadedItem, type RootRead, type ValidStructure } from "./catalog.ts";
+import { errorCode } from "./errno.ts";
 import { NoHardLinks, queueWrite, readAtVersion, removeUnchanged, VersionChanged, versionOf, writeAtomic, type VersionedFile } from "./files.ts";
 import { bodyEdit, checkedText, parseItemFile, readsBackAs, setKeyEdits, titleEdit, type ParsedItemFile } from "./item-file.ts";
 import { isIncluded, isSkippedPath, joinRootPath, ownerOf, SETTINGS_FILE, throughSymlink } from "./structures.ts";
@@ -173,7 +174,7 @@ const loadedItem = (structure: ValidStructure, path: string, text: string, links
 const missingFolder = (file: string) => `the folder of ${file} doesn't exist; create it first or pick an existing folder`;
 
 /** A path that doesn't exist, or runs through a file where a folder should be. */
-const isMissingPath = (error: unknown) => ["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "");
+const isMissingPath = (error: unknown) => ["ENOENT", "ENOTDIR"].includes(errorCode(error));
 
 /** Problems of a free structure's `file`, checked like a file someone made by hand; `unseen` folders read as missing. */
 const checkFreeFile = async (root: string, structure: ValidStructure, file: unknown, folders: Set<string>, unseen: readonly string[] = []): Promise<Problem[]> => {

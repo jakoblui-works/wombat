@@ -7,12 +7,12 @@ import { realpathSync } from "node:fs";
 import { chmod, link, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
+import { errorCode, isMissing } from "./errno.ts";
+
 /** sha256 (hex) of a file's bytes: an item's version. */
 export const versionOf = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
 export type VersionedFile = { bytes: Buffer; text: string; version: string };
-
-const isMissing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 
 /** The file's bytes, text and version; undefined when it doesn't exist (any other read error throws). */
 export const readVersioned = async (path: string): Promise<VersionedFile | undefined> => {
@@ -65,21 +65,26 @@ export type WriteOptions = {
   create?: boolean;
   /** The version the file must still have; compared after the temp file is written, just before it lands. */
   expectedVersion?: string;
+  /** The mode the file gets; without it an existing file keeps its own and a new one gets the default. */
+  mode?: number;
 };
 
 /**
  * Replaces (or creates) the file through a temp file in the same folder and a rename, so a reader sees the old
- * file or the new one, never half of one. An existing file keeps its mode. The temp name starts with a dot and
- * ends in `.tmp`, so a scan never takes it for an item. With `create`, the temp file is hard-linked into place,
- * which fails with EEXIST instead of replacing a file made in the meantime.
+ * file or the new one, never half of one. An existing file keeps its mode unless
+ * `mode` is given. The temp name starts with a dot and ends in `.tmp`, so a scan never takes it for an item. With
+ * `create`, the temp file is hard-linked into place, which fails with EEXIST instead of replacing a file made in
+ * the meantime.
  */
-export const writeAtomic = async (path: string, data: string | Uint8Array, { create = false, expectedVersion }: WriteOptions = {}) => {
+export const writeAtomic = async (path: string, data: string | Uint8Array, { create = false, expectedVersion, mode: newMode }: WriteOptions = {}) => {
   const temp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
-  let mode: number | undefined;
-  try {
-    mode = (await stat(path)).mode & 0o7777;
-  } catch (error) {
-    if (!isMissing(error)) throw error;
+  let mode = newMode;
+  if (mode === undefined) {
+    try {
+      mode = (await stat(path)).mode & 0o7777;
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+    }
   }
   try {
     await writeFile(temp, data, { flag: "wx" });
@@ -98,7 +103,7 @@ const linkNew = async (temp: string, path: string) => {
   try {
     await link(temp, path);
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code ?? "";
+    const code = errorCode(error);
     if (!NO_HARD_LINKS.has(code)) throw error;
     throw new NoHardLinks(path, code, error);
   }

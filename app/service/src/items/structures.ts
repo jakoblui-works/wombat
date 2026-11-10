@@ -8,6 +8,8 @@ import { join, matchesGlob, relative, sep } from "node:path";
 import { StructureSettings, type Problem } from "@wombat/shared/items";
 import { isCollection, LineCounter, parseDocument, type Document } from "yaml";
 
+import { errorCode, isMissing } from "./errno.ts";
+
 export const SETTINGS_FILE = "_structure.yaml";
 
 /** Dot folders (`.git`, drafts) and installed packages are never scanned. */
@@ -18,9 +20,6 @@ export const toRootPath = (root: string, path: string) => relative(root, path).s
 
 /** Joins root-relative paths, where "" is the root. */
 export const joinRootPath = (folder: string, name: string) => (folder === "" ? name : `${folder}/${name}`);
-
-const errorCode = (error: unknown) => (error as NodeJS.ErrnoException).code ?? "unknown error";
-const isMissing = (error: unknown) => errorCode(error) === "ENOENT";
 
 /** What makes a folder unreadable, as a problem of the structure the folder belongs to. */
 export const folderProblem = (folder: string, error: unknown): Problem => ({
@@ -94,7 +93,7 @@ export const readSettings = async (file: string): Promise<SettingsResult> => {
   try {
     text = await readFile(file, "utf8");
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code ?? "unknown error";
+    const code = errorCode(error);
     return { settings: null, problems: [{ message: `${SETTINGS_FILE}: can't be read (${code}); check the file's permissions` }] };
   }
   const lineCounter = new LineCounter();

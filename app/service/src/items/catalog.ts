@@ -10,6 +10,7 @@ import type { Item, Problem, StructureSettings } from "@wombat/shared/items";
 
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
+import { errorCode } from "./errno.ts";
 import { queueWrite, readVersioned, VersionChanged, writeAtomic } from "./files.ts";
 import { addKeyEdits, checkedText, parseItemFile, scalarRange, type ParsedItemFile, type TextEdit } from "./item-file.ts";
 import { folderProblem, ownerOf, readSettings, SETTINGS_FILE, structureFiles, structureFolders } from "./structures.ts";
@@ -210,7 +211,7 @@ export const readRoot = async (root: string): Promise<RootRead> => {
       try {
         read = await readVersioned(file);
       } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code ?? "unknown error";
+        const code = errorCode(error);
         reads.push({ ...unread, version: "", problems: [{ message: `file: can't be read (${code}); check its permissions` }] });
         continue;
       }
@@ -351,7 +352,7 @@ const assign = (root: string, store: Store, log: Log | undefined, floors: Map<st
     return { kind: "written" };
   }).catch((error: unknown): Outcome => {
     if (error instanceof VersionChanged) return { kind: "stale" };
-    const code = (error as NodeJS.ErrnoException).code ?? "unknown error";
+    const code = errorCode(error);
     log?.("item_first_sight_failed", { structure: settings.id, item: entry.item.handle ?? entry.item.id ?? "", error: code });
     return {
       kind: "failed",

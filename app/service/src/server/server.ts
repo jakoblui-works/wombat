@@ -32,8 +32,8 @@ import type { z } from "zod";
 
 import { AgentError, type AgentErrorCode, type Manager } from "../agents/manager.ts";
 import { openAccess, ProposalError, type ProposalErrorCode } from "../items/access.ts";
-import { findByHandle, type Catalog, type LoadedItem, type LoadedStructure } from "../items/catalog.ts";
-import { setOwn } from "../items/validate.ts";
+import { handlesById, summarize, withLinks } from "../items/api-view.ts";
+import { findByHandle, type Catalog } from "../items/catalog.ts";
 import type { Writer } from "../items/write.ts";
 import type { Harness } from "../harness/harness.ts";
 import { logToStderr, type Log } from "../log.ts";
@@ -121,39 +121,6 @@ const queryValues = (c: Context) =>
   Object.fromEntries(
     Object.entries(c.req.queries()).map(([key, values]) => [key, values.length === 1 ? values[0] : values]),
   );
-
-/** Each item's current handle by id, for the link values. */
-const handlesById = (items: LoadedItem[]) =>
-  new Map(items.flatMap((item) => (item.id === null ? [] : [[item.id, item.handle] as const])));
-
-/** An item as the API sends it: link values become `{ id, handle }`; the catalog holds the target's raw id. */
-const withLinks = (item: LoadedItem, structures: LoadedStructure[], handles: Map<string, string | null>) => {
-  const { structure: structureId, ...rest } = item;
-  const settings = structures.find((structure) => structure.id === structureId)?.settings;
-  if (!settings) return rest;
-  const properties = { ...rest.properties };
-  for (const [name, property] of Object.entries(settings.properties)) {
-    const value = properties[name];
-    if (property.type === "link" && typeof value === "string") {
-      setOwn(properties, name, { id: value, handle: handles.get(value) ?? null });
-    }
-  }
-  return { ...rest, properties };
-};
-
-const summarize = (structure: LoadedStructure, items: LoadedItem[]) => {
-  const own = items.filter((item) => item.structure === structure.id);
-  const listing = {
-    path: structure.path,
-    itemCount: structure.id === null ? 0 : own.length,
-    invalidCount: structure.id === null ? 0 : own.filter((item) => item.problems.length > 0).length,
-    problems: structure.problems,
-  };
-  if (structure.id === null) return { id: null, ...listing };
-  const { id, settings } = structure;
-  const { name, prefix, access, naming, instructions, properties, views } = settings;
-  return { id, name, prefix, access, naming, instructions, properties, views, ...listing };
-};
 
 /** Serves the API on 127.0.0.1 only; resolves once it is listening. */
 export const startServer = async ({

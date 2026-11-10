@@ -64,6 +64,7 @@ const start = async () => {
     log: () => undefined,
     // No systemd: the agents run without a scope.
     env: { ...process.env, PATH: join(base, "bin") },
+    readInstructions: () => Promise.resolve(undefined),
     slice: `wombattest${randomUUID().replaceAll("-", "")}.slice`,
   });
   const server = await startServer({ manager, store, harnesses, token: randomBytes(24).toString("base64url"), log: () => undefined });

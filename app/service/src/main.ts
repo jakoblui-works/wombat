@@ -6,7 +6,8 @@ import { createManager, type Manager } from "./agents/manager.ts";
 import { readConfig } from "./config.ts";
 import { findRunningService, newToken, removeDiscovery, writeDiscovery } from "./discovery.ts";
 import { openCatalog } from "./items/catalog.ts";
-import { openInstructions, refreshingWriter, type Instructions } from "./items/instructions.ts";
+import { errorCode } from "./items/errno.ts";
+import { openInstructions, readInstructions, refreshingWriter, type Instructions } from "./items/instructions.ts";
 import type { Harness } from "./harness/harness.ts";
 import { defaultHarnesses } from "./harness/registry.ts";
 import { openWriter } from "./items/write.ts";
@@ -39,8 +40,6 @@ const fail = (error: unknown): never => {
   }
   process.exit(1);
 };
-
-const errorCode = (error: unknown) => (error as NodeJS.ErrnoException | undefined)?.code;
 
 /** A failure to listen on `port` the user can fix by choosing another; undefined for anything else. */
 const listenRefusal = (port: number, error: unknown): StartRefused | undefined => {
@@ -110,7 +109,15 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   try {
     store = openStore({ path: config.storePath });
     const slice = options.slice === undefined ? {} : { slice: options.slice };
-    manager = createManager({ store, workspaceRoot: config.workspaceRoot, harnesses, log, env, ...slice });
+    manager = createManager({
+      store,
+      workspaceRoot: config.workspaceRoot,
+      harnesses,
+      log,
+      env,
+      readInstructions: () => readInstructions(config.workspaceRoot, log),
+      ...slice,
+    });
     try {
       const { itemsRoot, workspaceRoot } = config;
       const catalog = itemsRoot === undefined ? undefined : openCatalog({ root: itemsRoot, store, log });

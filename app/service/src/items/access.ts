@@ -12,6 +12,7 @@ import { logToStderr, type Log } from "../log.ts";
 import type { Store, StoredProposal } from "../store/store.ts";
 import { findByHandle, type Catalog, type LoadedItem, type Snapshot, type ValidStructure } from "./catalog.ts";
 import { SETTINGS_FILE } from "./structures.ts";
+import { TOOL } from "./tools.ts";
 import { ownValue, propertyOf, setOwn } from "./validate.ts";
 import { ItemWriteError, StructureProblemsError, type Writer } from "./write.ts";
 
@@ -93,12 +94,12 @@ export type AccessOptions = {
 export const SEARCH_LIMIT = 50;
 
 /** The tool of each family for each change. */
-const TOOLS = {
-  create: { edit: "create_item", propose: "propose_create" },
-  update: { edit: "update_item", propose: "propose_update" },
-  delete: { edit: "delete_item", propose: "propose_delete" },
+const CHANGE_TOOLS = {
+  create: { edit: TOOL.createItem, propose: TOOL.proposeCreate },
+  update: { edit: TOOL.updateItem, propose: TOOL.proposeUpdate },
+  delete: { edit: TOOL.deleteItem, propose: TOOL.proposeDelete },
 } as const;
-type Change = keyof typeof TOOLS;
+type Change = keyof typeof CHANGE_TOOLS;
 type Family = "edit" | "propose";
 
 /** One read of the root as an agent may see it. */
@@ -175,13 +176,13 @@ const scrubbed = (view: View, problems: Problem[], where: string, structure?: Va
 // Refusals. The not_found texts name only what the agent typed, so a hidden name reads exactly like a missing one.
 
 const noItem = (handle: string) =>
-  new AccessError("not_found", `No item has the handle ${handle}. Check it, or find the item with search or list_items.`);
+  new AccessError("not_found", `No item has the handle ${handle}. Check it, or find the item with ${TOOL.search} or ${TOOL.listItems}.`);
 
 const noStructure = (id: string) =>
-  new AccessError("not_found", `No structure has the id ${id}. Call describe_structure without a structure to see the ones you can use.`);
+  new AccessError("not_found", `No structure has the id ${id}. Call ${TOOL.describeStructure} without a structure to see the ones you can use.`);
 
 const stale = (handle: string) =>
-  new AccessError("stale_version", `${handle} changed since you read it (by hand or by another write). Re-read it with get_item and try again.`);
+  new AccessError("stale_version", `${handle} changed since you read it (by hand or by another write). Re-read it with ${TOOL.getItem} and try again.`);
 
 const invalidFields = (message: string, problems: Problem[] = []) => new AccessError("invalid_fields", message, problems);
 
@@ -210,10 +211,10 @@ const checkLevel = (structure: ValidStructure, family: Family, change: Change) =
   if (access === "propose") {
     throw new AccessError(
       "use_propose",
-      `${structure.id} takes proposals, not direct changes: use ${TOOLS[change].propose} with a reason, and the user approves or rejects it.`,
+      `${structure.id} takes proposals, not direct changes: use ${CHANGE_TOOLS[change].propose} with a reason, and the user approves or rejects it.`,
     );
   }
-  throw new AccessError("use_edit", `${structure.id} is open to direct changes, so there's nothing to propose: use ${TOOLS[change].edit} instead.`);
+  throw new AccessError("use_edit", `${structure.id} is open to direct changes, so there's nothing to propose: use ${CHANGE_TOOLS[change].edit} instead.`);
 };
 
 /** Refuses a change touching a locked field, naming it. */

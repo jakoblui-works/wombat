@@ -9,7 +9,8 @@ import { API_VERSION } from "@wombat/shared";
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 
-import { AccessError, type Access, type ItemInput } from "../items/access.ts";
+import { AccessError, SEARCH_LIMIT, type Access, type ItemInput } from "../items/access.ts";
+import { TOOL } from "../items/tools.ts";
 import type { Log } from "../log.ts";
 import { errorResponse } from "./errors.ts";
 import { refuseForeignHost } from "./port-rules.ts";
@@ -61,11 +62,11 @@ const mcpRules =
   };
 
 // Input schemas. None lists structure ids: that would name hidden structures, and go stale when one is added.
-const structure = z.string().describe("A structure's id, as describe_structure lists it.");
+const structure = z.string().describe(`A structure's id, as ${TOOL.describeStructure} lists it.`);
 const handle = z.string().describe("An item's handle, like BUG-14 (an old handle, an alias, works too).");
 const version = z
   .string()
-  .describe("The item's version from your last get_item. If the item changed since, re-read it and try again.");
+  .describe(`The item's version from your last ${TOOL.getItem}. If the item changed since, re-read it and try again.`);
 const reason = z.string().describe("Why you propose this, for the user who approves or rejects it.");
 const fields = z
   .record(z.string(), z.unknown())
@@ -79,7 +80,7 @@ const createShape = {
   properties: z
     .record(z.string(), z.unknown())
     .optional()
-    .describe("Property name → value, as describe_structure lists them (link values are handles)."),
+    .describe(`Property name → value, as ${TOOL.describeStructure} lists them (link values are handles).`),
   file: z
     .string()
     .optional()
@@ -126,88 +127,88 @@ const toolServer = ({ access, log }: Pick<McpOptions, "access" | "log">, agentId
     };
 
   server.registerTool(
-    "describe_structure",
+    TOOL.describeStructure,
     {
       description:
         "Describes a structure you can use: its name, access level (read, propose or edit), properties and locked " +
         "fields. Without `structure`, describes every structure you can use.",
       inputSchema: z.object({ structure: structure.optional() }),
     },
-    run("describe_structure", (a, { structure: id }: { structure?: string | undefined }) =>
+    run(TOOL.describeStructure, (a, { structure: id }: { structure?: string | undefined }) =>
       id === undefined ? a.structures() : a.describe(id),
     ),
   );
   server.registerTool(
-    "list_items",
+    TOOL.listItems,
     {
       description: "Lists a structure's items: handle, title, properties and problems (no body).",
       inputSchema: z.object({ structure }),
     },
-    run("list_items", (a, { structure: id }: { structure: string }) => a.list(id)),
+    run(TOOL.listItems, (a, { structure: id }: { structure: string }) => a.list(id)),
   );
   server.registerTool(
-    "get_item",
+    TOOL.getItem,
     {
       description:
         "Reads one item: handle, aliases, title, body, properties, problems and version. Send the version back " +
         "with any change you make to it.",
       inputSchema: z.object({ handle }),
     },
-    run("get_item", (a, args: { handle: string }) => a.get(args.handle)),
+    run(TOOL.getItem, (a, args: { handle: string }) => a.get(args.handle)),
   );
   server.registerTool(
-    "search",
+    TOOL.search,
     {
       description:
         "Finds items whose title, body or text properties contain `query` (any case), in one structure or all you " +
-        "can use. Answers at most 50; `truncated` says there were more.",
+        `can use. Answers at most ${SEARCH_LIMIT}; \`truncated\` says there were more.`,
       inputSchema: z.object({ query: z.string().describe("The text to look for."), structure: structure.optional() }),
     },
-    run("search", (a, { query, structure: id }: { query: string; structure?: string | undefined }) => a.search(query, id)),
+    run(TOOL.search, (a, { query, structure: id }: { query: string; structure?: string | undefined }) => a.search(query, id)),
   );
   server.registerTool(
-    "create_item",
+    TOOL.createItem,
     {
       description: "Creates an item in a structure open to edits. Answers its handle and version.",
       inputSchema: z.object(createShape),
     },
-    run("create_item", (a, { structure: id, ...input }: CreateArgs & { structure: string }) =>
+    run(TOOL.createItem, (a, { structure: id, ...input }: CreateArgs & { structure: string }) =>
       a.create(agentId, id, itemInput(input)),
     ),
   );
   server.registerTool(
-    "update_item",
+    TOOL.updateItem,
     {
       description: "Changes some fields of an item in a structure open to edits. Answers its handle and new version.",
       inputSchema: z.object({ handle, fields, version }),
     },
-    run("update_item", (a, args: { handle: string; fields: Record<string, unknown>; version: string }) =>
+    run(TOOL.updateItem, (a, args: { handle: string; fields: Record<string, unknown>; version: string }) =>
       a.update(agentId, args.handle, args.fields, args.version),
     ),
   );
   server.registerTool(
-    "delete_item",
+    TOOL.deleteItem,
     {
       description: "Deletes an item in a structure open to edits.",
       inputSchema: z.object({ handle, version }),
     },
-    run("delete_item", (a, args: { handle: string; version: string }) => a.remove(agentId, args.handle, args.version)),
+    run(TOOL.deleteItem, (a, args: { handle: string; version: string }) => a.remove(agentId, args.handle, args.version)),
   );
   server.registerTool(
-    "propose_create",
+    TOOL.proposeCreate,
     {
       description:
         "Proposes a new item in a structure open to proposals; the user approves or rejects it. Answers the proposal's id.",
       inputSchema: z.object({ ...createShape, reason }),
     },
     run(
-      "propose_create",
+      TOOL.proposeCreate,
       (a, { structure: id, reason: why, ...input }: CreateArgs & { structure: string; reason: string }) =>
         a.proposeCreate(agentId, id, itemInput(input), why),
     ),
   );
   server.registerTool(
-    "propose_update",
+    TOOL.proposeUpdate,
     {
       description:
         "Proposes changing some fields of an item in a structure open to proposals; the user approves or rejects it. " +
@@ -215,19 +216,19 @@ const toolServer = ({ access, log }: Pick<McpOptions, "access" | "log">, agentId
       inputSchema: z.object({ handle, fields, version, reason }),
     },
     run(
-      "propose_update",
+      TOOL.proposeUpdate,
       (a, args: { handle: string; fields: Record<string, unknown>; version: string; reason: string }) =>
         a.proposeUpdate(agentId, args.handle, args.fields, args.version, args.reason),
     ),
   );
   server.registerTool(
-    "propose_delete",
+    TOOL.proposeDelete,
     {
       description:
         "Proposes deleting an item in a structure open to proposals; the user approves or rejects it. Answers the proposal's id.",
       inputSchema: z.object({ handle, version, reason }),
     },
-    run("propose_delete", (a, args: { handle: string; version: string; reason: string }) =>
+    run(TOOL.proposeDelete, (a, args: { handle: string; version: string; reason: string }) =>
       a.proposeDelete(agentId, args.handle, args.version, args.reason),
     ),
   );

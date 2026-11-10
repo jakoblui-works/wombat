@@ -329,6 +329,9 @@ export type ListLogResponse = z.infer<typeof ListLogResponse>;
 
 // Alerts (lenient), sent over `GET /events` after the change is committed.
 
+/** The alert type of a proposal change; the other alert types are the agent ones. */
+export const PROPOSAL_ALERT = "proposal";
+
 const AgentAlertType = z.enum(["agent_added", "agent_changed", "agent_removed", "log"]);
 
 /**
@@ -343,11 +346,11 @@ export const Alert = z.discriminatedUnion("type", [
     type: AgentAlertType,
     agentId: z.string(),
   }),
-  z.object({ seq: Seq, dbId: DbId, type: z.literal("proposal"), proposalId: z.string() }),
+  z.object({ seq: Seq, dbId: DbId, type: z.literal(PROPOSAL_ALERT), proposalId: z.string() }),
 ]);
 export type Alert = z.infer<typeof Alert>;
 
-const alertTypes = new Set<unknown>([...AgentAlertType.options, "proposal"]);
+const alertTypes = new Set<unknown>([...AgentAlertType.options, PROPOSAL_ALERT]);
 
 /** Parses one alert. Returns undefined for alert types this app doesn't know (newer service); throws on a malformed known alert. */
 export const parseAlert = (data: unknown): Alert | undefined => {

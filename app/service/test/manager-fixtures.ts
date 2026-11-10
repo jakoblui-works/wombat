@@ -12,6 +12,7 @@ import type { AgentSummary, LogEntry } from "@wombat/shared/api";
 import { onTestFinished } from "vitest";
 
 import { createManager, type Committed } from "../src/agents/manager.ts";
+import { readInstructions } from "../src/items/instructions.ts";
 import type { Harness } from "../src/harness/harness.ts";
 import { openStore, type Store, type StoreOptions } from "../src/store/store.ts";
 import type { FakeScenario } from "./fake-agent.ts";
@@ -168,6 +169,7 @@ export const setup = ({ systemd = "none", fake, storeOptions = {} }: SetupOption
       log: (event: string, fields: LogLine["fields"]) => logs.push({ event, fields }),
       env,
       slice,
+      readInstructions: () => readInstructions(root),
     });
     manager.onCommitted((event: Committed) => committed.push(event));
     return manager;

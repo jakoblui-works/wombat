@@ -1,21 +1,20 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 
 import type { McpServer, RequestPermissionRequest, RequestPermissionResponse } from "@agentclientprotocol/sdk";
 import {
   AnswerPermissionRequest,
   LogEntry,
   parseLogEntry,
+  PROPOSAL_ALERT,
   type AgentSummary,
+  type Alert,
   type ErrorBody,
   type SendMessageRequest,
 } from "@wombat/shared/api";
 
 import { MCP_SERVER_NAME, startAgentProcess, type AgentScope, type Harness } from "../harness/harness.ts";
 import { defaultHarnesses, findHarness } from "../harness/registry.ts";
-import { INSTRUCTIONS_FILE } from "../items/instructions.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { NewLogEntry, Store } from "../store/store.ts";
 import { RepoError, resolveRepo } from "../workspace.ts";
@@ -47,9 +46,8 @@ export class AgentError extends Error {
 }
 
 /** A change committed to the store, told to listeners (the alert stream) once it can be read. */
-export type Committed =
-  | { seq: number; agentId: string; type: "agent_added" | "agent_changed" | "agent_removed" | "log" }
-  | { seq: number; type: "proposal"; proposalId: string };
+type WithoutDbId<T> = T extends unknown ? Omit<T, "dbId"> : never;
+export type Committed = WithoutDbId<Alert>;
 
 export type ManagerOptions = {
   store: Store;
@@ -61,6 +59,8 @@ export type ManagerOptions = {
   env?: NodeJS.ProcessEnv;
   /** The systemd slice agents' scopes go in; everything in it is stopped at start-up and shutdown. */
   slice?: string;
+  /** The instructions file's text for a new session, or undefined when there is none: then nothing is sent. */
+  readInstructions: () => Promise<string | undefined>;
 };
 
 type PermissionKind = AnswerPermissionRequest["kind"];
@@ -162,6 +162,7 @@ export const createManager = ({
   log = logToStderr,
   env = process.env,
   slice = DEFAULT_SLICE,
+  readInstructions,
 }: ManagerOptions) => {
   const listeners = new Set<(event: Committed) => void>();
   const summaries = new Map(store.listAgents().map((agent) => [agent.id, agent]));
@@ -180,7 +181,7 @@ export const createManager = ({
       try {
         listener(event);
       } catch {
-        const subject = event.type === "proposal" ? { proposalId: event.proposalId } : { agentId: event.agentId };
+        const subject = event.type === PROPOSAL_ALERT ? { proposalId: event.proposalId } : { agentId: event.agentId };
         log("listener_failed", { ...subject, seq: event.seq, type: event.type });
       }
     }
@@ -486,18 +487,6 @@ export const createManager = ({
   }
   log("agents_loaded", { count: summaries.size, markedStopped: marked });
 
-  /** The instructions file's text, or undefined when there is none (or it's empty): then nothing is sent. */
-  const readInstructions = async () => {
-    try {
-      const text = await readFile(join(workspaceRoot, INSTRUCTIONS_FILE), "utf8");
-      return text === "" ? undefined : text;
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT") log("instructions_unreadable", { error: code ?? "unknown" });
-      return undefined;
-    }
-  };
-
   const start = async (harnessId: string, repo: string): Promise<AgentSummary> => {
     assertOpen();
     const harness = findHarness(harnessId, harnesses);
@@ -693,7 +682,7 @@ export const createManager = ({
   const agentForToken = (token: string): string | undefined => agentTokens.get(tokenKey(token));
 
   /** Tells the listeners about a committed proposal change (stored, approved, rejected, conflict). */
-  const proposalCommitted = (proposalId: string, seq: number) => emit({ seq, type: "proposal", proposalId });
+  const proposalCommitted = (proposalId: string, seq: number) => emit({ seq, type: PROPOSAL_ALERT, proposalId });
 
   return {
     start,

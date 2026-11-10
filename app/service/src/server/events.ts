@@ -1,4 +1,4 @@
-import type { Alert } from "@wombat/shared/api";
+import { PROPOSAL_ALERT, type Alert } from "@wombat/shared/api";
 
 import type { Committed, Manager } from "../agents/manager.ts";
 
@@ -34,7 +34,7 @@ export const createAlertStreams = ({ onCommitted, dbId, heartbeatMs }: AlertStre
         };
         const unsubscribe = onCommitted((event: Committed) => {
           const alert: Alert =
-            event.type === "proposal"
+            event.type === PROPOSAL_ALERT
               ? { seq: event.seq, dbId, type: event.type, proposalId: event.proposalId }
               : { seq: event.seq, dbId, type: event.type, agentId: event.agentId };
           write(`id: ${event.seq}\ndata: ${JSON.stringify(alert)}\n\n`);
