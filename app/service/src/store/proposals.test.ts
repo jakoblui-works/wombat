@@ -35,7 +35,7 @@ describe("store proposals", () => {
     const kept = first.insertProposal(NEW).proposal;
     const createWithFile = { ...NEW, kind: "create" as const, itemId: null, baseVersion: null, file: "guides/setup.md" };
     const created = first.insertProposal(createWithFile).proposal;
-    expect((created as { file?: unknown }).file, "the file as stored").toBe("guides/setup.md");
+    expect(created.file, "the file as stored").toBe("guides/setup.md");
     first.setProposalStatus(created.id, "approved", undefined, "0196f3c2-1a00-7000-8000-000000000009");
     first.close();
 

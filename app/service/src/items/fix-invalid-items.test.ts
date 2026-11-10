@@ -2,7 +2,8 @@
 // property values can be updated (to fix them, or another field) as long as no field that was fine gets a problem;
 // an item with an identity problem (duplicate handle or id, no title, unparseable) is never updated; a delete needs
 // a file that parses and a handle no other file has, whichever of the files' versions is sent, through the writer and
-// through an agent's edit path. Otherwise a write could land on the wrong one of two files
+// through an agent's edit path. A malformed handle or alias is the item's own problem, not a clash: its version is
+// checked like any item's, an update is refused on that field, and a delete goes through. Otherwise a write could land on the wrong one of two files
 // sharing a handle, or a bad item could never be fixed through the tools.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -11,7 +12,7 @@ import { describe, expect, test } from "vitest";
 
 import { ItemWriteError } from "./write.ts";
 import { ACCESS_FILES, AGENT, HIDDEN, MARKER, expectRefused, leaks, openAccessRoot, refusal, snapshotFiles } from "../../test/access-fixtures.ts";
-import { FIXTURE_FILES, expectWriteError, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
+import { BACKLOG_SETTINGS, BUGS_SETTINGS, FIXTURE_FILES, expectWriteError, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 
 const versionOf = async (opened: ReturnType<typeof openItems>, file: string) => itemAt((await opened.catalog.snapshot()).items.filter((item) => item.structure === "bugs"), file).version;
 
@@ -124,5 +125,33 @@ describe("changing invalid items", () => {
     await opened.writer.deleteItem("BUG-13", await versionOf(opened, "bugs/BUG-13-unknown-repo.md"));
 
     expect(existsSync(join(root, "bugs/BUG-13-unknown-repo.md"))).toBe(false);
+  });
+
+  test.each([
+    { what: "a malformed handle", handle: "bug-7", file: "bugs/lowercase.md", frontmatter: "handle: bug-7\n", field: "handle" },
+    { what: "a malformed alias", handle: "BUG-8", file: "bugs/bad-alias.md", frontmatter: "handle: BUG-8\naliases: [old]\n", field: "aliases" },
+  ])("$what is the item's own problem, not a clash: the version counts, an update is refused on it, and a delete goes through", async ({ handle, file, frontmatter, field }) => {
+    // Backlog too: bugs links to it, and a structure with problems refuses every write before looking at the item.
+    const root = writeRoot({ "bugs/_structure.yaml": BUGS_SETTINGS, "backlog/_structure.yaml": BACKLOG_SETTINGS, [file]: `---\nid: 0196f3c2-9e00-7000-8000-0000000000d1\n${frontmatter}repo: api\n---\n# Typed by hand\n\nInvented.\n` });
+    const opened = openItems(root);
+    const version = await versionOf(opened, file);
+    const item = itemAt((await opened.catalog.snapshot()).items, file);
+    expect(item.problems.map((problem) => problem.field), "the item's own problem").toContain(field);
+
+    // Not a handle other files share, so a stale version is just stale.
+    await expectWriteError(opened.writer.updateItem(handle, { note: "x" }, "0".repeat(64)), "stale_version", "update, old version");
+    let error: unknown;
+    try {
+      await opened.writer.updateItem(handle, { note: "x" }, version);
+    } catch (thrown) {
+      error = thrown;
+    }
+    expect(error, "update, current version").toBeInstanceOf(ItemWriteError);
+    expect((error as ItemWriteError).code).toBe("invalid_fields");
+    expect((error as ItemWriteError).problems.map((problem) => problem.field), "refused on its own field").toEqual([field]);
+
+    // The file parses and no other file has its handle: a delete goes through.
+    await opened.writer.deleteItem(handle, version);
+    expect(existsSync(join(root, file)), "deleted").toBe(false);
   });
 });

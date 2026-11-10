@@ -87,7 +87,8 @@ const createShape = {
     .describe("Only for a structure with free naming: the new file's path, relative to the structure's folder."),
 };
 
-type CreateArgs = { title: string; body?: string | undefined; properties?: Record<string, unknown> | undefined; file?: string | undefined };
+/** ItemInput as the input schema gives it: an optional field the agent left out is undefined. */
+type CreateArgs = Pick<ItemInput, "title"> & { [K in Exclude<keyof ItemInput, "title">]?: ItemInput[K] | undefined };
 
 /** A create's item fields, without the ones the agent left out. */
 const itemInput = ({ title, body, properties, file }: CreateArgs): ItemInput => ({

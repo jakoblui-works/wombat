@@ -6,17 +6,17 @@ import { randomUUIDv7 } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
-import { ITEM_FIELDS, OWN_KEYS, type StructureSettings } from "@wombat/shared/items";
+import { ITEM_FIELDS, OWN_KEYS, type Problem, type StructureSettings } from "@wombat/shared/items";
 import { stringify } from "yaml";
 
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
-import { findByHandle, inFolder, loadItem, readRoot, type LoadedItem, type LoadedStructure, type NamedProblem, type ProblemNames, type RootRead, type ValidStructure } from "./catalog.ts";
-import { errorCode } from "./errno.ts";
+import { findByHandle, isClash, loadItem, readRoot, type LoadedItem, type LoadedStructure, type NamedProblem, type ProblemNames, type RootRead, type ValidStructure } from "./catalog.ts";
+import { isAlreadyThere, isMissingPath } from "./errno.ts";
 import { NoHardLinks, queueWrite, readAtVersion, removeUnchanged, VersionChanged, versionOf, writeAtomic, type VersionedFile } from "./files.ts";
 import { bodyEdit, checkedText, parseItemFile, readsBackAs, setKeyEdits, titleEdit, type ParsedItemFile } from "./item-file.ts";
-import { isIncluded, isSkippedPath, joinRootPath, ownerOf, SETTINGS_FILE, throughSymlink } from "./structures.ts";
-import { setOwn, validateProperties, type LinkLookup } from "./validate.ts";
+import { inFolder, isIncluded, isSkippedPath, joinRootPath, SETTINGS_FILE, throughSymlink } from "./structures.ts";
+import { formatHandle, setOwn, validateProperties, type LinkLookup } from "./validate.ts";
 
 export type ItemWriteErrorCode = "stale_version" | "invalid_fields" | "item_not_found" | "structure_not_found" | "field_not_writable" | "items_not_writable";
 
@@ -98,7 +98,11 @@ const yamlValue = (value: unknown) => {
 const invalid = (message: string, problems: NamedProblem[]) => new ItemWriteError("invalid_fields", message, problems);
 
 /** The problems' messages, for an error message. */
-const listed = (problems: NamedProblem[]) => problems.map((problem) => problem.message).join("; ");
+export const listed = (problems: readonly Problem[]) => problems.map((problem) => problem.message).join("; ");
+
+/** The property values a new item is given: a null or undefined value means the property is absent. */
+export const presentValues = (values: Record<string, unknown>) =>
+  Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined && value !== null));
 
 const refuseOwnKeys = (keys: string[], what: string) => {
   const own = keys.filter((key) => OWN_KEYS.has(key));
@@ -130,6 +134,15 @@ const checkTitle = (title: unknown): { title: string; problems: NamedProblem[] }
 };
 
 const checkBody = (body: unknown): NamedProblem[] => (typeof body === "string" ? [] : [{ field: "body", message: "body: takes text (an empty body is \"\")" }]);
+
+/** The structure with settings and the id `id` in a fresh read, or `structure_not_found`. */
+const writableStructureById = (read: RootRead, id: string) => {
+  const structure = read.snapshot.structures.find((candidate): candidate is ValidStructure => candidate.id === id);
+  if (structure === undefined) {
+    throw new ItemWriteError("structure_not_found", `No structure has the id ${id}; use the id from its ${SETTINGS_FILE} (a structure with broken settings has none until it's fixed).`);
+  }
+  return structure;
+};
 
 /** A structure items can be written to: one with settings and no problems. */
 const writableStructure = (structure: ValidStructure, action: string) => {
@@ -180,9 +193,6 @@ const loadedItem = (structure: ValidStructure, path: string, text: string, links
 
 const missingFolder = (file: string) => `the folder of ${file} doesn't exist; create it first or pick an existing folder`;
 
-/** A path that doesn't exist, or runs through a file where a folder should be. */
-const isMissingPath = (error: unknown) => ["ENOENT", "ENOTDIR"].includes(errorCode(error));
-
 /** Problems of a free structure's `file`, checked like a file someone made by hand; `unseen` folders read as missing. */
 const checkFreeFile = async (root: string, structure: ValidStructure, file: unknown, structures: LoadedStructure[], unseen: readonly string[] = []): Promise<NamedProblem[]> => {
   const problem = (message: string, names?: ProblemNames): NamedProblem[] => [{ field: "file", message: `file: ${message}`, ...(names === undefined ? {} : { names }) }];
@@ -197,13 +207,15 @@ const checkFreeFile = async (root: string, structure: ValidStructure, file: unkn
     return problem(`${file} doesn't match the structure's include (${(structure.settings.include ?? []).join(", ")}); pick a path it matches`);
   }
   const rootPath = joinRootPath(structure.path, file);
-  // A hidden folder anywhere between this structure's folder and the file reads as missing, like the folders past it.
-  if (unseen.some((folder) => folder !== structure.path && inFolder(structure.path, folder) && inFolder(folder, rootPath))) return problem(missingFolder(file));
-  const owner = ownerOf(new Set(structures.map((candidate) => candidate.path)), rootPath);
-  if (owner !== structure.path) {
-    // The path is relative to this structure's folder, so it shows the structures between it and the file.
-    const between = structures.filter((candidate) => candidate.path !== structure.path && inFolder(structure.path, candidate.path) && inFolder(candidate.path, rootPath));
-    const names = { structures: between.flatMap((candidate) => (candidate.id === null ? [] : [candidate.id])) };
+  // A folder on the way from this structure's folder to the file; a folder named like the file itself isn't.
+  const between = (folder: string) => folder !== structure.path && folder !== rootPath && inFolder(structure.path, folder) && inFolder(folder, rootPath);
+  // The first structure folder met on the way decides, as it's where the path stops being this structure's: a
+  // hidden one reads like a folder that doesn't exist, a visible one is another structure's. Past that folder
+  // nothing is looked at, so a hidden folder inside a visible one answers as that visible one does.
+  const first = [...structures.map((candidate) => candidate.path), ...unseen].filter(between).sort((a, b) => a.length - b.length)[0];
+  if (first !== undefined) {
+    if (unseen.includes(first)) return problem(missingFolder(file));
+    const names = { structures: structures.flatMap((candidate) => (candidate.path === first && candidate.id !== null ? [candidate.id] : [])) };
     return problem(`${file} is inside another structure's folder; create it there instead`, names);
   }
   const folder = join(root, structure.path);
@@ -236,7 +248,7 @@ const writableItem = async (root: string, read: RootRead, handle: string, baseVe
   if (structure === undefined) throw new Error(`The item ${handle} was read in the structure ${item.structure}, which the same read doesn't list.`);
   // A handle other files share is refused before the version: which file the caller read can't be told, so
   // stale_version would send it round a re-read loop it can't leave.
-  const shared = item.problems.filter((problem) => problem.field === "handle" || problem.field === "aliases");
+  const shared = item.problems.filter(isClash);
   if (shared.length > 0) {
     throw invalid(`${handle} names more than one file (${listed(shared)}), so it can't be ${action}; fix the handles by hand first.`, shared);
   }
@@ -284,10 +296,7 @@ const staleIfChanged = async (handle: string, action: string, write: () => Promi
 const checkCreate = async (root: string, structureId: string, item: NewItem, unseen: readonly string[] = []) => {
   refuseOwnKeys(Object.keys(item.properties), "a new item's properties");
   const read = await readRoot(root);
-  const structure = read.snapshot.structures.find((candidate): candidate is ValidStructure => candidate.id === structureId);
-  if (structure === undefined) {
-    throw new ItemWriteError("structure_not_found", `No structure has the id ${structureId}; use the id from its ${SETTINGS_FILE} (a structure with broken settings has none until it's fixed).`);
-  }
+  const structure = writableStructureById(read, structureId);
   writableStructure(structure, "created");
   const { settings } = structure;
 
@@ -295,7 +304,7 @@ const checkCreate = async (root: string, structureId: string, item: NewItem, uns
   const problems = [...titleProblems, ...checkBody(item.body)];
   if (settings.naming === "free") problems.push(...(await checkFreeFile(root, structure, item.file, read.snapshot.structures, unseen)));
   else if (item.file !== undefined) problems.push({ field: "file", message: `file: ${structure.id} names its files by handle, so leave file out` });
-  const given = Object.fromEntries(Object.entries(item.properties).filter(([, value]) => value !== undefined && value !== null));
+  const given = presentValues(item.properties);
   // Declared order, then anything undeclared (which validation refuses), so files read like their settings.
   const keys = [
     ...Object.keys(settings.properties).filter((key) => Object.hasOwn(given, key)),
@@ -309,7 +318,7 @@ const checkCreate = async (root: string, structureId: string, item: NewItem, uns
     return readsBackAs(text, { data: { id, handle, ...values }, title, body: item.body }) ? text : undefined;
   };
   // Checked with stand-in values before the number is taken, so a refused create takes no number.
-  if (textFor(randomUUIDv7(), `${settings.prefix}-1`) === undefined) {
+  if (textFor(randomUUIDv7(), formatHandle(settings.prefix, 1)) === undefined) {
     throw invalid("The item wouldn't read back as given; check the title and the property values for characters YAML or markdown treat specially.", [
       { message: "item: wouldn't read back as given; check the title and the property values for characters YAML or markdown treat specially" },
     ]);
@@ -375,7 +384,7 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
       const { read, structure, title, textFor } = await checkCreate(root, structureId, item);
       const { settings } = structure;
       const id = randomUUIDv7();
-      const handle = `${settings.prefix}-${store.nextHandleNumber(settings.id, read.floors.get(settings.prefix) ?? 0)}`;
+      const handle = formatHandle(settings.prefix, store.nextHandleNumber(settings.id, read.floors.get(settings.prefix) ?? 0));
       const text = textFor(id, handle);
       if (text === undefined) throw new Error(`The new item ${handle} passed its read-back check with stand-in values but not with the real ones.`);
       const file = settings.naming === "free" ? (item.file ?? "") : [handle, slugOf(title)].filter(Boolean).join("-") + ".md";
@@ -384,7 +393,7 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
         await writeAtomic(join(root, path), text, { create: true });
       } catch (error) {
         if (error instanceof NoHardLinks) throw new ItemWriteError("items_not_writable", error.message);
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        if (!isAlreadyThere(error)) throw error;
         // The problem names the file as the structure sees it: the root-relative path would show the folders above.
         throw invalid(`${path} was created by someone else meanwhile; nothing was written, so try again${settings.naming === "free" ? " with another file" : ""}.`, [
           { field: "file", message: `file: ${file} was created by someone else meanwhile; try again${settings.naming === "free" ? " with another file" : ""}` },
@@ -411,10 +420,7 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
 
   checkNewFile: async (structureId, file, unseen = []) => {
     const read = await readRoot(root);
-    const structure = read.snapshot.structures.find((candidate): candidate is ValidStructure => candidate.id === structureId);
-    if (structure === undefined) {
-      throw new ItemWriteError("structure_not_found", `No structure has the id ${structureId}; use the id from its ${SETTINGS_FILE}.`);
-    }
+    const structure = writableStructureById(read, structureId);
     return checkFreeFile(root, structure, file, read.snapshot.structures, unseen);
   },
 

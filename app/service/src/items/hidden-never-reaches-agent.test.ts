@@ -434,4 +434,70 @@ describe("hidden never reaches an agent", () => {
     expect(await outcome("h/v/x.md"), "a path through the hidden folder to a visible structure").toEqual(missing);
     expect(await access.list("pub"), "nothing was created").toEqual([]);
   });
+
+  test("a value of the wrong type for a link to a hidden structure is refused without naming it, whichever hidden structure it is", async () => {
+    // An edit twin of bugs' link into the hidden structure.
+    const notes = (to: string) => `version: 1\nid: notes\nname: Notes\nprefix: NOTE\naccess: edit\nproperties:\n  vault: { type: link, to: ${to} }\n`;
+    const note = "---\nid: 0196f3c2-9e00-7000-8000-0000000000e1\nhandle: NOTE-1\n---\n# A note\n\nInvented.\n";
+    const standard = { ...ACCESS_FILES, "notes/_structure.yaml": notes(HIDDEN.structure), "notes/NOTE-1-a-note.md": note };
+    // The same root with another hidden structure as the links' target: what an agent gets mustn't tell them apart.
+    const other = { id: "osprey-archive", name: "Osprey archive", prefix: "OSP" };
+    const renamed = Object.fromEntries(
+      Object.entries(standard).map(([path, text]) => [
+        path,
+        text.replaceAll(HIDDEN.structure, other.id).replaceAll(HIDDEN.name, other.name).replaceAll(`prefix: ${HIDDEN.prefix}`, `prefix: ${other.prefix}`),
+      ]),
+    );
+
+    /** The refusals for non-text values in the link, through both families: code, message and problems. */
+    const answers = async (files: Record<string, string>) => {
+      const { access } = openAccessRoot(files);
+      const version = async (handle: string) => (await access.get(handle)).version;
+      const calls = {
+        "propose_update with a number": async () => access.proposeUpdate(AGENT, "BUG-2", { vault: 5 }, await version("BUG-2"), "why"),
+        "propose_create with a list": () => access.proposeCreate(AGENT, "bugs", { title: "A new bug", properties: { vault: ["a"] } }, "why"),
+        "update with a number": async () => access.update(AGENT, "NOTE-1", { vault: 5 }, await version("NOTE-1")),
+        "create with a list": () => access.create(AGENT, "notes", { title: "A new note", body: "\nInvented.\n", properties: { vault: ["a"] } }),
+      };
+      const got: Record<string, { code: string; message: string; problems: unknown }> = {};
+      for (const [what, call] of Object.entries(calls)) {
+        const error = await refusal(call(), what);
+        got[what] = { code: error.code, message: error.message, problems: error.problems };
+      }
+      return got;
+    };
+
+    const fromStandard = await answers(standard);
+    for (const [what, got] of Object.entries(fromStandard)) {
+      expect(got.code, what).toBe("invalid_fields");
+      expect(leaks(JSON.stringify(got), [MARKER, HIDDEN.structure, HIDDEN.name, `${HIDDEN.prefix}-`]), `${what}: names the hidden structure`).toEqual([]);
+    }
+    expect(await answers(renamed), "with another hidden structure as the target").toEqual(fromStandard);
+  });
+
+  test("a free path through a visible structure's folder into a hidden one inside it is refused like a path to a missing folder there", async () => {
+    const files = {
+      ...ACCESS_FILES,
+      "notes/_structure.yaml": 'version: 1\nid: notes\nname: Notes\nprefix: NOTE\naccess: edit\nnaming: free\ninclude: ["**/*.md"]\n',
+      "notes/team/_structure.yaml": "version: 1\nid: team\nname: Team\nprefix: TEAM\naccess: edit\n",
+      "notes/team/secret/_structure.yaml": `version: 1\nid: ${MARKER}-secret\nname: Kestrel secret\nprefix: KSC\naccess: hidden\n`,
+    };
+    const { access } = openAccessRoot(files);
+
+    /** The refusal with the typed path replaced, or that the call went through. */
+    const outcome = async (file: string) => {
+      try {
+        await access.create(AGENT, "notes", { title: "A note", body: "\nInvented.\n", file });
+        return { accepted: true };
+      } catch (error) {
+        expect(error, file).toBeInstanceOf(AccessError);
+        const { code, message, problems } = error as AccessError;
+        return JSON.parse(JSON.stringify({ code, message, problems }).replaceAll(file, "<typed>")) as unknown;
+      }
+    };
+
+    const missing = await outcome("team/nothere/x.md");
+    expect(missing, "a path to a missing folder in team is refused").not.toEqual({ accepted: true });
+    expect(await outcome("team/secret/x.md"), "a path into the hidden folder in team").toEqual(missing);
+  });
 });

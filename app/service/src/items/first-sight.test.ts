@@ -90,6 +90,9 @@ const readOnce = async (files: Record<string, string>, structure: string, file: 
 const unquoteIds = (text: string, ids: string[]) =>
   ids.reduce((result, id) => result.replaceAll(`"${id}"`, id).replaceAll(`'${id}'`, id), text);
 
+/** 25 runs, each on a fresh temp root: well under a second alone, but far over vitest's 5 s default under full-workspace load. */
+const PROPERTY_TIMEOUT_MS = 30_000;
+
 describe("first sight", () => {
   test("a hand-made file gets an id and a handle and keeps every other byte", async () => {
     await fc.assert(
@@ -110,7 +113,7 @@ describe("first sight", () => {
       }),
       { numRuns: 25 },
     );
-  });
+  }, PROPERTY_TIMEOUT_MS);
 
   test.each([
     { what: "a trailing space on the opening fence", text: "--- \nrepo: api\n---\n# A fence with a trailing space\n", line: 1 },

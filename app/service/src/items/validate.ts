@@ -29,6 +29,9 @@ export const parseHandle = (value: unknown): { prefix: string; number: number } 
   return { prefix: match[1] ?? "", number: Number(match[2]) };
 };
 
+/** The handle numbered `number` in a structure with `prefix`, like `BUG-14`; what parseHandle reads back. */
+export const formatHandle = (prefix: string, number: number) => `${prefix}-${number}`;
+
 /** What a link value names, as `links` finds it. */
 export type LinkTarget =
   /** The raw id of an item in the target structure. */
@@ -67,7 +70,8 @@ const checkValue = (name: string, property: Property, value: unknown, links: Lin
     case "number":
       return typeof value === "number" && Number.isFinite(value) ? [] : problem(`takes a number, like ${name}: 3`);
     case "link": {
-      if (typeof value !== "string") return problem(`takes the handle of an item in ${property.to}, like ${name}: ${property.to.toUpperCase()}-1`);
+      // Names the target structure, which may be hidden from the caller.
+      if (typeof value !== "string") return problem(`takes the handle of an item in ${property.to}, like ${name}: ${property.to.toUpperCase()}-1`, { structures: [property.to] });
       const target = links(property.to, value);
       if (target.kind === "id") return [];
       if (target.kind === "handle") {

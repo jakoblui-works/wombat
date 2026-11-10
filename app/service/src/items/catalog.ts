@@ -11,10 +11,10 @@ import type { Item, Problem, StructureSettings } from "@wombat/shared/items";
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { errorCode } from "./errno.ts";
-import { queueWrite, readVersioned, VersionChanged, writeAtomic } from "./files.ts";
+import { queueWrite, readAtVersion, readVersioned, VersionChanged, writeAtomic } from "./files.ts";
 import { addKeyEdits, checkedText, parseItemFile, scalarRange, type ParsedItemFile, type TextEdit } from "./item-file.ts";
-import { folderProblem, ownerOf, readSettings, SETTINGS_FILE, structureFiles, structureFolders } from "./structures.ts";
-import { isUuid, parseHandle, validateOwnKeys, validateProperties, type LinkLookup } from "./validate.ts";
+import { folderProblem, inFolder, ownerOf, readSettings, SETTINGS_FILE, structureFiles, structureFolders } from "./structures.ts";
+import { formatHandle, isUuid, parseHandle, validateOwnKeys, validateProperties, type LinkLookup } from "./validate.ts";
 
 export type { Problem } from "@wombat/shared/items";
 
@@ -28,7 +28,11 @@ export type { Problem } from "@wombat/shared/items";
  * `names` stays inside the service: agents get problems through access.ts's filter, and the HTTP routes parse
  * theirs with the shared schemas, both of which drop it.
  */
-export type NamedProblem = Problem & { names?: ProblemNames };
+export type NamedProblem = Problem & {
+  names?: ProblemNames;
+  /** Set on a handle or alias other files also have (`isClash`); stays inside the service like `names`. */
+  clash?: true;
+};
 export type ProblemNames = { structures?: string[]; items?: string[] };
 
 /**
@@ -97,15 +101,12 @@ type Assignment = {
 
 const problemMessage = (structure: { path: string }) => (structure.path === "" ? "the root" : `${structure.path}/`);
 
-/** Whether the root-relative `path` is the folder `folder` or inside it; "" is the root, which holds everything. */
-export const inFolder = (folder: string, path: string) => folder === "" || path === folder || path.startsWith(`${folder}/`);
-
 /**
  * What showing the root-relative `path` (a file's or a folder's) names: the ids of the structure that owns it and
  * of every structure whose folder lies on its way. The root's folder shows in no path, so a structure at the root
  * is named only when it owns the path.
  */
-export const structuresContaining = (structures: readonly LoadedStructure[], path: string): string[] => {
+const structuresContaining = (structures: readonly LoadedStructure[], path: string): string[] => {
   const holding = structures.filter((structure): structure is ValidStructure => structure.id !== null && inFolder(structure.path, path));
   const nearest = Math.max(...holding.map((structure) => structure.path.length));
   return [...new Set(holding.filter((structure) => structure.path !== "" || structure.path.length === nearest).map((structure) => structure.id))];
@@ -113,6 +114,18 @@ export const structuresContaining = (structures: readonly LoadedStructure[], pat
 
 /** How a structure link to a missing structure reads, listing the structures there are (`ids`); access.ts lists the visible ones. */
 export const unknownTargetMessage = (to: string, ids: Iterable<string>) => `to: no structure has the id "${to}"; name one of ${[...ids].sort().join(", ")}`;
+
+/** The field of a structure problem about link property `name`'s `to`. */
+export const linkToField = (name: string) => `properties.${name}.to`;
+
+/** The link property a structure problem's field is about (see `linkToField`); undefined for any other field. */
+export const linkOfField = (field: string | undefined) => /^properties\.(.+)\.to$/.exec(field ?? "")?.[1];
+
+/**
+ * Whether the problem is a handle or alias other files also have: which file a caller means can't be told. A
+ * malformed handle or alias of the item's own is no clash.
+ */
+export const isClash = (problem: NamedProblem) => problem.clash === true;
 
 /** Cross-file structure problems: ids and prefixes unique under the root, links `to` a structure that exists. */
 const checkStructures = (structures: LoadedStructure[]) => {
@@ -139,7 +152,7 @@ const checkStructures = (structures: LoadedStructure[]) => {
     for (const [name, property] of Object.entries(structure.settings.properties)) {
       if (property.type === "link" && !ids.has(property.to)) {
         structure.problems.push({
-          field: `properties.${name}.to`,
+          field: linkToField(name),
           message: unknownTargetMessage(property.to, ids),
           names: { structures: [...ids] },
         });
@@ -306,6 +319,7 @@ export const readRoot = async (root: string): Promise<RootRead> => {
         field: what,
         message: `${what}: ${name} is also ${listed.join(", ")}; handles and aliases are unique, so change or remove one by hand`,
         names: namesOfFiles(structures, others.map((other) => other.read)),
+        clash: true,
       });
     }
   }
@@ -389,17 +403,17 @@ const assign = (root: string, store: Store, log: Log | undefined, floors: Map<st
   const { settings } = entry.structure;
   const field = fieldOf(assignment);
   return queueWrite(root, async (): Promise<Outcome> => {
-    const current = await readVersioned(entry.file);
-    if (current?.version !== entry.item.version) return { kind: "stale" };
+    // A file changed since it was read throws VersionChanged: stale, below.
+    await readAtVersion(entry.file, entry.item.version);
     const keys = (id: string, handle: string) => ({ ...(needsId ? { id } : {}), ...(needsHandle ? { handle } : {}) });
-    if (checkedEdit(entry.parsed, keys(randomUUIDv7(), `${settings.prefix}-1`), rewrites) === undefined) {
+    if (checkedEdit(entry.parsed, keys(randomUUIDv7(), formatHandle(settings.prefix, 1)), rewrites) === undefined) {
       return {
         kind: "failed",
         problem: { field, message: `${field}: can't be written without changing the rest of the frontmatter; write it as key: value lines from column 0` },
       };
     }
     const id = randomUUIDv7();
-    const handle = needsHandle ? `${settings.prefix}-${store.nextHandleNumber(settings.id, floors.get(settings.prefix) ?? 0)}` : "";
+    const handle = needsHandle ? formatHandle(settings.prefix, store.nextHandleNumber(settings.id, floors.get(settings.prefix) ?? 0)) : "";
     const text = checkedEdit(entry.parsed, keys(id, handle), rewrites);
     if (text === undefined) throw new Error(`The first-sight edit of ${entry.item.path} passed its check with stand-in values but not with the real ones.`);
     await writeAtomic(entry.file, text, { expectedVersion: entry.item.version });

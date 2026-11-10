@@ -10,11 +10,11 @@ import { ITEM_FIELDS, type Problem, type Proposal, type ProposalStatus } from "@
 
 import { logToStderr, type Log } from "../log.ts";
 import type { Store, StoredProposal } from "../store/store.ts";
-import { findByHandle, unknownTargetMessage, type Catalog, type LoadedItem, type NamedProblem, type Snapshot, type ValidStructure } from "./catalog.ts";
+import { findByHandle, isClash, linkOfField, unknownTargetMessage, type Catalog, type LoadedItem, type NamedProblem, type Snapshot, type ValidStructure } from "./catalog.ts";
 import { SETTINGS_FILE } from "./structures.ts";
 import { TOOL } from "./tools.ts";
 import { ownValue, propertyOf, setOwn } from "./validate.ts";
-import { ItemWriteError, StructureProblemsError, type Writer } from "./write.ts";
+import { ItemWriteError, listed, presentValues, StructureProblemsError, type NewItem, type Writer } from "./write.ts";
 
 export type AccessErrorCode = "not_found" | "read_only" | "use_propose" | "use_edit" | "locked" | "stale_version" | "invalid_fields";
 
@@ -135,8 +135,6 @@ const viewOf = (snapshot: Snapshot): View => {
   };
 };
 
-const listed = (problems: Problem[]) => problems.map((problem) => problem.message).join("; ");
-
 /** Whether a problem names a hidden structure or an item of one; decided by its `names` alone, never its wording. */
 const namesHidden = (view: View, problem: NamedProblem) =>
   (problem.names?.structures ?? []).some((id) => view.hiddenStructures.has(id)) || (problem.names?.items ?? []).some((id) => view.hiddenItems.has(id));
@@ -150,14 +148,21 @@ const linkNotFound = (field: string, to: string): Problem => ({
   message: `${field}: the linked item can't be found; link an item of ${to} by its handle, or clear the field`,
 });
 
-const LINK_TO = /^properties\.(.+)\.to$/;
+/**
+ * Any value of a link property whose target structure the agent can't see (describe shows its `to` as null):
+ * the same whichever structure it is, so it never tells one hidden structure from another.
+ */
+const linkUnusable = (field: string): Problem => ({
+  field,
+  message: `${field}: links to no structure you can use, so it takes no value; leave it out, or ask the user to set it`,
+});
 
 /** What a structure's problem says in place of one naming something hidden, by what it is about. */
 const neutralForStructure = (view: View, field: string | undefined, structure: ValidStructure): Problem => {
   const fix = `ask the user to fix ${structure.id}'s ${SETTINGS_FILE} by hand`;
   if (field === "id") return { field, message: `id: another structure has the same id; ${fix}` };
   if (field === "prefix") return { field, message: `prefix: another structure has the same prefix; ${fix}` };
-  const property = propertyOf(structure.settings, LINK_TO.exec(field ?? "")?.[1] ?? "");
+  const property = propertyOf(structure.settings, linkOfField(field) ?? "");
   // The catalog's sentence with only the structures an agent sees, so it reads the same with or without hidden ones.
   if (field !== undefined && property?.type === "link") return { field, message: unknownTargetMessage(property.to, view.structures.keys()) };
   // The only field-less structure problems that name a structure: a folder of it that can't be read.
@@ -166,13 +171,14 @@ const neutralForStructure = (view: View, field: string | undefined, structure: V
 };
 
 /** What an item's problem says in place of one naming something hidden, by what it is about. */
-const neutralForItem = (field: string | undefined, where: string, structure: ValidStructure): Problem => {
+const neutralForItem = (view: View, problem: NamedProblem, where: string, structure: ValidStructure): Problem => {
+  const { field } = problem;
   const fix = `ask the user to fix ${where} by hand`;
   if (field === "id") return { field, message: `id: another file has the same id; ${fix}` };
-  if (field === "handle" || field === "aliases") return { field, message: `${field}: another file has the same handle or alias; ${fix}` };
+  if (field !== undefined && isClash(problem)) return { field, message: `${field}: another file has the same handle or alias; ${fix}` };
   if (field === "file") return { field, message: `file: a new item of ${structure.id} can't go there; pick a path in its own folder` };
   const property = field === undefined ? undefined : propertyOf(structure.settings, field);
-  if (field !== undefined && property?.type === "link") return linkNotFound(field, property.to);
+  if (field !== undefined && property?.type === "link") return view.structures.has(property.to) ? linkNotFound(field, property.to) : linkUnusable(field);
   return { ...(field === undefined ? {} : { field }), message: `${field ?? "file"}: has a problem only the user can fix; ${fix}` };
 };
 
@@ -183,7 +189,7 @@ const neutralForItem = (field: string | undefined, where: string, structure: Val
  * `where` in the neutral texts; `scrubbedSettings` takes the structure's own.
  */
 const scrubbed = (view: View, problems: NamedProblem[], where: string, structure: ValidStructure): Problem[] =>
-  problems.map((problem) => (namesHidden(view, problem) ? neutralForItem(problem.field, where, structure) : plain(problem)));
+  problems.map((problem) => (namesHidden(view, problem) ? neutralForItem(view, problem, where, structure) : plain(problem)));
 
 const scrubbedSettings = (view: View, problems: NamedProblem[], structure: ValidStructure): Problem[] =>
   problems.map((problem) => (namesHidden(view, problem) ? neutralForStructure(view, problem.field, structure) : plain(problem)));
@@ -200,6 +206,9 @@ const stale = (handle: string) =>
   new AccessError("stale_version", `${handle} changed since you read it (by hand or by another write). Re-read it with ${TOOL.getItem} and try again.`);
 
 const invalidFields = (message: string, problems: Problem[] = []) => new AccessError("invalid_fields", message, problems);
+
+/** The one message of an `invalid_fields` refusal for its problems, so a scrubbed one can't be told apart by its shape. */
+const nothingChanged = (problems: Problem[]) => `Nothing was changed: ${listed(problems)}. Fix what's named, or ask the user to, and try again.`;
 
 /** A visible structure, or not_found. */
 const structureFor = (view: View, id: string) => {
@@ -232,9 +241,13 @@ const checkLevel = (structure: ValidStructure, family: Family, change: Change) =
   throw new AccessError("use_edit", `${structure.id} is open to direct changes, so there's nothing to propose: use ${CHANGE_TOOLS[change].edit} instead.`);
 };
 
+/** The locked fields among those a change sets; a create always sets the title and body, so they never count. */
+const lockedNames = (structure: ValidStructure, kind: Change, names: string[]) =>
+  names.filter((name) => (kind !== "create" || !ITEM_FIELDS.has(name)) && structure.settings.locked.includes(name));
+
 /** Refuses a change touching a locked field, naming it. */
-const checkLocks = (structure: ValidStructure, names: string[]) => {
-  const locked = names.filter((name) => structure.settings.locked.includes(name));
+const checkLocks = (structure: ValidStructure, kind: Change, names: string[]) => {
+  const locked = lockedNames(structure, kind, names);
   if (locked.length === 0) return;
   const one = locked.length === 1;
   throw new AccessError(
@@ -243,13 +256,23 @@ const checkLocks = (structure: ValidStructure, names: string[]) => {
   );
 };
 
-/** Link values given as handles turned into the targets' ids; a hidden or missing handle is not_found. */
+/**
+ * Link values given as handles turned into the targets' ids; a hidden or missing handle is not_found. A link
+ * property to a structure the agent can't see takes no value at all, refused here before the writer, whose
+ * problem for a value of the wrong type would name the structure.
+ */
 const linksToIds = (view: View, structure: ValidStructure, values: Record<string, unknown>) => {
   const converted = { ...values };
   for (const [name, value] of Object.entries(values)) {
     const property = propertyOf(structure.settings, name);
-    if (property?.type !== "link" || typeof value !== "string") continue;
-    if (!view.structures.has(property.to)) throw noItem(value);
+    // null or undefined sets no value (it clears the field, or leaves it out).
+    if (property?.type !== "link" || value === null || value === undefined) continue;
+    if (!view.structures.has(property.to)) {
+      if (typeof value === "string") throw noItem(value);
+      const problems = [linkUnusable(name)];
+      throw invalidFields(nothingChanged(problems), problems);
+    }
+    if (typeof value !== "string") continue;
     const target = findByHandle(view.items, value);
     if (target === undefined) throw noItem(value);
     if (target.structure !== property.to) {
@@ -265,8 +288,13 @@ const linksToIds = (view: View, structure: ValidStructure, values: Record<string
   return converted;
 };
 
-const withoutEmpty = (values: Record<string, unknown>) =>
-  Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined && value !== null));
+/** The item to create from an agent's input, with `properties` as the writer takes them. */
+const newItem = (input: ItemInput, properties: Record<string, unknown>): NewItem => ({
+  title: input.title,
+  body: input.body ?? "",
+  properties,
+  ...(input.file === undefined ? {} : { file: input.file }),
+});
 
 /**
  * Refuses deleting an item without an id: a proposal names its item by id, so one without could never be
@@ -311,7 +339,7 @@ const agentWriteError = (view: View, error: unknown, subject: { handle?: string;
       // Always built from the scrubbed problems, never the writer's message: that shows root-relative paths, and
       // one format whatever was scrubbed means a scrubbed refusal can't be told apart by its shape.
       const problems = scrubbed(view, error.problems, subject.handle ?? "the item", subject.structure);
-      return invalidFields(`Nothing was changed: ${listed(problems)}. Fix what's named, or ask the user to, and try again.`, problems);
+      return invalidFields(nothingChanged(problems), problems);
     }
     case "items_not_writable":
       return error;
@@ -485,17 +513,16 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
   /** Applies a pending proposal, or says why it can't be: what changed since the agent read the item. */
   const apply = async (stored: StoredProposal, snapshot: Snapshot): Promise<{ problem: Problem } | { created?: LoadedItem }> => {
     const conflict = (message: string, field?: string) => ({ problem: { ...(field === undefined ? {} : { field }), message } });
-    const structures = snapshot.structures.filter((structure): structure is ValidStructure => structure.id === stored.structure);
-    const [structure] = structures;
-    if (structure === undefined) {
-      return conflict(`The structure ${stored.structure} is gone, or its ${SETTINGS_FILE} is broken, so nothing was applied. Fix its settings and ask the agent again, or reject the proposal.`);
-    }
-    const access = structures.some((candidate) => candidate.settings.access === "hidden") ? "hidden" : structure.settings.access;
+    const view = viewOf(snapshot);
+    const structure = view.structures.get(stored.structure);
+    const access = view.hiddenStructures.has(stored.structure) ? "hidden" : structure?.settings.access;
     if (access === "hidden" || access === "read") {
       return conflict(`${stored.structure} is now ${access}, so agents' changes no longer apply to it and nothing was applied. Make the change by hand if you still want it.`, "access");
     }
-    const names = Object.keys(stored.fields).filter((name) => stored.kind !== "create" || !ITEM_FIELDS.has(name));
-    const locked = names.filter((name) => structure.settings.locked.includes(name));
+    if (structure === undefined) {
+      return conflict(`The structure ${stored.structure} is gone, or its ${SETTINGS_FILE} is broken, so nothing was applied. Fix its settings and ask the agent again, or reject the proposal.`);
+    }
+    const locked = lockedNames(structure, stored.kind, Object.keys(stored.fields));
     if (locked.length > 0) {
       return conflict(`${locked.join(", ")} became locked in ${stored.structure}, so nothing was applied. Make the change by hand if you still want it.`, locked[0]);
     }
@@ -503,12 +530,8 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
     try {
       if (stored.kind === "create") {
         const { title, body, ...properties } = stored.fields;
-        const created = await writer.createItem(structure.id, {
-          title: title as string,
-          body: typeof body === "string" ? body : "",
-          properties,
-          ...(stored.file === null ? {} : { file: stored.file }),
-        });
+        const input = { title: title as string, ...(typeof body === "string" ? { body } : {}), ...(stored.file === null ? {} : { file: stored.file }) };
+        const created = await writer.createItem(structure.id, newItem(input, properties));
         return { created };
       }
       const item = stored.itemId === null ? undefined : snapshot.items.find((candidate) => candidate.id === stored.itemId);
@@ -567,7 +590,7 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       const structure = structureFor(current, structureId);
       checkLevel(structure, "edit", "create");
       const properties = input.properties ?? {};
-      checkLocks(structure, Object.keys(properties));
+      checkLocks(structure, "create", Object.keys(properties));
       const linked = linksToIds(current, structure, properties);
       checkStructure(current, structure);
       const badFile = await fileProblems(current, structure, input.file);
@@ -575,12 +598,7 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
         throw invalidFields(`The new item's file doesn't fit ${structure.id}: ${listed(badFile)}. Nothing was written; give another path and try again.`, badFile);
       }
       try {
-        const created = await writer.createItem(structureId, {
-          title: input.title,
-          body: input.body ?? "",
-          properties: linked,
-          ...(input.file === undefined ? {} : { file: input.file }),
-        });
+        const created = await writer.createItem(structureId, newItem(input, linked));
         return { written: created.handle ?? "", version: created.version };
       } catch (error) {
         throw agentWriteError(current, error, { structure });
@@ -591,7 +609,7 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       const current = await view();
       const { structure, handle: target } = itemFor(current, handle);
       checkLevel(structure, "edit", "update");
-      checkLocks(structure, Object.keys(fields));
+      checkLocks(structure, "update", Object.keys(fields));
       checkStructure(current, structure);
       const linked = linksToIds(current, structure, fields);
       try {
@@ -621,16 +639,15 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       const structure = structureFor(current, structureId);
       checkLevel(structure, "propose", "create");
       const properties = input.properties ?? {};
-      checkLocks(structure, Object.keys(properties));
-      const linked = withoutEmpty(linksToIds(current, structure, properties));
+      checkLocks(structure, "create", Object.keys(properties));
+      const linked = presentValues(linksToIds(current, structure, properties));
       checkStructure(current, structure);
       const badFile = await fileProblems(current, structure, input.file);
       if (badFile.length > 0) {
         throw invalidFields(`The new item's file doesn't fit ${structure.id}: ${listed(badFile)}. Nothing was stored; give another path and propose again.`, badFile);
       }
       try {
-        const item = { title: input.title, body: input.body ?? "", properties: linked, ...(input.file === undefined ? {} : { file: input.file }) };
-        await writer.check({ kind: "create", structureId: structure.id, item, unseen: current.hiddenFolders });
+        await writer.check({ kind: "create", structureId: structure.id, item: newItem(input, linked), unseen: current.hiddenFolders });
       } catch (error) {
         throw agentWriteError(current, error, { structure });
       }
@@ -651,7 +668,7 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       const current = await view();
       const { item, structure, handle: target } = itemFor(current, handle);
       checkLevel(structure, "propose", "update");
-      checkLocks(structure, Object.keys(fields));
+      checkLocks(structure, "update", Object.keys(fields));
       checkStructure(current, structure);
       const linked = linksToIds(current, structure, fields);
       try {

@@ -15,9 +15,6 @@ import { mdFilesIn, openItems, readAt, writeRoot } from "../../test/items-fixtur
 
 const BUG = "bugs/BUG-2-hero-caption.md";
 
-/** A proposal's `file` (Proposal.file), read without relying on the type having it. */
-const fileOf = (proposal: object | undefined) => (proposal as { file?: unknown } | undefined)?.file;
-
 /** Free-named structures taking proposals: `drafts`, and `papers`, which has a property named `file`. */
 const FREE_FILES = {
   ...ACCESS_FILES,
@@ -114,11 +111,11 @@ describe("proposals", () => {
     const { proposed } = await access.proposeCreate(AGENT, "drafts", { title: "Setting up", body: "\nInvented.\n", file: "guides/setup.md" }, "For new people");
 
     const [pending] = await access.proposals("pending");
-    expect(fileOf(pending), "the proposal's file").toBe("guides/setup.md");
+    expect(pending?.file, "the proposal's file").toBe("guides/setup.md");
     expect(pending?.fields, "fields holds title, body and properties only").not.toHaveProperty("file");
     const decided = await access.approve(proposed);
     expect(decided.status).toBe("approved");
-    expect(fileOf(decided), "the decided proposal's file").toBe("guides/setup.md");
+    expect(decided.file, "the decided proposal's file").toBe("guides/setup.md");
     const added = Object.keys(snapshotFiles(root)).filter((path) => !before.includes(path));
     expect(added, "the one file written").toEqual(["drafts/guides/setup.md"]);
     expect(readAt(root, "drafts/guides/setup.md")).toContain("# Setting up");
@@ -131,7 +128,7 @@ describe("proposals", () => {
     await access.proposeCreate(AGENT, "bugs", { title: "The footer link is broken" }, "Found it");
 
     const proposals = await access.proposals();
-    expect(proposals.map((proposal) => [proposal.kind, fileOf(proposal)]).sort()).toEqual([
+    expect(proposals.map((proposal) => [proposal.kind, proposal.file]).sort()).toEqual([
       ["create", null],
       ["delete", null],
       ["update", null],
@@ -145,7 +142,7 @@ describe("proposals", () => {
     const { proposed } = await access.proposeCreate(AGENT, "papers", input, "Filed by hand before");
 
     const [pending] = await access.proposals("pending");
-    expect(fileOf(pending), "the path").toBe("scanned.md");
+    expect(pending?.file, "the path").toBe("scanned.md");
     expect(pending?.fields.file, "the property").toBe("scan-0042.pdf");
     const decided = await access.approve(proposed);
     expect(decided.status, JSON.stringify(decided.problem)).toBe("approved");

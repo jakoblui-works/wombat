@@ -19,6 +19,9 @@ const changedLines = (before: string, after: string) => {
   return a.flatMap((line, index) => (line === b[index] ? [] : [index]));
 };
 
+/** 15 runs, each on a fresh temp root: well under a second alone, but far over vitest's 5 s default under full-workspace load. */
+const PROPERTY_TIMEOUT_MS = 30_000;
+
 describe("item file round trip", () => {
   test.each([
     { field: "repo", value: "site-web", line: /^repo:/ },
@@ -134,5 +137,5 @@ describe("item file round trip", () => {
         numRuns: 15,
       },
     );
-  });
+  }, PROPERTY_TIMEOUT_MS);
 });

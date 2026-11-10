@@ -9,3 +9,9 @@ export const errorCode = (error: unknown): string => codeOf(error) ?? (error ins
 
 /** Whether the file or folder doesn't exist. */
 export const isMissing = (error: unknown) => codeOf(error) === "ENOENT";
+
+/** Whether a path doesn't exist, or runs through a file where a folder should be. */
+export const isMissingPath = (error: unknown) => ["ENOENT", "ENOTDIR"].includes(codeOf(error) ?? "");
+
+/** Whether a file that must be new already exists. */
+export const isAlreadyThere = (error: unknown) => codeOf(error) === "EEXIST";

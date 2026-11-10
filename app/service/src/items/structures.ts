@@ -60,6 +60,9 @@ export const isSkippedPath = (path: string) => path.split("/").some(skipped);
 export const isIncluded = (settings: StructureSettings, path: string) =>
   (settings.include ?? []).some((pattern) => matchesGlob(path, pattern.replace(/^(\.\/)+/, "")));
 
+/** Whether the root-relative `path` is the folder `folder` or inside it; "" is the root, which holds everything. */
+export const inFolder = (folder: string, path: string) => folder === "" || path === folder || path.startsWith(`${folder}/`);
+
 /** The structure folder a root-relative file belongs to: the nearest of `folders` above it. */
 export const ownerOf = (folders: Set<string>, file: string): string | undefined => {
   const parts = file.split("/").slice(0, -1);

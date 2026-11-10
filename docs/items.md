@@ -95,7 +95,7 @@ The body: everything after the title line.
 - **Title:** the first non-blank line after the frontmatter, a `# ` heading.
 - **Body:** everything after the title line.
 
-The first time Wombat reads a file, it adds an `id` and a `handle` to its frontmatter. It changes only those two keys and leaves every other byte as it was. The id never changes. The handle (`BUG-14`) is what you and agents type. If you change a handle by hand, keep the old one under `aliases` so links typed with it still work. A handle typed into a link field is replaced by the target's id, so links survive renames.
+The first time Wombat reads a file, it adds an `id` and a `handle` to its frontmatter, and replaces a handle typed into a link field with the target's id, so links survive renames. It changes only those keys and leaves every other byte as it was. The id never changes. The handle (`BUG-14`) is what you and agents type. If you change a handle by hand, keep the old one under `aliases` so links typed with it still work.
 
 Wombat never writes to a file in a structure with problems, to a file without a valid title, or to a file outside every structure.
 
