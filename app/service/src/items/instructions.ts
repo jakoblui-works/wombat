@@ -371,4 +371,5 @@ export const refreshingWriter = (writer: Writer, refresh: () => Promise<void>): 
     await refresh();
   },
   checkNewFile: (structureId, file, unseen) => writer.checkNewFile(structureId, file, unseen),
+  check: (change) => writer.check(change),
 });

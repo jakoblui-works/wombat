@@ -1,12 +1,13 @@
 // Proposals from store to decision: a propose_* call stores a pending proposal with the agent, the fields, the
 // reason and the version it's based on; approving applies it through the writer (a create gets its handle),
-// rejecting touches no file, and a decided proposal can't be decided again.
+// rejecting touches no file, and a decided proposal can't be decided again. Proposing writes no file and takes no
+// handle number (nor may the writer's dry run), so an approved create gets the handle it would get alone.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { openAccess, ProposalError } from "./access.ts";
+import { openAccess, ProposalError, type Access } from "./access.ts";
 import { ACCESS_FILES, AGENT, expectRefused, openAccessRoot, snapshotFiles } from "../../test/access-fixtures.ts";
 import { mdFilesIn, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 
@@ -57,6 +58,38 @@ describe("proposals", () => {
     const file = mdFilesIn(root, "bugs").find((name) => name.startsWith("BUG-3-"));
     expect(readAt(root, `bugs/${file}`)).toContain("# The footer link is broken");
     expect((await access.get("BUG-3")).properties.note).toBe("On every page");
+  });
+
+  test("a proposal writes nothing and takes no handle number: the approved create gets the handle it would get alone", async () => {
+    const drafts = "version: 1\nid: drafts\nname: Drafts\nprefix: DRF\naccess: propose\nnaming: free\ninclude: [\"**/*.md\"]\n";
+    const files = { ...ACCESS_FILES, "drafts/_structure.yaml": drafts };
+    const footer = { title: "The footer link is broken", properties: { note: "On every page" } };
+
+    /** Approves one bug proposal after `before` ran on the same root, and returns the handle it got. */
+    const approvedAfter = async (before: (access: Access) => Promise<void>) => {
+      const { access, root } = openAccessRoot(files);
+      await access.list("bugs");
+      const untouched = snapshotFiles(root);
+      await before(access);
+      expect(snapshotFiles(root), "files after the proposals before the approval").toEqual(untouched);
+      const { proposed } = await access.proposeCreate(AGENT, "bugs", footer, "Found it");
+      expect(snapshotFiles(root), "files after the proposal to approve").toEqual(untouched);
+      return (await access.approve(proposed)).handle;
+    };
+
+    const alone = await approvedAfter(() => Promise.resolve());
+    const afterOthers = await approvedAfter(async (access) => {
+      // Stored ones, handle-named and free-named, and refused ones.
+      await access.proposeCreate(AGENT, "bugs", { title: "The menu flickers" }, "Seen on a phone");
+      await access.proposeCreate(AGENT, "bugs", { title: "The menu flickers again" }, "Seen twice");
+      await access.proposeCreate(AGENT, "drafts", { title: "A draft", body: "\nInvented.\n", file: "a-draft.md" }, "For the docs");
+      await expectRefused(access.proposeCreate(AGENT, "bugs", { title: "" }, "Untitled"), "invalid_fields", "an empty title");
+      await expectRefused(access.proposeCreate(AGENT, "bugs", { title: "Stray", properties: { stray: "x" } }, "Stray"), "invalid_fields", "an undeclared property");
+      expect(await access.proposals("pending"), "three proposals stored").toHaveLength(3);
+    });
+
+    expect(alone, "a handle").not.toBeNull();
+    expect(afterOthers, "the handle after other proposals").toBe(alone);
   });
 
   test("approving an update writes the field, and approving a delete removes the file", async () => {

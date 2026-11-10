@@ -12,7 +12,7 @@ import { stringify } from "yaml";
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { readRoot, type LoadedItem, type RootRead, type ValidStructure } from "./catalog.ts";
-import { NoHardLinks, queueWrite, readVersioned, removeUnchanged, VersionChanged, versionOf, writeAtomic } from "./files.ts";
+import { NoHardLinks, queueWrite, readAtVersion, removeUnchanged, VersionChanged, versionOf, writeAtomic, type VersionedFile } from "./files.ts";
 import { bodyEdit, checkedText, parseItemFile, readsBackAs, setKeyEdits, titleEdit, type ParsedItemFile } from "./item-file.ts";
 import { isIncluded, isSkippedPath, joinRootPath, ownerOf, SETTINGS_FILE, throughSymlink } from "./structures.ts";
 import { OWN_KEYS, setOwn, validateProperties, type LinkLookup } from "./validate.ts";
@@ -51,7 +51,21 @@ export type Writer = {
    * one of `unseen` (folders relative to the root) gets the problem of a folder that doesn't exist.
    */
   checkNewFile(structureId: string, file: unknown, unseen?: readonly string[]): Promise<Problem[]>;
+  /**
+   * A dry run of `change`: the write's own checks, run by the same code on a fresh read of the root, in the
+   * root's write queue. Resolves when the write would go through as of now, and throws the ItemWriteError the
+   * write would throw otherwise. It writes nothing (no file, no temp file) and takes no handle number. A create's
+   * `unseen` folders read as missing, as in `checkNewFile`. A write made later still checks everything again: a
+   * file can change in between.
+   */
+  check(change: ItemChange): Promise<void>;
 };
+
+/** A change as `check` takes it: the arguments of createItem, updateItem or deleteItem. */
+export type ItemChange =
+  | { kind: "create"; structureId: string; item: NewItem; unseen?: readonly string[] }
+  | { kind: "update"; handle: string; fields: Record<string, unknown>; baseVersion: string }
+  | { kind: "delete"; handle: string; baseVersion: string };
 
 export type WriterOptions = { root: string; store: Store; log?: Log };
 
@@ -211,10 +225,11 @@ const checkFreeFile = async (root: string, structure: ValidStructure, file: unkn
 };
 
 /**
- * The item named by a handle (or alias) in a fresh read, if it can be written (D15): an update needs an item whose
- * only problems are property values; a delete needs a file that parses and a handle no other file has.
+ * The item named by a handle (or alias) in a fresh read, if it can be written (D15), with its file as it is now:
+ * an update needs an item whose only problems are property values; a delete needs a file that parses and a handle
+ * no other file has. Both need the file still at `baseVersion`.
  */
-const writableItem = (read: RootRead, handle: string, baseVersion: string, action: "updated" | "deleted") => {
+const writableItem = async (root: string, read: RootRead, handle: string, baseVersion: string, action: "updated" | "deleted") => {
   const { items, structures } = read.snapshot;
   const item = items.find((candidate) => candidate.handle === handle) ?? items.find((candidate) => candidate.aliases.includes(handle));
   if (item === undefined) throw new ItemWriteError("item_not_found", `No item has the handle ${handle}; check it, or list the structure's items to find the right one.`);
@@ -226,9 +241,19 @@ const writableItem = (read: RootRead, handle: string, baseVersion: string, actio
   if (shared.length > 0) {
     throw invalid(`${handle} names more than one file (${listed(shared)}), so it can't be ${action}; fix the handles by hand first.`, shared);
   }
-  if (item.version !== baseVersion) {
-    throw new ItemWriteError("stale_version", `${handle} changed since it was read (by hand or by another write), so it wasn't ${action}; read it again and redo the change on the new version.`);
+  const stale = () =>
+    new ItemWriteError("stale_version", `${handle} changed since it was read (by hand or by another write), so it wasn't ${action}; read it again and redo the change on the new version.`);
+  let current: VersionedFile;
+  try {
+    // Read again rather than trust the full read above: it took a while, and a hand edit may have landed since.
+    current = await readAtVersion(join(root, item.path), baseVersion);
+  } catch (error) {
+    if (!(error instanceof VersionChanged)) throw error;
+    throw stale();
   }
+  // The item's problems and id below come from the full read, so it must have seen these very bytes: a file that
+  // changed and changed back (A-B-A) is at the base again, but the full read judged the version in between.
+  if (item.version !== current.version) throw stale();
   writableStructure(structure, action);
   const blocking = action === "updated" ? item.problems.filter((problem) => !isValueProblem(structure.settings, problem)) : [];
   if (blocking.length > 0 || item.handle === null) {
@@ -240,7 +265,7 @@ const writableItem = (read: RootRead, handle: string, baseVersion: string, actio
       { field: "id", message: "id: none yet; reading the structure assigns one" },
     ]);
   }
-  return { item, structure };
+  return { item, structure, current };
 };
 
 /** Runs a write, turning a version change found just before it landed into `stale_version`. */
@@ -253,40 +278,101 @@ const staleIfChanged = async (handle: string, action: string, write: () => Promi
   }
 };
 
+// The checks of each change, shared by the write and its dry run (`check`): each reads the root afresh, throws the
+// refusal, and returns what the write needs. None of them writes or takes a handle number.
+
+const checkCreate = async (root: string, structureId: string, item: NewItem, unseen: readonly string[] = []) => {
+  refuseOwnKeys(Object.keys(item.properties), "a new item's properties");
+  const read = await readRoot(root);
+  const structure = read.snapshot.structures.find((candidate): candidate is ValidStructure => candidate.id === structureId);
+  if (structure === undefined) {
+    throw new ItemWriteError("structure_not_found", `No structure has the id ${structureId}; use the id from its ${SETTINGS_FILE} (a structure with broken settings has none until it's fixed).`);
+  }
+  writableStructure(structure, "created");
+  const { settings } = structure;
+
+  const { title, problems: titleProblems } = checkTitle(item.title);
+  const problems = [...titleProblems, ...checkBody(item.body)];
+  const folders = new Set(read.snapshot.structures.map((candidate) => candidate.path));
+  if (settings.naming === "free") problems.push(...(await checkFreeFile(root, structure, item.file, folders, unseen)));
+  else if (item.file !== undefined) problems.push({ field: "file", message: `file: ${structure.id} names its files by handle, so leave file out` });
+  const given = Object.fromEntries(Object.entries(item.properties).filter(([, value]) => value !== undefined && value !== null));
+  // Declared order, then anything undeclared (which validation refuses), so files read like their settings.
+  const keys = [
+    ...Object.keys(settings.properties).filter((key) => Object.hasOwn(given, key)),
+    ...Object.keys(given).filter((key) => !Object.hasOwn(settings.properties, key)),
+  ];
+  const values = checkProperties(structure, Object.fromEntries(keys.map((key) => [key, given[key]])), keys, read.links, problems);
+
+  const textFor = (id: string, handle: string) => {
+    const lines = [`id: ${id}`, `handle: ${handle}`, ...keys.map((key) => `${key}: ${yamlValue(values[key])}`)];
+    const text = `---\n${lines.join("\n")}\n---\n# ${title}\n${item.body}`;
+    return readsBackAs(text, { data: { id, handle, ...values }, title, body: item.body }) ? text : undefined;
+  };
+  // Checked with stand-in values before the number is taken, so a refused create takes no number.
+  if (textFor(randomUUIDv7(), `${settings.prefix}-1`) === undefined) {
+    throw invalid("The item wouldn't read back as given; check the title and the property values for characters YAML or markdown treat specially.", []);
+  }
+  return { read, structure, title, textFor };
+};
+
+const checkUpdate = async (root: string, handle: string, fields: Record<string, unknown>, baseVersion: string) => {
+  const names = Object.keys(fields);
+  refuseOwnKeys(names, "an update");
+  if (names.length === 0) throw invalid("The update names no fields; give at least one field to change.", []);
+  const read = await readRoot(root);
+  const { item, structure, current } = await writableItem(root, read, handle, baseVersion, "updated");
+  const parsed = parseItemFile(current.text);
+  // The file is at the base version and the full read saw these same bytes without a parse problem, so it parses.
+  if (!parsed.ok) throw new ItemWriteError("stale_version", `${handle} changed since it was read, so it wasn't updated; read it again and redo the change.`);
+
+  const problems: Problem[] = [];
+  let title = parsed.title;
+  let body = parsed.body;
+  if (Object.hasOwn(fields, "title")) {
+    const checked = checkTitle(fields.title);
+    problems.push(...checked.problems);
+    title = checked.title;
+  }
+  if (Object.hasOwn(fields, "body")) {
+    problems.push(...checkBody(fields.body));
+    body = typeof fields.body === "string" ? fields.body : body;
+  }
+  const set = names.filter((name) => name !== "title" && name !== "body");
+  const data = { ...parsed.data };
+  for (const key of set) {
+    const value = fields[key];
+    if (value === null || value === undefined) delete data[key];
+    else setOwn(data, key, value);
+  }
+  const values = checkProperties(structure, data, set, read.links, problems, item.problems);
+
+  const keyEdits = setKeyEdits(
+    parsed,
+    set.map((key) => [key, Object.hasOwn(values, key) ? yamlValue(values[key]) : null]),
+  );
+  const titleChange = title === parsed.title ? undefined : titleEdit(parsed, title ?? "");
+  const bodyChange = body === parsed.body ? undefined : bodyEdit(parsed, body ?? "");
+  const text =
+    keyEdits === undefined || (title !== parsed.title && titleChange === undefined) || (body !== parsed.body && bodyChange === undefined)
+      ? undefined
+      : checkedText(parsed, [...keyEdits, ...(titleChange ? [titleChange] : []), ...(bodyChange ? [bodyChange] : [])], { data: values, title, body });
+  if (text === undefined) {
+    throw invalid(
+      `${names.join(", ")}: can't be changed without touching more of ${handle} than the fields named (an anchor or alias, or a value YAML can't edit in place); change it by hand in ${item.path}.`,
+      [],
+    );
+  }
+  return { read, item, structure, text, names };
+};
+
+const checkDelete = async (root: string, handle: string, baseVersion: string) => writableItem(root, await readRoot(root), handle, baseVersion, "deleted");
+
 export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
   createItem: (structureId, item) =>
     queueWrite(root, async () => {
-      refuseOwnKeys(Object.keys(item.properties), "a new item's properties");
-      const read = await readRoot(root);
-      const structure = read.snapshot.structures.find((candidate): candidate is ValidStructure => candidate.id === structureId);
-      if (structure === undefined) {
-        throw new ItemWriteError("structure_not_found", `No structure has the id ${structureId}; use the id from its ${SETTINGS_FILE} (a structure with broken settings has none until it's fixed).`);
-      }
-      writableStructure(structure, "created");
+      const { read, structure, title, textFor } = await checkCreate(root, structureId, item);
       const { settings } = structure;
-
-      const { title, problems: titleProblems } = checkTitle(item.title);
-      const problems = [...titleProblems, ...checkBody(item.body)];
-      const folders = new Set(read.snapshot.structures.map((candidate) => candidate.path));
-      if (settings.naming === "free") problems.push(...(await checkFreeFile(root, structure, item.file, folders)));
-      else if (item.file !== undefined) problems.push({ field: "file", message: `file: ${structure.id} names its files by handle, so leave file out` });
-      const given = Object.fromEntries(Object.entries(item.properties).filter(([, value]) => value !== undefined && value !== null));
-      // Declared order, then anything undeclared (which validation refuses), so files read like their settings.
-      const keys = [
-        ...Object.keys(settings.properties).filter((key) => Object.hasOwn(given, key)),
-        ...Object.keys(given).filter((key) => !Object.hasOwn(settings.properties, key)),
-      ];
-      const values = checkProperties(structure, Object.fromEntries(keys.map((key) => [key, given[key]])), keys, read.links, problems);
-
-      const textFor = (id: string, handle: string) => {
-        const lines = [`id: ${id}`, `handle: ${handle}`, ...keys.map((key) => `${key}: ${yamlValue(values[key])}`)];
-        const text = `---\n${lines.join("\n")}\n---\n# ${title}\n${item.body}`;
-        return readsBackAs(text, { data: { id, handle, ...values }, title, body: item.body }) ? text : undefined;
-      };
-      // Checked with stand-in values before the number is taken, so a refused create takes no number.
-      if (textFor(randomUUIDv7(), `${settings.prefix}-1`) === undefined) {
-        throw invalid("The item wouldn't read back as given; check the title and the property values for characters YAML or markdown treat specially.", []);
-      }
       const id = randomUUIDv7();
       const handle = `${settings.prefix}-${store.nextHandleNumber(settings.id, read.floors.get(settings.prefix) ?? 0)}`;
       const text = textFor(id, handle);
@@ -308,65 +394,15 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
 
   updateItem: (handle, fields, baseVersion) =>
     queueWrite(root, async () => {
-      const names = Object.keys(fields);
-      refuseOwnKeys(names, "an update");
-      if (names.length === 0) throw invalid("The update names no fields; give at least one field to change.", []);
-      const read = await readRoot(root);
-      const { item, structure } = writableItem(read, handle, baseVersion, "updated");
-      const file = join(root, item.path);
-      // Read again just before the edit: the full read above took a while, and a hand edit may have landed since.
-      const current = await readVersioned(file);
-      const parsed = current === undefined ? undefined : parseItemFile(current.text);
-      if (current?.version !== baseVersion || parsed?.ok !== true) {
-        throw new ItemWriteError("stale_version", `${handle} changed since it was read, so it wasn't updated; read it again and redo the change.`);
-      }
-
-      const problems: Problem[] = [];
-      let title = parsed.title;
-      let body = parsed.body;
-      if (Object.hasOwn(fields, "title")) {
-        const checked = checkTitle(fields.title);
-        problems.push(...checked.problems);
-        title = checked.title;
-      }
-      if (Object.hasOwn(fields, "body")) {
-        problems.push(...checkBody(fields.body));
-        body = typeof fields.body === "string" ? fields.body : body;
-      }
-      const set = names.filter((name) => name !== "title" && name !== "body");
-      const data = { ...parsed.data };
-      for (const key of set) {
-        const value = fields[key];
-        if (value === null || value === undefined) delete data[key];
-        else setOwn(data, key, value);
-      }
-      const values = checkProperties(structure, data, set, read.links, problems, item.problems);
-
-      const keyEdits = setKeyEdits(
-        parsed,
-        set.map((key) => [key, Object.hasOwn(values, key) ? yamlValue(values[key]) : null]),
-      );
-      const titleChange = title === parsed.title ? undefined : titleEdit(parsed, title ?? "");
-      const bodyChange = body === parsed.body ? undefined : bodyEdit(parsed, body ?? "");
-      const text =
-        keyEdits === undefined || (title !== parsed.title && titleChange === undefined) || (body !== parsed.body && bodyChange === undefined)
-          ? undefined
-          : checkedText(parsed, [...keyEdits, ...(titleChange ? [titleChange] : []), ...(bodyChange ? [bodyChange] : [])], { data: values, title, body });
-      if (text === undefined) {
-        throw invalid(
-          `${names.join(", ")}: can't be changed without touching more of ${handle} than the fields named (an anchor or alias, or a value YAML can't edit in place); change it by hand in ${item.path}.`,
-          [],
-        );
-      }
-      await staleIfChanged(handle, "updated", () => writeAtomic(file, text, { expectedVersion: baseVersion }));
+      const { read, item, structure, text, names } = await checkUpdate(root, handle, fields, baseVersion);
+      await staleIfChanged(handle, "updated", () => writeAtomic(join(root, item.path), text, { expectedVersion: baseVersion }));
       log?.("item_updated", { structure: structure.id, handle, fields: names.length });
       return loadedItem(structure, item.path, text, read.links);
     }),
 
   deleteItem: (handle, baseVersion) =>
     queueWrite(root, async () => {
-      const read = await readRoot(root);
-      const { item, structure } = writableItem(read, handle, baseVersion, "deleted");
+      const { item, structure } = await checkDelete(root, handle, baseVersion);
       await staleIfChanged(handle, "deleted", () => removeUnchanged(join(root, item.path), baseVersion));
       log?.("item_deleted", { structure: structure.id, handle });
     }),
@@ -380,4 +416,19 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
     const folders = new Set(read.snapshot.structures.map((candidate) => candidate.path));
     return checkFreeFile(root, structure, file, folders, unseen);
   },
+
+  check: (change) =>
+    queueWrite(root, async () => {
+      switch (change.kind) {
+        case "create":
+          await checkCreate(root, change.structureId, change.item, change.unseen);
+          return;
+        case "update":
+          await checkUpdate(root, change.handle, change.fields, change.baseVersion);
+          return;
+        case "delete":
+          await checkDelete(root, change.handle, change.baseVersion);
+          return;
+      }
+    }),
 });

@@ -34,9 +34,19 @@ export class VersionChanged extends Error {
   }
 }
 
-/** Throws VersionChanged unless the file is at `version`. */
+/**
+ * The file as it is now, if it's at `version`; throws VersionChanged otherwise (a missing file too). Every
+ * comparison of a file with the version a change was based on runs through here, the writes' and the dry runs'.
+ */
+export const readAtVersion = async (path: string, version: string): Promise<VersionedFile> => {
+  const file = await readVersioned(path);
+  if (file?.version !== version) throw new VersionChanged(path);
+  return file;
+};
+
+/** Throws VersionChanged unless the file is at `version` (when one is given). */
 const expectVersion = async (path: string, version: string | undefined) => {
-  if (version !== undefined && (await readVersioned(path))?.version !== version) throw new VersionChanged(path);
+  if (version !== undefined) await readAtVersion(path, version);
 };
 
 /** The items root's filesystem can't do what a create needs (hard links). */

@@ -12,8 +12,8 @@ import { logToStderr, type Log } from "../log.ts";
 import type { Store, StoredProposal } from "../store/store.ts";
 import type { Catalog, LoadedItem, Snapshot, ValidStructure } from "./catalog.ts";
 import { SETTINGS_FILE } from "./structures.ts";
-import { OWN_KEYS, ownValue, propertyOf, setOwn, validateProperties, type LinkLookup } from "./validate.ts";
-import { addedProblems, checkBody, checkTitle, isValueProblem, ItemWriteError, StructureProblemsError, type Writer } from "./write.ts";
+import { ownValue, propertyOf, setOwn } from "./validate.ts";
+import { ItemWriteError, StructureProblemsError, type Writer } from "./write.ts";
 
 export type AccessErrorCode = "not_found" | "read_only" | "use_propose" | "use_edit" | "locked" | "stale_version" | "invalid_fields";
 
@@ -237,14 +237,6 @@ const checkLocks = (structure: ValidStructure, names: string[]) => {
   );
 };
 
-/** Refuses the service's own keys (id, handle, aliases) in a change. */
-const checkOwnKeys = (names: string[]) => {
-  const own = names.filter((name) => OWN_KEYS.has(name));
-  if (own.length > 0) {
-    throw invalidFields(`${own.join(", ")}: the service sets ${own.length === 1 ? "this field" : "these fields"}; leave ${own.length === 1 ? "it" : "them"} out.`);
-  }
-};
-
 /** Link values given as handles turned into the targets' ids; a hidden or missing handle is not_found. */
 const linksToIds = (view: View, structure: ValidStructure, values: Record<string, unknown>) => {
   const converted = { ...values };
@@ -267,32 +259,17 @@ const linksToIds = (view: View, structure: ValidStructure, values: Record<string
   return converted;
 };
 
-/** Link lookups for checking a proposal: link values are ids by now, of any item in the target structure. */
-const idLookup = (view: View): LinkLookup => (to, value) =>
-  view.snapshot.items.some((item) => item.structure === to && item.id === value) ? { kind: "id" } : { kind: "none", reason: "is no item's handle" };
-
 const withoutEmpty = (values: Record<string, unknown>) =>
   Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined && value !== null));
 
-/** Refuses an item an update can't touch (D15): problems other than property values. */
-const checkUpdatable = (view: View, item: LoadedItem, structure: ValidStructure, handle: string) => {
-  const blocking = item.problems.filter((problem) => !isValueProblem(structure.settings, problem));
-  if (blocking.length === 0 && item.id !== null) return;
-  const problems = scrubbed(view, blocking, handle, structure);
-  throw invalidFields(`${handle} has problems only the user can fix by hand (${listed(problems) || "no id yet"}), so it can't be changed. Ask the user to fix it.`, problems);
-};
-
-/** Refuses an item a delete can't touch (D15): a handle another file also has, or no id to name it by. */
-const checkDeletable = (view: View, item: LoadedItem, structure: ValidStructure, handle: string) => {
-  const blocking = item.problems.filter((problem) => problem.field === "handle" || problem.field === "aliases");
-  if (blocking.length > 0) {
-    const problems = scrubbed(view, blocking, handle, structure);
-    throw invalidFields(`${handle} shares its handle with another file (${listed(problems)}), so it can't be deleted. Ask the user to fix it by hand.`, problems);
-  }
-  if (item.id === null) {
-    const problems = [{ field: "id", message: "id: none yet; the service gives one once the file's problems are fixed" }];
-    throw invalidFields(`${handle} has no id yet, so it can't be deleted. Ask the user to fix ${handle} by hand.`, problems);
-  }
+/**
+ * Refuses deleting an item without an id: a proposal names its item by id, so one without could never be
+ * approved, and a direct delete answers the same. The writer refuses everything else a delete can't touch.
+ */
+const checkHasId = (item: LoadedItem, handle: string) => {
+  if (item.id !== null) return;
+  const problems = [{ field: "id", message: "id: none yet; the service gives one once the file's problems are fixed" }];
+  throw invalidFields(`${handle} has no id yet, so it can't be deleted. Ask the user to fix ${handle} by hand.`, problems);
 };
 
 /** A refusal for the structure's problems, scrubbed as a structure's: every problem can name another structure. */
@@ -301,7 +278,10 @@ const structureRefusal = (view: View, structureId: string, structureProblems: Pr
   return invalidFields(`${structureId} has problems in its settings (${listed(problems)}), so its items can't be changed. Ask the user to fix its ${SETTINGS_FILE}.`, problems);
 };
 
-/** The structure's problems, which refuse every write. */
+/**
+ * The structure's problems, which refuse every write. Checked here as well as by the writer because converting
+ * link handles to ids needs sound settings: a broken link setting answers with the structure's problems.
+ */
 const checkStructure = (view: View, structure: ValidStructure) => {
   if (structure.problems.length > 0) throw structureRefusal(view, structure.id, structure.problems);
 };
@@ -603,11 +583,10 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
 
     update: async (_agentId, handle, fields, version) => {
       const current = await view();
-      const { item, structure, handle: target } = itemFor(current, handle);
+      const { structure, handle: target } = itemFor(current, handle);
       checkLevel(structure, "edit", "update");
       checkLocks(structure, Object.keys(fields));
       checkStructure(current, structure);
-      checkUpdatable(current, item, structure, target);
       const linked = linksToIds(current, structure, fields);
       try {
         const updated = await writer.updateItem(target, linked, version);
@@ -622,7 +601,7 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       const { item, structure, handle: target } = itemFor(current, handle);
       checkLevel(structure, "edit", "delete");
       checkStructure(current, structure);
-      checkDeletable(current, item, structure, target);
+      checkHasId(item, target);
       try {
         await writer.deleteItem(target, version);
         return { deleted: target };
@@ -637,29 +616,30 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       checkLevel(structure, "propose", "create");
       const properties = input.properties ?? {};
       checkLocks(structure, Object.keys(properties));
-      checkOwnKeys(Object.keys(properties));
       const linked = withoutEmpty(linksToIds(current, structure, properties));
       checkStructure(current, structure);
-
-      const { title, problems } = checkTitle(input.title);
-      if (input.body !== undefined) problems.push(...checkBody(input.body));
-      const { settings } = structure;
-      if (settings.naming === "free") {
-        problems.push(...(await fileProblems(current, structure, input.file)));
-        if (Object.hasOwn(settings.properties, "file")) {
-          problems.push({ field: "file", message: `file: ${structure.id} has a property named file, so a new file's path can't be proposed; ask the user to create the item` });
-        }
-      } else if (input.file !== undefined) {
-        problems.push({ field: "file", message: `file: ${structure.id} names its files by handle, so leave file out` });
+      const badFile = await fileProblems(current, structure, input.file);
+      if (badFile.length > 0) {
+        throw invalidFields(`The new item's file doesn't fit ${structure.id}: ${listed(badFile)}. Nothing was stored; give another path and propose again.`, badFile);
       }
-      problems.push(...validateProperties(settings, linked, idLookup(current)).problems);
-      if (problems.length > 0) throw invalidFields(`The new item doesn't fit ${structure.id}: ${listed(problems)}. Nothing was stored; fix it and propose again.`, problems);
+      const { settings } = structure;
+      if (settings.naming === "free" && Object.hasOwn(settings.properties, "file")) {
+        const problems = [{ field: "file", message: `file: ${structure.id} has a property named file, so a new file's path can't be proposed; ask the user to create the item` }];
+        throw invalidFields(`The new item can't be proposed in ${structure.id}: ${listed(problems)}.`, problems);
+      }
+      const file = input.file === undefined ? {} : { file: input.file };
+      try {
+        const item = { title: input.title, body: input.body ?? "", properties: linked, ...file };
+        await writer.check({ kind: "create", structureId: structure.id, item, unseen: current.hiddenFolders });
+      } catch (error) {
+        throw agentWriteError(current, error, { structure });
+      }
 
       return propose({
         structure: structure.id,
         itemId: null,
         kind: "create",
-        fields: { title, ...(input.body === undefined ? {} : { body: input.body }), ...linked, ...(input.file === undefined ? {} : { file: input.file }) },
+        fields: { title: input.title, ...(input.body === undefined ? {} : { body: input.body }), ...linked, ...file },
         reason,
         baseVersion: null,
         agentId,
@@ -670,31 +650,14 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       const current = await view();
       const { item, structure, handle: target } = itemFor(current, handle);
       checkLevel(structure, "propose", "update");
-      const names = Object.keys(fields);
-      checkLocks(structure, names);
-      checkOwnKeys(names);
-      if (names.length === 0) throw invalidFields("The proposal names no fields; give at least one field to change.");
+      checkLocks(structure, Object.keys(fields));
       checkStructure(current, structure);
-      checkUpdatable(current, item, structure, target);
-      if (item.version !== version) throw stale(handle);
       const linked = linksToIds(current, structure, fields);
-
-      const problems: Problem[] = [];
-      if (Object.hasOwn(linked, "title")) problems.push(...checkTitle(linked.title).problems);
-      if (Object.hasOwn(linked, "body")) problems.push(...checkBody(linked.body));
-      const set = names.filter((name) => !ITEM_FIELDS.has(name));
-      const data: Record<string, unknown> = { ...item.properties };
-      for (const name of set) {
-        if (linked[name] === null || linked[name] === undefined) delete data[name];
-        else setOwn(data, name, linked[name]);
+      try {
+        await writer.check({ kind: "update", handle: target, fields: linked, baseVersion: version });
+      } catch (error) {
+        throw agentWriteError(current, error, { handle, structure });
       }
-      const after = validateProperties(structure.settings, data, idLookup(current)).problems;
-      problems.push(...addedProblems(item.problems, after, set));
-      if (problems.length > 0) {
-        const shown = scrubbed(current, problems, target, structure);
-        throw invalidFields(`The change doesn't fit ${structure.id}: ${listed(shown)}. Nothing was stored; fix it and propose again.`, shown);
-      }
-
       return propose({ structure: structure.id, itemId: item.id, kind: "update", fields: linked, reason, baseVersion: version, agentId });
     },
 
@@ -703,8 +666,12 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       const { item, structure, handle: target } = itemFor(current, handle);
       checkLevel(structure, "propose", "delete");
       checkStructure(current, structure);
-      checkDeletable(current, item, structure, target);
-      if (item.version !== version) throw stale(handle);
+      checkHasId(item, target);
+      try {
+        await writer.check({ kind: "delete", handle: target, baseVersion: version });
+      } catch (error) {
+        throw agentWriteError(current, error, { handle, structure });
+      }
       return propose({ structure: structure.id, itemId: item.id, kind: "delete", fields: {}, reason, baseVersion: version, agentId });
     },
 
