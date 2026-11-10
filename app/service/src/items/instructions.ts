@@ -12,7 +12,7 @@ import { logToStderr, type Log } from "../log.ts";
 import { agentView, type AgentViewItem } from "./access.ts";
 import type { Catalog, ValidStructure } from "./catalog.ts";
 import { SETTINGS_FILE } from "./structures.ts";
-import { parseHandle } from "./validate.ts";
+import { ownValue, parseHandle, propertyOf } from "./validate.ts";
 import type { Writer } from "./write.ts";
 
 /** How long the items-root watcher waits after the last change before it re-renders (about 200 ms). */
@@ -60,7 +60,7 @@ const compareHandles = (a: string | null, b: string | null) => {
 const compareValues = (structure: ValidStructure, name: string, a: unknown, b: unknown) => {
   const missing = (value: unknown) => value === undefined || value === null;
   if (missing(a) || missing(b)) return Number(missing(a)) - Number(missing(b));
-  const property = structure.settings.properties[name];
+  const property = propertyOf(structure.settings, name);
   if (property?.type === "select") {
     const rank = (value: unknown) => {
       const index = property.options.indexOf(value as string);
@@ -81,7 +81,7 @@ const ordered = (structure: ValidStructure, items: AgentViewItem[]) => {
   const sort = structure.settings.views[0]?.sort ?? [];
   return [...items].sort((a, b) => {
     for (const name of sort) {
-      const order = compareValues(structure, name, a.properties[name], b.properties[name]);
+      const order = compareValues(structure, name, ownValue(a.properties, name), ownValue(b.properties, name));
       if (order !== 0) return order;
     }
     return compareHandles(a.handle, b.handle);
@@ -92,7 +92,7 @@ const ordered = (structure: ValidStructure, items: AgentViewItem[]) => {
 const propertyLine = (structure: ValidStructure, item: AgentViewItem) =>
   Object.keys(structure.settings.properties)
     .flatMap((name) => {
-      const value = item.properties[name];
+      const value = ownValue(item.properties, name);
       if (typeof value === "string" && value.trim() !== "") return [`${name}: ${value.replace(/\s+/g, " ").trim()}`];
       if (typeof value === "number" || typeof value === "boolean") return [`${name}: ${String(value)}`];
       return [];

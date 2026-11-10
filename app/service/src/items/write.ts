@@ -15,7 +15,7 @@ import { readRoot, type LoadedItem, type RootRead, type ValidStructure } from ".
 import { NoHardLinks, queueWrite, readVersioned, removeUnchanged, VersionChanged, versionOf, writeAtomic } from "./files.ts";
 import { bodyEdit, checkedText, parseItemFile, readsBackAs, setKeyEdits, titleEdit, type ParsedItemFile } from "./item-file.ts";
 import { isIncluded, isSkippedPath, joinRootPath, ownerOf, SETTINGS_FILE, throughSymlink } from "./structures.ts";
-import { OWN_KEYS, validateProperties, type LinkLookup } from "./validate.ts";
+import { OWN_KEYS, setOwn, validateProperties, type LinkLookup } from "./validate.ts";
 
 export type ItemWriteErrorCode = "stale_version" | "invalid_fields" | "item_not_found" | "structure_not_found" | "field_not_writable" | "items_not_writable";
 
@@ -91,6 +91,14 @@ const refuseOwnKeys = (keys: string[], what: string) => {
   }
 };
 
+/** A write refused for the structure's own problems (its settings), not the item's: `invalid_fields` like any other. */
+export class StructureProblemsError extends ItemWriteError {
+  constructor(message: string, problems: Problem[]) {
+    super("invalid_fields", message, problems);
+    this.name = "StructureProblemsError";
+  }
+}
+
 /** Problems of a title: one line of text, not empty. Returns the title as it reads back (trimmed). */
 export const checkTitle = (title: unknown): { title: string; problems: Problem[] } => {
   if (typeof title !== "string") return { title: "", problems: [{ field: "title", message: "title: takes text, like Login times out" }] };
@@ -104,7 +112,7 @@ export const checkBody = (body: unknown): Problem[] => (typeof body === "string"
 /** A structure items can be written to: one with settings and no problems. */
 const writableStructure = (structure: ValidStructure, action: string) => {
   if (structure.problems.length > 0) {
-    throw invalid(
+    throw new StructureProblemsError(
       `The structure ${structure.id} has problems (${listed(structure.problems)}), so no item in it can be ${action}; fix its ${SETTINGS_FILE} first.`,
       structure.problems,
     );
@@ -264,7 +272,10 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
       else if (item.file !== undefined) problems.push({ field: "file", message: `file: ${structure.id} names its files by handle, so leave file out` });
       const given = Object.fromEntries(Object.entries(item.properties).filter(([, value]) => value !== undefined && value !== null));
       // Declared order, then anything undeclared (which validation refuses), so files read like their settings.
-      const keys = [...Object.keys(settings.properties).filter((key) => key in given), ...Object.keys(given).filter((key) => !(key in settings.properties))];
+      const keys = [
+        ...Object.keys(settings.properties).filter((key) => Object.hasOwn(given, key)),
+        ...Object.keys(given).filter((key) => !Object.hasOwn(settings.properties, key)),
+      ];
       const values = checkProperties(structure, Object.fromEntries(keys.map((key) => [key, given[key]])), keys, read.links, problems);
 
       const textFor = (id: string, handle: string) => {
@@ -313,12 +324,12 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
       const problems: Problem[] = [];
       let title = parsed.title;
       let body = parsed.body;
-      if ("title" in fields) {
+      if (Object.hasOwn(fields, "title")) {
         const checked = checkTitle(fields.title);
         problems.push(...checked.problems);
         title = checked.title;
       }
-      if ("body" in fields) {
+      if (Object.hasOwn(fields, "body")) {
         problems.push(...checkBody(fields.body));
         body = typeof fields.body === "string" ? fields.body : body;
       }
@@ -327,13 +338,13 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
       for (const key of set) {
         const value = fields[key];
         if (value === null || value === undefined) delete data[key];
-        else data[key] = value;
+        else setOwn(data, key, value);
       }
       const values = checkProperties(structure, data, set, read.links, problems, item.problems);
 
       const keyEdits = setKeyEdits(
         parsed,
-        set.map((key) => [key, key in values ? yamlValue(values[key]) : null]),
+        set.map((key) => [key, Object.hasOwn(values, key) ? yamlValue(values[key]) : null]),
       );
       const titleChange = title === parsed.title ? undefined : titleEdit(parsed, title ?? "");
       const bodyChange = body === parsed.body ? undefined : bodyEdit(parsed, body ?? "");

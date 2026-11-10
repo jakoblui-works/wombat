@@ -6,7 +6,9 @@
 import { describe, expect, test } from "vitest";
 
 import { AccessError } from "./access.ts";
+import { renderInstructions } from "./instructions.ts";
 import { ACCESS_FILES, AGENT, HIDDEN, MARKER, expectRefused, leaks, openAccessRoot, refusal } from "../../test/access-fixtures.ts";
+import { HIDDEN_STRINGS, INSTRUCTIONS_FILES, UUID } from "../../test/instructions-fixtures.ts";
 import { itemAt } from "../../test/items-fixtures.ts";
 
 /** The message with the name the agent typed replaced, so two refusals can be compared. */
@@ -167,5 +169,65 @@ describe("hidden never reaches an agent", () => {
 
     expect((await access.get("BL-3")).problems, "get").toEqual(fromCatalog);
     expect((await access.list("backlog")).find((item) => item.handle === "BL-3")?.problems, "list").toEqual(fromCatalog);
+  });
+
+  test("a prefix clash with a hidden structure, in a folder or at the root, refuses a write the same way and names nothing hidden", async () => {
+    const note = "---\nid: 0196f3c2-9e00-7000-8000-000000000051\nhandle: NOTE-1\n---\n# A note\n\nInvented.\n";
+    const notes = (prefixProperty: boolean) =>
+      `version: 1\nid: notes\nname: Notes\nprefix: NOTE\naccess: edit\n${prefixProperty ? "properties:\n  prefix: { type: text }\n" : ""}`;
+    // A hidden structure with the visible one's prefix, in a folder of its own or at the items root itself.
+    const den = (at: "" | "kestrel-secret/") => ({ [`${at}_structure.yaml`]: `version: 1\nid: ${MARKER}-secret\nname: Kestrel secret\nprefix: NOTE\naccess: hidden\n` });
+    const hiddenStrings = [MARKER, ...HIDDEN.ids, HIDDEN.name, "Kestrel secret", "kestrel-secret/", "the structure in the root"];
+
+    /** The refusals an agent gets for each write on notes: message and problems. */
+    const refusals = async (files: Record<string, string>) => {
+      const { access } = openAccessRoot({ ...ACCESS_FILES, ...files, "notes/NOTE-1-a-note.md": note });
+      const version = (await access.get("NOTE-1")).version;
+      const answers: Record<string, { message: string; problems: unknown }> = {};
+      for (const [what, call] of [
+        ["create", () => access.create(AGENT, "notes", { title: "Hi", body: "\nInvented.\n" })],
+        ["update", () => access.update(AGENT, "NOTE-1", { title: "A renamed note" }, version)],
+        ["remove", () => access.remove(AGENT, "NOTE-1", version)],
+      ] as const) {
+        const error = await refusal(call(), what);
+        answers[what] = { message: error.message, problems: error.problems };
+        expect(leaks(JSON.stringify(answers[what]), hiddenStrings), `${what}: names something hidden`).toEqual([]);
+      }
+      return answers;
+    };
+
+    const inFolder = await refusals({ "notes/_structure.yaml": notes(false), ...den("kestrel-secret/") });
+    const atRoot = await refusals({ "notes/_structure.yaml": notes(false), ...den("") });
+    expect(atRoot, "a hidden structure at the root reads like one in a folder").toEqual(inFolder);
+    // A declared property named like a settings field doesn't open a way around it.
+    await refusals({ "notes/_structure.yaml": notes(true), ...den("kestrel-secret/") });
+  });
+
+  test("an agent sees only a visible item's declared properties, so an undeclared key carries nothing (no id) to it", async () => {
+    const withKey = (path: string) => (ACCESS_FILES[path] ?? "").replace("---\n# ", `secretref: ${HIDDEN.ids[1]}\nnoteref: KST-2 ${MARKER}\n---\n# `);
+    const files = { ...ACCESS_FILES, "bugs/BUG-2-hero-caption.md": withKey("bugs/BUG-2-hero-caption.md"), "backlog/BL-1-items.md": withKey("backlog/BL-1-items.md") };
+    const { access } = openAccessRoot(files);
+    const shapes: { what: string; structure: string; item: { properties: Record<string, unknown> } | undefined }[] = [];
+    for (const [handle, structure] of [["BUG-2", "bugs"], ["BL-1", "backlog"]] as const) {
+      shapes.push({ what: `get ${handle}`, structure, item: await access.get(handle) });
+      shapes.push({ what: `list ${structure}`, structure, item: (await access.list(structure)).find((item) => item.handle === handle) });
+    }
+    shapes.push({ what: "search", structure: "bugs", item: (await access.search("hero caption")).items.find((item) => item.handle === "BUG-2") });
+
+    for (const { what, structure, item } of shapes) {
+      expect(item, what).toBeDefined();
+      const declared = Object.keys((await access.describe(structure)).properties);
+      expect(Object.keys(item?.properties ?? {}).filter((key) => !declared.includes(key)), `${what}: undeclared keys`).toEqual([]);
+      expect(leaks(JSON.stringify(item), [MARKER, ...HIDDEN.ids, ...HIDDEN.handles]), what).toEqual([]);
+      expect(UUID.exec(JSON.stringify(item))?.[0], `${what}: an id`).toBeUndefined();
+    }
+
+    // The instructions file: the same files with the structures marked.
+    const { catalog } = openAccessRoot({ ...INSTRUCTIONS_FILES, "bugs/BUG-2-hero-caption.md": files["bugs/BUG-2-hero-caption.md"], "backlog/BL-1-items.md": files["backlog/BL-1-items.md"] });
+    const text = (await renderInstructions(catalog)) ?? "";
+    expect(text, "the instructions file rendered the items").toContain("BUG-2");
+    expect(leaks(text, HIDDEN_STRINGS), "the instructions file").toEqual([]);
+    expect(UUID.exec(text)?.[0], "an id in the instructions file").toBeUndefined();
+    expect(text).not.toContain("secretref");
   });
 });

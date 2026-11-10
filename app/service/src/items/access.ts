@@ -12,8 +12,8 @@ import { logToStderr, type Log } from "../log.ts";
 import type { Store, StoredProposal } from "../store/store.ts";
 import type { Catalog, LoadedItem, Snapshot, ValidStructure } from "./catalog.ts";
 import { SETTINGS_FILE } from "./structures.ts";
-import { OWN_KEYS, validateProperties, type LinkLookup } from "./validate.ts";
-import { addedProblems, checkBody, checkTitle, isValueProblem, ItemWriteError, type Writer } from "./write.ts";
+import { OWN_KEYS, ownValue, propertyOf, setOwn, validateProperties, type LinkLookup } from "./validate.ts";
+import { addedProblems, checkBody, checkTitle, isValueProblem, ItemWriteError, StructureProblemsError, type Writer } from "./write.ts";
 
 export type AccessErrorCode = "not_found" | "read_only" | "use_propose" | "use_edit" | "locked" | "stale_version" | "invalid_fields";
 
@@ -113,6 +113,8 @@ type View = {
   items: LoadedItem[];
   /** Everything naming a hidden structure or item (lowercased): ids, names, folders, paths, handles. */
   hidden: string[];
+  /** Hidden structures' handle prefixes, matched as whole words (a short prefix is part of many words). */
+  hiddenPrefixes: RegExp[];
   /** Hidden structures' folders, relative to the root. */
   hiddenFolders: string[];
 };
@@ -129,7 +131,8 @@ const viewOf = (snapshot: Snapshot): View => {
   for (const structure of hiddenStructures) {
     hidden.add(structure.id);
     hidden.add(structure.settings.name);
-    if (structure.path !== "") hidden.add(`${structure.path}/`);
+    // How the catalog names the structure in another's problem: its folder, or "the root" (see `problemMessage`).
+    hidden.add(structure.path === "" ? "the structure in the root" : `${structure.path}/`);
   }
   for (const item of snapshot.items.filter((candidate) => hiddenIds.has(candidate.structure))) {
     for (const name of [item.path, item.id, item.handle, ...item.aliases]) if (name !== null) hidden.add(name);
@@ -140,12 +143,13 @@ const viewOf = (snapshot: Snapshot): View => {
     items: snapshot.items.filter((item) => structures.has(item.structure)),
     hidden: [...hidden].filter((name) => name !== "").map((name) => name.toLowerCase()),
     hiddenFolders: hiddenStructures.map((structure) => structure.path),
+    hiddenPrefixes: [...new Set(hiddenStructures.map((structure) => structure.settings.prefix))].map((prefix) => new RegExp(`(?<![A-Za-z0-9])${prefix}(?![A-Za-z0-9])`)),
   };
 };
 
 const mentionsHidden = (view: View, text: string) => {
   const lower = text.toLowerCase();
-  return view.hidden.some((name) => lower.includes(name));
+  return view.hidden.some((name) => lower.includes(name)) || view.hiddenPrefixes.some((prefix) => prefix.test(text));
 };
 
 const listed = (problems: Problem[]) => problems.map((problem) => problem.message).join("; ");
@@ -166,7 +170,7 @@ const scrubbed = (view: View, problems: Problem[], where: string, structure?: Va
       field === undefined ||
       NAMING_FIELDS.has(field) ||
       (!ITEM_FIELDS.has(field) && !Object.hasOwn(structure.settings.properties, field)) ||
-      structure.settings.properties[field]?.type === "link";
+      propertyOf(structure.settings, field)?.type === "link";
     if (!canName || !mentionsHidden(view, problem.message)) return problem;
     return {
       ...(field === undefined ? {} : { field }),
@@ -245,7 +249,7 @@ const checkOwnKeys = (names: string[]) => {
 const linksToIds = (view: View, structure: ValidStructure, values: Record<string, unknown>) => {
   const converted = { ...values };
   for (const [name, value] of Object.entries(values)) {
-    const property = structure.settings.properties[name];
+    const property = propertyOf(structure.settings, name);
     if (property?.type !== "link" || typeof value !== "string") continue;
     if (!view.structures.has(property.to)) throw noItem(value);
     const target = findItem(view.items, value);
@@ -291,16 +295,22 @@ const checkDeletable = (view: View, item: LoadedItem, structure: ValidStructure,
   }
 };
 
+/** A refusal for the structure's problems, scrubbed as a structure's: every problem can name another structure. */
+const structureRefusal = (view: View, structureId: string, structureProblems: Problem[]) => {
+  const problems = scrubbed(view, structureProblems, `${structureId}'s ${SETTINGS_FILE}`);
+  return invalidFields(`${structureId} has problems in its settings (${listed(problems)}), so its items can't be changed. Ask the user to fix its ${SETTINGS_FILE}.`, problems);
+};
+
 /** The structure's problems, which refuse every write. */
 const checkStructure = (view: View, structure: ValidStructure) => {
-  if (structure.problems.length === 0) return;
-  const problems = scrubbed(view, structure.problems, `${structure.id}'s ${SETTINGS_FILE}`);
-  throw invalidFields(`${structure.id} has problems in its settings (${listed(problems)}), so its items can't be changed. Ask the user to fix its ${SETTINGS_FILE}.`, problems);
+  if (structure.problems.length > 0) throw structureRefusal(view, structure.id, structure.problems);
 };
 
 /** A writer refusal as the agent gets it: never naming anything hidden, saying what to do next. */
 const agentWriteError = (view: View, error: unknown, subject: { handle?: string; structure: ValidStructure }) => {
   if (!(error instanceof ItemWriteError)) return error;
+  // The structure's problems found by the writer's own read (they appeared after the view's).
+  if (error instanceof StructureProblemsError) return structureRefusal(view, subject.structure.id, error.problems);
   switch (error.code) {
     case "stale_version":
       return stale(subject.handle ?? "The item");
@@ -353,10 +363,10 @@ const agentProblems = (view: View, item: LoadedItem, structure: ValidStructure):
   const linksDone = new Set<string>();
   for (const problem of item.problems) {
     const { field } = problem;
-    const property = field === undefined ? undefined : structure.settings.properties[field];
+    const property = field === undefined ? undefined : propertyOf(structure.settings, field);
     if (field !== undefined && property?.type === "link") {
       if (!view.structures.has(property.to)) continue;
-      if (typeof item.properties[field] === "string") {
+      if (typeof ownValue(item.properties, field) === "string") {
         if (!linksDone.has(field)) {
           linksDone.add(field);
           problems.push({ field, message: `${field}: the linked item can't be found; link an item of ${property.to} by its handle, or clear the field` });
@@ -369,12 +379,14 @@ const agentProblems = (view: View, item: LoadedItem, structure: ValidStructure):
   return problems;
 };
 
+/** Only the structure's declared properties: an undeclared key's value (an id, a hidden name) never reaches an agent. */
 const agentSummary = (view: View, item: LoadedItem): AgentItemSummary => {
   const structure = view.structures.get(item.structure) as ValidStructure;
   const properties: Record<string, unknown> = {};
-  for (const [name, value] of Object.entries(item.properties)) {
-    const property = structure.settings.properties[name];
-    properties[name] = property?.type === "link" ? linkHandle(view, property.to, value) : value;
+  for (const [name, property] of Object.entries(structure.settings.properties)) {
+    if (!Object.hasOwn(item.properties, name)) continue;
+    const value = item.properties[name];
+    setOwn(properties, name, property.type === "link" ? linkHandle(view, property.to, value) : value);
   }
   return { handle: item.handle, title: item.title, properties, problems: agentProblems(view, item, structure) };
 };
@@ -405,7 +417,8 @@ export const agentView = (snapshot: Snapshot): { structures: ValidStructure[]; i
 const matches = (structure: ValidStructure, item: LoadedItem, query: string) => {
   const texts = [item.title, item.body];
   for (const [name, property] of Object.entries(structure.settings.properties)) {
-    if (property.type === "text") texts.push(typeof item.properties[name] === "string" ? item.properties[name] : null);
+    const value = ownValue(item.properties, name);
+    if (property.type === "text") texts.push(typeof value === "string" ? value : null);
   }
   return texts.some((text) => text?.toLowerCase().includes(query));
 };
@@ -570,6 +583,7 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       const properties = input.properties ?? {};
       checkLocks(structure, Object.keys(properties));
       const linked = linksToIds(current, structure, properties);
+      checkStructure(current, structure);
       const badFile = await fileProblems(current, structure, input.file);
       if (badFile.length > 0) {
         throw invalidFields(`The new item's file doesn't fit ${structure.id}: ${listed(badFile)}. Nothing was written; give another path and try again.`, badFile);
@@ -666,13 +680,13 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       const linked = linksToIds(current, structure, fields);
 
       const problems: Problem[] = [];
-      if ("title" in linked) problems.push(...checkTitle(linked.title).problems);
-      if ("body" in linked) problems.push(...checkBody(linked.body));
+      if (Object.hasOwn(linked, "title")) problems.push(...checkTitle(linked.title).problems);
+      if (Object.hasOwn(linked, "body")) problems.push(...checkBody(linked.body));
       const set = names.filter((name) => !ITEM_FIELDS.has(name));
       const data: Record<string, unknown> = { ...item.properties };
       for (const name of set) {
         if (linked[name] === null || linked[name] === undefined) delete data[name];
-        else data[name] = linked[name];
+        else setOwn(data, name, linked[name]);
       }
       const after = validateProperties(structure.settings, data, idLookup(current)).problems;
       problems.push(...addedProblems(item.problems, after, set));

@@ -2,6 +2,18 @@
 // properties, each value of its property's type. Links are checked through `links`, which knows every item.
 import type { Problem, Property, StructureSettings } from "@wombat/shared/items";
 
+/** The value of `key` when the record has it as its own key; never a member every object inherits (`toString`). */
+export const ownValue = (record: Record<string, unknown>, key: string): unknown => (Object.hasOwn(record, key) ? record[key] : undefined);
+
+/** The declared property `name`, by own key only: a key named like `constructor` is no property. */
+export const propertyOf = (settings: StructureSettings, name: string): Property | undefined =>
+  Object.hasOwn(settings.properties, name) ? settings.properties[name] : undefined;
+
+/** Sets `key` as an own key, so a key named `__proto__` is data and never sets the record's prototype. */
+export const setOwn = (record: Record<string, unknown>, key: string, value: unknown) => {
+  Object.defineProperty(record, key, { value, writable: true, enumerable: true, configurable: true });
+};
+
 /** The item's own keys; every other frontmatter key must be a property. */
 export const OWN_KEYS = new Set(["id", "handle", "aliases"]);
 
@@ -84,19 +96,20 @@ export const validateProperties = (settings: StructureSettings, data: Record<str
   const declared = Object.keys(settings.properties);
   for (const [key, value] of Object.entries(data)) {
     if (OWN_KEYS.has(key)) continue;
-    const property = settings.properties[key];
+    const property = propertyOf(settings, key);
     if (property === undefined) {
       const known = declared.length === 0 ? "it has no properties" : `its properties are ${declared.join(", ")}`;
       problems.push({ field: key, message: `${key}: not a property of ${settings.name} (${known}); fix the name or remove the line` });
-      if (value !== null) properties[key] = value;
+      if (value !== null) setOwn(properties, key, value);
       continue;
     }
     if (value === null) continue;
-    properties[key] = value;
+    setOwn(properties, key, value);
     problems.push(...checkValue(key, property, value, links, rewrites));
   }
   for (const [name, property] of Object.entries(settings.properties)) {
-    if (!property.required || (data[name] !== undefined && data[name] !== null)) continue;
+    const value = ownValue(data, name);
+    if (!property.required || (value !== undefined && value !== null)) continue;
     const example = property.type === "select" ? `, one of ${property.options.join(", ")}` : "";
     problems.push({ field: name, message: `${name}: required; add a value${example}` });
   }

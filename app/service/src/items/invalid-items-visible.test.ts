@@ -65,4 +65,24 @@ describe("invalid items stay visible", () => {
     expect(names(second.problems, ["severty"]), describeProblems(second)).toBe(true);
     expect(second.handle).toBe("BUG-2");
   });
+
+  // Front matter keys are data: one named like a member every object has must read as an unknown key, not as
+  // that member (which made reading the root throw, taking every list and tool down).
+  test.each(["toString", "constructor", "hasOwnProperty", "valueOf", "__proto__"])(
+    "a key named %s is an unknown-key problem on its item, and every other item still lists",
+    async (key) => {
+      const file = `bugs/BUG-30-${key.replaceAll("_", "")}.md`;
+      const root = writeRoot({ ...FIXTURE_FILES, [file]: `---\nhandle: BUG-30\nrepo: api\n${key}: hi\n---\n# A key named ${key}\n\nInvented.\n` });
+      const { catalog } = openItems(root);
+
+      const structures = await catalog.structures();
+      const bugs = await catalog.items("bugs");
+
+      expect(structures.length, "the structures still list").toBeGreaterThan(0);
+      expect(bugs.map((item) => item.path.split("/").at(-1)).sort()).toEqual(mdFilesIn(root, "bugs").sort());
+      const item = itemAt(bugs, file);
+      expect(names(item.problems, [key]), `${key}: ${describeProblems(item)}`).toBe(true);
+      expect(itemAt(bugs, "bugs/BUG-1-login-times-out.md").problems, "a valid item stays valid").toEqual([]);
+    },
+  );
 });
