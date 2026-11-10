@@ -4,6 +4,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { Problem } from "@wombat/shared/items";
 import { expect } from "vitest";
 
 import { AccessError, openAccess, type Access, type AccessErrorCode } from "../src/items/access.ts";
@@ -195,3 +196,24 @@ export const hiddenStrings = () => [MARKER, ...HIDDEN.ids];
 /** The hidden strings (case-insensitive) found in `text`. */
 export const leaks = (text: string, strings: readonly string[] = hiddenStrings()) =>
   strings.filter((needle) => text.toLowerCase().includes(needle.toLowerCase()));
+
+/** The keys the shared Problem has: anything else on a problem (the service's own `names`) mustn't leave the service. */
+const PROBLEM_KEYS = new Set(Object.keys(Problem.shape));
+
+/**
+ * Every key beyond the shared Problem's on a problem anywhere in `value` (a `problems` list or a `problem`),
+ * as `<path>: <key>`. Walks the value as sent: give it the raw JSON, not a schema-parsed copy, which drops keys.
+ */
+export const extraProblemKeys = (value: unknown, path = "$"): string[] => {
+  if (Array.isArray(value)) return value.flatMap((entry, index) => extraProblemKeys(entry, `${path}[${String(index)}]`));
+  if (typeof value !== "object" || value === null) return [];
+  const extra: string[] = [];
+  for (const [key, entry] of Object.entries(value)) {
+    const problems = key === "problems" && Array.isArray(entry) ? entry : key === "problem" && typeof entry === "object" && entry !== null ? [entry] : [];
+    for (const problem of problems) {
+      for (const name of Object.keys(problem as object)) if (!PROBLEM_KEYS.has(name)) extra.push(`${path}.${key}: ${name}`);
+    }
+    extra.push(...extraProblemKeys(entry, `${path}.${key}`));
+  }
+  return extra;
+};

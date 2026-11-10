@@ -6,12 +6,12 @@ import { randomUUIDv7 } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
-import { ITEM_FIELDS, OWN_KEYS, type Problem, type StructureSettings } from "@wombat/shared/items";
+import { ITEM_FIELDS, OWN_KEYS, type StructureSettings } from "@wombat/shared/items";
 import { stringify } from "yaml";
 
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
-import { findByHandle, loadItem, readRoot, type LoadedItem, type RootRead, type ValidStructure } from "./catalog.ts";
+import { findByHandle, inFolder, loadItem, readRoot, type LoadedItem, type LoadedStructure, type NamedProblem, type ProblemNames, type RootRead, type ValidStructure } from "./catalog.ts";
 import { errorCode } from "./errno.ts";
 import { NoHardLinks, queueWrite, readAtVersion, removeUnchanged, VersionChanged, versionOf, writeAtomic, type VersionedFile } from "./files.ts";
 import { bodyEdit, checkedText, parseItemFile, readsBackAs, setKeyEdits, titleEdit, type ParsedItemFile } from "./item-file.ts";
@@ -20,12 +20,16 @@ import { setOwn, validateProperties, type LinkLookup } from "./validate.ts";
 
 export type ItemWriteErrorCode = "stale_version" | "invalid_fields" | "item_not_found" | "structure_not_found" | "field_not_writable" | "items_not_writable";
 
-/** Why a write was refused; nothing on disk changed. */
+/**
+ * Why a write was refused; nothing on disk changed. The message is for people and may show root-relative paths;
+ * an agent never gets an `invalid_fields` message, only the problems, which keep their `names` (the catalog's
+ * included) for access.ts to decide from. So every `invalid_fields` refusal says what went wrong in its problems.
+ */
 export class ItemWriteError extends Error {
   readonly code: ItemWriteErrorCode;
-  readonly problems: Problem[];
+  readonly problems: NamedProblem[];
 
-  constructor(code: ItemWriteErrorCode, message: string, problems: Problem[] = []) {
+  constructor(code: ItemWriteErrorCode, message: string, problems: NamedProblem[] = []) {
     super(message);
     this.name = "ItemWriteError";
     this.code = code;
@@ -51,7 +55,7 @@ export type Writer = {
    * The problems of `file` as a new item's path in a free-named structure, without writing anything. A path in
    * one of `unseen` (folders relative to the root) gets the problem of a folder that doesn't exist.
    */
-  checkNewFile(structureId: string, file: unknown, unseen?: readonly string[]): Promise<Problem[]>;
+  checkNewFile(structureId: string, file: unknown, unseen?: readonly string[]): Promise<NamedProblem[]>;
   /**
    * A dry run of `change`: the write's own checks, run by the same code on a fresh read of the root, in the
    * root's write queue. Resolves when the write would go through as of now, and throws the ItemWriteError the
@@ -91,10 +95,10 @@ const yamlValue = (value: unknown) => {
   return text.includes("\n") ? JSON.stringify(value) : text;
 };
 
-const invalid = (message: string, problems: Problem[]) => new ItemWriteError("invalid_fields", message, problems);
+const invalid = (message: string, problems: NamedProblem[]) => new ItemWriteError("invalid_fields", message, problems);
 
 /** The problems' messages, for an error message. */
-const listed = (problems: Problem[]) => problems.map((problem) => problem.message).join("; ");
+const listed = (problems: NamedProblem[]) => problems.map((problem) => problem.message).join("; ");
 
 const refuseOwnKeys = (keys: string[], what: string) => {
   const own = keys.filter((key) => OWN_KEYS.has(key));
@@ -106,23 +110,26 @@ const refuseOwnKeys = (keys: string[], what: string) => {
   }
 };
 
-/** A write refused for the structure's own problems (its settings), not the item's: `invalid_fields` like any other. */
+/**
+ * A write refused for the structure's own problems (its settings), not the item's: `invalid_fields` like any other.
+ * The problems are the catalog's, with the `names` of the other structures they name; the message lists them.
+ */
 export class StructureProblemsError extends ItemWriteError {
-  constructor(message: string, problems: Problem[]) {
+  constructor(message: string, problems: NamedProblem[]) {
     super("invalid_fields", message, problems);
     this.name = "StructureProblemsError";
   }
 }
 
 /** Problems of a title: one line of text, not empty. Returns the title as it reads back (trimmed). */
-const checkTitle = (title: unknown): { title: string; problems: Problem[] } => {
+const checkTitle = (title: unknown): { title: string; problems: NamedProblem[] } => {
   if (typeof title !== "string") return { title: "", problems: [{ field: "title", message: "title: takes text, like Login times out" }] };
   if (/[\r\n\u2028\u2029]/.test(title)) return { title, problems: [{ field: "title", message: "title: takes one line; move the rest into the body" }] };
   const trimmed = title.trim();
   return { title: trimmed, problems: trimmed === "" ? [{ field: "title", message: "title: can't be empty; give the item a title" }] : [] };
 };
 
-const checkBody = (body: unknown): Problem[] => (typeof body === "string" ? [] : [{ field: "body", message: "body: takes text (an empty body is \"\")" }]);
+const checkBody = (body: unknown): NamedProblem[] => (typeof body === "string" ? [] : [{ field: "body", message: "body: takes text (an empty body is \"\")" }]);
 
 /** A structure items can be written to: one with settings and no problems. */
 const writableStructure = (structure: ValidStructure, action: string) => {
@@ -138,14 +145,14 @@ const writableStructure = (structure: ValidStructure, action: string) => {
  * D15: a problem of a declared property's value, which a write may leave in place (and fix). Every other problem
  * (a duplicate id, handle or alias, no title, an unparseable file, an undeclared key) is about the item's identity.
  */
-const isValueProblem = (settings: StructureSettings, problem: Problem) =>
+const isValueProblem = (settings: StructureSettings, problem: NamedProblem) =>
   problem.field !== undefined && Object.hasOwn(settings.properties, problem.field);
 
 /**
  * D15, compared by field: the problems a write adds, on a field it sets or on a field that had none before. A
  * problem that names no field is always added.
  */
-const addedProblems = (before: Problem[], after: Problem[], set: readonly string[]) => {
+const addedProblems = (before: NamedProblem[], after: NamedProblem[], set: readonly string[]) => {
   const had = new Set(before.map((problem) => problem.field));
   return after.filter((problem) => problem.field === undefined || set.includes(problem.field) || !had.has(problem.field));
 };
@@ -155,7 +162,7 @@ const addedProblems = (before: Problem[], after: Problem[], set: readonly string
  * store ids). Throws `invalid_fields` when the item's frontmatter `data` with them gets a problem it didn't have
  * (`before`, the item's value problems): on a field the write sets, or on one that was fine.
  */
-const checkProperties = (structure: ValidStructure, data: Record<string, unknown>, set: string[], links: LinkLookup, extra: Problem[], before: Problem[] = []) => {
+const checkProperties = (structure: ValidStructure, data: Record<string, unknown>, set: string[], links: LinkLookup, extra: NamedProblem[], before: NamedProblem[] = []) => {
   const validated = validateProperties(structure.settings, data, links);
   const problems = [...extra, ...addedProblems(before, validated.problems, set)];
   if (problems.length > 0) throw invalid(`The fields don't fit the structure ${structure.id}: ${listed(problems)}. Nothing was written.`, problems);
@@ -177,8 +184,8 @@ const missingFolder = (file: string) => `the folder of ${file} doesn't exist; cr
 const isMissingPath = (error: unknown) => ["ENOENT", "ENOTDIR"].includes(errorCode(error));
 
 /** Problems of a free structure's `file`, checked like a file someone made by hand; `unseen` folders read as missing. */
-const checkFreeFile = async (root: string, structure: ValidStructure, file: unknown, folders: Set<string>, unseen: readonly string[] = []): Promise<Problem[]> => {
-  const problem = (message: string): Problem[] => [{ field: "file", message: `file: ${message}` }];
+const checkFreeFile = async (root: string, structure: ValidStructure, file: unknown, structures: LoadedStructure[], unseen: readonly string[] = []): Promise<NamedProblem[]> => {
+  const problem = (message: string, names?: ProblemNames): NamedProblem[] => [{ field: "file", message: `file: ${message}`, ...(names === undefined ? {} : { names }) }];
   if (typeof file !== "string" || file === "") return problem(`${structure.id} names files freely, so give the new file's path in its folder, like notes.md`);
   const segments = file.split("/");
   if (isAbsolute(file) || file.includes("\\") || segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
@@ -190,9 +197,15 @@ const checkFreeFile = async (root: string, structure: ValidStructure, file: unkn
     return problem(`${file} doesn't match the structure's include (${(structure.settings.include ?? []).join(", ")}); pick a path it matches`);
   }
   const rootPath = joinRootPath(structure.path, file);
-  const owner = ownerOf(folders, rootPath);
-  if (owner !== undefined && unseen.includes(owner)) return problem(missingFolder(file));
-  if (owner !== structure.path) return problem(`${file} is inside another structure's folder; create it there instead`);
+  // A hidden folder anywhere between this structure's folder and the file reads as missing, like the folders past it.
+  if (unseen.some((folder) => folder !== structure.path && inFolder(structure.path, folder) && inFolder(folder, rootPath))) return problem(missingFolder(file));
+  const owner = ownerOf(new Set(structures.map((candidate) => candidate.path)), rootPath);
+  if (owner !== structure.path) {
+    // The path is relative to this structure's folder, so it shows the structures between it and the file.
+    const between = structures.filter((candidate) => candidate.path !== structure.path && inFolder(structure.path, candidate.path) && inFolder(candidate.path, rootPath));
+    const names = { structures: between.flatMap((candidate) => (candidate.id === null ? [] : [candidate.id])) };
+    return problem(`${file} is inside another structure's folder; create it there instead`, names);
+  }
   const folder = join(root, structure.path);
   const absolute = join(root, rootPath);
   try {
@@ -244,7 +257,8 @@ const writableItem = async (root: string, read: RootRead, handle: string, baseVe
   const blocking = action === "updated" ? item.problems.filter((problem) => !isValueProblem(structure.settings, problem)) : [];
   if (blocking.length > 0 || item.handle === null) {
     const problems = blocking.length > 0 ? blocking : item.problems;
-    throw invalid(`${handle} has problems on disk (${listed(problems)}), so it can't be ${action}; fix the file (${item.path}) by hand first.`, problems);
+    const said = problems.length > 0 ? problems : [{ message: "handle: none yet; it's assigned once the file's problems are fixed by hand" }];
+    throw invalid(`${handle} has problems on disk (${listed(said)}), so it can't be ${action}; fix the file (${item.path}) by hand first.`, said);
   }
   if (action === "updated" && item.id === null) {
     throw invalid(`${handle} has no id yet, so it can't be ${action}; read its structure so it gets one, then try again.`, [
@@ -279,8 +293,7 @@ const checkCreate = async (root: string, structureId: string, item: NewItem, uns
 
   const { title, problems: titleProblems } = checkTitle(item.title);
   const problems = [...titleProblems, ...checkBody(item.body)];
-  const folders = new Set(read.snapshot.structures.map((candidate) => candidate.path));
-  if (settings.naming === "free") problems.push(...(await checkFreeFile(root, structure, item.file, folders, unseen)));
+  if (settings.naming === "free") problems.push(...(await checkFreeFile(root, structure, item.file, read.snapshot.structures, unseen)));
   else if (item.file !== undefined) problems.push({ field: "file", message: `file: ${structure.id} names its files by handle, so leave file out` });
   const given = Object.fromEntries(Object.entries(item.properties).filter(([, value]) => value !== undefined && value !== null));
   // Declared order, then anything undeclared (which validation refuses), so files read like their settings.
@@ -297,7 +310,9 @@ const checkCreate = async (root: string, structureId: string, item: NewItem, uns
   };
   // Checked with stand-in values before the number is taken, so a refused create takes no number.
   if (textFor(randomUUIDv7(), `${settings.prefix}-1`) === undefined) {
-    throw invalid("The item wouldn't read back as given; check the title and the property values for characters YAML or markdown treat specially.", []);
+    throw invalid("The item wouldn't read back as given; check the title and the property values for characters YAML or markdown treat specially.", [
+      { message: "item: wouldn't read back as given; check the title and the property values for characters YAML or markdown treat specially" },
+    ]);
   }
   return { read, structure, title, textFor };
 };
@@ -305,14 +320,14 @@ const checkCreate = async (root: string, structureId: string, item: NewItem, uns
 const checkUpdate = async (root: string, handle: string, fields: Record<string, unknown>, baseVersion: string) => {
   const names = Object.keys(fields);
   refuseOwnKeys(names, "an update");
-  if (names.length === 0) throw invalid("The update names no fields; give at least one field to change.", []);
+  if (names.length === 0) throw invalid("The update names no fields; give at least one field to change.", [{ message: "fields: none given; give at least one field to change" }]);
   const read = await readRoot(root);
   const { item, structure, current } = await writableItem(root, read, handle, baseVersion, "updated");
   const parsed = parseItemFile(current.text);
   // The file is at the base version and the full read saw these same bytes without a parse problem, so it parses.
   if (!parsed.ok) throw new ItemWriteError("stale_version", `${handle} changed since it was read, so it wasn't updated; read it again and redo the change.`);
 
-  const problems: Problem[] = [];
+  const problems: NamedProblem[] = [];
   let title = parsed.title;
   let body = parsed.body;
   if (Object.hasOwn(fields, "title")) {
@@ -346,7 +361,7 @@ const checkUpdate = async (root: string, handle: string, fields: Record<string, 
   if (text === undefined) {
     throw invalid(
       `${names.join(", ")}: can't be changed without touching more of ${handle} than the fields named (an anchor or alias, or a value YAML can't edit in place); change it by hand in ${item.path}.`,
-      [],
+      [{ message: `${names.join(", ")}: can't be changed without touching more of ${handle} than the fields named (an anchor or alias, or a value YAML can't edit in place); ask the user to change it by hand` }],
     );
   }
   return { read, item, structure, text, names };
@@ -370,8 +385,9 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
       } catch (error) {
         if (error instanceof NoHardLinks) throw new ItemWriteError("items_not_writable", error.message);
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        // The problem names the file as the structure sees it: the root-relative path would show the folders above.
         throw invalid(`${path} was created by someone else meanwhile; nothing was written, so try again${settings.naming === "free" ? " with another file" : ""}.`, [
-          { field: "file", message: `file: ${path} already exists` },
+          { field: "file", message: `file: ${file} was created by someone else meanwhile; try again${settings.naming === "free" ? " with another file" : ""}` },
         ]);
       }
       log?.("item_created", { structure: settings.id, handle });
@@ -399,8 +415,7 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
     if (structure === undefined) {
       throw new ItemWriteError("structure_not_found", `No structure has the id ${structureId}; use the id from its ${SETTINGS_FILE}.`);
     }
-    const folders = new Set(read.snapshot.structures.map((candidate) => candidate.path));
-    return checkFreeFile(root, structure, file, folders, unseen);
+    return checkFreeFile(root, structure, file, read.snapshot.structures, unseen);
   },
 
   check: (change) =>

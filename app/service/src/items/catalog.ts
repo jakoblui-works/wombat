@@ -19,16 +19,29 @@ import { isUuid, parseHandle, validateOwnKeys, validateProperties, type LinkLook
 export type { Problem } from "@wombat/shared/items";
 
 /**
+ * A problem as the service holds it: the shared Problem, plus `names`, the ids of the structures and of the items
+ * (ids, never handles) its message names besides the file or structure it's a problem of. A root-relative path
+ * shows every folder above it, so a problem that shows one names every structure whose folder contains it
+ * (`structuresContaining`), its own structure included. Every problem that names another structure or item, or
+ * shows a root-relative path, must fill `names`: it's all access.ts reads to keep a hidden structure's names from
+ * agents, so a problem without them reaches agents word for word (hidden-never-reaches-agent.test.ts guards it).
+ * `names` stays inside the service: agents get problems through access.ts's filter, and the HTTP routes parse
+ * theirs with the shared schemas, both of which drop it.
+ */
+export type NamedProblem = Problem & { names?: ProblemNames };
+export type ProblemNames = { structures?: string[]; items?: string[] };
+
+/**
  * A `_structure.yaml` as loaded. `id` and `settings` are null when the file fails to parse or validate; then its
  * files aren't loaded. A structure with settings can still have problems across files (a duplicate id or prefix,
  * a link to an unknown structure): its items are listed, but none of its files are written.
  */
 export type LoadedStructure =
-  | { id: string; settings: StructureSettings; /** The folder, relative to the root with `/`; "" for the root. */ path: string; problems: Problem[] }
-  | { id: null; settings: null; path: string; problems: Problem[] };
+  | { id: string; settings: StructureSettings; /** The folder, relative to the root with `/`; "" for the root. */ path: string; problems: NamedProblem[] }
+  | { id: null; settings: null; path: string; problems: NamedProblem[] };
 
 /** An item file as read: the API's `Item` with link values as the target's raw id, and its structure's id. */
-export type LoadedItem = Item & { structure: string };
+export type LoadedItem = Omit<Item, "problems"> & { problems: NamedProblem[]; structure: string };
 
 /** Everything under the root from one read. */
 export type Snapshot = { structures: LoadedStructure[]; items: LoadedItem[] };
@@ -61,7 +74,7 @@ type FileRead = {
   writable: boolean;
   names: ItemNames;
   /** The file's problems besides its own keys', title's and properties': its bytes', and clashes with other files. */
-  problems: Problem[];
+  problems: NamedProblem[];
 };
 
 /** A read file with what writing it on first sight needs. */
@@ -84,6 +97,23 @@ type Assignment = {
 
 const problemMessage = (structure: { path: string }) => (structure.path === "" ? "the root" : `${structure.path}/`);
 
+/** Whether the root-relative `path` is the folder `folder` or inside it; "" is the root, which holds everything. */
+export const inFolder = (folder: string, path: string) => folder === "" || path === folder || path.startsWith(`${folder}/`);
+
+/**
+ * What showing the root-relative `path` (a file's or a folder's) names: the ids of the structure that owns it and
+ * of every structure whose folder lies on its way. The root's folder shows in no path, so a structure at the root
+ * is named only when it owns the path.
+ */
+export const structuresContaining = (structures: readonly LoadedStructure[], path: string): string[] => {
+  const holding = structures.filter((structure): structure is ValidStructure => structure.id !== null && inFolder(structure.path, path));
+  const nearest = Math.max(...holding.map((structure) => structure.path.length));
+  return [...new Set(holding.filter((structure) => structure.path !== "" || structure.path.length === nearest).map((structure) => structure.id))];
+};
+
+/** How a structure link to a missing structure reads, listing the structures there are (`ids`); access.ts lists the visible ones. */
+export const unknownTargetMessage = (to: string, ids: Iterable<string>) => `to: no structure has the id "${to}"; name one of ${[...ids].sort().join(", ")}`;
+
 /** Cross-file structure problems: ids and prefixes unique under the root, links `to` a structure that exists. */
 const checkStructures = (structures: LoadedStructure[]) => {
   const valid = structures.filter((structure): structure is ValidStructure => structure.id !== null);
@@ -95,12 +125,14 @@ const checkStructures = (structures: LoadedStructure[]) => {
         structure.problems.push({
           field: "id",
           message: `id: "${structure.id}" is also the id of the structure in ${problemMessage(other)}; give each structure its own id`,
+          names: { structures: structuresContaining(structures, other.path) },
         });
       }
       if (other.settings.prefix === structure.settings.prefix) {
         structure.problems.push({
           field: "prefix",
           message: `prefix: ${structure.settings.prefix} is also the prefix of the structure in ${problemMessage(other)}; give each structure its own prefix`,
+          names: { structures: structuresContaining(structures, other.path) },
         });
       }
     }
@@ -108,7 +140,8 @@ const checkStructures = (structures: LoadedStructure[]) => {
       if (property.type === "link" && !ids.has(property.to)) {
         structure.problems.push({
           field: `properties.${name}.to`,
-          message: `to: no structure has the id "${property.to}"; name one of ${[...ids].sort().join(", ")}`,
+          message: unknownTargetMessage(property.to, ids),
+          names: { structures: [...ids] },
         });
       }
     }
@@ -122,6 +155,12 @@ const namesOf = ({ id, handle, aliases }: Record<string, unknown>): ItemNames =>
   id: typeof id === "string" ? id : null,
   handle: typeof handle === "string" ? handle : null,
   aliases: Array.isArray(aliases) ? aliases.filter((alias): alias is string => typeof alias === "string") : [],
+});
+
+/** What naming other files' items names: their ids (those that have one) and every structure holding their paths. */
+const namesOfFiles = (structures: readonly LoadedStructure[], reads: readonly Pick<FileRead, "path" | "names">[]): ProblemNames => ({
+  structures: [...new Set(reads.flatMap((read) => structuresContaining(structures, read.path)))],
+  items: [...new Set(reads.flatMap((read) => (read.names.id === null ? [] : [read.names.id])))],
 });
 
 /**
@@ -195,7 +234,7 @@ export const readRoot = async (root: string): Promise<RootRead> => {
   // An unreadable folder hides the files (or nested structures) under it: a problem of the structure it's in.
   for (const { folder, error } of unreadable) {
     const owner = ownerOf(folderSet, `${folder}/${SETTINGS_FILE}`);
-    structures.find((structure) => structure.path === owner)?.problems.push(folderProblem(folder, error));
+    structures.find((structure) => structure.path === owner)?.problems.push({ ...folderProblem(folder, error), names: { structures: structuresContaining(structures, folder) } });
   }
 
   const reads: FileRead[] = [];
@@ -203,7 +242,8 @@ export const readRoot = async (root: string): Promise<RootRead> => {
   for (const structure of structures) {
     if (structure.id === null) continue;
     const { files, problems } = await structureFiles(root, structure.path, structure.settings, folderSet);
-    structure.problems.push(...problems);
+    // Their problems show the structure's own folder, and with it every folder above.
+    structure.problems.push(...problems.map((problem) => ({ ...problem, names: { structures: structuresContaining(structures, structure.path) } })));
     for (const path of files) {
       const file = join(root, path);
       const unread = { structure, path, file, parsed: undefined, writable: false, names: unnamed };
@@ -248,16 +288,25 @@ export const readRoot = async (root: string): Promise<RootRead> => {
   for (const [id, same] of byId) {
     if (same.length < 2) continue;
     for (const read of same) {
-      const others = same.filter((other) => other !== read).map((other) => other.path);
-      read.problems.push({ field: "id", message: `id: ${id} is also the id of ${others.join(", ")}; ids are unique, so remove the id line from the copy to give it a new one` });
+      const others = same.filter((other) => other !== read);
+      read.problems.push({
+        field: "id",
+        message: `id: ${id} is also the id of ${others.map((other) => other.path).join(", ")}; ids are unique, so remove the id line from the copy to give it a new one`,
+        names: namesOfFiles(structures, others),
+      });
     }
   }
   for (const [name, named] of byName) {
     if (named.length < 2) continue;
     for (const { read, as } of named) {
-      const others = named.filter((other) => other.read !== read).map((other) => `the ${other.as === "handle" ? "handle" : "alias"} of ${other.read.path}`);
+      const others = named.filter((other) => other.read !== read);
+      const listed = others.map((other) => `the ${other.as === "handle" ? "handle" : "alias"} of ${other.read.path}`);
       const what = as === "handle" ? "handle" : "aliases";
-      read.problems.push({ field: what, message: `${what}: ${name} is also ${others.join(", ")}; handles and aliases are unique, so change or remove one by hand` });
+      read.problems.push({
+        field: what,
+        message: `${what}: ${name} is also ${listed.join(", ")}; handles and aliases are unique, so change or remove one by hand`,
+        names: namesOfFiles(structures, others.map((other) => other.read)),
+      });
     }
   }
 
@@ -265,13 +314,19 @@ export const readRoot = async (root: string): Promise<RootRead> => {
     const targets = byId.get(value);
     if (targets?.some((target) => target.structure.id === to)) return { kind: "id" };
     const named = byName.get(value);
-    if (named === undefined) return { kind: "none", reason: targets === undefined ? "is no item's handle" : `is the id of an item outside ${to}` };
-    if (named.length > 1) return { kind: "none", reason: "names more than one item" };
-    const [{ read } = { read: undefined }] = named;
-    if (read?.structure.id !== to) return { kind: "none", reason: `is an item of ${read?.structure.id ?? "no structure"}, not ${to}` };
+    if (named === undefined) {
+      if (targets === undefined) return { kind: "none", reason: "is no item's handle" };
+      return { kind: "none", reason: `is the id of an item outside ${to}`, names: namesOfFiles(structures, targets) };
+    }
+    const reads = named.map((other) => other.read);
+    if (reads.length > 1) return { kind: "none", reason: "names more than one item", names: namesOfFiles(structures, reads) };
+    const [read] = reads;
+    if (read?.structure.id !== to) {
+      return { kind: "none", reason: `is an item of ${read?.structure.id ?? "no structure"}, not ${to}`, names: namesOfFiles(structures, read === undefined ? [] : [read]) };
+    }
     // Rewriting to an id that isn't unique, or isn't an id, would turn a findable handle into a wrong link.
     const { id } = read.names;
-    if (!isUuid(id) || byId.get(id)?.length !== 1) return { kind: "none", reason: "has no valid id yet" };
+    if (!isUuid(id) || byId.get(id)?.length !== 1) return { kind: "none", reason: "has no valid id yet", names: namesOfFiles(structures, [read]) };
     return { kind: "handle", id };
   };
 

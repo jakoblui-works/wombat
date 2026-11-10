@@ -1,6 +1,8 @@
 // An item's frontmatter checked against its structure's settings: only `id`, `handle`, `aliases` and the declared
 // properties, each value of its property's type. Links are checked through `links`, which knows every item.
-import { HANDLE_PREFIX_PATTERN, OWN_KEYS, type Problem, type Property, type StructureSettings } from "@wombat/shared/items";
+import { HANDLE_PREFIX_PATTERN, OWN_KEYS, type Property, type StructureSettings } from "@wombat/shared/items";
+
+import type { NamedProblem, ProblemNames } from "./catalog.ts";
 
 /** The value of `key` when the record has it as its own key; never a member every object inherits (`toString`). */
 export const ownValue = (record: Record<string, unknown>, key: string): unknown => (Object.hasOwn(record, key) ? record[key] : undefined);
@@ -33,8 +35,8 @@ export type LinkTarget =
   | { kind: "id" }
   /** A handle or alias of exactly one item in the target structure, which has an id: rewrite it to that id. */
   | { kind: "handle"; id: string }
-  /** No item of the target structure; `reason` says what the value names instead. */
-  | { kind: "none"; reason: string };
+  /** No item of the target structure; `reason` says what the value names instead, and `names` what it names. */
+  | { kind: "none"; reason: string; names?: ProblemNames };
 
 export type LinkLookup = (to: string, value: string) => LinkTarget;
 
@@ -47,8 +49,8 @@ const isRealDate = (value: string) => {
 };
 
 /** Problems of one property value (present, not null). */
-const checkValue = (name: string, property: Property, value: unknown, links: LinkLookup, rewrites: Map<string, string>): Problem[] => {
-  const problem = (message: string): Problem[] => [{ field: name, message: `${name}: ${message}` }];
+const checkValue = (name: string, property: Property, value: unknown, links: LinkLookup, rewrites: Map<string, string>): NamedProblem[] => {
+  const problem = (message: string, names?: ProblemNames): NamedProblem[] => [{ field: name, message: `${name}: ${message}`, ...(names === undefined ? {} : { names }) }];
   switch (property.type) {
     case "select":
       if (typeof value === "string" && property.options.includes(value)) return [];
@@ -72,13 +74,13 @@ const checkValue = (name: string, property: Property, value: unknown, links: Lin
         rewrites.set(name, target.id);
         return [];
       }
-      return problem(`${value} ${target.reason}; link an item of ${property.to} by its handle`);
+      return problem(`${value} ${target.reason}; link an item of ${property.to} by its handle`, target.names);
     }
   }
 };
 
 export type Validated = {
-  problems: Problem[];
+  problems: NamedProblem[];
   /** Property values as the file holds them; null values (an empty `key:`) are left out. */
   properties: Record<string, unknown>;
   /** Link properties whose value is a handle or alias, to rewrite to this id: links store ids, which never change. */
@@ -87,7 +89,7 @@ export type Validated = {
 
 /** Checks the frontmatter's keys and property values; `id`, `handle` and `aliases` are the caller's. */
 export const validateProperties = (settings: StructureSettings, data: Record<string, unknown>, links: LinkLookup): Validated => {
-  const problems: Problem[] = [];
+  const problems: NamedProblem[] = [];
   const properties: Record<string, unknown> = {};
   const rewrites = new Map<string, string>();
   const declared = Object.keys(settings.properties);
@@ -113,9 +115,13 @@ export const validateProperties = (settings: StructureSettings, data: Record<str
   return { problems, properties, rewrites };
 };
 
-/** Problems of the item's own keys, apart from duplicates across files. */
-export const validateOwnKeys = (settings: StructureSettings, data: Record<string, unknown>): Problem[] => {
-  const problems: Problem[] = [];
+/**
+ * Problems of the item's own keys, apart from duplicates across files. They name only the item's own values and
+ * its structure's prefix, never another structure: a handle with another structure's prefix is a mismatch with
+ * this one's, so a prefix some hidden structure has reads like one no structure has.
+ */
+export const validateOwnKeys = (settings: StructureSettings, data: Record<string, unknown>): NamedProblem[] => {
+  const problems: NamedProblem[] = [];
   const { id, handle, aliases } = data;
   if (id !== undefined && !isUuid(id)) {
     problems.push({ field: "id", message: "id: not a UUID; the service sets it, so remove the line to get a new one" });

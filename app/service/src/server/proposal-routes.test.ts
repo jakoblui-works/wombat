@@ -4,6 +4,7 @@ import { ListProposalsResponse } from "@wombat/shared/api";
 import { Proposal } from "@wombat/shared/items";
 import { describe, expect, test } from "vitest";
 
+import { extraProblemKeys } from "../../test/access-fixtures.ts";
 import { readAt, writeAt } from "../../test/items-fixtures.ts";
 import { TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
 import { callTool, serveItemsForStub } from "../../test/mcp-fixtures.ts";
@@ -117,6 +118,9 @@ describe("proposal routes", () => {
       const proposal = Proposal.parse(response.json);
       expect(proposal.status).toBe("conflict");
       expect(proposal.problem).toBeDefined();
+      // As sent, before a schema parse could drop anything: only the shared Problem's keys.
+      expect(extraProblemKeys(response.json), "keys beyond Problem's").toEqual([]);
+      expect(extraProblemKeys((await s.api("GET", "/proposals")).json), "GET /proposals: keys beyond Problem's").toEqual([]);
       expect(readAt(root, BUG1)).not.toContain("Stale note");
     },
     TEST_TIMEOUT_MS,

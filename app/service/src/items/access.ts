@@ -6,11 +6,11 @@
 // before anything is written or stored. Approving applies a proposal through the writer on the version the agent
 // read, under the structure's settings as they are now; anything changed since makes it a conflict, never an
 // overwrite.
-import { ITEM_FIELDS, OWN_KEYS, type Problem, type Proposal, type ProposalStatus } from "@wombat/shared/items";
+import { ITEM_FIELDS, type Problem, type Proposal, type ProposalStatus } from "@wombat/shared/items";
 
 import { logToStderr, type Log } from "../log.ts";
 import type { Store, StoredProposal } from "../store/store.ts";
-import { findByHandle, type Catalog, type LoadedItem, type Snapshot, type ValidStructure } from "./catalog.ts";
+import { findByHandle, unknownTargetMessage, type Catalog, type LoadedItem, type NamedProblem, type Snapshot, type ValidStructure } from "./catalog.ts";
 import { SETTINGS_FILE } from "./structures.ts";
 import { TOOL } from "./tools.ts";
 import { ownValue, propertyOf, setOwn } from "./validate.ts";
@@ -109,10 +109,10 @@ type View = {
   structures: Map<string, ValidStructure>;
   /** The items of visible structures. */
   items: LoadedItem[];
-  /** Everything naming a hidden structure or item (lowercased): ids, names, folders, paths, handles. */
-  hidden: string[];
-  /** Hidden structures' handle prefixes, matched as whole words (a short prefix is part of many words). */
-  hiddenPrefixes: RegExp[];
+  /** Hidden structures' ids. */
+  hiddenStructures: Set<string>;
+  /** The ids of hidden structures' items. */
+  hiddenItems: Set<string>;
   /** Hidden structures' folders, relative to the root. */
   hiddenFolders: string[];
 };
@@ -124,54 +124,69 @@ const viewOf = (snapshot: Snapshot): View => {
   for (const structure of valid) {
     if (!hiddenIds.has(structure.id) && !structures.has(structure.id)) structures.set(structure.id, structure);
   }
-  const hidden = new Set<string>();
-  const hiddenStructures = valid.filter((candidate) => hiddenIds.has(candidate.id));
-  for (const structure of hiddenStructures) {
-    hidden.add(structure.id);
-    hidden.add(structure.settings.name);
-    // How the catalog names the structure in another's problem: its folder, or "the root" (see `problemMessage`).
-    hidden.add(structure.path === "" ? "the structure in the root" : `${structure.path}/`);
-  }
-  for (const item of snapshot.items.filter((candidate) => hiddenIds.has(candidate.structure))) {
-    for (const name of [item.path, item.id, item.handle, ...item.aliases]) if (name !== null) hidden.add(name);
-  }
+  const hiddenItems = snapshot.items.filter((item) => hiddenIds.has(item.structure)).flatMap((item) => (item.id === null ? [] : [item.id]));
   return {
     snapshot,
     structures,
     items: snapshot.items.filter((item) => structures.has(item.structure)),
-    hidden: [...hidden].filter((name) => name !== "").map((name) => name.toLowerCase()),
-    hiddenFolders: hiddenStructures.map((structure) => structure.path),
-    hiddenPrefixes: [...new Set(hiddenStructures.map((structure) => structure.settings.prefix))].map((prefix) => new RegExp(`(?<![A-Za-z0-9])${prefix}(?![A-Za-z0-9])`)),
+    hiddenStructures: hiddenIds,
+    hiddenItems: new Set(hiddenItems),
+    hiddenFolders: valid.filter((structure) => hiddenIds.has(structure.id)).map((structure) => structure.path),
   };
-};
-
-const mentionsHidden = (view: View, text: string) => {
-  const lower = text.toLowerCase();
-  return view.hidden.some((name) => lower.includes(name)) || view.hiddenPrefixes.some((prefix) => prefix.test(text));
 };
 
 const listed = (problems: Problem[]) => problems.map((problem) => problem.message).join("; ");
 
+/** Whether a problem names a hidden structure or an item of one; decided by its `names` alone, never its wording. */
+const namesHidden = (view: View, problem: NamedProblem) =>
+  (problem.names?.structures ?? []).some((id) => view.hiddenStructures.has(id)) || (problem.names?.items ?? []).some((id) => view.hiddenItems.has(id));
+
+/** A problem with the shared Problem's keys only: the service's `names` never leave it. */
+const plain = ({ field, line, message }: NamedProblem): Problem => ({ ...(field === undefined ? {} : { field }), ...(line === undefined ? {} : { line }), message });
+
+/** A link value that names nothing an agent can link: a hidden item reads exactly like a missing one. */
+const linkNotFound = (field: string, to: string): Problem => ({
+  field,
+  message: `${field}: the linked item can't be found; link an item of ${to} by its handle, or clear the field`,
+});
+
+const LINK_TO = /^properties\.(.+)\.to$/;
+
+/** What a structure's problem says in place of one naming something hidden, by what it is about. */
+const neutralForStructure = (view: View, field: string | undefined, structure: ValidStructure): Problem => {
+  const fix = `ask the user to fix ${structure.id}'s ${SETTINGS_FILE} by hand`;
+  if (field === "id") return { field, message: `id: another structure has the same id; ${fix}` };
+  if (field === "prefix") return { field, message: `prefix: another structure has the same prefix; ${fix}` };
+  const property = propertyOf(structure.settings, LINK_TO.exec(field ?? "")?.[1] ?? "");
+  // The catalog's sentence with only the structures an agent sees, so it reads the same with or without hidden ones.
+  if (field !== undefined && property?.type === "link") return { field, message: unknownTargetMessage(property.to, view.structures.keys()) };
+  // The only field-less structure problems that name a structure: a folder of it that can't be read.
+  if (field === undefined) return { message: "folder: a folder of this structure can't be read; ask the user to make it readable so its items load" };
+  return { field, message: `${field}: has a problem only the user can fix; ${fix}` };
+};
+
+/** What an item's problem says in place of one naming something hidden, by what it is about. */
+const neutralForItem = (field: string | undefined, where: string, structure: ValidStructure): Problem => {
+  const fix = `ask the user to fix ${where} by hand`;
+  if (field === "id") return { field, message: `id: another file has the same id; ${fix}` };
+  if (field === "handle" || field === "aliases") return { field, message: `${field}: another file has the same handle or alias; ${fix}` };
+  if (field === "file") return { field, message: `file: a new item of ${structure.id} can't go there; pick a path in its own folder` };
+  const property = field === undefined ? undefined : propertyOf(structure.settings, field);
+  if (field !== undefined && property?.type === "link") return linkNotFound(field, property.to);
+  return { ...(field === undefined ? {} : { field }), message: `${field ?? "file"}: has a problem only the user can fix; ${fix}` };
+};
+
 /**
- * Problems with any that can name another file (a field-less one, an id, handle or alias clash, a link) and names
- * something hidden replaced by one that doesn't. With `structure`, the item's link properties count; without it
- * (a structure's own problems), every problem does. An ordinary value problem reads as the catalog gives it.
+ * Every problem an agent gets goes through one of these two, as plain shared Problems: one whose `names` name a
+ * hidden structure or an item of one is replaced by a neutral one about the same field, and every other reads as
+ * the catalog or writer gave it. `scrubbed` takes the problems of an item (or a new item) of `structure`, named
+ * `where` in the neutral texts; `scrubbedSettings` takes the structure's own.
  */
-const scrubbed = (view: View, problems: Problem[], where: string, structure?: ValidStructure): Problem[] =>
-  problems.map((problem) => {
-    const { field } = problem;
-    const canName =
-      structure === undefined ||
-      field === undefined ||
-      OWN_KEYS.has(field) ||
-      (!ITEM_FIELDS.has(field) && !Object.hasOwn(structure.settings.properties, field)) ||
-      propertyOf(structure.settings, field)?.type === "link";
-    if (!canName || !mentionsHidden(view, problem.message)) return problem;
-    return {
-      ...(field === undefined ? {} : { field }),
-      message: `${field ?? "file"}: clashes with another file; ask the user to fix ${where} by hand`,
-    };
-  });
+const scrubbed = (view: View, problems: NamedProblem[], where: string, structure: ValidStructure): Problem[] =>
+  problems.map((problem) => (namesHidden(view, problem) ? neutralForItem(problem.field, where, structure) : plain(problem)));
+
+const scrubbedSettings = (view: View, problems: NamedProblem[], structure: ValidStructure): Problem[] =>
+  problems.map((problem) => (namesHidden(view, problem) ? neutralForStructure(view, problem.field, structure) : plain(problem)));
 
 // Refusals. The not_found texts name only what the agent typed, so a hidden name reads exactly like a missing one.
 
@@ -263,10 +278,10 @@ const checkHasId = (item: LoadedItem, handle: string) => {
   throw invalidFields(`${handle} has no id yet, so it can't be deleted. Ask the user to fix ${handle} by hand.`, problems);
 };
 
-/** A refusal for the structure's problems, scrubbed as a structure's: every problem can name another structure. */
-const structureRefusal = (view: View, structureId: string, structureProblems: Problem[]) => {
-  const problems = scrubbed(view, structureProblems, `${structureId}'s ${SETTINGS_FILE}`);
-  return invalidFields(`${structureId} has problems in its settings (${listed(problems)}), so its items can't be changed. Ask the user to fix its ${SETTINGS_FILE}.`, problems);
+/** A refusal for the structure's problems, scrubbed as the structure's own. */
+const structureRefusal = (view: View, structure: ValidStructure, structureProblems: NamedProblem[]) => {
+  const problems = scrubbedSettings(view, structureProblems, structure);
+  return invalidFields(`${structure.id} has problems in its settings (${listed(problems)}), so its items can't be changed. Ask the user to fix its ${SETTINGS_FILE}.`, problems);
 };
 
 /**
@@ -274,14 +289,14 @@ const structureRefusal = (view: View, structureId: string, structureProblems: Pr
  * link handles to ids needs sound settings: a broken link setting answers with the structure's problems.
  */
 const checkStructure = (view: View, structure: ValidStructure) => {
-  if (structure.problems.length > 0) throw structureRefusal(view, structure.id, structure.problems);
+  if (structure.problems.length > 0) throw structureRefusal(view, structure, structure.problems);
 };
 
 /** A writer refusal as the agent gets it: never naming anything hidden, saying what to do next. */
 const agentWriteError = (view: View, error: unknown, subject: { handle?: string; structure: ValidStructure }) => {
   if (!(error instanceof ItemWriteError)) return error;
   // The structure's problems found by the writer's own read (they appeared after the view's).
-  if (error instanceof StructureProblemsError) return structureRefusal(view, subject.structure.id, error.problems);
+  if (error instanceof StructureProblemsError) return structureRefusal(view, subject.structure, error.problems);
   switch (error.code) {
     case "stale_version":
       return stale(subject.handle ?? "The item");
@@ -290,12 +305,13 @@ const agentWriteError = (view: View, error: unknown, subject: { handle?: string;
     case "structure_not_found":
       return noStructure(subject.structure.id);
     case "field_not_writable":
+      // Names only the service's own keys the call gave; it has no problems.
+      return invalidFields(error.message);
     case "invalid_fields": {
+      // Always built from the scrubbed problems, never the writer's message: that shows root-relative paths, and
+      // one format whatever was scrubbed means a scrubbed refusal can't be told apart by its shape.
       const problems = scrubbed(view, error.problems, subject.handle ?? "the item", subject.structure);
-      const message = mentionsHidden(view, error.message)
-        ? `Nothing was written: ${listed(problems) || "the change doesn't fit the structure"}. Fix what's named and try again.`
-        : error.message;
-      return invalidFields(message, problems);
+      return invalidFields(`Nothing was changed: ${listed(problems)}. Fix what's named, or ask the user to, and try again.`, problems);
     }
     case "items_not_writable":
       return error;
@@ -340,12 +356,13 @@ const agentProblems = (view: View, item: LoadedItem, structure: ValidStructure):
       if (typeof ownValue(item.properties, field) === "string") {
         if (!linksDone.has(field)) {
           linksDone.add(field);
-          problems.push({ field, message: `${field}: the linked item can't be found; link an item of ${property.to} by its handle, or clear the field` });
+          problems.push(linkNotFound(field, property.to));
         }
         continue;
       }
     }
-    problems.push(...scrubbed(view, [problem], item.handle ?? item.path, structure));
+    // An item without a handle is named as "the item": its path would show the folders above it.
+    problems.push(...scrubbed(view, [problem], item.handle ?? "the item", structure));
   }
   return problems;
 };
@@ -420,7 +437,7 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
   const fileProblems = async (current: View, structure: ValidStructure, file: unknown) => {
     if (structure.settings.naming !== "free") return [];
     try {
-      return await writer.checkNewFile(structure.id, file, current.hiddenFolders);
+      return scrubbed(current, await writer.checkNewFile(structure.id, file, current.hiddenFolders), "the new item", structure);
     } catch (error) {
       throw agentWriteError(current, error, { structure });
     }
