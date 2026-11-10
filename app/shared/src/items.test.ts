@@ -42,7 +42,7 @@ type Path = (string | number)[];
 // [case, settings, null when it parses; or where the refusal is and a phrase its message must have]
 const cases: [string, object, null | [Path, string]][] = [
   ["the full example", full, null],
-  ["edit access", { ...full, access: "edit" }, null],
+  ["edit access", { ...full, access: "edit", instructions: "off" }, null],
   ["read access", { ...unlocked, access: "read", instructions: "index" }, null],
   ["hidden access", { ...unlocked, access: "hidden" }, null],
   ["free naming with include", free(["*.md", "guides/*.md"]), null],
@@ -51,6 +51,7 @@ const cases: [string, object, null | [Path, string]][] = [
   ["a missing required key", without("prefix"), [["prefix"], "prefix is required, like prefix: BUG"]],
   ["locked that isn't a list", { ...full, locked: "title" }, [["locked"], "locked takes a list, like locked: [title]"]],
   ["instructions on a hidden structure", { ...unlocked, access: "hidden", instructions: "index" }, [["instructions"], "instructions"]],
+  ["instructions on an edit structure", { ...full, access: "edit", instructions: "full" }, [["instructions"], "without your approval"]],
   ["locked on a hidden structure", { ...full, access: "hidden", instructions: "off" }, [["locked"], "locked"]],
   ["locked on a read structure", { ...full, access: "read" }, [["locked"], "locked"]],
   ["locked naming an unknown field", { ...full, locked: ["title", "status"] }, [["locked", 1], "status"]],

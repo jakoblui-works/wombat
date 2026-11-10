@@ -1,7 +1,7 @@
 // Lasting checks (silent failures and the instructions-file contract, T9) through the service as a process: an
 // agent started as soon as the service is up gets exactly `<workspace>/.wombat/AGENTS.md` as the top-level
-// `systemPrompt` (mode append) of its session/new, and a harness that doesn't ask gets nothing; a hand edit, a
-// service write and an approval each show in the file (a write before its call answers); the file never lands in a
+// `systemPrompt` (mode append) of its session/new, and a harness that doesn't ask gets nothing; a hand edit shows
+// in the file within the debounce, and an approval before it answers; the file never lands in a
 // repo; and with nothing to render, a stale file is removed and no prompt is sent.
 import { readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -101,16 +101,13 @@ describe("the instructions file in the service", () => {
   );
 
   test(
-    "an agent's write and an approval show in AGENTS.md before the call answers, and the file is never inside a repo",
+    "an approved change shows in AGENTS.md before the approval answers, and the file is never inside a repo",
     async () => {
       const service = await startService({ items: INSTRUCTIONS_FILES });
       const { token } = await startRecorded(service, PROMPTED);
 
-      // A write in an edit structure: read the file the moment the tool answers, well inside the debounce.
-      const { version } = (await agentTool(service, token, "get_item", { handle: "BL-2" })) as { version: string };
-      await agentTool(service, token, "update_item", { handle: "BL-2", fields: { body: "\nPlan it after the routes and the review.\n" }, version });
-      expect(readInstructions(service), "after update_item answered").toContain("after the routes and the review");
-
+      // Only propose and read structures can be marked (D34), so a service write reaches the file through an
+      // approval: read the file the moment the approval answers, well inside the debounce.
       // A proposal changes nothing until it's approved; the approval shows before it answers.
       const bug = (await agentTool(service, token, "get_item", { handle: "BUG-2" })) as { version: string };
       const { proposed } = (await agentTool(service, token, "propose_update", {

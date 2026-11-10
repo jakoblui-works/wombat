@@ -226,6 +226,11 @@ export const StructureSettings = z
     if (access === "hidden" && settings.instructions !== "off") {
       refuse(["instructions"], "instructions: a hidden structure never reaches agents; set instructions: off, or access: read or higher");
     }
+    // Instructions reach every later agent's system prompt; an edit structure would let one agent change them
+    // without the user's approval.
+    if (access === "edit" && settings.instructions !== "off") {
+      refuse(["instructions"], "instructions: agents could change every later agent's instructions without your approval; set access: propose, or instructions: off");
+    }
 
     if (settings.locked.length > 0 && (access === "hidden" || access === "read")) {
       refuse(["locked"], `locked: a ${access} structure is closed to agent changes as a whole; remove locked, or set access: propose or edit`);

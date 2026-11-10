@@ -69,16 +69,23 @@ properties:
       // Broken settings (an unknown key): the whole structure is skipped.
       "guides/_structure.yaml": "version: 1\nid: guides\nname: Guides\nprefix: GDE\naccess: read\ninstructions: full\ncolour: blue\n",
       "guides/GDE-1-style.md": "---\nid: 0196f3c2-9e00-7000-8000-000000000044\nhandle: GDE-1\n---\n# Style guide\n\nbroken-settings-guide-text\n",
+      // An edit structure marked for instructions (D34: refused, since agents could change them unapproved): skipped.
+      "rules/_structure.yaml": "version: 1\nid: rules\nname: Rules\nprefix: RUL\naccess: edit\ninstructions: full\n",
+      "rules/RUL-1-review.md": "---\nid: 0196f3c2-9e00-7000-8000-000000000045\nhandle: RUL-1\n---\n# Review before merging\n\nedit-structure-rule-text\n",
     };
     const { catalog } = openItems(writeRoot(files));
     const problems = await problemTexts(catalog);
-    expect(problems.length, "the root has the problems this test is about").toBeGreaterThanOrEqual(4);
+    expect(problems.length, "the root has the problems this test is about").toBeGreaterThanOrEqual(5);
+    const refused = (await catalog.structures()).filter((structure) => structure.problems.some((problem) => problem.field === "instructions" || problem.field === "access"));
+    expect(refused, "the edit structure's settings are refused").toHaveLength(1);
 
     const text = (await renderInstructions(catalog)) ?? "";
 
     expect(text).toContain("valid-rule-text");
     expect(text, "a value problem doesn't keep an item out").toContain("value-problem-rule-text");
-    for (const skipped of ["untitled-rule-text", "unparseable-rule-text", "broken-settings-guide-text", "Style guide"]) expect(text).not.toContain(skipped);
+    for (const skipped of ["untitled-rule-text", "unparseable-rule-text", "broken-settings-guide-text", "Style guide", "edit-structure-rule-text", "Review before merging"]) {
+      expect(text).not.toContain(skipped);
+    }
     // Whole messages, and each without its leading `field: `, so a reworded prefix doesn't hide one.
     const fragments = problems.flatMap((message) => [message, message.replace(/^[^:]*: /, "")]);
     expect(fragments.filter((fragment) => text.includes(fragment)), "problem text in the file").toEqual([]);

@@ -92,3 +92,23 @@ describe("the instructions file's layout", () => {
     expect(lines[lines.indexOf("### PLN-3 Orphan") + 1]).toBe("");
   });
 });
+
+describe("the size cap", () => {
+  const files = {
+    "rules/_structure.yaml": "version: 1\nid: rules\nname: Rules\nprefix: RUL\naccess: propose\ninstructions: full\n",
+    "rules/RUL-1-a.md": "---\nid: 0196f3c2-9e00-7000-8000-000000000001\nhandle: RUL-1\n---\n# Rule one\nFirst line of rule one.\n\nA second paragraph only the full text has.\n",
+  };
+
+  test("a file over the cap is sent as an index of every structure, and one under it in full", async () => {
+    const catalog = openItems(writeRoot(files)).catalog;
+    const full = (await renderInstructions(catalog)) ?? "";
+    expect(full).toContain("A second paragraph only the full text has.");
+
+    const capped = (await renderInstructions(catalog, { maxBytes: Buffer.byteLength(full) - 1 })) ?? "";
+    expect(capped).toContain("### RUL-1 Rule one");
+    expect(capped).toContain("First line of rule one.");
+    expect(capped).not.toContain("A second paragraph only the full text has.");
+    expect(capped).toContain("too long to send in full");
+    expect(await renderInstructions(catalog, { maxBytes: Buffer.byteLength(full) })).toBe(full);
+  });
+});

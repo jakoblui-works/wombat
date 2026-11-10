@@ -1,6 +1,7 @@
 // Shared setup for the instructions-file checks: the access fixture's root with its visible structures marked as
-// instructions (bugs and backlog in full, docs as an index), two backlog items that differ only in linking to a
-// hidden item or a missing one, and a second hidden structure that asks for instructions (which the schema refuses).
+// instructions (bugs and backlog in full, both taking proposals; docs as an index), two backlog items that differ
+// only in linking to a hidden item or a missing one, and a second hidden structure that asks for instructions
+// (which the schema refuses).
 import { ACCESS_FILES, HIDDEN, MARKER } from "./access-fixtures.ts";
 
 /** Adds `instructions: <level>` to a structure's settings, right after its access line. */
@@ -29,7 +30,9 @@ Invented, and the same in both files.
 export const INSTRUCTIONS_FILES: Record<string, string> = {
   ...ACCESS_FILES,
   "bugs/_structure.yaml": marked(ACCESS_FILES["bugs/_structure.yaml"], "full"),
-  "backlog/_structure.yaml": marked(ACCESS_FILES["backlog/_structure.yaml"], "full"),
+  // An edit structure can't be marked (D34: agents could change every later agent's instructions unapproved), so
+  // the backlog takes proposals here.
+  "backlog/_structure.yaml": marked(ACCESS_FILES["backlog/_structure.yaml"]?.replace("access: edit", "access: propose"), "full"),
   "docs/_structure.yaml": marked(ACCESS_FILES["docs/_structure.yaml"], "index"),
   "backlog/BL-3-linked-hidden.md": linkTo("BL-3", "0196f3c2-9c00-7000-8000-000000000003", HIDDEN.ids[0]),
   "backlog/BL-4-linked-missing.md": linkTo("BL-4", "0196f3c2-9c00-7000-8000-000000000004", MISSING_ID),
