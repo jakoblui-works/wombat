@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import type { Item, Problem, StructureSettings } from "@wombat/shared/items";
 
-import type { Log } from "../agents/manager.ts";
+import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { queueWrite, readVersioned, VersionChanged, writeAtomic } from "./files.ts";
 import { addKeyEdits, checkedText, parseItemFile, scalarRange, type ParsedItemFile, type TextEdit } from "./item-file.ts";

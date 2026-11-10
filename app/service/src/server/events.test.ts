@@ -46,7 +46,11 @@ describe("GET /events", () => {
         expect(alerts.map((event) => event.id)).toEqual(events.map((event) => String(event.seq)));
         expect(alerts.every((event) => event.event === undefined)).toBe(true);
         expect(alerts.map((event) => parseAlert(JSON.parse(event.data)))).toEqual(
-          events.map(({ seq, agentId, type }) => ({ seq, dbId: s.store.dbId, type, agentId })),
+          events.map((event) =>
+            event.type === "proposal"
+              ? { seq: event.seq, dbId: s.store.dbId, type: event.type, proposalId: event.proposalId }
+              : { seq: event.seq, dbId: s.store.dbId, type: event.type, agentId: event.agentId },
+          ),
         );
       }
     },

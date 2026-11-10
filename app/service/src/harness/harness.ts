@@ -8,6 +8,9 @@ export type SpawnSpec = {
   env: Record<string, string>;
 };
 
+/** The name agents know the service's MCP server (`/mcp`) by; Claude Code's names for its tools start `mcp__wombat__`. */
+export const MCP_SERVER_NAME = "wombat";
+
 /** An agent program the service can start, speaking ACP over stdio. */
 export type Harness = {
   id: string;
@@ -16,6 +19,8 @@ export type Harness = {
   loginHint: string;
   /** `source` is the environment the agent's is filtered from (see `agentEnv`); defaults to the service's. */
   spawn: (cwd: string, source?: NodeJS.ProcessEnv) => SpawnSpec;
+  /** Sent as `session/new`'s `_meta`: options only this harness reads. */
+  sessionMeta?: Record<string, unknown>;
 };
 
 /** A systemd user scope to run an agent in: `unit` is the scope's name, `slice` the slice it goes in. */

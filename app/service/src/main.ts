@@ -2,12 +2,14 @@ import { createServer } from "node:net";
 
 import { API_VERSION } from "@wombat/shared";
 
-import { createManager, logToStderr, type Manager } from "./agents/manager.ts";
+import { createManager, type Manager } from "./agents/manager.ts";
 import { readConfig } from "./config.ts";
 import { findRunningService, newToken, removeDiscovery, writeDiscovery } from "./discovery.ts";
 import { openCatalog } from "./items/catalog.ts";
 import type { Harness } from "./harness/harness.ts";
 import { defaultHarnesses } from "./harness/registry.ts";
+import { openWriter } from "./items/write.ts";
+import { logToStderr } from "./log.ts";
 import { startServer } from "./server/server.ts";
 import { openStore, type Store } from "./store/store.ts";
 
@@ -108,7 +110,13 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
     const slice = options.slice === undefined ? {} : { slice: options.slice };
     manager = createManager({ store, workspaceRoot: config.workspaceRoot, harnesses, log, env, ...slice });
     try {
-      const items = config.itemsRoot === undefined ? {} : { items: openCatalog({ root: config.itemsRoot, store, log }) };
+      const items =
+        config.itemsRoot === undefined
+          ? {}
+          : {
+              items: openCatalog({ root: config.itemsRoot, store, log }),
+              writer: openWriter({ root: config.itemsRoot, store, log }),
+            };
       server = await startServer({ manager, store, harnesses, token, port: config.port, log, ...items });
     } catch (error) {
       throw listenRefusal(config.port, error) ?? error;

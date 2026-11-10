@@ -8,7 +8,7 @@
 // overwrite.
 import type { Problem, Proposal, ProposalStatus } from "@wombat/shared/items";
 
-import { logToStderr, type Log } from "../agents/manager.ts";
+import { logToStderr, type Log } from "../log.ts";
 import type { Store, StoredProposal } from "../store/store.ts";
 import type { Catalog, LoadedItem, Snapshot, ValidStructure } from "./catalog.ts";
 import { SETTINGS_FILE } from "./structures.ts";

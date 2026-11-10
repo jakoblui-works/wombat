@@ -20,9 +20,10 @@ describe("turns", () => {
       expect(t.agent(started.id)).toEqual(started);
 
       const states: string[] = [];
-      t.manager.onCommitted(({ agentId }) => {
-        const state = t.agent(agentId)?.state;
-        if (agentId === started.id && state && states.at(-1) !== state) states.push(state);
+      t.manager.onCommitted((event) => {
+        if (event.type === "proposal") return;
+        const state = t.agent(event.agentId)?.state;
+        if (event.agentId === started.id && state && states.at(-1) !== state) states.push(state);
       });
       const { seq } = await t.manager.send(started.id, { text: "Say hello", commandId: "cmd_1" });
       const ended = await t.turnEnded(started.id);

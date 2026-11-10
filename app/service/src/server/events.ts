@@ -32,9 +32,12 @@ export const createAlertStreams = ({ onCommitted, dbId, heartbeatMs }: AlertStre
             end();
           }
         };
-        const unsubscribe = onCommitted(({ seq, agentId, type }: Committed) => {
-          const alert: Alert = { seq, dbId, type, agentId };
-          write(`id: ${seq}\ndata: ${JSON.stringify(alert)}\n\n`);
+        const unsubscribe = onCommitted((event: Committed) => {
+          const alert: Alert =
+            event.type === "proposal"
+              ? { seq: event.seq, dbId, type: event.type, proposalId: event.proposalId }
+              : { seq: event.seq, dbId, type: event.type, agentId: event.agentId };
+          write(`id: ${event.seq}\ndata: ${JSON.stringify(alert)}\n\n`);
         });
         const heartbeat = setInterval(() => write(": ping\n"), heartbeatMs);
         const close = () => {

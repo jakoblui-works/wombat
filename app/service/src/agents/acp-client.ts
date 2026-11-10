@@ -6,6 +6,7 @@ import {
   ndJsonStream,
   PROTOCOL_VERSION,
   type InitializeResponse,
+  type McpServer,
   type PromptResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
@@ -18,10 +19,16 @@ export type AgentHandlers = {
   permission: (request: RequestPermissionRequest) => Promise<RequestPermissionResponse>;
 };
 
+/** What a session starts with besides its folder: the MCP servers it may call, and harness-only options. */
+export type SessionExtra = {
+  mcpServers?: McpServer[];
+  _meta?: Record<string, unknown>;
+};
+
 /** The client side of ACP for one agent process, over its stdio. */
 export type AcpAgent = {
   initialize: () => Promise<InitializeResponse>;
-  newSession: (cwd: string) => Promise<string>;
+  newSession: (cwd: string, extra?: SessionExtra) => Promise<string>;
   prompt: (sessionId: string, text: string) => Promise<PromptResponse>;
   cancel: (sessionId: string) => Promise<void>;
   /** True once the connection closed (the agent's stdout ended, or `close` was called). */
@@ -60,7 +67,8 @@ export const connectAgent = (child: ChildProcessWithoutNullStreams, handlers: Ag
         clientCapabilities: {},
         clientInfo: { name: "wombat-service", version: "0.0.0" },
       }),
-    newSession: async (cwd) => (await agent.request("session/new", { cwd, mcpServers: [] })).sessionId,
+    newSession: async (cwd, { mcpServers = [], _meta } = {}) =>
+      (await agent.request("session/new", { cwd, mcpServers, ...(_meta === undefined ? {} : { _meta }) })).sessionId,
     prompt: (sessionId, text) => agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text }] }),
     cancel: (sessionId) => agent.notify("session/cancel", { sessionId }),
     isClosed: () => connection.signal.aborted,

@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 
 import { errorResponse } from "./errors.ts";
 
@@ -11,9 +11,24 @@ export const APP_ORIGIN = "app://wombat";
 const digest = (value: string) => createHash("sha256").update(value).digest();
 
 /**
+ * Refuses a request whose Host isn't the loopback address with the bound port, which is how a DNS-rebound page
+ * would arrive; undefined when the Host is right.
+ */
+export const refuseForeignHost = (c: Context, port: number) => {
+  const host = c.req.header("host")?.toLowerCase();
+  if (host === `127.0.0.1:${port}` || host === `localhost:${port}`) return undefined;
+  return errorResponse(
+    c,
+    403,
+    "forbidden_host",
+    `The Host header must be 127.0.0.1:${port} or localhost:${port}. Connect to the service by that address.`,
+  );
+};
+
+/**
  * Refuses, before any route runs, a request without the exact bearer token (no query token: URLs end up in
- * logs and history), one from a web page (any Origin but the app's), and one whose Host isn't the loopback
- * address with the bound port, which is how a DNS-rebound page would arrive.
+ * logs and history), one from a web page (any Origin but the app's), and one with a foreign Host. An agent's
+ * /mcp token is not this token, so it opens none of these routes.
  */
 export const portRules = ({ token, port }: { token: string; port: () => number }): MiddlewareHandler => {
   const expected = digest(`Bearer ${token}`);
@@ -36,15 +51,8 @@ export const portRules = ({ token, port }: { token: string; port: () => number }
         "Requests from web pages are refused. Call the service from the Wombat app, or without an Origin header.",
       );
     }
-    const host = c.req.header("host")?.toLowerCase();
-    if (host !== `127.0.0.1:${port()}` && host !== `localhost:${port()}`) {
-      return errorResponse(
-        c,
-        403,
-        "forbidden_host",
-        `The Host header must be 127.0.0.1:${port()} or localhost:${port()}. Connect to the service by that address.`,
-      );
-    }
+    const foreignHost = refuseForeignHost(c, port());
+    if (foreignHost) return foreignHost;
     await next();
   };
 };

@@ -26,12 +26,16 @@ import { bodyLimit } from "hono/body-limit";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 
-import { AgentError, logToStderr, type AgentErrorCode, type Log, type Manager } from "../agents/manager.ts";
+import { AgentError, type AgentErrorCode, type Manager } from "../agents/manager.ts";
+import { openAccess } from "../items/access.ts";
 import type { Catalog, LoadedItem, LoadedStructure } from "../items/catalog.ts";
+import type { Writer } from "../items/write.ts";
 import type { Harness } from "../harness/harness.ts";
+import { logToStderr, type Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { errorResponse } from "./errors.ts";
 import { createAlertStreams } from "./events.ts";
+import { mcpRoutes } from "./mcp.ts";
 import { portRules } from "./port-rules.ts";
 
 export type ServerOptions = {
@@ -49,6 +53,8 @@ export type ServerOptions = {
   log?: Log;
   /** The items; without it the items routes answer items_not_configured. */
   items?: Catalog;
+  /** Writes the items; with `items`, it opens the agents' write tools on /mcp. */
+  writer?: Writer;
 };
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -153,6 +159,7 @@ export const startServer = async ({
   defaultLogLimit = 1000,
   log = logToStderr,
   items,
+  writer,
 }: ServerOptions): Promise<{ port: number; close: () => Promise<void> }> => {
   if (token.length < MIN_TOKEN_LENGTH) {
     throw new Error(
@@ -163,7 +170,23 @@ export const startServer = async ({
   let boundPort = 0;
   const alerts = createAlertStreams({ onCommitted: manager.onCommitted, dbId: store.dbId, heartbeatMs });
   const app = new Hono();
+  // Proposal changes reach the alert stream through the manager's listeners, like agent changes.
+  const access =
+    items && writer
+      ? openAccess({ catalog: items, writer, store, onProposal: (id, seq) => manager.proposalCommitted(id, seq), log })
+      : undefined;
 
+  // Before the port rules: /mcp takes an agent's token, never the app's, and the port rules refuse agent tokens.
+  app.route(
+    "/",
+    mcpRoutes({
+      access,
+      agentForToken: manager.agentForToken,
+      port: () => boundPort,
+      maxBodyBytes: MAX_BODY_BYTES,
+      log,
+    }),
+  );
   app.use(portRules({ token, port: () => boundPort }));
   app.use(
     bodyLimit({
@@ -338,6 +361,7 @@ export const startServer = async ({
     });
   });
   boundPort = (server.address() as AddressInfo).port;
+  manager.setMcpUrl(`http://127.0.0.1:${boundPort}/mcp`);
 
   let closing: Promise<void> | undefined;
   const close = () =>

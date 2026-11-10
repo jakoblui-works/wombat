@@ -9,7 +9,7 @@ import { isAbsolute, join } from "node:path";
 import type { Problem, StructureSettings } from "@wombat/shared/items";
 import { stringify } from "yaml";
 
-import type { Log } from "../agents/manager.ts";
+import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { readRoot, type LoadedItem, type RootRead, type ValidStructure } from "./catalog.ts";
 import { NoHardLinks, queueWrite, readVersioned, removeUnchanged, VersionChanged, versionOf, writeAtomic } from "./files.ts";
