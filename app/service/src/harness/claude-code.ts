@@ -53,4 +53,7 @@ export const claudeCode: Harness = {
   // D16: the item tools run without a permission prompt each time. Access levels decide what a call may do, and
   // proposals still wait for the user; every other tool still asks.
   sessionMeta: { claudeCode: { options: { allowedTools: [`mcp__${MCP_SERVER_NAME}__*`] } } },
+  // The top-level ACP field, which claude-agent-acp appends to Claude Code's own prompt. Never
+  // `_meta.systemPrompt`: a string there replaces Claude Code's whole system prompt.
+  sessionParams: (instructions) => ({ systemPrompt: { mode: "append", content: [{ type: "text", text: instructions }] } }),
 };

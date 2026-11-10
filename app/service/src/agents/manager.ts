@@ -1,5 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import type { McpServer, RequestPermissionRequest, RequestPermissionResponse } from "@agentclientprotocol/sdk";
 import {
@@ -13,6 +15,7 @@ import {
 
 import { MCP_SERVER_NAME, startAgentProcess, type AgentScope, type Harness } from "../harness/harness.ts";
 import { defaultHarnesses, findHarness } from "../harness/registry.ts";
+import { INSTRUCTIONS_FILE } from "../items/instructions.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { NewLogEntry, Store } from "../store/store.ts";
 import { RepoError, resolveRepo } from "../workspace.ts";
@@ -483,6 +486,18 @@ export const createManager = ({
   }
   log("agents_loaded", { count: summaries.size, markedStopped: marked });
 
+  /** The instructions file's text, or undefined when there is none (or it's empty): then nothing is sent. */
+  const readInstructions = async () => {
+    try {
+      const text = await readFile(join(workspaceRoot, INSTRUCTIONS_FILE), "utf8");
+      return text === "" ? undefined : text;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") log("instructions_unreadable", { error: code ?? "unknown" });
+      return undefined;
+    }
+  };
+
   const start = async (harnessId: string, repo: string): Promise<AgentSummary> => {
     assertOpen();
     const harness = findHarness(harnessId, harnesses);
@@ -512,9 +527,12 @@ export const createManager = ({
     try {
       const deadline = Date.now() + START_TIMEOUT_MS;
       const initialized = await withTimeout(proc.acp.initialize(), START_TIMEOUT_MS, tooSlow);
+      // D26: the instructions as they are now; a running agent keeps the ones it started with.
+      const instructions = harness.sessionParams === undefined ? undefined : await readInstructions();
       const session = {
         mcpServers: mcpServersFor(proc),
         ...(harness.sessionMeta === undefined ? {} : { _meta: harness.sessionMeta }),
+        ...(instructions === undefined || harness.sessionParams === undefined ? {} : { params: harness.sessionParams(instructions) }),
       };
       const sessionId = await withTimeout(proc.acp.newSession(cwd, session), Math.max(0, deadline - Date.now()), tooSlow);
       // procs no longer holding it means the process ended before its summary could be stored.

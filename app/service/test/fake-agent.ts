@@ -2,7 +2,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, writeSync } from "node:fs";
-import { Readable, Writable } from "node:stream";
+import { Readable, Transform, Writable } from "node:stream";
 
 import { agent, ndJsonStream, RequestError, type AgentContext, type SessionUpdate } from "@agentclientprotocol/sdk";
 
@@ -71,6 +71,26 @@ const run = (scenario: FakeScenario) => {
   const cancelled = new Set<string>();
   // The mcpServers entries the last session/new carried, for the mcp-config scenario.
   let mcpServers: unknown = undefined;
+  // The last session/new's params as they came over the wire, before the SDK's schema drops fields it doesn't
+  // know (the stable v1 schema has no `systemPrompt`), for the mcp-config scenario.
+  let sessionNew: unknown = undefined;
+  let pending = "";
+  const recorder = new Transform({
+    transform(chunk: Buffer, _encoding, done) {
+      pending += chunk.toString("utf8");
+      const lines = pending.split("\n");
+      pending = lines.pop() ?? "";
+      for (const line of lines) {
+        try {
+          const message = JSON.parse(line) as { method?: unknown; params?: unknown };
+          if (message.method === "session/new") sessionNew = message.params;
+        } catch {
+          // Not JSON: the SDK reports it.
+        }
+      }
+      done(null, chunk);
+    },
+  });
 
   const send = (client: AgentContext, sessionId: string, update: SessionUpdate) =>
     client.notify("session/update", { sessionId, update });
@@ -181,13 +201,13 @@ const run = (scenario: FakeScenario) => {
           await send(client, sessionId, text(" Here is the answer."));
           return { stopReason: "end_turn" };
         case "mcp-config": {
-          // The prompt is a file path: the agent writes the mcpServers entries it got, and its environment, there
-          // rather than into its reply, so the token never enters the service's log through this seam. "crash"
-          // instead ends the process as a crash would.
+          // The prompt is a file path: the agent writes the mcpServers entries it got, its environment and the raw
+          // session/new params (for the instructions drift check) there rather than into its reply, so the token
+          // never enters the service's log through this seam. "crash" instead ends the process as a crash would.
           const [block] = prompt;
           const path = block?.type === "text" ? block.text : "";
           if (path === "crash") process.exit(3);
-          writeFileSync(path, JSON.stringify({ mcpServers, env: process.env }));
+          writeFileSync(path, JSON.stringify({ mcpServers, env: process.env, sessionNew }));
           await send(client, sessionId, text("Reported the MCP config."));
           return { stopReason: "end_turn" };
         }
@@ -228,7 +248,7 @@ const run = (scenario: FakeScenario) => {
   const connection = app.connect(
     ndJsonStream(
       Writable.toWeb(process.stdout) as WritableStream<Uint8Array>,
-      Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
+      Readable.toWeb(process.stdin.pipe(recorder)) as ReadableStream<Uint8Array>,
     ),
   );
   void connection.closed.then(() => process.exit(0));

@@ -386,6 +386,21 @@ const agentItem = (view: View, item: LoadedItem): AgentItem => ({
   version: item.version,
 });
 
+/** A visible item as the agent view shows it, with its structure and body, for renderers beside the tools. */
+export type AgentViewItem = AgentItemSummary & { structure: string; body: string | null };
+
+/**
+ * One read as an agent may see it, for what renders it outside the tools (the instructions file): the visible
+ * structures with valid settings, and their items with link values as handles (null when missing or hidden).
+ */
+export const agentView = (snapshot: Snapshot): { structures: ValidStructure[]; items: AgentViewItem[] } => {
+  const view = viewOf(snapshot);
+  return {
+    structures: [...view.structures.values()],
+    items: view.items.map((item) => ({ ...agentSummary(view, item), structure: item.structure, body: item.body })),
+  };
+};
+
 /** Whether a visible item matches a search: a case-insensitive substring of its title, body or a text property. */
 const matches = (structure: ValidStructure, item: LoadedItem, query: string) => {
   const texts = [item.title, item.body];

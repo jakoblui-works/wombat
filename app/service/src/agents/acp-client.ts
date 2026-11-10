@@ -23,6 +23,11 @@ export type AgentHandlers = {
 export type SessionExtra = {
   mcpServers?: McpServer[];
   _meta?: Record<string, unknown>;
+  /**
+   * Top-level `session/new` fields a harness asks for (the instructions' `systemPrompt`). Sent as given: the SDK
+   * doesn't check outgoing params, and its stable schema would drop fields it doesn't know.
+   */
+  params?: Record<string, unknown>;
 };
 
 /** The client side of ACP for one agent process, over its stdio. */
@@ -67,8 +72,8 @@ export const connectAgent = (child: ChildProcessWithoutNullStreams, handlers: Ag
         clientCapabilities: {},
         clientInfo: { name: "wombat-service", version: "0.0.0" },
       }),
-    newSession: async (cwd, { mcpServers = [], _meta } = {}) =>
-      (await agent.request("session/new", { cwd, mcpServers, ...(_meta === undefined ? {} : { _meta }) })).sessionId,
+    newSession: async (cwd, { mcpServers = [], _meta, params = {} } = {}) =>
+      (await agent.request("session/new", { ...params, cwd, mcpServers, ...(_meta === undefined ? {} : { _meta }) })).sessionId,
     prompt: (sessionId, text) => agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text }] }),
     cancel: (sessionId) => agent.notify("session/cancel", { sessionId }),
     isClosed: () => connection.signal.aborted,

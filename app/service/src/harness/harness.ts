@@ -21,6 +21,11 @@ export type Harness = {
   spawn: (cwd: string, source?: NodeJS.ProcessEnv) => SpawnSpec;
   /** Sent as `session/new`'s `_meta`: options only this harness reads. */
   sessionMeta?: Record<string, unknown>;
+  /**
+   * Turns the instructions file's text into `session/new` parameters, merged in by the manager (the Claude Code
+   * harness: the top-level `systemPrompt`, mode append). Without it, nothing about the instructions is sent.
+   */
+  sessionParams?: (instructions: string) => Record<string, unknown>;
 };
 
 /** A systemd user scope to run an agent in: `unit` is the scope's name, `slice` the slice it goes in. */
