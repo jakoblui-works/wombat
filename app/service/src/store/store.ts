@@ -23,7 +23,7 @@ export type NewLogEntry = DistributiveOmit<LogEntry, "seq" | "agentId" | "at"> &
 export type StoredProposal = Omit<Proposal, "handle"> & { itemId: string | null };
 
 /** A proposal as handed to `insertProposal`: the store adds the id, `at` and the pending status. */
-export type NewProposal = Pick<StoredProposal, "structure" | "itemId" | "kind" | "fields" | "reason" | "baseVersion" | "agentId">;
+export type NewProposal = Pick<StoredProposal, "structure" | "itemId" | "kind" | "fields" | "file" | "reason" | "baseVersion" | "agentId">;
 
 /** A proposal write and the seq it took, to alert about once it's committed. */
 export type ProposalChange = { proposal: StoredProposal; seq: number };
@@ -90,7 +90,8 @@ const SCHEMA_V1 = `
 `;
 
 // Items: `item_counters.last` is the last handle number given per structure id. A proposal names its item by id
-// (`item_id`, null for a pending create), since handles change by hand; `fields` and `problem` are JSON.
+// (`item_id`, null for a pending create), since handles change by hand; `file` is a free-named create's path, kept
+// apart from `fields` so it can't collide with a property named `file`; `fields` and `problem` are JSON.
 const SCHEMA_V2 = `
   CREATE TABLE item_counters (structure TEXT PRIMARY KEY, last INTEGER NOT NULL) STRICT;
   CREATE TABLE proposals (
@@ -99,6 +100,7 @@ const SCHEMA_V2 = `
     item_id TEXT,
     kind TEXT NOT NULL CHECK (kind IN ('create', 'update', 'delete')),
     fields TEXT NOT NULL,
+    file TEXT,
     reason TEXT NOT NULL,
     base_version TEXT,
     status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'conflict')),
@@ -219,8 +221,8 @@ export const openStore = ({
        ON CONFLICT (structure) DO UPDATE SET last = max(last, excluded.last - 1) + 1 RETURNING last`,
     ),
     insertProposal: db.prepare(
-      `INSERT INTO proposals (id, structure, item_id, kind, fields, reason, base_version, status, agent_id, at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?) RETURNING *`,
+      `INSERT INTO proposals (id, structure, item_id, kind, fields, file, reason, base_version, status, agent_id, at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?) RETURNING *`,
     ),
     listProposals: db.prepare("SELECT * FROM proposals ORDER BY at, rowid"),
     listProposalsWith: db.prepare("SELECT * FROM proposals WHERE status = ? ORDER BY at, rowid"),
@@ -325,6 +327,7 @@ export const openStore = ({
       itemId: row.item_id === null ? null : asString(row.item_id),
       kind: asString(row.kind) as StoredProposal["kind"],
       fields: JSON.parse(asString(row.fields)) as Record<string, unknown>,
+      file: row.file === null ? null : asString(row.file),
       reason: asString(row.reason),
       baseVersion: row.base_version === null ? null : asString(row.base_version),
       status: asString(row.status) as ProposalStatus,
@@ -345,6 +348,7 @@ export const openStore = ({
         proposal.itemId,
         proposal.kind,
         fields,
+        proposal.file,
         proposal.reason,
         proposal.baseVersion,
         proposal.agentId,

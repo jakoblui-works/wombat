@@ -384,6 +384,11 @@ export const Proposal = z.object({
   handle: z.string().nullable(),
   /** Field name → proposed value: `title`, `body` or property names, link values as ids. */
   fields: z.record(z.string(), z.unknown()),
+  /**
+   * The new file's path, relative to the structure's folder, as the agent gave it; null except for a create in a
+   * free-named structure. Kept apart from `fields` so it can't collide with a property named `file`.
+   */
+  file: z.string().nullable(),
   reason: z.string(),
   /** The item's version the change is based on; null for a create. */
   baseVersion: z.string().nullable(),

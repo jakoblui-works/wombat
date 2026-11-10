@@ -502,14 +502,12 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
 
     try {
       if (stored.kind === "create") {
-        const { title, body, file, ...properties } = stored.fields;
-        const freeFile = structure.settings.naming === "free" && !Object.hasOwn(structure.settings.properties, "file");
-        if (!freeFile && file !== undefined) properties.file = file;
+        const { title, body, ...properties } = stored.fields;
         const created = await writer.createItem(structure.id, {
           title: title as string,
           body: typeof body === "string" ? body : "",
           properties,
-          ...(freeFile && typeof file === "string" ? { file } : {}),
+          ...(stored.file === null ? {} : { file: stored.file }),
         });
         return { created };
       }
@@ -630,14 +628,8 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       if (badFile.length > 0) {
         throw invalidFields(`The new item's file doesn't fit ${structure.id}: ${listed(badFile)}. Nothing was stored; give another path and propose again.`, badFile);
       }
-      const { settings } = structure;
-      if (settings.naming === "free" && Object.hasOwn(settings.properties, "file")) {
-        const problems = [{ field: "file", message: `file: ${structure.id} has a property named file, so a new file's path can't be proposed; ask the user to create the item` }];
-        throw invalidFields(`The new item can't be proposed in ${structure.id}: ${listed(problems)}.`, problems);
-      }
-      const file = input.file === undefined ? {} : { file: input.file };
       try {
-        const item = { title: input.title, body: input.body ?? "", properties: linked, ...file };
+        const item = { title: input.title, body: input.body ?? "", properties: linked, ...(input.file === undefined ? {} : { file: input.file }) };
         await writer.check({ kind: "create", structureId: structure.id, item, unseen: current.hiddenFolders });
       } catch (error) {
         throw agentWriteError(current, error, { structure });
@@ -647,7 +639,8 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
         structure: structure.id,
         itemId: null,
         kind: "create",
-        fields: { title: input.title, ...(input.body === undefined ? {} : { body: input.body }), ...linked, ...file },
+        fields: { title: input.title, ...(input.body === undefined ? {} : { body: input.body }), ...linked },
+        file: input.file ?? null,
         reason,
         baseVersion: null,
         agentId,
@@ -666,7 +659,7 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       } catch (error) {
         throw agentWriteError(current, error, { handle, structure });
       }
-      return propose({ structure: structure.id, itemId: item.id, kind: "update", fields: linked, reason, baseVersion: version, agentId });
+      return propose({ structure: structure.id, itemId: item.id, kind: "update", fields: linked, file: null, reason, baseVersion: version, agentId });
     },
 
     proposeDelete: async (agentId, handle, version, reason) => {
@@ -680,7 +673,7 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       } catch (error) {
         throw agentWriteError(current, error, { handle, structure });
       }
-      return propose({ structure: structure.id, itemId: item.id, kind: "delete", fields: {}, reason, baseVersion: version, agentId });
+      return propose({ structure: structure.id, itemId: item.id, kind: "delete", fields: {}, file: null, reason, baseVersion: version, agentId });
     },
 
     proposals: async (status) => {

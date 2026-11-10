@@ -148,6 +148,7 @@ test("API shapes stay lenient: unknown fields stripped, unknown view kinds dropp
     kind: "update",
     handle: "BUG-1",
     fields: { repo: "site-web" },
+    file: null,
     reason: "Seen on the site",
     baseVersion: "9f2c",
     status: "pending",

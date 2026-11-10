@@ -37,6 +37,12 @@ describe("proposal routes", () => {
 
       expect(all.proposals.map((p) => p.id).sort()).toEqual([first, second].sort());
       expect(pending.proposals.map((p) => p.id)).toEqual([first]);
+      // As sent, before a schema parse could drop it: every proposal carries file (null for an update), outside fields.
+      const sent = ((await s.api("GET", "/proposals")).json as { proposals: Record<string, unknown>[] }).proposals;
+      for (const proposal of sent) {
+        expect(proposal, "file on the proposal").toHaveProperty("file", null);
+        expect(proposal.fields, "file in fields").not.toHaveProperty("file");
+      }
     },
     TEST_TIMEOUT_MS,
   );
