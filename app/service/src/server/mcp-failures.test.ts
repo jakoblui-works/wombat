@@ -9,16 +9,12 @@ import { describe, expect, test } from "vitest";
 import type { Access } from "../items/access.ts";
 import { HIDDEN, MARKER, leaks, snapshotFiles } from "../../test/access-fixtures.ts";
 import { TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
-import { agentConfig, callTool, isRefused, mcpRequest, serveItems } from "../../test/mcp-fixtures.ts";
-import { mcpRoutes } from "./mcp.ts";
+import { callTool, isRefused, mcpRequest, openMcp, serveItemsForStub } from "../../test/mcp-fixtures.ts";
 
 const MiB = 1024 * 1024;
 
 describe("/mcp failures", () => {
   test("an unexpected error in a tool answers a generic tool error and logs only the agent, the tool and the error's name", async () => {
-    const port = 4123;
-    const token = "agent-token-for-the-failure-test";
-    const agentId = "agent-failure-test";
     const path = `/home/someone/items/vault/KST-1-${MARKER}-plan.md`;
     class CatalogReadError extends Error {
       override name = "CatalogReadError";
@@ -29,32 +25,11 @@ describe("/mcp failures", () => {
       new CatalogReadError(`${HIDDEN.ids[0]} in ${HIDDEN.structure} could not be read from ${path}`),
     ];
 
-    const logs: { event: string; fields: Record<string, unknown> }[] = [];
     let failing: Error = new Error("unset");
     // An Access whose every call fails the way a broken read or write below it would.
-    const access = new Proxy({} as Access, { get: () => () => Promise.reject(failing) });
-    const app = mcpRoutes({
-      access,
-      agentForToken: (sent) => (sent === token ? agentId : undefined),
-      port: () => port,
-      maxBodyBytes: MiB,
-      log: (event, fields) => logs.push({ event, fields }),
-    });
-    const call = async (name: string, args: Record<string, unknown>) => {
-      const response = await app.request("/mcp", {
-        method: "POST",
-        headers: {
-          host: `127.0.0.1:${port}`,
-          authorization: `Bearer ${token}`,
-          accept: "application/json, text/event-stream",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
-      });
-      expect(response.status, name).toBe(200);
-      const result = ((await response.json()) as { result?: { isError?: boolean; content?: { type: string; text?: string }[] } }).result;
-      return { isError: result?.isError === true, text: result?.content?.map((block) => block.text ?? "").join("\n") ?? "" };
-    };
+    const mcp = openMcp({ access: new Proxy({} as Access, { get: () => () => Promise.reject(failing) }) });
+    const { token, agentId, logs } = mcp;
+    const call = (name: string, args: Record<string, unknown>) => callTool(mcp, token, name, args);
 
     for (const [tool, args] of [
       ["get_item", { handle: "BL-1" }],
@@ -81,11 +56,12 @@ describe("/mcp failures", () => {
     expect(leaks(JSON.stringify(logs), [MARKER, path, ...HIDDEN.ids, HIDDEN.structure, token, "permission denied"]), "the log").toEqual([]);
   });
 
+  // On the running server: the limit is the one the server passes to /mcp, and the chunked body comes through the
+  // Node adapter as it would from an agent.
   test(
     "a request body over 1 MiB is refused before any tool runs, with or without a content-length",
     async () => {
-      const { s, root } = await serveItems();
-      const { token } = await agentConfig(s);
+      const { s, root, token } = await serveItemsForStub();
       const before = snapshotFiles(root);
       const create = (body: string) => ({ structure: "backlog", title: "A large item", body });
       const oversized = create("x".repeat(MiB + 1024));

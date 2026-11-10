@@ -2,16 +2,14 @@
 // (and a stale one is refused), describe_structure works without an argument, and only POST is answered.
 import { describe, expect, test } from "vitest";
 
-import { TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
-import { agentConfig, callTool, mcpRequest, serveItems } from "../../test/mcp-fixtures.ts";
-import { rawRequest } from "../../test/server-fixtures.ts";
+import { callTool, mcpRequest, openMcp } from "../../test/mcp-fixtures.ts";
 
 describe("the /mcp tools", () => {
   test(
     "an answer is JSON in exactly one text block",
     async () => {
-      const { s } = await serveItems();
-      const { token } = await agentConfig(s);
+      const s = openMcp();
+      const { token } = s;
 
       const response = await mcpRequest(s, token, "tools/call", { name: "get_item", arguments: { handle: "BL-1" } });
 
@@ -20,14 +18,13 @@ describe("the /mcp tools", () => {
       expect(content[0]?.type).toBe("text");
       expect(JSON.parse(content[0]?.text ?? "")).toMatchObject({ handle: "BL-1", title: "Items in Wombat" });
     },
-    TEST_TIMEOUT_MS,
   );
 
   test(
     "get_item's version is what update_item takes, and the update answers the next one",
     async () => {
-      const { s } = await serveItems();
-      const { token } = await agentConfig(s);
+      const s = openMcp();
+      const { token } = s;
       const read = (await callTool(s, token, "get_item", { handle: "BL-1" })).json as { version: string };
 
       const updated = await callTool(s, token, "update_item", { handle: "BL-1", fields: { owner: "Kim" }, version: read.version });
@@ -42,14 +39,13 @@ describe("the /mcp tools", () => {
       expect(stale.isError).toBe(true);
       expect(stale.text).toContain("get_item");
     },
-    TEST_TIMEOUT_MS,
   );
 
   test(
     "describe_structure without an argument lists every structure the agent can use",
     async () => {
-      const { s } = await serveItems();
-      const { token } = await agentConfig(s);
+      const s = openMcp();
+      const { token } = s;
 
       const answer = await callTool(s, token, "describe_structure", {});
 
@@ -57,21 +53,19 @@ describe("the /mcp tools", () => {
       const ids = (answer.json as { id: string }[]).map((structure) => structure.id);
       expect(ids).toEqual(expect.arrayContaining(["backlog", "bugs", "docs"]));
     },
-    TEST_TIMEOUT_MS,
   );
 
   test(
     "GET and DELETE /mcp answer 405, even with a valid agent token",
     async () => {
-      const { s } = await serveItems();
-      const { token } = await agentConfig(s);
+      const s = openMcp();
+      const { token } = s;
 
       for (const method of ["GET", "DELETE"]) {
-        const response = await rawRequest(s.port, { method, path: "/mcp", headers: { authorization: `Bearer ${token}` } });
+        const response = await s.request({ method, path: "/mcp", headers: { authorization: `Bearer ${token}` } });
         expect(response.status, method).toBe(405);
         expect(response.headers.allow).toBe("POST");
       }
     },
-    TEST_TIMEOUT_MS,
   );
 });

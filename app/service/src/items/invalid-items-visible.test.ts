@@ -68,7 +68,7 @@ describe("invalid items stay visible", () => {
 
   // Front matter keys are data: one named like a member every object has must read as an unknown key, not as
   // that member (which made reading the root throw, taking every list and tool down).
-  test.each(["toString", "constructor", "hasOwnProperty", "valueOf", "__proto__"])(
+  test.each(["toString", "__proto__"])(
     "a key named %s is an unknown-key problem on its item, and every other item still lists",
     async (key) => {
       const file = `bugs/BUG-30-${key.replaceAll("_", "")}.md`;

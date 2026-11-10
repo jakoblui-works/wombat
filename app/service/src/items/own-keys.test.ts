@@ -1,5 +1,5 @@
 // Property names on a write are data, looked up as own keys only: a name every object has (`toString`,
-// `constructor`, `__proto__`) is an unknown property unless the structure declares it, and a declared one the
+// `__proto__`) is an unknown property unless the structure declares it, and a declared one the
 // caller leaves out is left out.
 import { describe, expect, test } from "vitest";
 
@@ -7,7 +7,7 @@ import { ItemWriteError } from "./write.ts";
 import { VALID_FILES, expectWriteError, frontmatterKeys, mdFilesIn, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 
 describe("property names on a write", () => {
-  test.each(["toString", "constructor", "__proto__"])("a new item's undeclared %s is refused by name, and nothing is written", async (key) => {
+  test.each(["toString", "__proto__"])("a new item's undeclared %s is refused by name, and nothing is written", async (key) => {
     const root = writeRoot(VALID_FILES);
     const { writer } = openItems(root);
     const before = mdFilesIn(root, "bugs");

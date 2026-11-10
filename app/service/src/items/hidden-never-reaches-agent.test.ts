@@ -2,13 +2,12 @@
 // handles, ids, titles, bodies or values) is in any read an agent makes, any search hit, any link value, describe's
 // output or any refusal; a link to a hidden item reads null like a missing one, and a hidden handle or structure is
 // refused exactly like a missing one, and a link to a hidden item gives the same problems as a link to a missing
-// one, without scrubbing ordinary problems that merely share a word with a hidden name. The MCP layer's half is server/mcp-hidden.test.ts.
+// one, without scrubbing ordinary problems that merely share a word with a hidden name.
 import { describe, expect, test } from "vitest";
 
 import { AccessError } from "./access.ts";
-import { renderInstructions } from "./instructions.ts";
 import { ACCESS_FILES, AGENT, HIDDEN, MARKER, expectRefused, leaks, openAccessRoot, refusal } from "../../test/access-fixtures.ts";
-import { HIDDEN_STRINGS, INSTRUCTIONS_FILES, UUID } from "../../test/instructions-fixtures.ts";
+import { UUID } from "../../test/instructions-fixtures.ts";
 import { itemAt } from "../../test/items-fixtures.ts";
 
 /** The message with the name the agent typed replaced, so two refusals can be compared. */
@@ -221,13 +220,5 @@ describe("hidden never reaches an agent", () => {
       expect(leaks(JSON.stringify(item), [MARKER, ...HIDDEN.ids, ...HIDDEN.handles]), what).toEqual([]);
       expect(UUID.exec(JSON.stringify(item))?.[0], `${what}: an id`).toBeUndefined();
     }
-
-    // The instructions file: the same files with the structures marked.
-    const { catalog } = openAccessRoot({ ...INSTRUCTIONS_FILES, "bugs/BUG-2-hero-caption.md": files["bugs/BUG-2-hero-caption.md"], "backlog/BL-1-items.md": files["backlog/BL-1-items.md"] });
-    const text = (await renderInstructions(catalog)) ?? "";
-    expect(text, "the instructions file rendered the items").toContain("BUG-2");
-    expect(leaks(text, HIDDEN_STRINGS), "the instructions file").toEqual([]);
-    expect(UUID.exec(text)?.[0], "an id in the instructions file").toBeUndefined();
-    expect(text).not.toContain("secretref");
   });
 });

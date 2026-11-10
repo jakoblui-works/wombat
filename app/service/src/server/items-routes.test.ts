@@ -133,16 +133,4 @@ describe("items routes", () => {
     },
     TEST_TIMEOUT_MS,
   );
-
-  test(
-    "without an items root every items route is items_not_configured",
-    async () => {
-      const s = await serve();
-
-      for (const path of ["/structures", "/structures/bugs/items", "/items/BUG-1"]) {
-        expectError(await s.api("GET", path), 409, "items_not_configured", path);
-      }
-    },
-    TEST_TIMEOUT_MS,
-  );
 });

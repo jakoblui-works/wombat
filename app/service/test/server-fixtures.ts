@@ -236,6 +236,8 @@ export type ServeOptions = SetupOptions & {
    * proposal routes and the agents' /mcp tools; without it they aren't configured.
    */
   itemsRoot?: string;
+  /** Stub agent tokens (token → agent id) /mcp takes besides the live agents' own, so a test needs no agent for one. */
+  agentTokens?: Record<string, string>;
 };
 
 export type Served = Setup & {
@@ -253,14 +255,16 @@ export type Served = Setup & {
 };
 
 /** A manager fixture behind a running server; everything is torn down after the test. */
-export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
+export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentTokens = {}, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
   const t = setup(setupOptions);
   const token = randomBytes(24).toString("base64url");
   const harnesses = ALL_SCENARIOS.map((scenario) => trackedHarness(scenario, t.pidDir));
-  // The server gets the manager with onCommitted counted, so tests can see subscriptions it leaves behind.
+  // The server gets the manager with onCommitted counted, so tests can see subscriptions it leaves behind, and with
+  // the stub agent tokens.
   let live = 0;
   const manager: Setup["manager"] = {
     ...t.manager,
+    agentForToken: (sent) => (Object.hasOwn(agentTokens, sent) ? agentTokens[sent] : t.manager.agentForToken(sent)),
     onCommitted: (listener) => {
       live += 1;
       const unsubscribe = t.manager.onCommitted(listener);

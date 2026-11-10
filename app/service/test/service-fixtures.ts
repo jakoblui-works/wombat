@@ -30,7 +30,7 @@ export type RunningService = {
   workspace: string;
   /** Undefined when the service runs without WOMBAT_ITEMS. */
   itemsRoot: string | undefined;
-  /** `<workspace>/.wombat/AGENTS.md`, as interface-S3 names it. */
+  /** `<workspace>/.wombat/AGENTS.md` */
   instructionsPath: string;
   file: DiscoveryFile;
   stderr: () => string;
@@ -43,10 +43,14 @@ export type ServiceOptions = {
   items?: Record<string, string>;
   /** Files written relative to the workspace before start (a stale instructions file, say). */
   workspaceFiles?: Record<string, string>;
+  /** The script that runs `main()`; default instructions-entry.ts. */
+  entry?: string;
+  /** More variables for the service's environment. */
+  env?: NodeJS.ProcessEnv;
 };
 
 /** Starts the service on a fresh workspace and waits for its discovery file; everything is stopped afterwards. */
-export const startService = async ({ items, workspaceFiles = {} }: ServiceOptions = {}): Promise<RunningService> => {
+export const startService = async ({ items, workspaceFiles = {}, entry = ENTRY, env: extraEnv = {} }: ServiceOptions = {}): Promise<RunningService> => {
   const base = mkdtempSync(join(tmpdir(), "wombat-instructions-"));
   const workspace = join(base, "workspace");
   const runtimeDir = join(base, "run");
@@ -76,8 +80,9 @@ export const startService = async ({ items, workspaceFiles = {} }: ServiceOption
     FAKE_AGENT_PID_DIR: pidDir,
     WOMBAT_TEST_SLICE: slice,
     ...(itemsRoot === undefined ? {} : { WOMBAT_ITEMS: itemsRoot }),
+    ...extraEnv,
   };
-  const child: ChildProcess = spawn(process.execPath, [ENTRY], { cwd: SERVICE_DIR, env, stdio: ["ignore", "pipe", "pipe"] });
+  const child: ChildProcess = spawn(process.execPath, [entry], { cwd: SERVICE_DIR, env, stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
   child.stderr?.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
   child.stdout?.resume();

@@ -9,7 +9,7 @@ import type { Proposal } from "@wombat/shared/items";
 import { openStore, type Store } from "../store/store.ts";
 import { readAt, writeAt } from "../../test/items-fixtures.ts";
 import { TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
-import { agentConfig, callTool, serveItems } from "../../test/mcp-fixtures.ts";
+import { callTool, serveItemsForStub } from "../../test/mcp-fixtures.ts";
 
 const REASONS = ["Overlap seen again in Zen", "Retry once before failing", "A bug nobody filed yet"];
 const NOTES = ["Fixed by the new grid", "Retry once on a timeout"];
@@ -19,8 +19,7 @@ describe("proposal alerts", () => {
   test(
     "every proposal change is alerted after it is committed, with the next seq, and with ids only on the wire",
     async () => {
-      const { s, root } = await serveItems();
-      const { token } = await agentConfig(s);
+      const { s, root, token } = await serveItemsForStub();
       const stream = await s.stream();
 
       // A second connection that sees committed data only, as the app would.

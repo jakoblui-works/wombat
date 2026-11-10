@@ -104,6 +104,9 @@ describe("first sight", () => {
         expect(frontmatterValue(written, "id")).toBe(item.id);
         expect(frontmatterValue(written, "handle")).toBe(item.handle);
         expect(withoutAssigned(written)).toBe(original);
+        // The inserted lines end like the frontmatter's own lines, so a CRLF file gets no bare LF.
+        const eol = file.frontmatterCrlf ? "\r\n" : "\n";
+        for (const key of ["id", "handle"]) expect(new RegExp(`^[ \\t]*${key}:[^\\r\\n]*(\\r?\\n)`, "m").exec(written)?.[1], `${key} line's ending`).toBe(eol);
       }),
       { numRuns: 25 },
     );

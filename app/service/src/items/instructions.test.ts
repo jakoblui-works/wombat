@@ -1,17 +1,19 @@
-// Lasting checks (silent failures) on the instructions file itself (T9): nothing of a hidden structure is ever in it
+// Lasting checks (silent failures) on the instructions file itself: nothing of a hidden structure is ever in it
 // (a link to a hidden item reads like a missing one), it carries handles and never ids; an item that is invalid on
-// disk neither breaks it nor brings problem text into it; and it is written atomically, read-only, rewritable,
-// and kept as it was when a render fails. The service's wiring (start, writes, watching, the agents' prompt) is
-// checked in instructions-service.test.ts.
+// disk neither breaks it nor brings problem text into it, nor leaves an empty heading; it is written atomically,
+// read-only, rewritable, and kept as it was when a render fails; and an approved create or delete is in it before
+// the approval answers. The service's wiring (start, writes, watching, the agents' prompt) is checked in
+// instructions-service.test.ts and instructions-startup.test.ts.
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, onTestFinished, test } from "vitest";
 
+import { openAccess } from "./access.ts";
 import type { Catalog } from "./catalog.ts";
-import { INSTRUCTIONS_FILE, renderInstructions, writeInstructions } from "./instructions.ts";
-import { leaks } from "../../test/access-fixtures.ts";
+import { INSTRUCTIONS_FILE, openInstructions, refreshingWriter, renderInstructions, writeInstructions } from "./instructions.ts";
+import { AGENT, leaks } from "../../test/access-fixtures.ts";
 import { HIDDEN_STRINGS, INSTRUCTIONS_FILES, UUID, itemBlock } from "../../test/instructions-fixtures.ts";
 import { openItems, writeRoot } from "../../test/items-fixtures.ts";
 
@@ -86,6 +88,9 @@ properties:
     for (const skipped of ["untitled-rule-text", "unparseable-rule-text", "broken-settings-guide-text", "Style guide", "edit-structure-rule-text", "Review before merging"]) {
       expect(text).not.toContain(skipped);
     }
+    // A skipped item leaves no heading of its own: none names CONV-3 (untitled) and none is empty (unparseable).
+    const headings = text.split("\n").filter((line) => /^#{1,6}(\s|$)/.test(line));
+    expect(headings.filter((line) => line.includes("CONV-3") || line.replace(/^#+/, "").trim() === ""), "headings of skipped items").toEqual([]);
     // Whole messages, and each without its leading `field: `, so a reworded prefix doesn't hide one.
     const fragments = problems.flatMap((message) => [message, message.replace(/^[^:]*: /, "")]);
     expect(fragments.filter((fragment) => text.includes(fragment)), "problem text in the file").toEqual([]);
@@ -130,5 +135,28 @@ properties:
     expect(failed, "one instructions_failed line").toHaveLength(1);
     expect(JSON.stringify(logs).includes("Login times out"), "file contents in the log").toBe(false);
     expect(existsSync(path)).toBe(true);
+  });
+
+  test("an approved create and an approved delete are in the file before the approval answers", async () => {
+    const root = writeRoot(INSTRUCTIONS_FILES);
+    const { catalog, writer, store } = openItems(root);
+    const workspaceRoot = workspace();
+    const path = join(workspaceRoot, INSTRUCTIONS_FILE);
+    // No watcher: only the writes' own refresh can bring a change into the file.
+    const instructions = openInstructions({ catalog, workspaceRoot, itemsRoot: root, log: () => undefined });
+    onTestFinished(() => instructions.close());
+    const access = openAccess({ catalog, writer: refreshingWriter(writer, instructions.refresh), store, onProposal: () => undefined });
+    await instructions.refresh();
+    expect(readFileSync(path, "utf8")).toContain("The hero caption overlaps the image");
+
+    const created = await access.proposeCreate(AGENT, "bugs", { title: "Search ignores accents", body: "\nInvented.\n" }, "Seen in the search box.");
+    expect(readFileSync(path, "utf8"), "a pending create").not.toContain("Search ignores accents");
+    expect((await access.approve(created.proposed)).status).toBe("approved");
+    expect(readFileSync(path, "utf8"), "right after the approved create").toContain("Search ignores accents");
+
+    const { version } = await access.get("BUG-2");
+    const deleted = await access.proposeDelete(AGENT, "BUG-2", version, "Fixed by the new layout.");
+    expect((await access.approve(deleted.proposed)).status).toBe("approved");
+    expect(readFileSync(path, "utf8"), "right after the approved delete").not.toContain("The hero caption overlaps the image");
   });
 });

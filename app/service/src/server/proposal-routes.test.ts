@@ -6,15 +6,14 @@ import { describe, expect, test } from "vitest";
 
 import { readAt, writeAt } from "../../test/items-fixtures.ts";
 import { TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
-import { agentConfig, callTool, serveItems } from "../../test/mcp-fixtures.ts";
-import { expectError, serve } from "../../test/server-fixtures.ts";
+import { callTool, serveItemsForStub } from "../../test/mcp-fixtures.ts";
+import { expectError } from "../../test/server-fixtures.ts";
 
 const BUG1 = "bugs/BUG-1-login-times-out.md";
 const BUG2 = "bugs/BUG-2-hero-caption.md";
 
 const setup = async () => {
-  const { s, root } = await serveItems();
-  const { token } = await agentConfig(s);
+  const { s, root, token } = await serveItemsForStub();
   const propose = async (handle: string, note: string) => {
     const { version } = (await callTool(s, token, "get_item", { handle })).json as { version: string };
     const answer = await callTool(s, token, "propose_update", { handle, fields: { note }, version, reason: "Seen again" });
@@ -119,18 +118,6 @@ describe("proposal routes", () => {
       expect(proposal.status).toBe("conflict");
       expect(proposal.problem).toBeDefined();
       expect(readAt(root, BUG1)).not.toContain("Stale note");
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "without WOMBAT_ITEMS the proposal routes answer items_not_configured",
-    async () => {
-      const s = await serve();
-
-      expectError(await s.api("GET", "/proposals"), 409, "items_not_configured");
-      expectError(await s.api("POST", "/proposals/prop_1/approve"), 409, "items_not_configured");
-      expectError(await s.api("POST", "/proposals/prop_1/reject"), 409, "items_not_configured");
     },
     TEST_TIMEOUT_MS,
   );

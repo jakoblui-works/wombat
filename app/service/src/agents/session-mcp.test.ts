@@ -1,6 +1,5 @@
-// What session/new carries: the wombat MCP server at the port the server is bound to, with a token that maps back
-// to the agent; the Claude Code harness's pre-allowed Wombat tools (D16) as `_meta`; and no `_meta` from a harness
-// that sets none.
+// What session/new carries: the Claude Code harness's pre-allowed Wombat tools (D16) as `_meta`, and no `_meta`
+// from a harness that sets none.
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -75,30 +74,10 @@ const start = async () => {
     rmSync(base, { recursive: true, force: true });
   });
   const read = (which: keyof typeof files) => JSON.parse(readFileSync(files[which], "utf8")) as SessionNew;
-  return { manager, port: server.port, read };
+  return { manager, read };
 };
 
 describe("session/new", () => {
-  test(
-    "carries the wombat MCP server at the bound port, with a bearer token that maps to the agent",
-    async () => {
-      const { manager, port, read } = await start();
-
-      const { id } = await manager.start("plain", "repo");
-
-      const [entry, ...others] = read("plain").mcpServers;
-      expect(others).toEqual([]);
-      expect(entry).toMatchObject({ type: "http", name: "wombat", url: `http://127.0.0.1:${port}/mcp` });
-      expect(entry?.headers).toHaveLength(1);
-      const [header] = entry?.headers ?? [];
-      expect(header?.name).toBe("Authorization");
-      const token = header?.value.replace(/^Bearer /, "") ?? "";
-      expect(Buffer.from(token, "base64url")).toHaveLength(32);
-      expect(manager.agentForToken(token)).toBe(id);
-    },
-    TEST_TIMEOUT_MS,
-  );
-
   test(
     "carries the Claude Code harness's pre-allowed Wombat tools, and no _meta for a harness without any",
     async () => {
