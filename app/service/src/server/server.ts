@@ -8,26 +8,30 @@ import {
   GetItemResponse as GetItemSchema,
   ListItemsResponse as ListItemsSchema,
   ListLogQuery,
+  ListProposalsQuery,
+  ListProposalsResponse as ListProposalsSchema,
   ListStructuresResponse as ListStructuresSchema,
   SendMessageRequest,
   StartAgentRequest,
   type ErrorBody,
   type GetItemResponse,
   type ItemsErrorCode,
-  type ListItemsResponse,
   type ListAgentsResponse,
   type ListHarnessesResponse,
+  type ListItemsResponse,
   type ListLogResponse,
+  type ListProposalsResponse,
   type ListStructuresResponse,
   type VersionResponse,
 } from "@wombat/shared/api";
+import { Proposal as ProposalSchema, type Proposal } from "@wombat/shared/items";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 
 import { AgentError, type AgentErrorCode, type Manager } from "../agents/manager.ts";
-import { openAccess } from "../items/access.ts";
+import { openAccess, ProposalError, type ProposalErrorCode } from "../items/access.ts";
 import type { Catalog, LoadedItem, LoadedStructure } from "../items/catalog.ts";
 import type { Writer } from "../items/write.ts";
 import type { Harness } from "../harness/harness.ts";
@@ -81,6 +85,8 @@ const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {
   structure_not_found: 404,
   item_not_found: 404,
   items_not_writable: 500,
+  proposal_not_found: 404,
+  proposal_not_pending: 409,
 };
 
 /** Thrown by a route on a request that breaks the contract; answered with 400. */
@@ -307,6 +313,26 @@ export const startServer = async ({
     return c.json(checked(GetItemSchema, withLinks(found, structures, handles)) satisfies GetItemResponse);
   });
 
+  app.get("/proposals", async (c) => {
+    if (!access) return notConfigured(c);
+    const parsed = ListProposalsQuery.safeParse(queryValues(c));
+    if (!parsed.success) {
+      throw new InvalidRequest(`The query doesn't match the API contract (${describeIssues(parsed.error)}). Fix it and send it again.`);
+    }
+    const proposals = await access.proposals(parsed.data.status);
+    return c.json(checked(ListProposalsSchema, { proposals }) satisfies ListProposalsResponse);
+  });
+
+  app.post("/proposals/:id/approve", async (c) => {
+    if (!access) return notConfigured(c);
+    return c.json(checked(ProposalSchema, await access.approve(c.req.param("id"))) satisfies Proposal);
+  });
+
+  app.post("/proposals/:id/reject", async (c) => {
+    if (!access) return notConfigured(c);
+    return c.json(checked(ProposalSchema, await access.reject(c.req.param("id"))) satisfies Proposal);
+  });
+
   app.get("/events", (c) => {
     // Hono answers HEAD by running this handler and dropping the body, which would leave a subscription that
     // no client ever reads or cancels.
@@ -328,6 +354,7 @@ export const startServer = async ({
 
   app.onError((error, c) => {
     if (error instanceof InvalidRequest) return errorResponse(c, 400, "invalid_request", error.message);
+    if (error instanceof ProposalError) return errorResponse(c, ITEMS_STATUS[error.code satisfies ProposalErrorCode], error.code, error.message);
     if (error instanceof AgentError) return errorResponse(c, STATUS[error.code], error.code, error.message, error.hint);
     // The details stay in the service: an error's message may quote agent content or paths.
     log("request_failed", { method: c.req.method, route: c.req.routePath, error: error.name });
