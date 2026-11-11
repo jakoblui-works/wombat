@@ -1,14 +1,26 @@
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
-import { app, BrowserWindow, protocol, session, shell, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, protocol, session, shell, type WebContents } from "electron";
 import { APP_INDEX_URL, APP_SCHEME, contentType, isAppOrigin, resolveAppFile } from "./app-protocol.ts";
+import { readE2eSwitches } from "./e2e-switches.ts";
 import { NONCE_PLACEHOLDER, newNonce, pageCsp, withNonce } from "./page-csp.ts";
+import { settingsPath } from "./settings.ts";
+import { workspaceControl } from "./workspace.ts";
 
 // The app's trust boundary (design doc, "App trust boundary"): a sandboxed renderer with no
 // Node, no permissions, no new windows, and no navigation away from the app's own page.
 
 const preloadPath = path.join(import.meta.dirname, "../preload/index.cjs");
 const rendererRoot = path.join(import.meta.dirname, "../renderer");
+// From the built main (out/main) to the service's source, which `node` runs as is.
+const serviceEntry = path.join(import.meta.dirname, "../../../service/src/main.ts");
+
+const e2e = readE2eSwitches(process.env);
+
+// Before anything reads userData (Chromium takes its profile from it at startup): `<appData>/Wombat`, whatever the
+// package is called.
+app.setName("Wombat");
+app.setPath("userData", path.join(app.getPath("appData"), app.getName()));
 
 // The dev server's URL, only in a development build (`electron-vite dev`): `import.meta.env.DEV`
 // is replaced at build time, so the built app never reads ELECTRON_RENDERER_URL.
@@ -103,8 +115,8 @@ const createWindow = async (): Promise<void> => {
       nodeIntegration: false,
     },
   });
-  // Under the e2e checks (WOMBAT_E2E=1) the window never shows.
-  if (process.env["WOMBAT_E2E"] !== "1") {
+  // Under the e2e checks the window never shows.
+  if (e2e === undefined) {
     window.once("ready-to-show", () => {
       window.show();
     });
@@ -135,12 +147,69 @@ app.on("window-all-closed", () => {
   app.quit();
 });
 
+const chooseFolder = async (): Promise<string | undefined> => {
+  if (e2e !== undefined) return e2e.workspace;
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: "Choose the workspace folder (the folder that holds the project's repos)",
+    buttonLabel: "Open Workspace",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  return canceled ? undefined : filePaths[0];
+};
+
+const confirmRestart = async (workspace: string): Promise<boolean> => {
+  if (e2e !== undefined) return e2e.restartAnswer === "restart";
+  const { response } = await dialog.showMessageBox({
+    type: "question",
+    buttons: ["Restart", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+    message: `Restart the service for ${workspace}?`,
+    detail: "Its agents stop.",
+  });
+  return response === 0;
+};
+
+const reportError = (title: string, error: unknown): void => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`${title}: ${message}`);
+  if (e2e === undefined) dialog.showErrorBox(title, message);
+};
+
+// The one workspace control: every start, switch and restart of the service goes through its queue.
+const workspace = workspaceControl({
+  env: process.env,
+  settingsFile: settingsPath(app.getPath("userData")),
+  serviceEntry: e2e?.serviceEntry ?? serviceEntry,
+  chooseFolder,
+  confirmRestart,
+});
+
+/** Picks the workspace and starts its service; false when the app should quit (cancelled, or it couldn't). */
+const openWorkspace = async (): Promise<boolean> => {
+  try {
+    const opened = await workspace.open();
+    if (opened === undefined) return false;
+    opened.service.catch((error: unknown) => {
+      reportError("The Wombat service isn't running", error);
+    });
+    return true;
+  } catch (error) {
+    reportError("Wombat couldn't open the workspace", error);
+    return false;
+  }
+};
+
 // Not a top-level await: Electron holds `ready` until the ESM entry has finished evaluating.
 app
   .whenReady()
   .then(async () => {
     denyPermissions();
     protocol.handle(APP_SCHEME, serveRenderer);
+    if (!(await openWorkspace())) {
+      app.quit();
+      return;
+    }
     await createWindow();
   })
   .catch((error: unknown) => {

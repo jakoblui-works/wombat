@@ -172,7 +172,13 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
       throw listenRefusal(config.port, error) ?? error;
     }
     try {
-      writeDiscovery(config.discoveryPath, { apiVersion: API_VERSION, port: server.port, pid: process.pid, token });
+      writeDiscovery(config.discoveryPath, {
+        apiVersion: API_VERSION,
+        port: server.port,
+        pid: process.pid,
+        token,
+        workspace: config.workspaceRoot,
+      });
     } catch (error) {
       throw new StartRefused(
         `The service couldn't write its discovery file ${config.discoveryPath} (${(error as Error).message}). ` +

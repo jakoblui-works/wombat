@@ -1,7 +1,8 @@
 import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 
-import { discoveryPath } from "./discovery.ts";
+import { discoveryPath } from "@wombat/shared/discovery";
+
 import { defaultStorePath } from "./store/paths.ts";
 
 /** The service's port when WOMBAT_PORT is unset. */

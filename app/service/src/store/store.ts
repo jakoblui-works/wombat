@@ -3,8 +3,8 @@ import { DatabaseSync } from "node:sqlite";
 
 import type { AgentSummary, LogEntry } from "@wombat/shared/api";
 import type { Problem, Proposal, ProposalStatus } from "@wombat/shared/items";
+import { ensurePrivateFile, tightenPrivateFile } from "@wombat/shared/private-file";
 
-import { ensurePrivateFile, tightenPrivateFile } from "../private-file.ts";
 
 /** The default cap on one agent's stored entries, in bytes of their stored JSON. */
 export const LOG_BYTES_PER_AGENT = 16 * 1024 * 1024;

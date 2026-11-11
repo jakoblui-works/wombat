@@ -1,5 +1,7 @@
-// Files only the service's user may read: the discovery file and the start lock hold or guard the bearer token,
-// and the store holds the agents' history. Their folders are 0700, so no other local user can list them either.
+/// <reference types="node" />
+// Node-only. Files only their user may read: the service's discovery file and start lock hold or guard the bearer
+// token, its store holds the agents' history, and the app's settings and the service's log name the user's folders.
+// Their folders are 0700, so no other local user can list them either.
 import { randomBytes } from "node:crypto";
 import { chmodSync, closeSync, existsSync, linkSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";

@@ -8,10 +8,9 @@ import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 
 import { AgentSummary, Alert, ListLogResponse, VersionResponse, type LogEntry } from "@wombat/shared/api";
-import { DiscoveryFile } from "@wombat/shared/discovery";
+import { DiscoveryFile, discoveryPath } from "@wombat/shared/discovery";
 
 import { DEFAULT_SLICE } from "../src/agents/scope.ts";
-import { discoveryPath } from "../src/discovery.ts";
 
 const run = promisify(execFile);
 const serviceDir = resolve(import.meta.dirname, "..");

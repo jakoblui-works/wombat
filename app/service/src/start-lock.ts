@@ -10,11 +10,10 @@
 import { closeSync, fstatSync, openSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
-import type { DiscoveryFile } from "@wombat/shared/discovery";
+import { findRunningService, type DiscoveryFile } from "@wombat/shared/discovery";
+import { createPrivateFile, writePrivateFile } from "@wombat/shared/private-file";
 
-import { findRunningService } from "./discovery.ts";
 import { isAlreadyThere, isMissing, isProcessGone } from "./errno.ts";
-import { createPrivateFile, writePrivateFile } from "./private-file.ts";
 
 const LOCK_FILE = "service.lock";
 /** How long a start waits for the lock's holder to write its discovery file. */

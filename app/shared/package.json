@@ -6,7 +6,10 @@
     ".": "./src/index.ts",
     "./api": "./src/api.ts",
     "./discovery": "./src/discovery.ts",
-    "./items": "./src/items.ts"
+    "./items": "./src/items.ts",
+    "./private-file": "./src/private-file.ts",
+    "./routes": "./src/routes.ts",
+    "./state-dir": "./src/state-dir.ts"
   },
   "scripts": {
     "test": "vitest run",
