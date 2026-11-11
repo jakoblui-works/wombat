@@ -17,6 +17,11 @@ export type FakeSystemdOptions = {
   runFails?: boolean;
   /** `systemctl kill`/`stop` print this on stdout and stderr and exit 1; `is-active` prints it on stderr. */
   noise?: string;
+  /**
+   * `systemctl stop` waits until this file exists before it answers (after recording the call), so a test can hold
+   * the service in the middle of a shutdown (the slice stop comes after the agents' scopes are killed).
+   */
+  stopGate?: string;
 };
 
 export type Call = { tool: "systemd-run" | "systemctl"; args: string[] };
@@ -43,7 +48,7 @@ printf '%s\\036' "$rec" >> ${shellQuote(log)}
 `;
 
 export const fakeSystemd = (options: FakeSystemdOptions = {}): FakeSystemd => {
-  const { state = "running", sliceActive = false, runFails = false, noise } = options;
+  const { state = "running", sliceActive = false, runFails = false, noise, stopGate } = options;
   const base = mkdtempSync(join(tmpdir(), "wombat-fake-systemd-"));
   const binDir = join(base, "bin");
   mkdirSync(binDir);
@@ -73,7 +78,7 @@ for a in "$@"; do
   case "$a" in
     is-system-running) ${isSystemRunning} ;;
     is-active) ${noisyErr}${sliceActive ? "echo active; exit 0" : "echo inactive; exit 3"} ;;
-    kill|stop) ${noise === undefined ? "exit 0" : `${noisy}exit 1`} ;;
+    kill|stop) ${stopGate === undefined ? "" : `[ "$a" = stop ] && while [ ! -e ${shellQuote(stopGate)} ]; do sleep 0.02; done; `}${noise === undefined ? "exit 0" : `${noisy}exit 1`} ;;
   esac
 done
 exit 0

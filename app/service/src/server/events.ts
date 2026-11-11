@@ -4,6 +4,13 @@ import type { Committed, Manager } from "../agents/manager.ts";
 
 const encoder = new TextEncoder();
 
+/**
+ * Alerts (and pings) a client may have waiting in its stream before the stream is ended. Past it the client has
+ * stopped reading: keeping on queueing would grow the service's memory for a window that may never read again.
+ * Once it reads the ones queued it sees the stream end, reconnects and catches up from the last seq it got.
+ */
+export const MAX_QUEUED_ALERTS = 1_000;
+
 export type AlertStreamsOptions = {
   onCommitted: Manager["onCommitted"];
   dbId: string;
@@ -26,6 +33,8 @@ export const createAlertStreams = ({ onCommitted, dbId, heartbeatMs }: AlertStre
         let ended = false;
         const write = (text: string) => {
           if (ended) return;
+          // With a high-water mark of 0, the queue holds exactly -desiredSize chunks.
+          if (-(controller.desiredSize ?? 0) >= MAX_QUEUED_ALERTS) return close();
           try {
             controller.enqueue(encoder.encode(text));
           } catch {
@@ -60,7 +69,7 @@ export const createAlertStreams = ({ onCommitted, dbId, heartbeatMs }: AlertStre
       },
       // The client dropped the connection: nothing may be written to it any more.
       cancel: () => end(),
-    });
+    }, new CountQueuingStrategy({ highWaterMark: 0 }));
     return new Response(body, {
       headers: {
         "content-type": "text/event-stream",

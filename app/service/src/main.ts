@@ -4,15 +4,16 @@ import { API_VERSION } from "@wombat/shared";
 
 import { createManager, type Manager } from "./agents/manager.ts";
 import { readConfig } from "./config.ts";
-import { findRunningService, newToken, removeDiscovery, writeDiscovery } from "./discovery.ts";
+import { newToken, removeDiscovery, writeDiscovery } from "./discovery.ts";
+import { errorCode } from "./errno.ts";
 import { openCatalog } from "./items/catalog.ts";
-import { errorCode } from "./items/errno.ts";
 import { openInstructions, readInstructions, refreshingWriter, type Instructions } from "./items/instructions.ts";
 import type { Harness } from "./harness/harness.ts";
 import { defaultHarnesses } from "./harness/registry.ts";
 import { openWriter } from "./items/write.ts";
 import { logToStderr } from "./log.ts";
 import { startServer } from "./server/server.ts";
+import { LockHeld, takeStartLock } from "./start-lock.ts";
 import { openStore, type Store } from "./store/store.ts";
 
 export type MainOptions = {
@@ -59,6 +60,15 @@ const listenRefusal = (port: number, error: unknown): StartRefused | undefined =
   }
 };
 
+/** Releases the start lock on a failed start; a release error would only hide the start failure reported next. */
+const releaseQuietly = (lock: { release: () => void }) => {
+  try {
+    lock.release();
+  } catch {
+    // The lock names this process, so a start after it exits takes it over anyway.
+  }
+};
+
 /** Binds the port on 127.0.0.1 and lets it go again; 0 always can be bound. */
 const probePort = (port: number) =>
   new Promise<void>((resolve, reject) => {
@@ -81,23 +91,30 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
     return fail(new StartRefused((error as Error).message));
   }
 
-  // Checked before the store and manager open: the manager stops its slice at creation, which would end the
-  // running instance's agents, and the shared database would refuse a second writer.
-  const running = await findRunningService(config.discoveryPath);
-  if (running) {
-    return fail(
-      new StartRefused(
-        `A Wombat service is already running (pid ${String(running.pid)}, port ${String(running.port)}). ` +
-          `Use that one, or stop it (kill ${String(running.pid)}) before starting another.`,
-      ),
+  // Start-up order: lock, probe the port, open the store and manager, listen, write the discovery file. The lock
+  // comes first: the manager stops its slice at creation, which would end a running instance's agents, and the
+  // shared database would refuse a second writer. It's released only after the store closes (see start-lock.ts).
+  let lock: Awaited<ReturnType<typeof takeStartLock>>;
+  try {
+    lock = await takeStartLock(config.discoveryPath);
+  } catch (error) {
+    return fail(error instanceof LockHeld ? new StartRefused(error.message) : error);
+  }
+  if (!lock.held) {
+    // The app may start the service whenever it doesn't see one, so finding one running isn't an error.
+    const { pid, port } = lock.running;
+    process.stderr.write(
+      `A Wombat service is already running (pid ${String(pid)}, port ${String(port)}); this start leaves it running and exits.\n`,
     );
+    return process.exit(0);
   }
 
-  // Also before the manager: a start that can't listen mustn't stop the slice on its way out. startServer
-  // still refuses the port if another program takes it in between.
+  // Before the manager: a start that can't listen mustn't stop the slice on its way out. startServer still
+  // refuses the port if another program takes it in between.
   try {
     await probePort(config.port);
   } catch (error) {
+    releaseQuietly(lock);
     return fail(error);
   }
 
@@ -130,7 +147,17 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
         itemsRoot === undefined || catalog === undefined
           ? {}
           : { items: catalog, writer: refreshingWriter(openWriter({ root: itemsRoot, store, log }), refresh) };
-      server = await startServer({ manager, store, harnesses, token, port: config.port, log, ...items });
+      server = await startServer({
+        manager,
+        store,
+        harnesses,
+        token,
+        port: config.port,
+        log,
+        // Only called from a request, and none is handled before `stop` below is defined.
+        onShutdown: () => stop("POST /shutdown"),
+        ...items,
+      });
     } catch (error) {
       throw listenRefusal(config.port, error) ?? error;
     }
@@ -152,6 +179,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
     } catch {
       // The start failure is reported next; a close error on top would only hide it.
     }
+    releaseQuietly(lock);
     return fail(error);
   }
 
@@ -162,10 +190,12 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   const openedManager = manager;
   const openedServer = server;
   const openedInstructions = instructions;
+  const heldLock = lock;
   let stopping: Promise<void> | undefined;
-  const stop = (signal: NodeJS.Signals) => {
+  /** The one stop path, for SIGINT, SIGTERM and POST /shutdown. */
+  const stop = (reason: NodeJS.Signals | "POST /shutdown") => {
     stopping ??= (async () => {
-      log("service_stopping", { signal });
+      log("service_stopping", { reason });
       let failed = false;
       // Each step runs even if one before it failed, so agents are never left running because the port wouldn't close.
       const step = async (name: string, run: () => unknown) => {
@@ -181,6 +211,8 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
       await step("instructions", () => openedInstructions.close());
       await step("manager", () => openedManager.shutdown());
       await step("store", () => openedStore.close());
+      // Last: a start waiting on the lock may open the store as soon as it's gone.
+      await step("lock", () => heldLock.release());
       process.exit(failed ? 1 : 0);
     })();
   };

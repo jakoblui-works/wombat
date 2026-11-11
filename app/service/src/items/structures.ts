@@ -8,7 +8,7 @@ import { join, matchesGlob, relative, sep } from "node:path";
 import { StructureSettings, type Problem } from "@wombat/shared/items";
 import { isCollection, LineCounter, parseDocument, type Document } from "yaml";
 
-import { errorCode, isMissing } from "./errno.ts";
+import { errorCode, isMissing } from "../errno.ts";
 
 export const SETTINGS_FILE = "_structure.yaml";
 

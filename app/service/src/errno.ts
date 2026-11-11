@@ -15,3 +15,6 @@ export const isMissingPath = (error: unknown) => ["ENOENT", "ENOTDIR"].includes(
 
 /** Whether a file that must be new already exists. */
 export const isAlreadyThere = (error: unknown) => codeOf(error) === "EEXIST";
+
+/** Whether a /proc read failed because the process is gone (or went while it was read). */
+export const isProcessGone = (error: unknown) => ["ENOENT", "ESRCH"].includes(codeOf(error) ?? "");

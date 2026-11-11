@@ -1,12 +1,12 @@
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { readFileSync, unlinkSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 
 import { DiscoveryFile } from "@wombat/shared/discovery";
 
-/** The file holds the bearer token: no other local user may read it, or list the folder it's in. */
-const PRIVATE_DIR = 0o700;
-const PRIVATE_FILE = 0o600;
+import { isMissing } from "./errno.ts";
+import { writePrivateFile } from "./private-file.ts";
+
 const DEFAULT_TIMEOUT_MS = 2_000;
 
 /** `$XDG_RUNTIME_DIR/wombat/service.json`; throws when XDG_RUNTIME_DIR is unset or relative. */
@@ -24,22 +24,11 @@ export const discoveryPath = (env: NodeJS.ProcessEnv): string => {
 /** A fresh random bearer token (at least 16 characters). */
 export const newToken = (): string => randomBytes(32).toString("base64url");
 
-/** Writes the file atomically: folder 0700, file 0600, looser existing modes tightened. */
-export const writeDiscovery = (path: string, file: DiscoveryFile): void => {
-  const dir = dirname(path);
-  mkdirSync(dir, { recursive: true, mode: PRIVATE_DIR });
-  chmodSync(dir, PRIVATE_DIR);
-  // Renamed into place, so the app never reads a half-written file.
-  const temp = join(dir, `.${basename(path)}.${randomBytes(6).toString("hex")}.tmp`);
-  try {
-    writeFileSync(temp, `${JSON.stringify(file)}\n`, { mode: PRIVATE_FILE, flag: "wx" });
-    chmodSync(temp, PRIVATE_FILE);
-    renameSync(temp, path);
-  } catch (error) {
-    rmSync(temp, { force: true });
-    throw error;
-  }
-};
+/**
+ * Writes the file atomically (the app never reads a half-written one), private to the user: it holds the bearer
+ * token. Looser existing modes are tightened.
+ */
+export const writeDiscovery = (path: string, file: DiscoveryFile): void => writePrivateFile(path, `${JSON.stringify(file)}\n`);
 
 const readFile = (path: string): DiscoveryFile | undefined => {
   let text: string;
@@ -63,7 +52,7 @@ export const removeDiscovery = (path: string, pid: number): void => {
   try {
     unlinkSync(path);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (!isMissing(error)) throw error;
   }
 };
 

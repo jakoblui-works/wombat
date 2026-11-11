@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { logToStderr, type Log } from "../log.ts";
 import { agentView, type AgentViewItem } from "./access.ts";
 import type { Catalog, ValidStructure } from "./catalog.ts";
-import { errorCode, isMissing } from "./errno.ts";
+import { errorCode, isMissing } from "../errno.ts";
 import { writeAtomic } from "./files.ts";
 import { isSkippedPath, SETTINGS_FILE } from "./structures.ts";
 import { TOOL } from "./tools.ts";

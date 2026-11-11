@@ -285,4 +285,17 @@ describe("routes", () => {
     },
     TEST_TIMEOUT_MS,
   );
+
+  test(
+    "POST /shutdown with a body, or GET /shutdown, is refused and stops nothing",
+    async () => {
+      const s = await serve();
+      const { id } = await startAgent(s, "fake-hang");
+      expectError(await s.api("POST", "/shutdown", { now: true }), 400, "invalid_request", "POST /shutdown with a body");
+      expectError(await s.api("GET", "/shutdown"), 404, "not_found", "GET /shutdown");
+      expect(s.shutdownRequests()).toBe(0);
+      expect(s.agent(id)?.state).not.toBe("stopped");
+    },
+    TEST_TIMEOUT_MS,
+  );
 });

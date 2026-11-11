@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { getRequestListener } from "@hono/node-server";
+import { getRequestListener, type HttpBindings } from "@hono/node-server";
 import { API_VERSION } from "@wombat/shared";
 import {
   AgentErrorCode,
@@ -64,8 +64,8 @@ export type ServerOptions = {
   /** Writes the items; with `items`, it opens the agents' write tools on /mcp. */
   writer?: Writer;
   /**
-   * Called once POST /shutdown has stopped every agent and answered: the service's SIGTERM path (main passes it).
-   * Stub for step 6 T3: the route doesn't exist yet.
+   * Called once POST /shutdown has stopped every agent and its response is out: the service's own stop path,
+   * which main passes. Without it the route still stops the agents, but the service keeps running.
    */
   onShutdown?: () => void;
 };
@@ -142,6 +142,7 @@ export const startServer = async ({
   log = logToStderr,
   items,
   writer,
+  onShutdown,
 }: ServerOptions): Promise<{ port: number; close: () => Promise<void> }> => {
   if (token.length < MIN_TOKEN_LENGTH) {
     throw new Error(
@@ -233,6 +234,19 @@ export const startServer = async ({
   app.delete("/agents/:id", async (c) => {
     await manager.delete(c.req.param("id"));
     return c.body(null, 204);
+  });
+
+  app.post("/shutdown", async (c) => {
+    if ((await c.req.text()) !== "") {
+      throw new InvalidRequest("POST /shutdown takes no body. Send it again without one.");
+    }
+    // Attached before the agents are stopped, so the service stops even if the client leaves meanwhile (its
+    // close would come before anything attached later). It fires once the answer is out or the client is gone;
+    // the stop path awaits the same manager shutdown before it closes the store.
+    if (onShutdown) (c.env as HttpBindings).outgoing.once("close", onShutdown);
+    // The manager's shutdown is the stop path's own agent stop: each agent ends as POST /agents/:id/stop ends it.
+    await manager.shutdown();
+    return c.json({}, 202);
   });
 
   const notConfigured = (c: Context) =>
