@@ -5,7 +5,9 @@ import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { discoveryPath, findRunningService, type DiscoveryFile } from "@wombat/shared/discovery";
-import { ServiceStartFailed, startService, stopService } from "./service-start.ts";
+import { runningCount } from "./quit.ts";
+import { listAgents } from "./service-client.ts";
+import { otherWorkspaceFailure, ServiceStartFailed, startService, stopService } from "./service-start.ts";
 import { loadSettings, saveSettings, type Settings } from "./settings.ts";
 
 export type WorkspaceDeps = {
@@ -15,8 +17,11 @@ export type WorkspaceDeps = {
   serviceEntry: string;
   /** The workspace folder dialog; undefined when it's cancelled. */
   chooseFolder: () => Promise<string | undefined>;
-  /** "Restart the service for <workspace>? Its agents stop."; true for Restart. */
-  confirmRestart: (workspace: string) => Promise<boolean>;
+  /**
+   * "Restart the service for <workspace>? Its agents stop."; true for Restart. `running` is how many of its agents
+   * run, undefined when they couldn't be read.
+   */
+  confirmRestart: (workspace: string, running: number | undefined) => Promise<boolean>;
   log?: (line: string) => void;
 };
 
@@ -29,7 +34,15 @@ export type OpenedWorkspace = {
 export type WorkspaceControl = {
   /** Picks the workspace (asking on first start) and starts its service if needed; undefined when the user cancelled. */
   open: () => Promise<OpenedWorkspace | undefined>;
-  /** Stops a service running for another workspace, starts one for `workspace`, then saves it as the workspace. */
+  /**
+   * Whether a switch to `workspace` may go ahead: asks first (confirmRestart) when it would stop a running service
+   * for another workspace; true without asking when none runs or the running one is for `workspace`.
+   */
+  confirmSwitch: (workspace: string) => Promise<boolean>;
+  /**
+   * Stops a service running for another workspace, starts one for `workspace`, then saves it as the workspace. It
+   * doesn't ask: confirmSwitch does, before it.
+   */
   switchWorkspace: (workspace: string) => Promise<DiscoveryFile>;
   /** Starts the service for the saved workspace again if none runs (after it stopped or crashed). */
   restart: () => Promise<DiscoveryFile>;
@@ -75,11 +88,7 @@ export const workspaceControl = ({
       const running = await findRunning();
       if (running === undefined) return startFor(workspace);
       if (running.workspace === workspace) return running;
-      throw new ServiceStartFailed(
-        `The running service is for another workspace (${running.workspace ?? "one it doesn't name"}), not ${workspace}. ` +
-          `Switch to ${workspace} again to restart the service for it.`,
-        [running.workspace],
-      );
+      throw otherWorkspaceFailure(running, workspace);
     });
 
   const switchWorkspace = (workspace: string): Promise<DiscoveryFile> =>
@@ -92,6 +101,19 @@ export const workspaceControl = ({
       save({ workspace });
       return file;
     });
+
+  const idle = () => queue.then(() => undefined);
+
+  /** The restart question about `running`, with how many of its agents run. */
+  const askRestart = async (running: DiscoveryFile, workspace: string): Promise<boolean> =>
+    confirmRestart(workspace, await runningCount(() => listAgents(running), log));
+
+  const confirmSwitch = async (workspace: string): Promise<boolean> => {
+    // After any start in flight, so the question is about the service that will be stopped.
+    await idle();
+    const running = await findRunning();
+    return running === undefined || running.workspace === workspace || askRestart(running, workspace);
+  };
 
   const restart = (): Promise<DiscoveryFile> => {
     const { workspace } = settings;
@@ -115,7 +137,7 @@ export const workspaceControl = ({
     const running = await findRunning();
     if (running === undefined) return { workspace, service: ensure(workspace) };
     if (running.workspace === workspace) return { workspace, service: Promise.resolve(running) };
-    if (await confirmRestart(workspace)) return { workspace, service: switchWorkspace(workspace) };
+    if (await askRestart(running, workspace)) return { workspace, service: switchWorkspace(workspace) };
     // Kept: the running service and its agents. A service that doesn't name its workspace leaves the settings as they are.
     if (running.workspace === undefined) return { workspace, service: Promise.resolve(running) };
     save({ workspace: running.workspace });
@@ -124,10 +146,11 @@ export const workspaceControl = ({
 
   return {
     open,
+    confirmSwitch,
     switchWorkspace,
     restart,
     shutdown,
-    idle: () => queue.then(() => undefined),
+    idle,
     settings: () => settings,
     updateSettings,
   };

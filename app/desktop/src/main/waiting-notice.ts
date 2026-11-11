@@ -22,7 +22,8 @@ export type WaitingNotices = {
   onAlert: (alert: Alert) => void;
   /**
    * Takes the agents waiting now as already notified. Called on every connect: `/events` never replays, so a change
-   * missed while disconnected must not raise a notification late, nor one for an agent already waiting.
+   * missed while disconnected must not raise a notification late, nor one for an agent already waiting. Notices
+   * shown for agents no longer waiting are closed.
    */
   onConnected: () => void;
   /** Settles once every alert and connect so far has been handled. */
@@ -30,6 +31,9 @@ export type WaitingNotices = {
 };
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** The one rule for which agents are waiting on the user. */
+const isWaiting = (agent: Pick<AgentSummary, "state"> | undefined): boolean => agent?.state === "waiting";
 
 export const waitingNotices = ({ agents, show, openAgent, log = console.warn }: WaitingNoticeDeps): WaitingNotices => {
   // The agents last seen waiting: one notification per turn to waiting, however many alerts it brings.
@@ -64,8 +68,7 @@ export const waitingNotices = ({ agents, show, openAgent, log = console.warn }: 
   const check = async (agentId: string): Promise<void> => {
     const list = await read();
     if (list === undefined) return;
-    const agent = list.find(({ id }) => id === agentId);
-    if (agent?.state !== "waiting") {
+    if (!isWaiting(list.find(({ id }) => id === agentId))) {
       waiting.delete(agentId);
       return;
     }
@@ -74,17 +77,19 @@ export const waitingNotices = ({ agents, show, openAgent, log = console.warn }: 
     notify(agentId);
   };
 
-  const refill = async (): Promise<void> => {
-    const list = await read();
-    if (list === undefined) return;
-    waiting.clear();
-    for (const { id, state } of list) if (state === "waiting") waiting.add(id);
-  };
-
   const forget = (agentId: string): void => {
     waiting.delete(agentId);
     shown.get(agentId)?.close();
     shown.delete(agentId);
+  };
+
+  const refill = async (): Promise<void> => {
+    const list = await read();
+    if (list === undefined) return;
+    waiting.clear();
+    for (const agent of list) if (isWaiting(agent)) waiting.add(agent.id);
+    // A notice for an agent that stopped waiting (or went away) while disconnected would open a stale question.
+    for (const agentId of [...shown.keys()]) if (!waiting.has(agentId)) forget(agentId);
   };
 
   return {

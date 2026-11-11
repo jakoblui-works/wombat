@@ -1,5 +1,5 @@
 import { APP_ORIGIN } from "@wombat/shared";
-import { ListAgentsResponse, type AgentSummary } from "@wombat/shared/api";
+import { BODY_OVER_CAP_MESSAGE, ListAgentsResponse, type AgentSummary } from "@wombat/shared/api";
 import type { DiscoveryFile } from "@wombat/shared/discovery";
 import { appRoute, MAX_BODY_BYTES } from "@wombat/shared/routes";
 import type { ServiceAnswer } from "../shared/bridge.ts";
@@ -53,7 +53,7 @@ const checked = (method: unknown, path: unknown, body: unknown): { method: strin
   const json = JSON.stringify(body) as string | undefined;
   if (json === undefined) throw new RequestRefused(`The body for ${method} ${path} isn't JSON; send a JSON value.`);
   if (Buffer.byteLength(json) > MAX_BODY_BYTES) {
-    throw new RequestRefused(`The body for ${method} ${path} is over ${String(MAX_BODY_BYTES / 1024 / 1024)} MiB, more than the service takes; send a shorter one.`);
+    throw new RequestRefused(`${method} ${path} wasn't sent: ${BODY_OVER_CAP_MESSAGE}`);
   }
   return { method, path, body };
 };

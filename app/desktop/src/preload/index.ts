@@ -3,9 +3,13 @@ import type { Alert } from "@wombat/shared/api";
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { CHANNELS, type ConnectionUpdate, type Unsubscribe, type WombatBridge } from "../shared/bridge.ts";
 import { connectionFeed } from "./connection-feed.ts";
+import { fromMain, withoutUndefined } from "./invoke.ts";
 
 // The page's only bridge to the host. Everything added here widens what a page can reach;
 // keep it in step with the allow-lists in e2e/trust-boundary.e2e.ts.
+
+// Every call the page awaits rejects with main's own message (see fromMain).
+const invoke = <T>(channel: string, ...args: unknown[]): Promise<T> => fromMain(ipcRenderer.invoke(channel, ...args) as Promise<T>);
 
 const subscribe = <T>(channel: string, cb: (value: T) => void): Unsubscribe => {
   const listener = (_event: IpcRendererEvent, value: T) => cb(value);
@@ -29,18 +33,18 @@ ipcRenderer
 const bridge: WombatBridge = {
   apiVersion: API_VERSION,
   service: {
-    request: (method, path, body) => ipcRenderer.invoke(CHANNELS.request, method, path, body),
+    request: (method, path, body) => invoke(CHANNELS.request, method, path, body),
     onAlert: (cb) => subscribe<Alert>(CHANNELS.alert, cb),
     onConnection: (cb) => connection.subscribe(cb),
-    restart: () => ipcRenderer.invoke(CHANNELS.restart),
+    restart: () => invoke(CHANNELS.restart),
   },
   workspace: {
-    get: () => ipcRenderer.invoke(CHANNELS.workspaceGet),
-    switch: () => ipcRenderer.invoke(CHANNELS.workspaceSwitch),
+    get: () => invoke(CHANNELS.workspaceGet),
+    switch: () => invoke(CHANNELS.workspaceSwitch),
   },
   settings: {
-    get: () => ipcRenderer.invoke(CHANNELS.settingsGet),
-    set: (patch) => ipcRenderer.invoke(CHANNELS.settingsSet, patch),
+    get: () => invoke(CHANNELS.settingsGet),
+    set: (patch) => invoke(CHANNELS.settingsSet, withoutUndefined(patch)),
   },
   onOpenAgent: (cb) => subscribe<string>(CHANNELS.openAgent, cb),
 };

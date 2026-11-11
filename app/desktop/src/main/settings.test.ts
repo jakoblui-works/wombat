@@ -4,8 +4,19 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, onTestFinished, test } from "vitest";
+import type { z } from "zod";
 
-import { loadSettings, rendererSettings, saveSettings, settingsPath, withRendererPatch, type Settings } from "./settings.ts";
+import type { RendererSettings } from "../shared/bridge.ts";
+import {
+  loadSettings,
+  rendererSettings,
+  saveSettings,
+  settingsPath,
+  withRendererPatch,
+  type PatchMatches,
+  type RendererSettingsPatch,
+  type Settings,
+} from "./settings.ts";
 
 const tempUserData = (): string => {
   const base = mkdtempSync(path.join(tmpdir(), "wombat-settings-"));
@@ -72,4 +83,13 @@ test("the page sees and sets only askOnQuit, lastAgentFolder and the current wor
   expect(() => withRendererPatch(settings, { workspace: "/home/dev/other" })).toThrow(/askOnQuit, lastAgentFolder and layout/);
   // A layout that couldn't be written as JSON is refused, so it can't block later saves.
   expect(() => withRendererPatch(settings, { layout: { panes: 10n } })).toThrow(/settings change isn't valid/);
+});
+
+test("the bridge's RendererSettings and the page's patch schema are tied at compile time", () => {
+  const matches: PatchMatches<RendererSettings, z.infer<typeof RendererSettingsPatch>> = true;
+  // @ts-expect-error a field the page could send that the schema refuses
+  const extraField: PatchMatches<RendererSettings & { theme?: string }, z.infer<typeof RendererSettingsPatch>> = true;
+  // @ts-expect-error a field whose type the schema doesn't take
+  const otherType: PatchMatches<{ askOnQuit: string; lastAgentFolder?: string; layout?: unknown }, z.infer<typeof RendererSettingsPatch>> = true;
+  expect([matches, extraField, otherType]).toEqual([true, true, true]);
 });

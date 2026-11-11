@@ -4,11 +4,12 @@
 //
 // Content is stored by the service and read through the API as entries. The stream
 // (`GET /events`) sends alerts only, each after its change is committed: an alert says that
-// something changed, never what. A heartbeat comment line (`: ping`) every ~15 s keeps the
-// stream open and isn't an alert.
+// something changed, never what. A heartbeat comment line (`: ping`) every HEARTBEAT_MS keeps
+// the stream open and isn't an alert.
 import { z } from "zod";
 
 import { Item, ItemSummary, knownItems, Proposal, ProposalStatus, StructureSummary } from "./items.ts";
+import { MAX_BODY_BYTES } from "./routes.ts";
 
 const Seq = z.int().nonnegative();
 const Timestamp = z.iso.datetime({ offset: true });
@@ -114,6 +115,9 @@ export const ServerErrorCode = z.enum([
   "internal_error",
 ]);
 export type ServerErrorCode = z.infer<typeof ServerErrorCode>;
+
+/** The message for a body over MAX_BODY_BYTES: the service's `payload_too_large`, and the app's refusal before sending. */
+export const BODY_OVER_CAP_MESSAGE = `The request body is over ${String(MAX_BODY_BYTES / 1024 / 1024)} MiB, more than the service takes. Send a shorter one.`;
 
 /**
  * `POST /agents` when the repo path doesn't name a folder in the workspace (`repo_not_found`) or leads out of it
@@ -482,6 +486,9 @@ export const ListLogResponse = z.object({
 export type ListLogResponse = z.infer<typeof ListLogResponse>;
 
 // Alerts (lenient), sent over `GET /events` after the change is committed.
+
+/** How often the service writes the heartbeat on every open `GET /events` stream; a client may drop a stream silent for longer. */
+export const HEARTBEAT_MS = 15_000;
 
 /** The alert type of a proposal change; the other alert types are the agent ones. */
 export const PROPOSAL_ALERT = "proposal";

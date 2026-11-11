@@ -5,7 +5,9 @@ import { getRequestListener, type HttpBindings } from "@hono/node-server";
 import { API_VERSION } from "@wombat/shared";
 import {
   AnswerPermissionRequest,
+  BODY_OVER_CAP_MESSAGE,
   GetItemResponse as GetItemSchema,
+  HEARTBEAT_MS,
   ItemsErrorCode,
   ListItemsResponse as ListItemsSchema,
   ListLogQuery,
@@ -115,7 +117,7 @@ export const startServer = async ({
   harnesses,
   token,
   port = 0,
-  heartbeatMs = 15_000,
+  heartbeatMs = HEARTBEAT_MS,
   defaultLogLimit = 1000,
   log = logToStderr,
   items,
@@ -154,7 +156,7 @@ export const startServer = async ({
     bodyLimit({
       maxSize: MAX_BODY_BYTES,
       onError: (c) =>
-        errorResponse(c, SERVER_STATUS.payload_too_large, ServerErrorCode.enum.payload_too_large, `The request body is over ${String(MAX_BODY_BYTES / 1024 / 1024)} MiB. Send a shorter message.`),
+        errorResponse(c, SERVER_STATUS.payload_too_large, ServerErrorCode.enum.payload_too_large, BODY_OVER_CAP_MESSAGE),
     }),
   );
 

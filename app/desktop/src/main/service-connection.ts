@@ -1,9 +1,9 @@
 // Main's connection to the service, the page's only way to it. It reads the alert stream and forwards known alerts,
 // and follows the service across restarts: on every (re)connect it re-reads the discovery file (a new service may
-// be on a new port) and checks GET /version. It never starts a service by itself; only `reconnect` with a start does.
+// be on a new port) and proves it with the file's token. It never starts a service by itself; only `reconnect` with a start does.
 import { API_VERSION } from "@wombat/shared";
-import { parseAlert, VersionResponse, type AgentSummary, type Alert } from "@wombat/shared/api";
-import { readDiscovery, type DiscoveryFile } from "@wombat/shared/discovery";
+import { HEARTBEAT_MS, parseAlert, type AgentSummary, type Alert } from "@wombat/shared/api";
+import { findRunningService, type DiscoveryFile } from "@wombat/shared/discovery";
 import type { ConnectionState, ConnectionUpdate, ServiceAnswer } from "../shared/bridge.ts";
 import { callService, listAgents, requestService } from "./service-client.ts";
 import { pageMessage } from "./service-start.ts";
@@ -14,13 +14,13 @@ export type ConnectionTiming = {
   maxRetryMs: number;
   /** How long the service may stay gone before the state is `failed`. */
   failAfterMs: number;
-  /** A stream with nothing on it (not even the ~15 s heartbeat) for this long is dropped. */
+  /** A stream with nothing on it (not even the heartbeat) for this long is dropped. */
   stallMs: number;
   /** A stream that ends sooner than this after opening doesn't reset the waits: a service that keeps dropping it backs off. */
   healthyMs: number;
 };
 
-const DEFAULT_TIMING: ConnectionTiming = { firstRetryMs: 250, maxRetryMs: 4_000, failAfterMs: 30_000, stallMs: 45_000, healthyMs: 15_000 };
+const DEFAULT_TIMING: ConnectionTiming = { firstRetryMs: 250, maxRetryMs: 4_000, failAfterMs: 30_000, stallMs: 3 * HEARTBEAT_MS, healthyMs: 15_000 };
 const VERSION_TIMEOUT_MS = 2_000;
 /** For the stream's response headers; the stream itself has no timeout but the stall. */
 const HEADERS_TIMEOUT_MS = 10_000;
@@ -89,23 +89,20 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, timing = {}
   };
 
   const probe = async (): Promise<Probe> => {
+    let file: DiscoveryFile | undefined;
     try {
-      const file = readDiscovery(discoveryFile());
-      if (file === undefined) return { missing: true };
-      const response = await callService(file, "GET", "/version", { timeoutMs: VERSION_TIMEOUT_MS });
-      const version = response.status === 200 ? VersionResponse.safeParse(await response.json()) : undefined;
-      if (version === undefined) await response.body?.cancel();
-      if (!version?.success) return { missing: true };
-      if (version.data.apiVersion === API_VERSION) return { found: file };
-      return {
-        incompatible:
-          `The running service speaks API version ${String(version.data.apiVersion)}; this app needs version ${String(API_VERSION)}. ` +
-          "Update the app and the service to the same Wombat release, then restart the service.",
-      };
+      // Undefined for a left-over file whose port nothing (or something else) answers on.
+      file = await findRunningService(discoveryFile(), { timeoutMs: VERSION_TIMEOUT_MS });
     } catch {
-      // A left-over file whose port nothing (or something else) answers on.
       return { missing: true };
     }
+    if (file === undefined) return { missing: true };
+    if (file.apiVersion === API_VERSION) return { found: file };
+    return {
+      incompatible:
+        `The running service speaks API version ${String(file.apiVersion)}; this app needs version ${String(API_VERSION)}. ` +
+        "Restart stops that service and its agents and starts this app's own service.",
+    };
   };
 
   const forward = (block: string): void => {
@@ -247,7 +244,11 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, timing = {}
       try {
         await stopIt();
       } catch (error) {
-        if (mine === run) newest = connect(mine);
+        if (mine === run) {
+          // The service may still run: no longer "Stopping the service…" while it's found again.
+          set({ state: "connecting" });
+          newest = connect(mine);
+        }
         throw error;
       }
       if (mine === run) set({ state: "failed", message: "The service and its agents are stopped. Restart it to start it again." });

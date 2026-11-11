@@ -6,7 +6,7 @@ import { CHANNELS } from "../shared/bridge.ts";
 import { APP_INDEX_URL, APP_SCHEME, contentType, isAppUrl, isBridgeSender, resolveAppFile } from "./app-protocol.ts";
 import { readE2eSwitches, recordE2eNotification } from "./e2e-switches.ts";
 import { NONCE_PLACEHOLDER, newNonce, pageCsp, withNonce } from "./page-csp.ts";
-import { decideQuit, stopIfConfirmed, type QuitChoice } from "./quit.ts";
+import { decideQuit, restartService, stopIfConfirmed, type QuitChoice } from "./quit.ts";
 import { listAgents } from "./service-client.ts";
 import { serviceConnection } from "./service-connection.ts";
 import { rendererSettings, savePageSettings, settingsPath } from "./settings.ts";
@@ -157,15 +157,24 @@ const chooseFolder = async (): Promise<string | undefined> => {
   return canceled ? undefined : filePaths[0];
 };
 
-const confirmRestart = async (workspace: string): Promise<boolean> => {
+/** A message box on the app's window when it has one (before the window opens, a box of its own). */
+const messageBox = (options: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue> => {
+  const [window] = BrowserWindow.getAllWindows();
+  return window === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(window, options);
+};
+
+/** "3 running agents", "1 running agent". */
+const runningAgents = (running: number): string => `${String(running)} running ${running === 1 ? "agent" : "agents"}`;
+
+const confirmRestart = async (workspace: string, running: number | undefined): Promise<boolean> => {
   if (e2e !== undefined) return e2e.restartAnswer === "restart";
-  const { response } = await dialog.showMessageBox({
+  const { response } = await messageBox({
     type: "question",
     buttons: ["Restart", "Cancel"],
     defaultId: 1,
     cancelId: 1,
     message: `Restart the service for ${workspace}?`,
-    detail: "Its agents stop.",
+    detail: running === undefined ? "Its agents stop." : `Its agents stop (${runningAgents(running)}).`,
   });
   return response === 0;
 };
@@ -244,16 +253,23 @@ const currentWorkspace = (): string => {
 };
 
 handleBridge(CHANNELS.request, (method, pathname, body) => connection.request(method, pathname, body));
-handleBridge(CHANNELS.restart, () => connection.reconnect(() => workspace.restart()));
 handleBridge(CHANNELS.connectionNow, () => connection.current());
 handleBridge(CHANNELS.workspaceGet, async () => {
   const root = currentWorkspace();
   return { root, repos: await workspaceRepos(root) };
 });
-/** The folder picker, then a switch of the service to the chosen folder. */
+/**
+ * The folder picker, then a switch of the service to the chosen folder (asking first when that stops a running
+ * service). A switch that went ahead reloads the page: it holds the old workspace's settings, layout and data, and
+ * would otherwise save its layout under the new workspace.
+ */
 const switchWorkspace = async (): Promise<void> => {
   const folder = await chooseFolder();
-  if (folder !== undefined) await connection.reconnect(() => workspace.switchWorkspace(folder));
+  if (folder === undefined || !(await workspace.confirmSwitch(folder))) return;
+  await connection.reconnect(async () => {
+    await workspace.switchWorkspace(folder);
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.reload();
+  });
 };
 
 /** Stops the service and its agents; the page then shows `failed`, with Restart. */
@@ -270,20 +286,26 @@ const serviceAgents = async () => {
 
 const confirmStop = async (running: number | undefined): Promise<boolean> => {
   if (e2e !== undefined) return e2e.stopAnswer === "stop";
-  const { response } = await dialog.showMessageBox({
+  const { response } = await messageBox({
     type: "warning",
     buttons: ["Stop", "Cancel"],
     defaultId: 1,
     cancelId: 1,
-    message:
-      running === undefined
-        ? "Stop the service and its agents?"
-        : `Stop the service and its ${String(running)} running ${running === 1 ? "agent" : "agents"}?`,
+    message: running === undefined ? "Stop the service and its agents?" : `Stop the service and its ${runningAgents(running)}?`,
     detail: "Agents stop mid-task. Restart starts the service again, without them.",
   });
   return response === 0;
 };
 
+handleBridge(CHANNELS.restart, async () => {
+  await restartService({
+    incompatible: () => connection.current().state.state === "incompatible",
+    agents: serviceAgents,
+    confirm: confirmStop,
+    stop: stopServiceAndAgents,
+    start: () => connection.reconnect(() => workspace.restart()),
+  });
+});
 handleBridge(CHANNELS.workspaceSwitch, switchWorkspace);
 handleBridge(CHANNELS.settingsGet, () => rendererSettings(workspace.settings()));
 handleBridge(CHANNELS.settingsSet, (patch) => {
@@ -320,7 +342,7 @@ const menu = (): Menu =>
 const askOnQuit = async (running: number | undefined): Promise<QuitChoice> => {
   if (e2e !== undefined) return { answer: e2e.quitAnswer, dontAsk: e2e.quitDontAsk };
   const answers = ["stop", "leave", "cancel"] as const;
-  const { response, checkboxChecked } = await dialog.showMessageBox({
+  const { response, checkboxChecked } = await messageBox({
     type: "question",
     buttons: ["Stop agents", "Leave running", "Cancel"],
     defaultId: 1,

@@ -5,6 +5,7 @@
 //
 //   FAKE_START_DELAY_MS  how long it waits before listening and writing the discovery file
 //   FAKE_EXIT_DELAY_MS   how long it lives on after answering POST /shutdown
+//   FAKE_API_VERSION     the API version it claims (in its discovery file and GET /version); the app's by default
 import { randomBytes } from "node:crypto";
 import { appendFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
@@ -17,6 +18,7 @@ import { writePrivateFile } from "@wombat/shared/private-file";
 const { env } = process;
 const file = discoveryPath(env);
 const token = randomBytes(16).toString("hex");
+const apiVersion = Number(env["FAKE_API_VERSION"] ?? String(API_VERSION));
 const record = env["FAKE_SERVICE_RECORD"];
 if (record !== undefined) {
   appendFileSync(record, `${JSON.stringify({ pid: process.pid, workspace: env["WOMBAT_WORKSPACE"], items: env["WOMBAT_ITEMS"] ?? null })}\n`);
@@ -28,7 +30,7 @@ const server = createServer((req, res) => {
   if (req.headers.authorization !== `Bearer ${token}`) {
     res.writeHead(401).end();
   } else if (req.method === "GET" && req.url === "/version") {
-    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ apiVersion: API_VERSION }));
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ apiVersion }));
   } else if (req.method === "POST" && req.url === "/shutdown") {
     if (readDiscovery(file)?.pid === process.pid) rmSync(file, { force: true });
     res.writeHead(202).end(() => setTimeout(() => process.exit(0), Number(env["FAKE_EXIT_DELAY_MS"] ?? "0")));
@@ -40,5 +42,5 @@ const server = createServer((req, res) => {
 await new Promise((resolve) => setTimeout(resolve, Number(env["FAKE_START_DELAY_MS"] ?? "0")));
 server.listen(0, "127.0.0.1", () => {
   const { port } = server.address() as AddressInfo;
-  writePrivateFile(file, JSON.stringify({ apiVersion: API_VERSION, port, pid: process.pid, token, workspace: env["WOMBAT_WORKSPACE"] }));
+  writePrivateFile(file, JSON.stringify({ apiVersion, port, pid: process.pid, token, workspace: env["WOMBAT_WORKSPACE"] }));
 });

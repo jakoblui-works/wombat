@@ -10,14 +10,12 @@
 import { closeSync, fstatSync, openSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
-import { findRunningService, type DiscoveryFile } from "@wombat/shared/discovery";
+import { findRunningService, HOLDER_WAIT_MS, type DiscoveryFile } from "@wombat/shared/discovery";
 import { createPrivateFile, writePrivateFile } from "@wombat/shared/private-file";
 
 import { isAlreadyThere, isMissing, isProcessGone } from "./errno.ts";
 
 const LOCK_FILE = "service.lock";
-/** How long a start waits for the lock's holder to write its discovery file. */
-const HOLDER_WAIT_MS = 5_000;
 const POLL_MS = 50;
 
 type Holder = { pid: number; start: string };

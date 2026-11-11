@@ -11,7 +11,10 @@ export type ConnectionState = {
 /** The service's answer: its status, and its body parsed as JSON (undefined when empty). */
 export type ServiceAnswer = { status: number; body: unknown };
 
-/** The settings the page reads and writes; `layout` is the current workspace's. */
+/**
+ * The settings the page reads and writes; `layout` is the current workspace's. Main's patch schema must match it
+ * (RENDERER_PATCH_MATCHES in main/settings.ts fails to compile otherwise).
+ */
 export type RendererSettings = { askOnQuit: boolean; lastAgentFolder?: string; layout?: unknown };
 
 /** The workspace root, and the names of its immediate subfolders that are git repos. */
@@ -27,12 +30,24 @@ export type WombatBridge = {
     onAlert: (cb: (alert: Alert) => void) => Unsubscribe;
     /** Calls `cb` with the current state at once, then with every change. */
     onConnection: (cb: (state: ConnectionState) => void) => Unsubscribe;
-    /** Starts the service again (after it stopped or failed). */
+    /**
+     * By the connection's state:
+     * - `failed`, `connecting`, `reconnecting`, `connected`: starts the service for the workspace if none runs (a
+     *   running one for it is kept, with its agents), then connects again. A running service for another workspace
+     *   is never taken: the state turns `failed`, saying to switch.
+     * - `incompatible`: asks "Stop the service and its N agents?" first; Stop stops the running service and its
+     *   agents and starts this app's own, Cancel leaves everything as it is.
+     * Settles once the service is connected, incompatible or failed (or the question was cancelled).
+     */
     restart: () => Promise<void>;
   };
   readonly workspace: {
     get: () => Promise<WorkspaceInfo>;
-    /** Opens the folder picker, then switches the service to the chosen workspace. */
+    /**
+     * Opens the folder picker, then switches the service to the chosen workspace, asking first when that stops a
+     * running service ("Restart the service for <workspace>?"; Cancel changes nothing). A switch that goes ahead
+     * reloads the page, so it reads the new workspace's settings and layout afresh.
+     */
     switch: () => Promise<void>;
   };
   readonly settings: {

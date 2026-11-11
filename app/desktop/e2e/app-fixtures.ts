@@ -21,20 +21,9 @@ import path from "node:path";
 import { _electron as electron, test as base, expect, type ElectronApplication, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "@wombat/shared";
 import { fakeSystemd, type Call, type FakeSystemd, type FakeSystemdOptions } from "../../service/test/fake-systemd.ts";
+import { RECORDED_NOTIFICATIONS, SWITCH } from "./switch-names.ts";
 
-/** The app's e2e switches (interface-S3), read only under WOMBAT_E2E=1. */
-export const SWITCH = {
-  workspace: "WOMBAT_E2E_WORKSPACE",
-  serviceEntry: "WOMBAT_E2E_SERVICE_ENTRY",
-  quitAnswer: "WOMBAT_E2E_QUIT_ANSWER",
-  quitDontAsk: "WOMBAT_E2E_QUIT_DONT_ASK",
-  // The answer to "Restart the service for <new>?" (restart | cancel), which a check can't otherwise give without a
-  // display.
-  restartAnswer: "WOMBAT_E2E_RESTART_ANSWER",
-} as const;
-
-/** The main-process global (an array) where the app records its notifications under WOMBAT_E2E=1 instead of showing them. */
-export const RECORDED_NOTIFICATIONS = "wombatE2eNotifications";
+export { RECORDED_NOTIFICATIONS, SWITCH };
 
 /** The slice the real service uses; nothing under test may ever name it. */
 const REAL_SLICE = "wombat-agents.slice";
@@ -249,7 +238,7 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
       XDG_CACHE_HOME: cacheDir,
       WAYLAND_DISPLAY: "/nonexistent/wombat-e2e-no-display",
       DBUS_SESSION_BUS_ADDRESS: "unix:path=/nonexistent/wombat-e2e-no-bus",
-      WOMBAT_E2E: "1",
+      [SWITCH.e2e]: "1",
       [SWITCH.serviceEntry]: serviceEntry(),
       WOMBAT_PORT: "0",
       FAKE_AGENT_PID_DIR: agentPidDir,

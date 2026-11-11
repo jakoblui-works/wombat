@@ -4,14 +4,14 @@
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { discoveryPath, findRunningService, type DiscoveryFile } from "@wombat/shared/discovery";
+import { discoveryPath, findRunningService, HOLDER_WAIT_MS, type DiscoveryFile } from "@wombat/shared/discovery";
 import { ensurePrivateFile } from "@wombat/shared/private-file";
 import { stateDir } from "@wombat/shared/state-dir";
 import { callService } from "./service-client.ts";
 
 const POLL_MS = 100;
-/** Covers a start that first waits (up to 5 s) for another start holding the lock. */
-const START_TIMEOUT_MS = 20_000;
+/** A start's own time, plus the wait of a start that finds another one holding the lock. */
+const START_TIMEOUT_MS = 15_000 + HOLDER_WAIT_MS;
 /** POST /shutdown answers once the agents have stopped, which can take tens of seconds. */
 const SHUTDOWN_TIMEOUT_MS = 120_000;
 /** After its 202 the service only closes its store and lock. */
@@ -35,6 +35,14 @@ export const pageMessage = (error: unknown): string => {
   }
   return error.privatePaths.reduce((message, at) => message.replaceAll(at, `…/${path.basename(at)}`), error.message);
 };
+
+/** The failure for a running service that isn't for `workspace`: the app never takes it for that workspace's. */
+export const otherWorkspaceFailure = (running: DiscoveryFile, workspace: string): ServiceStartFailed =>
+  new ServiceStartFailed(
+    `The running service is for another workspace (${running.workspace ?? "one it doesn't name"}), not ${workspace}. ` +
+      `Switch to ${workspace} again to restart the service for it.`,
+    [running.workspace],
+  );
 
 /** The service's log, in Wombat's state folder; throws when there's no state folder. */
 export const serviceLogPath = (env: NodeJS.ProcessEnv): string => path.join(stateDir(env), "service.log");
@@ -125,13 +133,7 @@ export const startService = async ({
   for (;;) {
     if (failure !== undefined) throw failure;
     const found = await findRunningService(discovery);
-    if (found !== undefined && found.workspace !== workspace) {
-      throw new ServiceStartFailed(
-        `A service for another workspace (${found.workspace ?? "one it doesn't name"}) started while Wombat was starting one for ${workspace}. ` +
-          `Switch to ${workspace} again to restart the service for it.`,
-        [found.workspace],
-      );
-    }
+    if (found !== undefined && found.workspace !== workspace) throw otherWorkspaceFailure(found, workspace);
     if (found !== undefined) return found;
     if (Date.now() > deadline) {
       throw new ServiceStartFailed(

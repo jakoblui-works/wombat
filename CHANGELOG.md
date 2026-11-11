@@ -26,9 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An alert stream client that stops reading is disconnected once too many alerts wait for it. The stream doesn't replay: after any reconnect the app reads the agents, the proposals and each open agent's log again.
 - A desktop app skeleton with secure defaults: context isolation on, no Node in the renderer, a strict content security policy.
 - The desktop app asks for the workspace folder on first start, remembers it in `~/.config/Wombat/settings.json` (only you can read it), and starts the agent service for it when none is running. A service running for another workspace is restarted only when you say so.
-- The desktop app reaches the service only through its main process, which holds the token and allows only the service's app routes. It shows whether it's connecting, connected, reconnecting, incompatible with the service's version, or failed, and reconnects by itself when the service restarts.
-- Quitting while agents work or wait asks whether to stop them or leave them running ("Don't ask again" turns the question off). The menu has Switch Workspace and Stop Service and Agents, which asks first.
-- A desktop notification says when an agent is waiting for you, without anything from the agent in it; clicking it opens the agent.
+- The desktop app reaches the service only through its main process, which holds the token and allows only the service's app routes. Its main process tracks whether it's connecting, connected, reconnecting, incompatible with the service's version, or failed, and reconnects when the service restarts or moves port.
+- Quitting while agents work or wait asks whether to stop them or leave them running ("Don't ask again" turns the question off). The menu has Switch Workspace and Stop Service and Agents; both ask before stopping agents. Restarting a service from an older version of Wombat asks, then replaces it.
+- A desktop notification says when an agent is waiting for you, without anything from the agent in it.
 - The app's page is served with a content security policy header and a fresh nonce on every load; UI libraries (Tailwind, Base UI, dockview, Shiki) run under it.
 - CI that lints, type-checks, tests, builds and runs the desktop end-to-end tests on every push and pull request.
 - The Wombat logo: a mark and a symbol, in colour and in one colour, in `app/desktop/assets/brand/`; the mark heads the README.

@@ -157,3 +157,35 @@ test("shutdown stops the running service, and restart then starts one for the sa
   expect(second.workspace).toBe(saved);
   expect(isRunning(second.pid)).toBe(true);
 });
+
+test("a switch that would stop a service for another workspace asks first; Cancel stops and saves nothing", async () => {
+  const sandbox = serviceSandbox();
+  const [current, next] = [sandbox.workspace("current"), sandbox.workspace("next")];
+  saveWorkspace(sandbox, current);
+  const asked: { folder: string; running: number | undefined }[] = [];
+  const workspace = control(sandbox, {
+    confirmRestart: (folder, running) => {
+      asked.push({ folder, running });
+      return Promise.resolve(false);
+    },
+  });
+  const running = await workspace.restart();
+
+  expect(await workspace.confirmSwitch(next)).toBe(false);
+  // The fake service has no GET /agents, so the count is unknown.
+  expect(asked).toEqual([{ folder: next, running: undefined }]);
+  expect(isRunning(running.pid)).toBe(true);
+  expect(sandbox.starts()).toHaveLength(1);
+  expect(savedWorkspace(sandbox)).toBe(current);
+});
+
+test("a switch that stops no service doesn't ask: none runs, or the running one is for the chosen workspace", async () => {
+  const sandbox = serviceSandbox();
+  const saved = sandbox.workspace("saved");
+  saveWorkspace(sandbox, saved);
+  const workspace = control(sandbox);
+
+  expect(await workspace.confirmSwitch(sandbox.workspace("other"))).toBe(true);
+  await workspace.restart();
+  expect(await workspace.confirmSwitch(saved)).toBe(true);
+});

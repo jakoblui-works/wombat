@@ -7,6 +7,12 @@ import { z } from "zod";
 
 const DEFAULT_TIMEOUT_MS = 2_000;
 
+/**
+ * How long a service start that finds the start lock held waits for the holder's discovery file before it gives up;
+ * a client waiting for a start it began allows for this wait on top of the start itself.
+ */
+export const HOLDER_WAIT_MS = 5_000;
+
 /** `$XDG_RUNTIME_DIR/wombat/service.json`: how the app finds the running service. Unknown fields are ignored. */
 export const DiscoveryFile = z.object({
   apiVersion: z.int().positive(),

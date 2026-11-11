@@ -138,3 +138,19 @@ test("on connect, agents already waiting count as notified; one that turned wait
   await change("agent-1", "waiting");
   expect(agentsShown()).toEqual(["agent-1"]);
 });
+
+test("on connect, notices for agents that stopped waiting while disconnected are closed", async () => {
+  const { change, connected, setState, shown } = notifier();
+  await change("agent-1", "waiting");
+  await change("agent-2", "waiting");
+  await change("agent-3", "waiting");
+
+  setState("agent-1", "working");
+  setState("agent-2", "done");
+  await connected();
+  expect(shown.map(({ closed }) => closed)).toEqual([true, true, false]);
+
+  // Forgotten, so a new turn to waiting is a new notice.
+  await change("agent-1", "waiting");
+  expect(shown).toHaveLength(4);
+});

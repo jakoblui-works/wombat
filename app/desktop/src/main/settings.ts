@@ -81,10 +81,25 @@ export const saveSettings = (file: string, settings: Settings): void =>
 /** What the page may change: the patch `settings.set` takes. */
 export const RendererSettingsPatch = z.strictObject({
   askOnQuit: Settings.shape.askOnQuit.unwrap().exactOptional(),
-  lastAgentFolder: z.string().exactOptional(),
+  lastAgentFolder: Settings.shape.lastAgentFolder.unwrap().exactOptional(),
   // JSON only: a value that can't be written would block every later save.
   layout: z.json().exactOptional(),
 });
+
+/**
+ * True when `Patch` has exactly the fields of `Page`, each with a value `Page` takes. The bridge's RendererSettings
+ * can't import this schema (the page's build has no Node), so RENDERER_PATCH_MATCHES ties the two at compile time.
+ */
+export type PatchMatches<Page, Patch> = [keyof Page] extends [keyof Patch]
+  ? [keyof Patch] extends [keyof Page]
+    ? Patch extends Partial<Page>
+      ? true
+      : false
+    : false
+  : false;
+
+/** Fails to compile when RendererSettings and RendererSettingsPatch drift apart. */
+export const RENDERER_PATCH_MATCHES: PatchMatches<RendererSettings, z.infer<typeof RendererSettingsPatch>> = true;
 
 /** The settings the page sees: no workspace paths but the current workspace's layout. */
 export const rendererSettings = (settings: Settings): RendererSettings => {
@@ -96,13 +111,16 @@ export const rendererSettings = (settings: Settings): RendererSettings => {
   };
 };
 
+/** "askOnQuit, lastAgentFolder and layout": the fields the page may change, for the refusal. */
+const PATCH_FIELDS = new Intl.ListFormat("en-GB", { type: "conjunction" }).format(Object.keys(RendererSettingsPatch.shape));
+
 /** A change from the page that doesn't fit; its message is safe to show the page. */
 export class SettingsChangeRefused extends Error {}
 
 /** `settings` with the page's `patch` applied; throws SettingsChangeRefused when it doesn't fit RendererSettingsPatch. */
 export const withRendererPatch = (settings: Settings, patch: unknown): Settings => {
   const parsed = RendererSettingsPatch.safeParse(patch);
-  if (!parsed.success) throw new SettingsChangeRefused(`The settings change isn't valid (${z.prettifyError(parsed.error)}); send only askOnQuit, lastAgentFolder and layout.`);
+  if (!parsed.success) throw new SettingsChangeRefused(`The settings change isn't valid (${z.prettifyError(parsed.error)}); send only ${PATCH_FIELDS}.`);
   const { layout, ...rest } = parsed.data;
   const next: Settings = { ...settings, ...rest };
   if (layout === undefined) return next;

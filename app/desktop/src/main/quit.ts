@@ -1,6 +1,7 @@
-// What quitting the app, or stopping the service from the menu, does to the agents. The service keeps them running
-// after the app quits, so a quit while any are running asks whether to stop them; leaving them running is what
-// happens when the question is off. Stopping the service stops every agent, so it always asks first.
+// What quitting the app, stopping the service from the menu, or replacing an incompatible service does to the agents.
+// The service keeps them running after the app quits, so a quit while any are running asks whether to stop them;
+// leaving them running is what happens when the question is off. Stopping the service stops every agent, so it
+// always asks first.
 import type { AgentSummary } from "@wombat/shared/api";
 import type { QuitAnswer } from "./e2e-switches.ts";
 import type { Settings } from "./settings.ts";
@@ -12,7 +13,7 @@ export const isRunningAgent = ({ state }: Pick<AgentSummary, "state">): boolean 
  * How many of the service's agents are running: 0 when no service runs (`agents` gives undefined), undefined when
  * they couldn't be read (so the user is asked rather than told nothing runs).
  */
-const runningCount = async (agents: () => Promise<AgentSummary[] | undefined>, log: (line: string) => void): Promise<number | undefined> => {
+export const runningCount = async (agents: () => Promise<AgentSummary[] | undefined>, log: (line: string) => void): Promise<number | undefined> => {
   try {
     const list = await agents();
     return list === undefined ? 0 : list.filter(isRunningAgent).length;
@@ -52,6 +53,8 @@ export const decideQuit = async ({ settings, updateSettings, idle, agents, ask, 
 
   const { answer, dontAsk } = await ask(running);
   if (answer === "cancel") return false;
+  // A switch asked for while the question was open would otherwise be cut off, as above.
+  await idle();
   if (answer === "stop") await stop();
   // Only once the answer has been carried out: a stop that failed leaves the question on.
   if (dontAsk) {
@@ -76,5 +79,22 @@ export type StopDeps = {
 export const stopIfConfirmed = async ({ agents, confirm, stop, log = console.warn }: StopDeps): Promise<boolean> => {
   if (!(await confirm(await runningCount(agents, log)))) return false;
   await stop();
+  return true;
+};
+
+export type RestartDeps = StopDeps & {
+  /** True while the connected service speaks another API version than the app. */
+  incompatible: () => boolean;
+  /** Starts the service for the saved workspace if none runs, and connects to it. */
+  start: () => Promise<void>;
+};
+
+/**
+ * The page's Restart: an incompatible service is stopped first (asking as the menu's Stop does; Cancel leaves it
+ * running and starts nothing), so the app can start its own; otherwise it only starts. False when cancelled.
+ */
+export const restartService = async ({ incompatible, start, ...stopDeps }: RestartDeps): Promise<boolean> => {
+  if (incompatible() && !(await stopIfConfirmed(stopDeps))) return false;
+  await start();
   return true;
 };

@@ -2,6 +2,7 @@
 // sandbox (app-fixtures.ts): temp profile, runtime and state dirs, fake systemd, fake agents.
 import { readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { HOLDER_WAIT_MS } from "@wombat/shared/discovery";
 import { expect, isAlive, startAgent, test, SWITCH, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 
 const mode = (file: string): number => statSync(file).mode & 0o777;
@@ -90,10 +91,9 @@ test.describe("T5: settings that can't all be read", () => {
 
 test.describe("T5: a running service for another workspace", () => {
   // The old service's shutdown is held (fake `systemctl stop` waits on a gate) for longer than a new start waits for
-  // the lock, so a switch that starts the new service before the old one is gone leaves nothing running. The wait is
-  // 5 s (interface-S1; HOLDER_WAIT_MS in service/src/start-lock.ts, not exported, so not imported here): keep this
-  // above it if that changes.
-  const HOLD_PAST_LOCK_WAIT_MS = 6_500;
+  // the lock (HOLDER_WAIT_MS), so a switch that starts the new service before the old one is gone leaves nothing
+  // running.
+  const HOLD_PAST_LOCK_WAIT_MS = HOLDER_WAIT_MS + 1_500;
 
   test("Restart stops the old service and its agents, then a service for the saved workspace runs and stays up", async ({ makeSandbox }) => {
     test.setTimeout(90_000);
@@ -139,5 +139,42 @@ test.describe("T5: a running service for another workspace", () => {
     expect(sandbox.liveServices()).toEqual([running.pid]);
     const stops = sandbox.systemd.calls().filter(({ tool, args }) => tool === "systemctl" && args.includes("stop"));
     expect(stops, "the running service was shut down").toEqual([]);
+  });
+});
+
+// T7 (Switch Workspace through the bridge): the one path where the running app switches, reconnects and reloads.
+test.describe("T7: Switch Workspace", () => {
+  test("workspace.switch() restarts the service for the chosen folder, reloads the page, and remembers the folder", async ({ sandbox }) => {
+    test.setTimeout(60_000);
+    const next = sandbox.newWorkspace("next");
+    // The saved workspace opens; the folder picker's answer (WOMBAT_E2E_WORKSPACE) is the one switched to.
+    sandbox.writeSettings(settingsFor(sandbox.workspace));
+    const { page } = await sandbox.launch({ workspaceAnswer: next, env: { [SWITCH.restartAnswer]: "restart" } });
+    await waitForConnection(page, "connected");
+    const before = await sandbox.waitForService((file) => file.workspace === sandbox.workspace);
+
+    await page.evaluate(() => {
+      (window as unknown as { __e2eBeforeSwitch?: boolean }).__e2eBeforeSwitch = true;
+    });
+    // The page reloads while the call is out, so its answer may never come back.
+    await page
+      .evaluate(() => (window as unknown as { wombat: { workspace: { switch: () => Promise<void> } } }).wombat.workspace.switch())
+      .catch(() => undefined);
+
+    const after = await sandbox.waitForService((file) => file.workspace === next, 40_000);
+    await waitUntil("the old service to exit", WAIT_MS, () => (isAlive(before.pid) ? undefined : true));
+    expect(after.pid).not.toBe(before.pid);
+    await waitUntil("settings.json to name the new workspace", WAIT_MS, () => (sandbox.readSettings()?.["workspace"] === next ? true : undefined));
+    await waitUntil("the page to reload", WAIT_MS, async () => {
+      const marked = await page
+        .evaluate(() => (window as unknown as { __e2eBeforeSwitch?: boolean }).__e2eBeforeSwitch === true)
+        .catch(() => true);
+      return marked ? undefined : true;
+    });
+    await waitForConnection(page, "connected");
+    const root = await page.evaluate(() =>
+      (window as unknown as { wombat: { workspace: { get: () => Promise<{ root: string }> } } }).wombat.workspace.get().then(({ root: r }) => r),
+    );
+    expect(root).toBe(next);
   });
 });
