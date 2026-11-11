@@ -67,7 +67,7 @@ const start = async () => {
     readInstructions: () => Promise.resolve(undefined),
     slice: `wombattest${randomUUID().replaceAll("-", "")}.slice`,
   });
-  const server = await startServer({ manager, store, harnesses, token: randomBytes(24).toString("base64url"), log: () => undefined });
+  const server = await startServer({ manager, store, harnesses, workspaceRoot: workspace, token: randomBytes(24).toString("base64url"), log: () => undefined });
   onTestFinished(async () => {
     await server.close();
     await manager.shutdown();

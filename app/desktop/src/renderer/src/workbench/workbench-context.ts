@@ -18,3 +18,11 @@ export const useWorkbench = (): WorkbenchActions => {
   if (actions === undefined) throw new Error("useWorkbench is used outside the Workbench; render the view inside it.");
   return actions;
 };
+
+/** The tab that's active in the editor area (a view and its params); undefined while no tab is open. */
+export type ActiveTab = { viewId: string; params: unknown };
+
+export const ActiveTabContext = createContext<ActiveTab | undefined>(undefined);
+
+/** The active tab, for a view that marks what's open (the agent list marks the active chat). */
+export const useActiveTab = (): ActiveTab | undefined => useContext(ActiveTabContext);

@@ -42,7 +42,7 @@ export const toolUpdate = (toolCallId: string, fields: Partial<Omit<ToolCallUpda
   update({ sessionUpdate: "tool_call_update", toolCallId, ...fields });
 
 export const textContent = (text: string) => ({ type: "content" as const, content: { type: "text" as const, text } });
-export const diffContent = (path: string, oldText: string, newText: string) => ({ type: "diff" as const, path, oldText, newText });
+export const diffContent = (path: string, oldText: string | null, newText: string) => ({ type: "diff" as const, path, oldText, newText });
 
 export const OPTIONS: PermissionRequested["options"] = [
   { kind: "allow_once", name: "Allow" },

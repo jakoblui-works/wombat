@@ -6,6 +6,7 @@ const LOG = "log";
 export const keys = {
   agents: ["agents"],
   harnesses: ["harnesses"],
+  repos: ["repos"],
   proposals: ["proposals"],
   logs: [LOG],
   log: (agentId: string) => [LOG, agentId],

@@ -9,6 +9,7 @@ export type AppRoute = { method: "GET" | "POST" | "DELETE"; pattern: string; que
 export const APP_ROUTES: readonly AppRoute[] = [
   { method: "GET", pattern: "/version" },
   { method: "GET", pattern: "/harnesses" },
+  { method: "GET", pattern: "/repos" },
   { method: "GET", pattern: "/agents" },
   { method: "POST", pattern: "/agents" },
   { method: "GET", pattern: "/agents/:id/log", query: true },

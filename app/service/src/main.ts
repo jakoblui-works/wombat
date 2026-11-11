@@ -151,6 +151,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
         manager,
         store,
         harnesses,
+        workspaceRoot: config.workspaceRoot,
         token,
         port: config.port,
         log,

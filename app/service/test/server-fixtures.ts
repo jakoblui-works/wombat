@@ -23,6 +23,7 @@ export { APP_ORIGIN };
 export const appRoutes = (agentId: string): { method: string; path: string; body?: unknown }[] => [
   { method: "GET", path: "/version" },
   { method: "GET", path: "/harnesses" },
+  { method: "GET", path: "/repos" },
   { method: "GET", path: "/agents" },
   { method: "POST", path: "/agents", body: { harness: "fake-reply", repo: REPO } },
   { method: "GET", path: `/agents/${agentId}/log` },
@@ -292,6 +293,7 @@ export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentToke
     manager,
     store: t.store,
     harnesses,
+    workspaceRoot: t.root,
     token,
     onShutdown: () => {
       shutdownRequests += 1;

@@ -1,16 +1,10 @@
 import { type ReactNode, useSyncExternalStore } from "react";
 
-import { AgentList } from "../AgentList/AgentList.tsx";
 import { Chat } from "../Chat/Chat.tsx";
 import { NeedsMe } from "../NeedsMe/NeedsMe.tsx";
 
 /** The S7 views on their own, until S7 builds them into the workbench. */
 const SCREENS: Record<string, () => ReactNode> = {
-  agents: () => (
-    <div className="flex h-screen w-80 flex-col bg-surface-0">
-      <AgentList selected="a1" />
-    </div>
-  ),
   chat: () => (
     <div className="flex h-screen bg-surface-1">
       <Chat />

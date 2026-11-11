@@ -223,6 +223,10 @@ export type VersionResponse = z.infer<typeof VersionResponse>;
 export const ListHarnessesResponse = z.array(z.object({ id: z.string(), name: z.string() }));
 export type ListHarnessesResponse = z.infer<typeof ListHarnessesResponse>;
 
+/** The folders an agent may start in: the workspace root (`path: "."`) first, then its git repos by name. */
+export const ListReposResponse = z.object({ repos: z.array(z.object({ path: z.string(), name: z.string() })) });
+export type ListReposResponse = z.infer<typeof ListReposResponse>;
+
 // Newer ACP tool kinds read as "other".
 const ToolKind = z
   .enum(["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other"])

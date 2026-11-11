@@ -20,7 +20,7 @@ import { EmptyGroup } from "../EmptyGroup/EmptyGroup.tsx";
 import { ResizeHandle } from "../ResizeHandle/ResizeHandle.tsx";
 import { pruneTabs, type Reveals, retitleTabs, revealStore, TAB_COMPONENT, type TabParams, workbenchActions } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
-import { type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
+import { type ActiveTab, ActiveTabContext, type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
 
 type Chrome = Pick<SavedLayout, "sidebars" | "activity">;
 
@@ -148,6 +148,19 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     saver.current?.schedule("user");
   };
 
+  // The active tab, for views that mark what's open.
+  const [activeTab, setActiveTab] = useState<ActiveTab>();
+  useEffect(() => {
+    if (api === undefined) return;
+    const read = () => {
+      const tab = api.activePanel?.params as Partial<TabParams> | undefined;
+      setActiveTab(typeof tab?.viewId === "string" ? { viewId: tab.viewId, params: tab.params } : undefined);
+    };
+    read();
+    const change = api.onDidActivePanelChange(read);
+    return () => change.dispose();
+  }, [api]);
+
   const reveals = useMemo(revealStore, []);
   const actions = useMemo<WorkbenchActions>(
     () =>
@@ -203,60 +216,62 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
 
   return (
     <WorkbenchContext value={actions}>
-      <RevealsContext value={reveals}>
-        <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
-          <TitleBar
-            right={rightView}
-            rightOpen={!chrome.sidebars.rightCollapsed}
-            onToggleRight={() =>
-              changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } }))
-            }
-          />
-          {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
-          <div className="flex min-h-0 flex-1">
-            <ActivityBar
-              activities={activities()}
-              active={activity?.id}
-              blocked={blocked}
-              onSelect={(id) => changeChrome((current) => ({ ...current, activity: id }))}
-            >
-              <ConnectionIndicator connection={connection} />
-            </ActivityBar>
-            {/* Always here, so the views never remount: while blocked it is inert and the scrim over it shows. */}
-            <div inert={blocked} className="relative flex min-w-0 flex-1">
-              <aside aria-label={activity?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.left }}>
-                {Sidebar && <Sidebar params={{}} />}
-              </aside>
-              <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
-              <main className="min-w-0 flex-1">
-                <DockviewReact
-                  className="dockview-theme-wombat"
-                  components={COMPONENTS}
-                  watermarkComponent={EmptyGroup}
-                  onReady={(event: DockviewReadyEvent) => setApi(event.api)}
+      <ActiveTabContext value={activeTab}>
+        <RevealsContext value={reveals}>
+          <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
+            <TitleBar
+              right={rightView}
+              rightOpen={!chrome.sidebars.rightCollapsed}
+              onToggleRight={() =>
+                changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } }))
+              }
+            />
+            {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
+            <div className="flex min-h-0 flex-1">
+              <ActivityBar
+                activities={activities()}
+                active={activity?.id}
+                blocked={blocked}
+                onSelect={(id) => changeChrome((current) => ({ ...current, activity: id }))}
+              >
+                <ConnectionIndicator connection={connection} />
+              </ActivityBar>
+              {/* Always here, so the views never remount: while blocked it is inert and the scrim over it shows. */}
+              <div inert={blocked} className="relative flex min-w-0 flex-1">
+                <aside aria-label={activity?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.left }}>
+                  {Sidebar && <Sidebar params={{}} />}
+                </aside>
+                <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
+                <main className="min-w-0 flex-1">
+                  <DockviewReact
+                    className="dockview-theme-wombat"
+                    components={COMPONENTS}
+                    watermarkComponent={EmptyGroup}
+                    onReady={(event: DockviewReadyEvent) => setApi(event.api)}
+                  />
+                </main>
+                {!chrome.sidebars.rightCollapsed && (
+                  <>
+                    <ResizeHandle label="Resize the right sidebar" onDrag={(dx) => resize("right", -dx)} />
+                    <aside aria-label={rightView?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.right }}>
+                      {rightViews.map(({ id, component: View }) => (
+                        <View key={id} params={{}} />
+                      ))}
+                    </aside>
+                  </>
+                )}
+                <div
+                  aria-hidden
+                  className={cn("pointer-events-none absolute inset-0 z-20 bg-scrim transition-opacity", blocked ? "opacity-100" : "opacity-0")}
                 />
-              </main>
-              {!chrome.sidebars.rightCollapsed && (
-                <>
-                  <ResizeHandle label="Resize the right sidebar" onDrag={(dx) => resize("right", -dx)} />
-                  <aside aria-label={rightView?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.right }}>
-                    {rightViews.map(({ id, component: View }) => (
-                      <View key={id} params={{}} />
-                    ))}
-                  </aside>
-                </>
-              )}
-              <div
-                aria-hidden
-                className={cn("pointer-events-none absolute inset-0 z-20 bg-scrim transition-opacity", blocked ? "opacity-100" : "opacity-0")}
-              />
+              </div>
             </div>
+            <span className="sr-only">
+              Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
+            </span>
           </div>
-          <span className="sr-only">
-            Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
-          </span>
-        </div>
-      </RevealsContext>
+        </RevealsContext>
+      </ActiveTabContext>
     </WorkbenchContext>
   );
 };

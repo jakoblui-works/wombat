@@ -34,6 +34,8 @@ export type FakeService = {
   connection: (state: ConnectionState["state"]) => void;
   /** Sets fields of an agent's summary (listed by GET /agents from then on, log or not). */
   setAgent: (agentId: string, fields: Partial<AgentSummary>) => void;
+  /** Sets the folders GET /repos lists (the workspace root, ".", alone by default). */
+  setRepos: (repos: { path: string; name: string }[]) => void;
   /** Adds a proposal to GET /proposals. */
   addProposal: (proposal: Proposal) => void;
   /** Deletes an agent: gone from GET /agents, its log reads answer 404. */
@@ -73,6 +75,7 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
   const logReads = new Map<string, number>();
   let refusing = false;
   const proposals: Proposal[] = [];
+  let repos = [{ path: ".", name: "workspace" }];
 
   const answer = (method: string, path: string): { status: number; body: unknown } => {
     const url = new URL(path, "http://service.invalid");
@@ -80,6 +83,7 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
       const ids = [...new Set([...logs.keys(), ...agentFields.keys()])];
       return { status: 200, body: { dbId, seq, agents: ids.map((id) => summary(id, agentFields.get(id))) } };
     }
+    if (method === "GET" && url.pathname === "/repos") return { status: 200, body: { repos } };
     if (method === "GET" && url.pathname === "/proposals") return { status: 200, body: { proposals } };
     const logMatch = /^\/agents\/([^/]+)\/log$/.exec(url.pathname);
     if (method === "GET" && logMatch) {
@@ -187,6 +191,9 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
     },
     setAgent: (agentId, fields) => {
       agentFields.set(agentId, { ...agentFields.get(agentId), ...fields });
+    },
+    setRepos: (listed) => {
+      repos = listed;
     },
     addProposal: (added) => {
       proposals.push(added);

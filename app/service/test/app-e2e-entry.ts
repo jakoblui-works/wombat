@@ -10,7 +10,9 @@
 //                               under it, or the entry refuses to start (a launcher that rebuilt the env, or resolved
 //                               /run/user/<uid> itself, must not reach the real discovery file, lock or store)
 //
-// Harnesses: `fake-reply` (answers and ends its turn) and `fake-permission` (asks for a permission and waits).
+// Harnesses, in this order (the New agent dialog starts the first): `fake-reply` (answers and ends its turn),
+// `fake-permission` (asks for a permission and waits), `fake-hang` (stays working until cancelled) and `fake-hostile`
+// (hostile content everywhere agent content shows, then a permission request; see HOSTILE in fake-agent.ts).
 import { writeFileSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 
@@ -48,4 +50,12 @@ if (outside.length > 0) {
 
 writeFileSync(join(servicePidDir, String(process.pid)), "");
 
-await main({ harnesses: [trackedHarness("reply", pidDir), trackedHarness("permission", pidDir)], slice });
+await main({
+  harnesses: [
+    trackedHarness("reply", pidDir),
+    trackedHarness("permission", pidDir),
+    trackedHarness("hang", pidDir),
+    trackedHarness("hostile", pidDir),
+  ],
+  slice,
+});

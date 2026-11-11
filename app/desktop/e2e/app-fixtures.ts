@@ -539,7 +539,7 @@ export const bridgeRequest = (
   );
 
 /** Starts a fake agent through the test's own client and returns its id. */
-export const startAgent = async (sandbox: Sandbox, harness: "fake-reply" | "fake-permission"): Promise<string> => {
+export const startAgent = async (sandbox: Sandbox, harness: "fake-reply" | "fake-permission" | "fake-hang" | "fake-hostile"): Promise<string> => {
   const started = await sandbox.api("POST", "/agents", { harness, repo: REPO });
   expect(started.status, `start ${harness}: ${JSON.stringify(started.json)}`).toBe(201);
   return (started.json as { id: string }).id;

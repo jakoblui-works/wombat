@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Agents sidebar lists the agents grouped by state (Waiting on me, Working, Done, Error; stopped agents under Done) with title, folder, branch, the last message's excerpt and the time since you last interacted. A row opens or focuses the agent's chat tab; its menu stops or deletes the agent (delete asks first). New agent picks the folder (the workspace root first, then its repos; the last one used by default) and takes the first message. The service lists those folders at `GET /repos`.
 - The app scaffold: a pnpm workspace with shared types, the agent service and the desktop app.
 - The agent service's API, on 127.0.0.1 only: start a Claude Code agent in a repo of the workspace, send it messages, answer its permission requests, cancel a turn, and stop or delete the agent, with a stream of alerts whenever something changes. Every request needs the token from the discovery file.
 - Agents use your own `claude` login. They get only an allowlisted environment: never the service's token, its `WOMBAT_*` settings or `ANTHROPIC_API_KEY`; `CLAUDE_CONFIG_DIR` is passed on when it's set.

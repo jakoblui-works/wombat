@@ -27,3 +27,9 @@ export const AGENT_STATES: Readonly<Record<AgentState, AgentStateLook>> = {
 export const AGENT_STATE_ORDER: readonly AgentState[] = (Object.keys(AGENT_STATES) as AgentState[]).sort(
   (a, b) => AGENT_STATES[a].rank - AGENT_STATES[b].rank,
 );
+
+/** The group an agent shows in on the agent list: a stopped agent is finished, so it shows under Done. */
+export const listGroup = (state: AgentState): AgentState => (state === "stopped" ? "done" : state);
+
+/** The agent list's groups, in order: every state that is its own group. */
+export const LIST_GROUP_ORDER: readonly AgentState[] = AGENT_STATE_ORDER.filter((state) => listGroup(state) === state);

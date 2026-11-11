@@ -25,6 +25,7 @@ export const SCENARIOS = [
   "message-ids",
   "message-runs",
   "plan-thought",
+  "hostile",
 ] as const;
 
 export type FakeScenario = (typeof SCENARIOS)[number];
@@ -38,6 +39,48 @@ const SKIPPED_UPDATE_MARKER = "thought-content-must-not-be-logged";
 
 /** The title the early-update scenario sends before its `session/new` answer. */
 export const EARLY_TITLE = "Title sent while the session starts";
+
+/**
+ * What the hostile scenario sends: agent content that would run in the page, navigate it or load something if the
+ * app rendered it as anything but text. Every payload that could run sets `window[HOSTILE.marker]` (to where it
+ * came from), so a check can tell whether any ran; the CSP should stop them anyway, but the app must never try.
+ */
+export const HOSTILE = {
+  marker: "__wombatHostile",
+  /** Markdown with raw HTML, scripts, non-https links of every syntax, an image and a fenced HTML block. */
+  markdown: (where: string): string =>
+    [
+      `Hostile ${where} starts.`,
+      `<script>window.__wombatHostile = "${where}: script"</script>`,
+      `<img src="x" onerror="window.__wombatHostile = '${where}: img onerror'">`,
+      `<iframe src="https://example.invalid/frame"></iframe>`,
+      `<a href="javascript:window.__wombatHostile='${where}: html link'">html link ${where}</a>`,
+      `[javascript link ${where}](javascript:window.__wombatHostile='${where}:%20javascript%20link')`,
+      `[data link ${where}](data:text/html,<script>window.__wombatHostile=1</script>)`,
+      `[file link ${where}](file:///etc/hostname)`,
+      `[relative link ${where}](../../index.html)`,
+      `[app link ${where}](app://wombat/index.html)`,
+      `[reference link ${where}][evil]`,
+      `<javascript:window.__wombatHostile='${where}: autolink'>`,
+      `www.example.invalid and http://example.invalid/plain`,
+      `![image alt ${where}](https://example.invalid/pixel.png)`,
+      `[safe link ${where}](https://example.invalid/docs)`,
+      "",
+      "```html",
+      `<script>window.__wombatHostile = "${where}: code block"</script>`,
+      "```",
+      "",
+      `[evil]: javascript:window.__wombatHostile='${where}:%20reference'`,
+    ].join("\n\n"),
+  /** Raw HTML as plain text fields carry it (a title, a plan entry, a tool's input and output). */
+  html: (where: string): string => `<img src="x" onerror="window.__wombatHostile = '${where}'"><b>${where}</b><script>window.__wombatHostile = "${where}"</script>`,
+  /** The huge tool output's length: far beyond what the chat shows of one text. */
+  hugeChars: 400_000,
+  /** The huge output's text: one recognisable line repeated (no markup). */
+  hugeText: (chars: number): string => "huge output line 0123456789\n".repeat(Math.ceil(chars / 28)).slice(0, chars),
+  /** The permission request's title (its tool call's). */
+  permissionTitle: (): string => HOSTILE.html("permission title"),
+} as const;
 
 // Well past a pipe buffer (~64 KiB), so an agent whose stderr isn't read blocks.
 const NOISY_STDERR_BYTES = 1024 * 1024;
@@ -317,6 +360,47 @@ const run = (scenario: FakeScenario) => {
           });
           await send(client, sessionId, text("Planned the footer change."));
           return { stopReason: "end_turn" };
+        case "hostile": {
+          // Hostile content in every place agent content shows, then a permission request that stays open.
+          await send(client, sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: HOSTILE.markdown("reasoning") } });
+          await send(client, sessionId, {
+            sessionUpdate: "plan",
+            entries: [{ content: HOSTILE.html("plan entry"), priority: "high", status: "in_progress" }],
+          });
+          await send(client, sessionId, text(HOSTILE.markdown("message")));
+          await send(client, sessionId, {
+            sessionUpdate: "tool_call",
+            toolCallId: randomUUID(),
+            title: HOSTILE.html("tool title"),
+            kind: "execute",
+            status: "completed",
+            rawInput: { command: HOSTILE.html("tool input") },
+            rawOutput: HOSTILE.html("tool output"),
+            content: [{ type: "content", content: { type: "text", text: HOSTILE.markdown("tool content") } }],
+          });
+          await send(client, sessionId, {
+            sessionUpdate: "tool_call",
+            toolCallId: randomUUID(),
+            title: "Read the huge log",
+            kind: "read",
+            status: "completed",
+            rawOutput: HOSTILE.hugeText(HOSTILE.hugeChars),
+          });
+          const toolCallId = randomUUID();
+          await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId, title: HOSTILE.permissionTitle(), kind: "execute", status: "pending" });
+          cancelled.delete(sessionId);
+          const { outcome } = await client.request("session/request_permission", {
+            sessionId,
+            toolCall: { toolCallId },
+            options: [
+              { optionId: "allow", name: "Allow", kind: "allow_once" },
+              { optionId: "reject", name: "Reject", kind: "reject_once" },
+            ],
+          });
+          const turnCancelled = outcome.outcome === "cancelled" || cancelled.has(sessionId);
+          cancelled.delete(sessionId);
+          return { stopReason: turnCancelled ? "cancelled" : "end_turn" };
+        }
         case "auth":
           break;
       }

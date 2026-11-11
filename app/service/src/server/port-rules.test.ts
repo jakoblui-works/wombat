@@ -209,6 +209,7 @@ describe("port rules", () => {
         manager: t.manager,
         store: t.store,
         harnesses: ALL_SCENARIOS.map((scenario) => trackedHarness(scenario, t.pidDir)),
+        workspaceRoot: t.root,
       };
       for (const token of ["", "short-token-15c"]) {
         const outcome = await startServer({ ...options, token }).then(

@@ -24,6 +24,7 @@ import {
   type ListItemsResponse,
   type ListLogResponse,
   type ListProposalsResponse,
+  type ListReposResponse,
   type ListStructuresResponse,
   type ProposalErrorCode,
   type VersionResponse,
@@ -42,6 +43,7 @@ import type { Writer } from "../items/write.ts";
 import type { Harness } from "../harness/harness.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
+import { listRepos, RepoError } from "../workspace.ts";
 import { AGENT_STATUS, errorResponse, ITEMS_STATUS, SERVER_STATUS } from "./errors.ts";
 import { createAlertStreams } from "./events.ts";
 import { mcpRoutes } from "./mcp.ts";
@@ -51,6 +53,8 @@ export type ServerOptions = {
   manager: Manager;
   store: Store;
   harnesses: readonly Harness[];
+  /** The workspace's root, for `GET /repos`. */
+  workspaceRoot: string;
   /** The bearer token every request must carry. */
   token: string;
   /** 0 (the default) picks a free port. */
@@ -115,6 +119,7 @@ export const startServer = async ({
   manager,
   store,
   harnesses,
+  workspaceRoot,
   token,
   port = 0,
   heartbeatMs = HEARTBEAT_MS,
@@ -165,6 +170,8 @@ export const startServer = async ({
   app.get("/harnesses", (c) =>
     c.json(harnesses.map(({ id, name }) => ({ id, name })) satisfies ListHarnessesResponse),
   );
+
+  app.get("/repos", (c) => c.json({ repos: listRepos(workspaceRoot) } satisfies ListReposResponse));
 
   app.get("/agents", (c) =>
     c.json({ dbId: store.dbId, seq: store.currentSeq(), agents: store.listAgents() } satisfies ListAgentsResponse),
@@ -326,6 +333,7 @@ export const startServer = async ({
   app.onError((error, c) => {
     if (error instanceof InvalidRequest) return errorResponse(c, SERVER_STATUS.invalid_request, ServerErrorCode.enum.invalid_request, error.message);
     if (error instanceof ProposalError) return errorResponse(c, ITEMS_STATUS[error.code satisfies ProposalErrorCode], error.code, error.message);
+    if (error instanceof RepoError) return errorResponse(c, AGENT_STATUS[error.code], error.code, error.message);
     if (error instanceof AgentError) return errorResponse(c, AGENT_STATUS[error.code], error.code, error.message, error.hint);
     // The details stay in the service: an error's message may quote agent content or paths.
     log("request_failed", { method: c.req.method, route: c.req.routePath, error: error.name });

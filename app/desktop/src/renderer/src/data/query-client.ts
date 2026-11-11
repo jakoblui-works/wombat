@@ -7,6 +7,7 @@ import {
   ListHarnessesResponse,
   ListLogResponse,
   ListProposalsResponse,
+  ListReposResponse,
   type LogEntry,
   parseLogEntry,
 } from "@wombat/shared/api";
@@ -34,10 +35,12 @@ export const createQueryClient = (): QueryClient =>
 
 const readAgents = () => call("GET", "/agents", ListAgentsResponse);
 const readHarnesses = () => call("GET", "/harnesses", ListHarnessesResponse);
+const readRepos = () => call("GET", "/repos", ListReposResponse);
 const readProposals = () => call("GET", "/proposals", ListProposalsResponse);
 
 export const agentsQuery = () => queryOptions({ queryKey: keys.agents, queryFn: readAgents });
 export const harnessesQuery = () => queryOptions({ queryKey: keys.harnesses, queryFn: readHarnesses });
+export const reposQuery = () => queryOptions({ queryKey: keys.repos, queryFn: readRepos });
 export const proposalsQuery = () => queryOptions({ queryKey: keys.proposals, queryFn: readProposals });
 
 /** Entries asked for per log read. */
@@ -103,7 +106,7 @@ export const queryFor = (queryClient: QueryClient, key: QueryKey): (() => Promis
   });
   const agentId = logAgentId(key);
   if (agentId !== undefined) return again(agentLogQuery(queryClient, agentId)).read;
-  const lists = [again(agentsQuery()), again(harnessesQuery()), again(proposalsQuery())];
+  const lists = [again(agentsQuery()), again(harnessesQuery()), again(reposQuery()), again(proposalsQuery())];
   return lists.find((list) => hashKey(list.queryKey) === hashKey(key))?.read;
 };
 

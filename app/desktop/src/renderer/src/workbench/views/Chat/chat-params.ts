@@ -1,3 +1,4 @@
+import type { AgentSummary } from "@wombat/shared/api";
 import { z } from "zod";
 
 import type { KnownContext, ResolveContext } from "../../registry.ts";
@@ -13,11 +14,14 @@ export const chatResolves = (params: unknown, { agents }: KnownContext): boolean
   return parsed.success && agents.some((agent) => agent.id === parsed.data.agentId);
 };
 
-/** The agent's title, else its repo, else (not listed, or the list is loading) the start of its id. */
+/** The agent's title, else its repo, else (not listed, or the list is loading) the start of its id. One rule for the chat tab, the agent list and Needs me. */
+export const agentTitle = (agentId: string, agent: Pick<AgentSummary, "title" | "repo"> | undefined): string =>
+  agent?.title ?? agent?.repo ?? agentId.slice(0, SHORT_ID_LENGTH);
+
+/** The chat tab's title: the agent's. */
 export const chatTitle = (params: unknown, { agents }: ResolveContext): string => {
   const parsed = ChatParams.safeParse(params);
   if (!parsed.success) return "Chat";
   const { agentId } = parsed.data;
-  const agent = agents?.find(({ id }) => id === agentId);
-  return agent?.title ?? agent?.repo ?? agentId.slice(0, SHORT_ID_LENGTH);
+  return agentTitle(agentId, agents?.find(({ id }) => id === agentId));
 };
