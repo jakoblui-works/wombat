@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Wombat's tokens: every colour, size, radius and duration (shadcn's variables below map onto them). */
+@import "./tokens.css";
 /* The editor area's panes and tabs (dockview); imported here only. */
 @import "dockview-react/dist/styles/dockview.css";
 
@@ -88,56 +90,71 @@
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Wombat's tokens: shadcn's neutral dark theme to start. */
+/* shadcn's variables, mapped onto Wombat's tokens (tokens.css), so shadcn's components follow them. */
 :root {
-  color-scheme: dark;
-  --radius: 0.625rem;
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --background: var(--surface-0);
+  --foreground: var(--fg-primary);
+  --card: var(--surface-2);
+  --card-foreground: var(--fg-primary);
+  --popover: var(--surface-2);
+  --popover-foreground: var(--fg-primary);
+  --primary: var(--brand);
+  --primary-foreground: var(--on-brand);
+  --primary-hover: var(--brand-hover);
+  --secondary: var(--surface-3);
+  --secondary-foreground: var(--fg-primary);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--fg-secondary);
+  --accent: var(--surface-3);
+  --accent-foreground: var(--fg-primary);
+  --destructive: var(--danger);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--focus);
+  --chart-1: var(--fg-primary);
+  --chart-2: var(--fg-secondary);
+  --chart-3: var(--fg-tertiary);
+  --chart-4: var(--surface-3);
+  --chart-5: var(--surface-2);
+  --sidebar: var(--surface-0);
+  --sidebar-foreground: var(--fg-primary);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--on-brand);
+  --sidebar-accent: var(--surface-3);
+  --sidebar-accent-foreground: var(--fg-primary);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--focus);
+}
+
+/* The one keyboard focus style for Wombat's own buttons and rows (shadcn's components bring their own ring). */
+@utility focus-ring {
+  outline: none;
+  &:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -2px;
+  }
+}
+
+/* Shiki's <pre> (lib/highlight.tsx) carries its theme's background as a style prop; code sits on Wombat's surfaces. */
+@layer components {
+  .code-block pre.shiki {
+    background-color: transparent !important;
+    margin: 0;
+    padding: calc(var(--space) * 2) calc(var(--space) * 3.5);
+    overflow-x: auto;
+    font-family: var(--font-code);
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-base);
+  }
 }
 
 @layer base {
@@ -145,9 +162,14 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-base text-foreground antialiased;
   }
   html {
     @apply font-sans;
+  }
+  /* Thin, quiet scrollbars on every scrolling element (Chromium skips ::-webkit-scrollbar once these are set). */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
   }
 }
