@@ -5,3 +5,5 @@ out/
 .DS_Store
 test-results/
 playwright-report/
+*.proof.*
+*_proof.py

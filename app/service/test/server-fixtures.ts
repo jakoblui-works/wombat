@@ -8,10 +8,37 @@ import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage 
 import { ErrorBody } from "@wombat/shared/api";
 import { expect, onTestFinished } from "vitest";
 
+import { openCatalog } from "../src/items/catalog.ts";
+import { openWriter } from "../src/items/write.ts";
 import { startServer } from "../src/server/server.ts";
-import { ALL_SCENARIOS, setup, trackedHarness, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
+import { ALL_SCENARIOS, REPO, setup, trackedHarness, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
 
 export const APP_ORIGIN = "app://wombat";
+
+/**
+ * Every route of the app's contract, on a real agent and request id, plus a path no route has: the port rules
+ * apply to each, and an agent token opens none of them.
+ */
+export const appRoutes = (agentId: string): { method: string; path: string; body?: unknown }[] => [
+  { method: "GET", path: "/version" },
+  { method: "GET", path: "/harnesses" },
+  { method: "GET", path: "/agents" },
+  { method: "POST", path: "/agents", body: { harness: "fake-reply", repo: REPO } },
+  { method: "GET", path: `/agents/${agentId}/log` },
+  { method: "POST", path: `/agents/${agentId}/messages`, body: { text: "Refused prompt" } },
+  { method: "POST", path: `/agents/${agentId}/permissions/req_1`, body: { kind: "allow_once" } },
+  { method: "POST", path: `/agents/${agentId}/cancel` },
+  { method: "POST", path: `/agents/${agentId}/stop` },
+  { method: "DELETE", path: `/agents/${agentId}` },
+  { method: "GET", path: "/events" },
+  { method: "GET", path: "/structures" },
+  { method: "GET", path: "/structures/bugs/items" },
+  { method: "GET", path: "/items/BUG-1" },
+  { method: "GET", path: "/proposals" },
+  { method: "POST", path: "/proposals/prop_1/approve" },
+  { method: "POST", path: "/proposals/prop_1/reject" },
+  { method: "GET", path: "/no-such-route" },
+];
 
 export type Response = {
   status: number;
@@ -201,7 +228,17 @@ export const openStream = (port: number, options: Omit<RequestOptions, "path" | 
     req.end(data);
   });
 
-export type ServeOptions = SetupOptions & { heartbeatMs?: number; defaultLogLimit?: number };
+export type ServeOptions = SetupOptions & {
+  heartbeatMs?: number;
+  defaultLogLimit?: number;
+  /**
+   * An items root: the server gets a catalog and a writer on it (on the fixture's store), for the items and
+   * proposal routes and the agents' /mcp tools; without it they aren't configured.
+   */
+  itemsRoot?: string;
+  /** Stub agent tokens (token → agent id) /mcp takes besides the live agents' own, so a test needs no agent for one. */
+  agentTokens?: Record<string, string>;
+};
 
 export type Served = Setup & {
   port: number;
@@ -218,14 +255,16 @@ export type Served = Setup & {
 };
 
 /** A manager fixture behind a running server; everything is torn down after the test. */
-export const serve = async ({ heartbeatMs, defaultLogLimit, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
+export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentTokens = {}, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
   const t = setup(setupOptions);
   const token = randomBytes(24).toString("base64url");
   const harnesses = ALL_SCENARIOS.map((scenario) => trackedHarness(scenario, t.pidDir));
-  // The server gets the manager with onCommitted counted, so tests can see subscriptions it leaves behind.
+  // The server gets the manager with onCommitted counted, so tests can see subscriptions it leaves behind, and with
+  // the stub agent tokens.
   let live = 0;
   const manager: Setup["manager"] = {
     ...t.manager,
+    agentForToken: (sent) => (Object.hasOwn(agentTokens, sent) ? agentTokens[sent] : t.manager.agentForToken(sent)),
     onCommitted: (listener) => {
       live += 1;
       const unsubscribe = t.manager.onCommitted(listener);
@@ -246,6 +285,9 @@ export const serve = async ({ heartbeatMs, defaultLogLimit, ...setupOptions }: S
     token,
     ...(heartbeatMs === undefined ? {} : { heartbeatMs }),
     ...(defaultLogLimit === undefined ? {} : { defaultLogLimit }),
+    ...(itemsRoot === undefined
+      ? {}
+      : { items: openCatalog({ root: itemsRoot, store: t.store }), writer: openWriter({ root: itemsRoot, store: t.store }) }),
   });
   let closed: Promise<void> | undefined;
   const close = () => (closed ??= server.close());

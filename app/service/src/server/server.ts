@@ -5,25 +5,42 @@ import { getRequestListener } from "@hono/node-server";
 import { API_VERSION } from "@wombat/shared";
 import {
   AnswerPermissionRequest,
+  GetItemResponse as GetItemSchema,
+  ListItemsResponse as ListItemsSchema,
   ListLogQuery,
+  ListProposalsQuery,
+  ListProposalsResponse as ListProposalsSchema,
+  ListStructuresResponse as ListStructuresSchema,
   SendMessageRequest,
   StartAgentRequest,
   type ErrorBody,
+  type GetItemResponse,
+  type ItemsErrorCode,
   type ListAgentsResponse,
   type ListHarnessesResponse,
+  type ListItemsResponse,
   type ListLogResponse,
+  type ListProposalsResponse,
+  type ListStructuresResponse,
   type VersionResponse,
 } from "@wombat/shared/api";
+import { Proposal as ProposalSchema, type Proposal } from "@wombat/shared/items";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 
-import { AgentError, logToStderr, type AgentErrorCode, type Log, type Manager } from "../agents/manager.ts";
+import { AgentError, type AgentErrorCode, type Manager } from "../agents/manager.ts";
+import { openAccess, ProposalError, type ProposalErrorCode } from "../items/access.ts";
+import { handlesById, summarize, withLinks } from "../items/api-view.ts";
+import { findByHandle, type Catalog } from "../items/catalog.ts";
+import type { Writer } from "../items/write.ts";
 import type { Harness } from "../harness/harness.ts";
+import { logToStderr, type Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { errorResponse } from "./errors.ts";
 import { createAlertStreams } from "./events.ts";
+import { mcpRoutes } from "./mcp.ts";
 import { portRules } from "./port-rules.ts";
 
 export type ServerOptions = {
@@ -39,6 +56,10 @@ export type ServerOptions = {
   defaultLogLimit?: number;
   /** Ids and names only, like the manager's log. */
   log?: Log;
+  /** The items; without it the items routes answer items_not_configured. */
+  items?: Catalog;
+  /** Writes the items; with `items`, it opens the agents' write tools on /mcp. */
+  writer?: Writer;
 };
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -57,6 +78,16 @@ const STATUS: Record<AgentErrorCode, ContentfulStatusCode> = {
   repo_outside_workspace: 422,
   auth_required: 502,
   agent_failed: 502,
+};
+
+/** `items_not_writable` is what the write routes answer; no read route does. */
+const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {
+  items_not_configured: 409,
+  structure_not_found: 404,
+  item_not_found: 404,
+  items_not_writable: 500,
+  proposal_not_found: 404,
+  proposal_not_pending: 409,
 };
 
 /** Thrown by a route on a request that breaks the contract; answered with 400. */
@@ -101,6 +132,8 @@ export const startServer = async ({
   heartbeatMs = 15_000,
   defaultLogLimit = 1000,
   log = logToStderr,
+  items,
+  writer,
 }: ServerOptions): Promise<{ port: number; close: () => Promise<void> }> => {
   if (token.length < MIN_TOKEN_LENGTH) {
     throw new Error(
@@ -111,7 +144,23 @@ export const startServer = async ({
   let boundPort = 0;
   const alerts = createAlertStreams({ onCommitted: manager.onCommitted, dbId: store.dbId, heartbeatMs });
   const app = new Hono();
+  // Proposal changes reach the alert stream through the manager's listeners, like agent changes.
+  const access =
+    items && writer
+      ? openAccess({ catalog: items, writer, store, onProposal: (id, seq) => manager.proposalCommitted(id, seq), log })
+      : undefined;
 
+  // Before the port rules: /mcp takes an agent's token, never the app's, and the port rules refuse agent tokens.
+  app.route(
+    "/",
+    mcpRoutes({
+      access,
+      agentForToken: manager.agentForToken,
+      port: () => boundPort,
+      maxBodyBytes: MAX_BODY_BYTES,
+      log,
+    }),
+  );
   app.use(portRules({ token, port: () => boundPort }));
   app.use(
     bodyLimit({
@@ -178,6 +227,79 @@ export const startServer = async ({
     return c.body(null, 204);
   });
 
+  const notConfigured = (c: Context) =>
+    errorResponse(
+      c,
+      ITEMS_STATUS.items_not_configured,
+      "items_not_configured",
+      "The items aren't set up. Set WOMBAT_ITEMS to the absolute path of the items folder and restart the service.",
+    );
+
+  /** Checked against the shared schema before it goes out, so a drift fails here and not in the app. */
+  const checked = <T extends z.ZodType>(schema: T, value: unknown): z.output<T> => schema.parse(value);
+
+  app.get("/structures", async (c) => {
+    if (!items) return notConfigured(c);
+    const { structures, items: all } = await items.snapshot();
+    const body = { structures: structures.map((structure) => summarize(structure, all)) };
+    return c.json(checked(ListStructuresSchema, body) satisfies ListStructuresResponse);
+  });
+
+  app.get("/structures/:id/items", async (c) => {
+    if (!items) return notConfigured(c);
+    const id = c.req.param("id");
+    const { structures, items: all } = await items.snapshot();
+    if (!structures.some((structure) => structure.id === id)) {
+      return errorResponse(
+        c,
+        ITEMS_STATUS.structure_not_found,
+        "structure_not_found",
+        `There's no structure ${id}. List the structures to see which exist.`,
+      );
+    }
+    const handles = handlesById(all);
+    // The schema drops each item's body: a list carries none.
+    const listed = all.filter((item) => item.structure === id).map((item) => withLinks(item, structures, handles));
+    return c.json(checked(ListItemsSchema, { items: listed }) satisfies ListItemsResponse);
+  });
+
+  app.get("/items/:handle", async (c) => {
+    if (!items) return notConfigured(c);
+    const handle = c.req.param("handle");
+    const { structures, items: all } = await items.snapshot();
+    const found = findByHandle(all, handle);
+    if (!found) {
+      return errorResponse(
+        c,
+        ITEMS_STATUS.item_not_found,
+        "item_not_found",
+        `There's no item ${handle}. List a structure's items to see their handles.`,
+      );
+    }
+    const handles = handlesById(all);
+    return c.json(checked(GetItemSchema, withLinks(found, structures, handles)) satisfies GetItemResponse);
+  });
+
+  app.get("/proposals", async (c) => {
+    if (!access) return notConfigured(c);
+    const parsed = ListProposalsQuery.safeParse(queryValues(c));
+    if (!parsed.success) {
+      throw new InvalidRequest(`The query doesn't match the API contract (${describeIssues(parsed.error)}). Fix it and send it again.`);
+    }
+    const proposals = await access.proposals(parsed.data.status);
+    return c.json(checked(ListProposalsSchema, { proposals }) satisfies ListProposalsResponse);
+  });
+
+  app.post("/proposals/:id/approve", async (c) => {
+    if (!access) return notConfigured(c);
+    return c.json(checked(ProposalSchema, await access.approve(c.req.param("id"))) satisfies Proposal);
+  });
+
+  app.post("/proposals/:id/reject", async (c) => {
+    if (!access) return notConfigured(c);
+    return c.json(checked(ProposalSchema, await access.reject(c.req.param("id"))) satisfies Proposal);
+  });
+
   app.get("/events", (c) => {
     // Hono answers HEAD by running this handler and dropping the body, which would leave a subscription that
     // no client ever reads or cancels.
@@ -199,6 +321,7 @@ export const startServer = async ({
 
   app.onError((error, c) => {
     if (error instanceof InvalidRequest) return errorResponse(c, 400, "invalid_request", error.message);
+    if (error instanceof ProposalError) return errorResponse(c, ITEMS_STATUS[error.code satisfies ProposalErrorCode], error.code, error.message);
     if (error instanceof AgentError) return errorResponse(c, STATUS[error.code], error.code, error.message, error.hint);
     // The details stay in the service: an error's message may quote agent content or paths.
     log("request_failed", { method: c.req.method, route: c.req.routePath, error: error.name });
@@ -232,6 +355,7 @@ export const startServer = async ({
     });
   });
   boundPort = (server.address() as AddressInfo).port;
+  manager.setMcpUrl(`http://127.0.0.1:${boundPort}/mcp`);
 
   let closing: Promise<void> | undefined;
   const close = () =>

@@ -3,7 +3,7 @@ import { accessSync, constants, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 
 import { agentEnv } from "../harness/env.ts";
-import type { Log } from "./manager.ts";
+import type { Log } from "../log.ts";
 
 /** The slice agents' scopes go in, so everything the service started can be found and stopped together. */
 export const DEFAULT_SLICE = "wombat-agents.slice";

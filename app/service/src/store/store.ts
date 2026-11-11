@@ -4,16 +4,29 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import type { AgentSummary, LogEntry } from "@wombat/shared/api";
+import type { Problem, Proposal, ProposalStatus } from "@wombat/shared/items";
 
 /** The default cap on one agent's stored entries, in bytes of their stored JSON. */
 export const LOG_BYTES_PER_AGENT = 16 * 1024 * 1024;
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
 /** An entry as handed to `append`: the store adds `seq` and `agentId`, and `at` when it's missing. */
 export type NewLogEntry = DistributiveOmit<LogEntry, "seq" | "agentId" | "at"> & { at?: string };
+
+/**
+ * A proposal as stored: it names its item by id (`itemId`, null for a create until it's approved), since handles
+ * change by hand; the access module turns the id into the item's current handle.
+ */
+export type StoredProposal = Omit<Proposal, "handle"> & { itemId: string | null };
+
+/** A proposal as handed to `insertProposal`: the store adds the id, `at` and the pending status. */
+export type NewProposal = Pick<StoredProposal, "structure" | "itemId" | "kind" | "fields" | "file" | "reason" | "baseVersion" | "agentId">;
+
+/** A proposal write and the seq it took, to alert about once it's committed. */
+export type ProposalChange = { proposal: StoredProposal; seq: number };
 
 export type StoreOptions = {
   path: string;
@@ -35,6 +48,21 @@ export type Store = {
   deleteAgent: (agentId: string) => number | undefined;
   /** `truncated` is true exactly when an entry of this agent after `after` was dropped by the cap. */
   readLog: (agentId: string, after?: number, limit?: number) => { entries: LogEntry[]; truncated: boolean };
+  /**
+   * The next handle number of a structure: one above both the last number it gave and `floor` (the highest
+   * number on disk), remembered so a deleted item's number is never given again.
+   */
+  nextHandleNumber: (structure: string, floor: number) => number;
+  /** Stores a pending proposal, taking the next seq in the same transaction. */
+  insertProposal: (proposal: NewProposal) => ProposalChange;
+  /** Every proposal, or those with `status`, oldest first. */
+  listProposals: (status?: ProposalStatus) => StoredProposal[];
+  getProposal: (id: string) => StoredProposal | undefined;
+  /**
+   * Decides a pending proposal (setting `decidedAt`, and `itemId` for an approved create), taking the next seq in
+   * the same transaction; undefined, and no seq taken, when it's missing or no longer pending.
+   */
+  setProposalStatus: (id: string, status: Exclude<ProposalStatus, "pending">, problem?: Problem, itemId?: string) => ProposalChange | undefined;
   close: () => void;
 };
 
@@ -43,7 +71,7 @@ const PRIVATE_FILE = 0o600;
 
 // The seq counter lives in `meta` rather than coming from a rowid, which would reuse seqs after deletes.
 // `dropped_through` is the highest seq of the agent's entries the cap removed, which answers `truncated`.
-const SCHEMA = `
+const SCHEMA_V1 = `
   CREATE TABLE meta (key TEXT PRIMARY KEY, value ANY NOT NULL) STRICT;
   CREATE TABLE agents (
     id TEXT PRIMARY KEY,
@@ -59,6 +87,29 @@ const SCHEMA = `
     body TEXT NOT NULL
   ) STRICT;
   CREATE INDEX log_entries_by_agent ON log_entries (agent_id, seq);
+`;
+
+// Items: `item_counters.last` is the last handle number given per structure id. A proposal names its item by id
+// (`item_id`, null for a pending create), since handles change by hand; `file` is a free-named create's path, kept
+// apart from `fields` so it can't collide with a property named `file`; `fields` and `problem` are JSON.
+const SCHEMA_V2 = `
+  CREATE TABLE item_counters (structure TEXT PRIMARY KEY, last INTEGER NOT NULL) STRICT;
+  CREATE TABLE proposals (
+    id TEXT PRIMARY KEY,
+    structure TEXT NOT NULL,
+    item_id TEXT,
+    kind TEXT NOT NULL CHECK (kind IN ('create', 'update', 'delete')),
+    fields TEXT NOT NULL,
+    file TEXT,
+    reason TEXT NOT NULL,
+    base_version TEXT,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'conflict')),
+    agent_id TEXT NOT NULL,
+    at TEXT NOT NULL,
+    decided_at TEXT,
+    problem TEXT
+  ) STRICT;
+  CREATE INDEX proposals_by_status ON proposals (status, at);
 `;
 
 /** SQLite creates these with the database's mode; ones left looser are tightened on open. */
@@ -87,7 +138,7 @@ const asString = (value: unknown) => {
 
 /**
  * Opens (or creates) the database at `path`: agent summaries and an append-only log of their entries, with one
- * seq counter across all agents.
+ * seq counter across all agents, and the items' handle counters and proposals. An older schema is upgraded in place.
  */
 export const openStore = ({
   path,
@@ -122,12 +173,16 @@ export const openStore = ({
     db.exec("PRAGMA journal_mode = WAL");
     // Commits are durable before the service alerts about them; WAL's usual NORMAL could lose the last ones.
     db.exec("PRAGMA synchronous = FULL");
-    if (version === 0) {
+    if (version < SCHEMA_VERSION) {
+      // One transaction from any older version, so a failed upgrade leaves the file as it was.
       transaction(() => {
-        db.exec(SCHEMA);
-        const insertMeta = db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)");
-        insertMeta.run("db_id", newDbId());
-        insertMeta.run("seq", 0);
+        if (version < 1) {
+          db.exec(SCHEMA_V1);
+          const insertMeta = db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)");
+          insertMeta.run("db_id", newDbId());
+          insertMeta.run("seq", 0);
+        }
+        if (version < 2) db.exec(SCHEMA_V2);
         db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       });
     }
@@ -161,6 +216,21 @@ export const openStore = ({
     ),
     logEntries: db.prepare("SELECT seq, body FROM log_entries WHERE agent_id = ? AND seq > ? ORDER BY seq LIMIT ?"),
     droppedThrough: db.prepare("SELECT dropped_through FROM agents WHERE id = ?"),
+    nextHandleNumber: db.prepare(
+      `INSERT INTO item_counters (structure, last) VALUES (?, ? + 1)
+       ON CONFLICT (structure) DO UPDATE SET last = max(last, excluded.last - 1) + 1 RETURNING last`,
+    ),
+    insertProposal: db.prepare(
+      `INSERT INTO proposals (id, structure, item_id, kind, fields, file, reason, base_version, status, agent_id, at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?) RETURNING *`,
+    ),
+    listProposals: db.prepare("SELECT * FROM proposals ORDER BY at, rowid"),
+    listProposalsWith: db.prepare("SELECT * FROM proposals WHERE status = ? ORDER BY at, rowid"),
+    getProposal: db.prepare("SELECT * FROM proposals WHERE id = ?"),
+    decideProposal: db.prepare(
+      `UPDATE proposals SET status = ?, decided_at = ?, problem = ?, item_id = coalesce(?, item_id)
+       WHERE id = ? AND status = 'pending' RETURNING *`,
+    ),
   };
 
   const currentSeq = () => asNumber(statements.seq.get()?.value);
@@ -245,6 +315,68 @@ export const openStore = ({
     };
   };
 
+  const nextHandleNumber = (structure: string, floor: number) =>
+    transaction(() => asNumber(statements.nextHandleNumber.get(structure, floor)?.last));
+
+  const proposalOf = (row: Record<string, unknown>): StoredProposal => {
+    const decidedAt = row.decided_at;
+    const problem = row.problem;
+    return {
+      id: asString(row.id),
+      structure: asString(row.structure),
+      itemId: row.item_id === null ? null : asString(row.item_id),
+      kind: asString(row.kind) as StoredProposal["kind"],
+      fields: JSON.parse(asString(row.fields)) as Record<string, unknown>,
+      file: row.file === null ? null : asString(row.file),
+      reason: asString(row.reason),
+      baseVersion: row.base_version === null ? null : asString(row.base_version),
+      status: asString(row.status) as ProposalStatus,
+      agentId: asString(row.agent_id),
+      at: asString(row.at),
+      ...(decidedAt === null || decidedAt === undefined ? {} : { decidedAt: asString(decidedAt) }),
+      ...(problem === null || problem === undefined ? {} : { problem: JSON.parse(asString(problem)) as Problem }),
+    };
+  };
+
+  const insertProposal = (proposal: NewProposal) => {
+    const fields = JSON.stringify(proposal.fields);
+    return transaction(() => {
+      const [seq = 0] = takeSeqs(1);
+      const row = statements.insertProposal.get(
+        randomUUID(),
+        proposal.structure,
+        proposal.itemId,
+        proposal.kind,
+        fields,
+        proposal.file,
+        proposal.reason,
+        proposal.baseVersion,
+        proposal.agentId,
+        now().toISOString(),
+      );
+      if (row === undefined) throw new Error("Storing the proposal returned no row.");
+      return { proposal: proposalOf(row), seq };
+    });
+  };
+
+  const listProposals = (status?: ProposalStatus) =>
+    (status === undefined ? statements.listProposals.all() : statements.listProposalsWith.all(status)).map(proposalOf);
+
+  const getProposal = (id: string) => {
+    const row = statements.getProposal.get(id);
+    return row === undefined ? undefined : proposalOf(row);
+  };
+
+  const setProposalStatus = (id: string, status: Exclude<ProposalStatus, "pending">, problem?: Problem, itemId?: string) => {
+    const problemText = problem === undefined ? null : JSON.stringify(problem);
+    return transaction(() => {
+      const row = statements.decideProposal.get(status, now().toISOString(), problemText, itemId ?? null, id);
+      if (row === undefined) return undefined;
+      const [seq = 0] = takeSeqs(1);
+      return { proposal: proposalOf(row), seq };
+    });
+  };
+
   return {
     dbId,
     currentSeq,
@@ -253,6 +385,11 @@ export const openStore = ({
     listAgents,
     deleteAgent,
     readLog,
+    nextHandleNumber,
+    insertProposal,
+    listProposals,
+    getProposal,
+    setProposalStatus,
     close: () => db.close(),
   };
 };

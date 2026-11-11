@@ -11,7 +11,8 @@ import { pathToFileURL } from "node:url";
 import type { AgentSummary, LogEntry } from "@wombat/shared/api";
 import { onTestFinished } from "vitest";
 
-import { createManager } from "../src/agents/manager.ts";
+import { createManager, type Committed } from "../src/agents/manager.ts";
+import { readInstructions } from "../src/items/instructions.ts";
 import type { Harness } from "../src/harness/harness.ts";
 import { openStore, type Store, type StoreOptions } from "../src/store/store.ts";
 import type { FakeScenario } from "./fake-agent.ts";
@@ -26,7 +27,7 @@ export const REPO = "site-web";
 
 export type Manager = ReturnType<typeof createManager>;
 export type LogLine = { event: string; fields: Record<string, string | number | boolean> };
-export type Committed = { seq: number; agentId: string; type: string };
+export type { Committed };
 
 const RECORD_PID = pathToFileURL(join(import.meta.dirname, "record-pid.ts")).href;
 
@@ -55,6 +56,8 @@ export const ALL_SCENARIOS: FakeScenario[] = [
   "unknown-update",
   "detached-holder",
   "early-update",
+  "mcp-config",
+  "call-tool",
 ];
 
 export const isAlive = (pid: number) => {
@@ -166,6 +169,7 @@ export const setup = ({ systemd = "none", fake, storeOptions = {} }: SetupOption
       log: (event: string, fields: LogLine["fields"]) => logs.push({ event, fields }),
       env,
       slice,
+      readInstructions: () => readInstructions(root),
     });
     manager.onCommitted((event: Committed) => committed.push(event));
     return manager;

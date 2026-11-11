@@ -7,24 +7,9 @@ import { networkInterfaces } from "node:os";
 import { describe, expect, test } from "vitest";
 
 import { ALL_SCENARIOS, REPO, setup, TEST_TIMEOUT_MS, trackedHarness, WAIT_MS } from "../../test/manager-fixtures.ts";
-import { APP_ORIGIN, expectError, serve } from "../../test/server-fixtures.ts";
+import { APP_ORIGIN, appRoutes as routes, expectError, serve } from "../../test/server-fixtures.ts";
 import { startServer } from "./server.ts";
 
-/** Every route of the contract, on a real agent and request id, plus a path no route has. */
-const routes = (agentId: string) => [
-  { method: "GET", path: "/version" },
-  { method: "GET", path: "/harnesses" },
-  { method: "GET", path: "/agents" },
-  { method: "POST", path: "/agents", body: { harness: "fake-reply", repo: REPO } },
-  { method: "GET", path: `/agents/${agentId}/log` },
-  { method: "POST", path: `/agents/${agentId}/messages`, body: { text: "Refused prompt" } },
-  { method: "POST", path: `/agents/${agentId}/permissions/req_1`, body: { kind: "allow_once" } },
-  { method: "POST", path: `/agents/${agentId}/cancel` },
-  { method: "POST", path: `/agents/${agentId}/stop` },
-  { method: "DELETE", path: `/agents/${agentId}` },
-  { method: "GET", path: "/events" },
-  { method: "GET", path: "/no-such-route" },
-];
 
 describe("port rules", () => {
   test(
@@ -75,6 +60,19 @@ describe("port rules", () => {
       expect(s.store.listAgents().map((agent) => agent.id)).toEqual([id]);
       // Control: the same agent answers with the token.
       expect((await s.api("GET", `/agents/${id}/log`)).status).toBe(200);
+      // Control: the items routes exist (not configured on this server), so the refusals above came from the rules.
+      for (const path of ["/structures", "/structures/bugs/items", "/items/BUG-1"]) {
+        expectError(await s.api("GET", path), 409, "items_not_configured", path);
+      }
+      // Control: the proposal routes exist too: with the token they answer anything but the unknown-route error.
+      for (const { method, path } of [
+        { method: "GET", path: "/proposals" },
+        { method: "POST", path: "/proposals/prop_1/approve" },
+        { method: "POST", path: "/proposals/prop_1/reject" },
+      ]) {
+        const response = await s.api(method, path);
+        expect((response.json as { error?: { code?: string } } | undefined)?.error?.code, `${method} ${path}: ${response.text}`).not.toBe("not_found");
+      }
     },
     TEST_TIMEOUT_MS,
   );

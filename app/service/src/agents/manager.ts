@@ -1,18 +1,21 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
-import type { RequestPermissionRequest, RequestPermissionResponse } from "@agentclientprotocol/sdk";
+import type { McpServer, RequestPermissionRequest, RequestPermissionResponse } from "@agentclientprotocol/sdk";
 import {
   AnswerPermissionRequest,
   LogEntry,
   parseLogEntry,
+  PROPOSAL_ALERT,
   type AgentSummary,
+  type Alert,
   type ErrorBody,
   type SendMessageRequest,
 } from "@wombat/shared/api";
 
-import { startAgentProcess, type AgentScope, type Harness } from "../harness/harness.ts";
+import { MCP_SERVER_NAME, startAgentProcess, type AgentScope, type Harness } from "../harness/harness.ts";
 import { defaultHarnesses, findHarness } from "../harness/registry.ts";
+import { logToStderr, type Log } from "../log.ts";
 import type { NewLogEntry, Store } from "../store/store.ts";
 import { RepoError, resolveRepo } from "../workspace.ts";
 import { connectAgent, type AcpAgent } from "./acp-client.ts";
@@ -42,15 +45,9 @@ export class AgentError extends Error {
   }
 }
 
-export type LogFields = Record<string, string | number | boolean>;
-/** Service log lines carry ids, states and counts only, never prompts, replies, diffs, tool content or stderr. */
-export type Log = (event: string, fields: LogFields) => void;
-
-export type Committed = {
-  seq: number;
-  agentId: string;
-  type: "agent_added" | "agent_changed" | "agent_removed" | "log";
-};
+/** A change committed to the store, told to listeners (the alert stream) once it can be read. */
+type WithoutDbId<T> = T extends unknown ? Omit<T, "dbId"> : never;
+export type Committed = WithoutDbId<Alert>;
 
 export type ManagerOptions = {
   store: Store;
@@ -62,6 +59,8 @@ export type ManagerOptions = {
   env?: NodeJS.ProcessEnv;
   /** The systemd slice agents' scopes go in; everything in it is stopped at start-up and shutdown. */
   slice?: string;
+  /** The instructions file's text for a new session, or undefined when there is none: then nothing is sent. */
+  readInstructions: () => Promise<string | undefined>;
 };
 
 type PermissionKind = AnswerPermissionRequest["kind"];
@@ -86,6 +85,8 @@ type Proc = {
   /** When the process exited (ms since the epoch); the close grace counts from here. */
   exitedAt: number | undefined;
   acp: AcpAgent;
+  /** The key of the agent's /mcp token in the live token map, once minted; deleted when the token is revoked. */
+  tokenKey: string | undefined;
   closed: Promise<void>;
   sessionId: string;
   /** False until the agent's summary is stored; updates that arrive before are held. */
@@ -104,12 +105,10 @@ const KILL_GRACE_MS = 2_000;
 /** How long after an agent exits its stdio may stay open (still being read) before the service drops it. */
 const CLOSE_GRACE_MS = 500;
 const ACP_AUTH_REQUIRED = -32000;
+/** The token map's key: a hash, so a lookup's timing says nothing about the token itself. */
+const tokenKey = (token: string) => createHash("sha256").update(token).digest("base64url");
 
 const now = () => new Date().toISOString();
-
-export const logToStderr: Log = (event, fields) => {
-  process.stderr.write(`${JSON.stringify({ at: now(), event, ...fields })}\n`);
-};
 
 /** A protocol name (an update kind, a stop reason) fit for a log line; anything else is "unknown". */
 const safeName = (value: unknown) => (typeof value === "string" && /^[A-Za-z0-9_]{1,64}$/.test(value) ? value : "unknown");
@@ -163,6 +162,7 @@ export const createManager = ({
   log = logToStderr,
   env = process.env,
   slice = DEFAULT_SLICE,
+  readInstructions,
 }: ManagerOptions) => {
   const listeners = new Set<(event: Committed) => void>();
   const summaries = new Map(store.listAgents().map((agent) => [agent.id, agent]));
@@ -171,15 +171,38 @@ export const createManager = ({
   const commandIds = new Map<string, Map<string, number>>();
   let shuttingDown: Promise<void> | undefined;
   const scopes = createScopes({ slice, env, log });
+  // Token key → agentId for every agent with a live /mcp token. The tokens themselves are held nowhere: each one
+  // only passes through its agent's session/new.
+  const agentTokens = new Map<string, string>();
+  let mcpUrl: string | undefined;
 
   const emit = (event: Committed) => {
     for (const listener of [...listeners]) {
       try {
         listener(event);
       } catch {
-        log("listener_failed", { agentId: event.agentId, seq: event.seq, type: event.type });
+        const subject = event.type === PROPOSAL_ALERT ? { proposalId: event.proposalId } : { agentId: event.agentId };
+        log("listener_failed", { ...subject, seq: event.seq, type: event.type });
       }
     }
+  };
+
+  /**
+   * Mints the agent's /mcp token (32 random bytes) and its `mcpServers` entry; none before the server told the
+   * manager its URL, or once the process has ended.
+   */
+  const mcpServersFor = (proc: Proc): McpServer[] => {
+    if (mcpUrl === undefined || shuttingDown || procs.get(proc.agentId) !== proc) return [];
+    const token = randomBytes(32).toString("base64url");
+    proc.tokenKey = tokenKey(token);
+    agentTokens.set(proc.tokenKey, proc.agentId);
+    return [{ type: "http", name: MCP_SERVER_NAME, url: mcpUrl, headers: [{ name: "Authorization", value: `Bearer ${token}` }] }];
+  };
+
+  const revokeToken = (proc: Proc) => {
+    if (proc.tokenKey === undefined) return;
+    agentTokens.delete(proc.tokenKey);
+    proc.tokenKey = undefined;
   };
 
   const putSummary = (summary: AgentSummary, type: "agent_added" | "agent_changed") => {
@@ -348,6 +371,7 @@ export const createManager = ({
         update: (sessionId, update) => handleUpdate(proc, sessionId, update),
         permission: (request) => requestPermission(proc, request),
       }),
+      tokenKey: undefined,
       closed,
       sessionId: "",
       recorded: false,
@@ -362,6 +386,7 @@ export const createManager = ({
     const finish = (code: number | null, signal: NodeJS.Signals | null) => {
       if (finished) return;
       finished = true;
+      revokeToken(proc);
       procs.delete(agentId);
       proc.acp.close();
       cancelPending(proc);
@@ -388,6 +413,8 @@ export const createManager = ({
     let closeTimer: NodeJS.Timeout | undefined;
     child.once("exit", (code, signal) => {
       proc.exitedAt = Date.now();
+      // An ended agent's token works nowhere, even while its stdio is still being drained.
+      revokeToken(proc);
       // Helpers the agent started (claude-agent-acp's native `claude`) share its group and must not outlive it.
       killGroup(child.pid, "SIGKILL");
       // The scope also holds helpers that left the group or session; collected once empty, so this ends it.
@@ -489,7 +516,14 @@ export const createManager = ({
     try {
       const deadline = Date.now() + START_TIMEOUT_MS;
       const initialized = await withTimeout(proc.acp.initialize(), START_TIMEOUT_MS, tooSlow);
-      const sessionId = await withTimeout(proc.acp.newSession(cwd), Math.max(0, deadline - Date.now()), tooSlow);
+      // D26: the instructions as they are now; a running agent keeps the ones it started with.
+      const instructions = harness.sessionParams === undefined ? undefined : await readInstructions();
+      const session = {
+        mcpServers: mcpServersFor(proc),
+        ...(harness.sessionMeta === undefined ? {} : { _meta: harness.sessionMeta }),
+        ...(instructions === undefined || harness.sessionParams === undefined ? {} : { params: harness.sessionParams(instructions) }),
+      };
+      const sessionId = await withTimeout(proc.acp.newSession(cwd, session), Math.max(0, deadline - Date.now()), tooSlow);
       // procs no longer holding it means the process ended before its summary could be stored.
       if (shuttingDown || proc.ending || procs.get(agentId) !== proc) throw notRunning();
       proc.sessionId = sessionId;
@@ -596,6 +630,7 @@ export const createManager = ({
     const proc = procs.get(agentId);
     if (!proc) return;
     proc.ending ??= "stop";
+    revokeToken(proc);
     await terminate(proc);
     log("agent_stopped", { agentId });
   };
@@ -606,6 +641,7 @@ export const createManager = ({
     const proc = procs.get(agentId);
     if (proc) {
       proc.ending = "remove";
+      revokeToken(proc);
       await terminate(proc);
     }
     const seq = store.deleteAgent(agentId);
@@ -619,7 +655,10 @@ export const createManager = ({
   const shutdown = () => {
     shuttingDown ??= (async () => {
       const running = [...procs.values()];
-      for (const proc of running) proc.ending ??= "stop";
+      for (const proc of running) {
+        proc.ending ??= "stop";
+        revokeToken(proc);
+      }
       await Promise.all(running.map(terminate));
       await scopes.stopSlice();
       log("shutdown", { agents: running.length });
@@ -634,7 +673,30 @@ export const createManager = ({
     };
   };
 
-  return { start, send, answer, cancel, stop, delete: remove, shutdown, onCommitted };
+  /** Where agents reach the service's /mcp endpoint; agents started from now on get a token and this URL. */
+  const setMcpUrl = (url: string) => {
+    mcpUrl = url;
+  };
+
+  /** The agent a /mcp bearer token belongs to, while that agent's process runs; undefined for any other string. */
+  const agentForToken = (token: string): string | undefined => agentTokens.get(tokenKey(token));
+
+  /** Tells the listeners about a committed proposal change (stored, approved, rejected, conflict). */
+  const proposalCommitted = (proposalId: string, seq: number) => emit({ seq, type: PROPOSAL_ALERT, proposalId });
+
+  return {
+    start,
+    send,
+    answer,
+    cancel,
+    stop,
+    delete: remove,
+    shutdown,
+    onCommitted,
+    setMcpUrl,
+    agentForToken,
+    proposalCommitted,
+  };
 };
 
 export type Manager = ReturnType<typeof createManager>;

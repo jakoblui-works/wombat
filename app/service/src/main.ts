@@ -2,11 +2,16 @@ import { createServer } from "node:net";
 
 import { API_VERSION } from "@wombat/shared";
 
-import { createManager, logToStderr, type Manager } from "./agents/manager.ts";
+import { createManager, type Manager } from "./agents/manager.ts";
 import { readConfig } from "./config.ts";
 import { findRunningService, newToken, removeDiscovery, writeDiscovery } from "./discovery.ts";
+import { openCatalog } from "./items/catalog.ts";
+import { errorCode } from "./items/errno.ts";
+import { openInstructions, readInstructions, refreshingWriter, type Instructions } from "./items/instructions.ts";
 import type { Harness } from "./harness/harness.ts";
 import { defaultHarnesses } from "./harness/registry.ts";
+import { openWriter } from "./items/write.ts";
+import { logToStderr } from "./log.ts";
 import { startServer } from "./server/server.ts";
 import { openStore, type Store } from "./store/store.ts";
 
@@ -35,8 +40,6 @@ const fail = (error: unknown): never => {
   }
   process.exit(1);
 };
-
-const errorCode = (error: unknown) => (error as NodeJS.ErrnoException | undefined)?.code;
 
 /** A failure to listen on `port` the user can fix by choosing another; undefined for anything else. */
 const listenRefusal = (port: number, error: unknown): StartRefused | undefined => {
@@ -101,13 +104,33 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   let store: Store | undefined;
   let manager: Manager | undefined;
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
+  let instructions: Instructions | undefined;
   const token = newToken();
   try {
     store = openStore({ path: config.storePath });
     const slice = options.slice === undefined ? {} : { slice: options.slice };
-    manager = createManager({ store, workspaceRoot: config.workspaceRoot, harnesses, log, env, ...slice });
+    manager = createManager({
+      store,
+      workspaceRoot: config.workspaceRoot,
+      harnesses,
+      log,
+      env,
+      readInstructions: () => readInstructions(config.workspaceRoot, log),
+      ...slice,
+    });
     try {
-      server = await startServer({ manager, store, harnesses, token, port: config.port, log });
+      const { itemsRoot, workspaceRoot } = config;
+      const catalog = itemsRoot === undefined ? undefined : openCatalog({ root: itemsRoot, store, log });
+      instructions = openInstructions({ catalog, workspaceRoot, itemsRoot, log });
+      const { refresh } = instructions;
+      // Written (or a stale one removed) before the server takes POST /agents, so the first agent gets it.
+      await refresh();
+      instructions.watch();
+      const items =
+        itemsRoot === undefined || catalog === undefined
+          ? {}
+          : { items: catalog, writer: refreshingWriter(openWriter({ root: itemsRoot, store, log }), refresh) };
+      server = await startServer({ manager, store, harnesses, token, port: config.port, log, ...items });
     } catch (error) {
       throw listenRefusal(config.port, error) ?? error;
     }
@@ -122,6 +145,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   } catch (error) {
     // Best effort: the start failure is what the user needs to see, not a follow-on error from cleaning up.
     await server?.close().catch(() => undefined);
+    await instructions?.close().catch(() => undefined);
     await manager?.shutdown().catch(() => undefined);
     try {
       store?.close();
@@ -137,6 +161,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   const openedStore = store;
   const openedManager = manager;
   const openedServer = server;
+  const openedInstructions = instructions;
   let stopping: Promise<void> | undefined;
   const stop = (signal: NodeJS.Signals) => {
     stopping ??= (async () => {
@@ -153,6 +178,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
       };
       await step("discovery", () => removeDiscovery(discoveryPath, process.pid));
       await step("server", () => openedServer.close());
+      await step("instructions", () => openedInstructions.close());
       await step("manager", () => openedManager.shutdown());
       await step("store", () => openedStore.close());
       process.exit(failed ? 1 : 0);

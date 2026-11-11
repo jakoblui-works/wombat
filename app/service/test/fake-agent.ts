@@ -1,8 +1,8 @@
 // A scripted ACP v1 agent for tests, run as `node fake-agent.ts <scenario>`. Stdout carries ACP only.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { writeSync } from "node:fs";
-import { Readable, Writable } from "node:stream";
+import { writeFileSync, writeSync } from "node:fs";
+import { Readable, Transform, Writable } from "node:stream";
 
 import { agent, ndJsonStream, RequestError, type AgentContext, type SessionUpdate } from "@agentclientprotocol/sdk";
 
@@ -19,6 +19,8 @@ const SCENARIOS = [
   "unknown-update",
   "detached-holder",
   "early-update",
+  "mcp-config",
+  "call-tool",
 ] as const;
 
 export type FakeScenario = (typeof SCENARIOS)[number];
@@ -67,6 +69,28 @@ const run = (scenario: FakeScenario) => {
   const held = new Map<string, () => void>();
   // Sessions a `session/cancel` arrived for while a permission request was open.
   const cancelled = new Set<string>();
+  // The mcpServers entries the last session/new carried, for the mcp-config scenario.
+  let mcpServers: unknown = undefined;
+  // The last session/new's params as they came over the wire, before the SDK's schema drops fields it doesn't
+  // know (the stable v1 schema has no `systemPrompt`), for the mcp-config scenario.
+  let sessionNew: unknown = undefined;
+  let pending = "";
+  const recorder = new Transform({
+    transform(chunk: Buffer, _encoding, done) {
+      pending += chunk.toString("utf8");
+      const lines = pending.split("\n");
+      pending = lines.pop() ?? "";
+      for (const line of lines) {
+        try {
+          const message = JSON.parse(line) as { method?: unknown; params?: unknown };
+          if (message.method === "session/new") sessionNew = message.params;
+        } catch {
+          // Not JSON: the SDK reports it.
+        }
+      }
+      done(null, chunk);
+    },
+  });
 
   const send = (client: AgentContext, sessionId: string, update: SessionUpdate) =>
     client.notify("session/update", { sessionId, update });
@@ -78,8 +102,9 @@ const run = (scenario: FakeScenario) => {
       agentInfo: { name: "wombat-fake-agent", version: "0.0.0" },
       authMethods: [],
     }))
-    .onRequest("session/new", async ({ client }) => {
+    .onRequest("session/new", async ({ params, client }) => {
       if (scenario === "auth") throw RequestError.authRequired();
+      mcpServers = params.mcpServers;
       const sessionId = randomUUID();
       // claude-agent-acp's command list can be handled by the service before its session/new answer is; sending
       // the updates first makes that order certain, so the service's hold-and-replay of early updates is exercised.
@@ -93,7 +118,7 @@ const run = (scenario: FakeScenario) => {
       cancelled.add(params.sessionId);
       held.get(params.sessionId)?.();
     })
-    .onRequest("session/prompt", async ({ params: { sessionId }, client }) => {
+    .onRequest("session/prompt", async ({ params: { sessionId, prompt }, client }) => {
       switch (scenario) {
         case "reply":
           await send(client, sessionId, text("Hello"));
@@ -175,6 +200,45 @@ const run = (scenario: FakeScenario) => {
           await send(client, sessionId, text("Thinking is over."));
           await send(client, sessionId, text(" Here is the answer."));
           return { stopReason: "end_turn" };
+        case "mcp-config": {
+          // The prompt is a file path: the agent writes the mcpServers entries it got, its environment and the raw
+          // session/new params (for the instructions drift check) there rather than into its reply, so the token
+          // never enters the service's log through this seam. "crash" instead ends the process as a crash would.
+          const [block] = prompt;
+          const path = block?.type === "text" ? block.text : "";
+          if (path === "crash") process.exit(3);
+          writeFileSync(path, JSON.stringify({ mcpServers, env: process.env, sessionNew }));
+          await send(client, sessionId, text("Reported the MCP config."));
+          return { stopReason: "end_turn" };
+        }
+        case "call-tool": {
+          // The prompt is JSON `{ tool, arguments }`: the agent calls that tool on its wombat MCP server, at the URL
+          // and with the headers its session/new carried, as a real harness would, and replies with the result's text.
+          const [block] = prompt;
+          const { tool, arguments: args } = JSON.parse(block?.type === "text" ? block.text : "{}") as {
+            tool: string;
+            arguments: Record<string, unknown>;
+          };
+          const servers = (mcpServers ?? []) as { name: string; url: string; headers: { name: string; value: string }[] }[];
+          const wombat = servers.find((server) => server.name === "wombat");
+          if (!wombat) {
+            await send(client, sessionId, text("No wombat MCP server was given."));
+            return { stopReason: "end_turn" };
+          }
+          const response = await fetch(wombat.url, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              accept: "application/json, text/event-stream",
+              ...Object.fromEntries(wombat.headers.map((header) => [header.name, header.value])),
+            },
+            body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: tool, arguments: args } }),
+          });
+          const answer = (await response.json()) as { result?: { content?: { type: string; text?: string }[] } };
+          const reply = answer.result?.content?.find((content) => content.type === "text")?.text ?? JSON.stringify(answer);
+          await send(client, sessionId, text(reply));
+          return { stopReason: "end_turn" };
+        }
         case "auth":
           break;
       }
@@ -184,7 +248,7 @@ const run = (scenario: FakeScenario) => {
   const connection = app.connect(
     ndJsonStream(
       Writable.toWeb(process.stdout) as WritableStream<Uint8Array>,
-      Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
+      Readable.toWeb(process.stdin.pipe(recorder)) as ReadableStream<Uint8Array>,
     ),
   );
   void connection.closed.then(() => process.exit(0));

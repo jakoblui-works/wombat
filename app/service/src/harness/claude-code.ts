@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 
 import { agentEnv } from "./env.ts";
-import type { Harness } from "./harness.ts";
+import { MCP_SERVER_NAME, type Harness } from "./harness.ts";
 
 const PACKAGE = "@agentclientprotocol/claude-agent-acp";
 
@@ -50,4 +50,10 @@ export const claudeCode: Harness = {
     cwd,
     env: agentEnv(source, declaredEnv(source)),
   }),
+  // D16: the item tools run without a permission prompt each time. Access levels decide what a call may do, and
+  // proposals still wait for the user; every other tool still asks.
+  sessionMeta: { claudeCode: { options: { allowedTools: [`mcp__${MCP_SERVER_NAME}__*`] } } },
+  // The top-level ACP field, which claude-agent-acp appends to Claude Code's own prompt. Never
+  // `_meta.systemPrompt`: a string there replaces Claude Code's whole system prompt.
+  sessionParams: (instructions) => ({ systemPrompt: { mode: "append", content: [{ type: "text", text: instructions }] } }),
 };
