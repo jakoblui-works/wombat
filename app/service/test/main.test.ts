@@ -399,3 +399,53 @@ test(
   },
   TEST_TIMEOUT_MS * 2,
 );
+
+// Silent failure (switching workspaces: the app stops the service, then starts one for the new workspace): while
+// POST /shutdown is still stopping agents, a new start must not take the old service's discovery file for a running
+// service. If it did, it would say "already running" and exit 0, the old one would exit next, and nothing would run.
+test(
+  "a start while POST /shutdown is still stopping agents waits for the old service and ends up listening",
+  async () => {
+    const at = place();
+    const env = (systemd: FakeSystemd) => at.env(systemd, { FAKE_AGENT_PID_DIR: at.pidDir, WOMBAT_TEST_SLICE: at.slice });
+    // Holds the old service's shutdown at its slice stop (after its agents' scopes are killed, before it answers).
+    const gate = join(at.base, "slice-stop-gate");
+    const oldSystemd = fakeSystemd({ stopGate: gate });
+    onTestFinished(() => {
+      writeFileSync(gate, "");
+      oldSystemd.remove();
+    });
+    const old = spawnService(ENTRY, env(oldSystemd));
+    await waitForDiscovery(old, at.discoveryPath);
+    const oldFile = DiscoveryFile.parse(JSON.parse(readFileSync(at.discoveryPath, "utf8")));
+    const started = await api(oldFile, "POST", "/agents", { harness: "fake-reply", repo: REPO });
+    expect(started.status, started.text).toBe(201);
+    await waitFor("the agent's process", () => at.pids().length > 0);
+
+    const shutdown = api(oldFile, "POST", "/shutdown");
+    // Awaited below; a test that fails before then mustn't also report the dropped connection.
+    shutdown.catch(() => undefined);
+    await waitFor("the old service's shutdown to reach the slice stop", () =>
+      oldSystemd.calls().some(({ tool, args }) => tool === "systemctl" && args.includes("stop") && args.includes(at.slice)),
+    );
+
+    const next = spawnService(ENTRY, env(fakes()));
+    // The gate opens once the old file is gone (the new start can't mistake it for a running service) or the new
+    // start has given up; either comes well within the new start's wait for the lock.
+    await waitFor("the old discovery file to go, or the new start to exit", () => !existsSync(at.discoveryPath) || next.child.exitCode !== null);
+    expect(next.child.exitCode, `the new start must not leave while the old service shuts down; stderr:\n${next.stderr()}`).toBeNull();
+    writeFileSync(gate, "");
+
+    expect((await shutdown).status).toBe(202);
+    expect(await old.exited(), `the old service; stderr:\n${old.stderr()}`).toEqual({ code: 0, signal: null });
+    await waitFor("the new start's discovery file", () => {
+      if (next.child.exitCode !== null) throw new Error(`the new start exited; stderr:\n${next.stderr()}`);
+      return readDiscovery(at.discoveryPath)?.pid === next.child.pid;
+    });
+    const file = readDiscovery(at.discoveryPath);
+    if (!file) throw new Error("no discovery file");
+    expect((await api(file, "GET", "/version")).status).toBe(200);
+    expect(next.child.exitCode).toBeNull();
+  },
+  TEST_TIMEOUT_MS * 2,
+);

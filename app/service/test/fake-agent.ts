@@ -6,7 +6,7 @@ import { Readable, Transform, Writable } from "node:stream";
 
 import { agent, ndJsonStream, RequestError, type AgentContext, type SessionUpdate } from "@agentclientprotocol/sdk";
 
-const SCENARIOS = [
+export const SCENARIOS = [
   "reply",
   "permission",
   "permissions-three",

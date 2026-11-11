@@ -4,7 +4,7 @@ import { APP_ORIGIN } from "@wombat/shared";
 import { ServerErrorCode } from "@wombat/shared/api";
 import type { Context, MiddlewareHandler } from "hono";
 
-import { errorResponse } from "./errors.ts";
+import { errorResponse, SERVER_STATUS } from "./errors.ts";
 
 // Hashing first gives both sides one length, so the comparison takes the same time however much of it matches.
 const digest = (value: string) => createHash("sha256").update(value).digest();
@@ -18,7 +18,7 @@ export const refuseForeignHost = (c: Context, port: number) => {
   if (host === `127.0.0.1:${port}` || host === `localhost:${port}`) return undefined;
   return errorResponse(
     c,
-    403,
+    SERVER_STATUS.forbidden_host,
     ServerErrorCode.enum.forbidden_host,
     `The Host header must be 127.0.0.1:${port} or localhost:${port}. Connect to the service by that address.`,
   );
@@ -36,7 +36,7 @@ export const portRules = ({ token, port }: { token: string; port: () => number }
     if (authorization === undefined || !timingSafeEqual(digest(authorization), expected)) {
       return errorResponse(
         c,
-        401,
+        SERVER_STATUS.unauthorized,
         ServerErrorCode.enum.unauthorized,
         "The request has no valid token. Send the token from the service's discovery file as `Authorization: Bearer <token>`.",
       );
@@ -45,7 +45,7 @@ export const portRules = ({ token, port }: { token: string; port: () => number }
     if (origin !== undefined && origin !== APP_ORIGIN) {
       return errorResponse(
         c,
-        403,
+        SERVER_STATUS.forbidden_origin,
         ServerErrorCode.enum.forbidden_origin,
         "Requests from web pages are refused. Call the service from the Wombat app, or without an Origin header.",
       );

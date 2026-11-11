@@ -7,7 +7,8 @@ const encoder = new TextEncoder();
 /**
  * Alerts (and pings) a client may have waiting in its stream before the stream is ended. Past it the client has
  * stopped reading: keeping on queueing would grow the service's memory for a window that may never read again.
- * Once it reads the ones queued it sees the stream end, reconnects and catches up from the last seq it got.
+ * Once it reads the ones queued it sees the stream end and reconnects; /events doesn't replay what it missed, so
+ * after any reconnect the client re-reads GET /agents, GET /proposals and each open agent's log with ?after=.
  */
 export const MAX_QUEUED_ALERTS = 1_000;
 

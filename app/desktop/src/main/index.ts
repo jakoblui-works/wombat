@@ -14,7 +14,7 @@ const rendererRoot = path.join(import.meta.dirname, "../renderer");
 const devServerUrl = (): string | undefined =>
   import.meta.env.DEV ? process.env["ELECTRON_RENDERER_URL"] : undefined;
 
-// The app's own pages: app://wombat/, or the dev server's origin in development.
+// The app's own pages: APP_ORIGIN, or the dev server's origin in development.
 const isAppUrl = (url: string): boolean => {
   const devUrl = devServerUrl();
   if (devUrl !== undefined) return URL.parse(url)?.origin === new URL(devUrl).origin;
@@ -100,7 +100,7 @@ if (typeof Response !== "function") {
 }
 
 app.enableSandbox();
-// `standard` gives app://wombat/ a real origin (so the CSP's 'self' and relative URLs work);
+// `standard` gives APP_ORIGIN a real origin (so the CSP's 'self' and relative URLs work);
 // no other privileges.
 protocol.registerSchemesAsPrivileged([{ scheme: APP_SCHEME, privileges: { standard: true } }]);
 

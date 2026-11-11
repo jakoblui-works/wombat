@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agent summaries show what the app's agent list needs: the agent folder's git branch, an excerpt of the agent's last message, when you last sent it a message or answered it, and its open permission requests. A store from an earlier version is upgraded in place when the service starts.
 - The service stores the agent's plan and its reasoning as they arrive, instead of skipping them.
 - `POST /shutdown` stops every agent (their history is kept) and ends the service.
-- An alert stream client that stops reading is disconnected once too many alerts wait for it; it catches up from its last seq when it reconnects.
+- An alert stream client that stops reading is disconnected once too many alerts wait for it. The stream doesn't replay: after any reconnect the app reads the agents, the proposals and each open agent's log again.
 - A desktop app skeleton with secure defaults: context isolation on, no Node in the renderer, a strict content security policy.
 - CI that lints, type-checks, tests, builds and runs the desktop end-to-end tests on every push and pull request.
 - The Wombat logo: a mark and a symbol, in colour and in one colour, in `app/desktop/assets/brand/`; the mark heads the README.

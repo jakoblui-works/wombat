@@ -15,7 +15,7 @@ import { createManager, type Committed } from "../src/agents/manager.ts";
 import { readInstructions } from "../src/items/instructions.ts";
 import type { Harness } from "../src/harness/harness.ts";
 import { openStore, type Store, type StoreOptions } from "../src/store/store.ts";
-import type { FakeScenario } from "./fake-agent.ts";
+import { SCENARIOS, type FakeScenario } from "./fake-agent.ts";
 import { fakeHarness } from "./fake-harness.ts";
 import { fakeSystemd, type FakeSystemd, type FakeSystemdOptions } from "./fake-systemd.ts";
 
@@ -44,25 +44,7 @@ export const trackedHarness = (scenario: FakeScenario, pidDir: string): Harness 
   };
 };
 
-export const ALL_SCENARIOS: FakeScenario[] = [
-  "reply",
-  "permission",
-  "permissions-three",
-  "image",
-  "auth",
-  "crash",
-  "hang",
-  "noisy",
-  "spawn-child",
-  "unknown-update",
-  "detached-holder",
-  "early-update",
-  "mcp-config",
-  "call-tool",
-  "message-ids",
-  "message-runs",
-  "plan-thought",
-];
+export const ALL_SCENARIOS: readonly FakeScenario[] = SCENARIOS;
 
 export const isAlive = (pid: number) => {
   try {

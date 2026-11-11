@@ -95,13 +95,13 @@ export type ErrorBody = z.infer<typeof ErrorBody>;
 // service sends is one of these, so the app can switch on them by name.
 
 /**
- * Any route, before it runs: `unauthorized` (401) without the discovery file's token, or on /mcp without a live
- * agent token; `forbidden_origin` (403) for an Origin other than the app's; `forbidden_host` (403) for a Host
- * other than the bound loopback address. The app re-reads the discovery file and reconnects; it never retries with
- * the same token. Then, per request: `payload_too_large` (413) for a body over 1 MiB, `invalid_request` (400) for
- * a body or query off the contract (a bug in the app: show the message), `not_found` (404) for an unknown route,
- * `method_not_allowed` (405) for /events or /mcp with the wrong method, `internal_error` (500) when the service
- * failed (show the message; the request may be retried).
+ * Any route, before it runs: `unauthorized` without the discovery file's token, or on /mcp without a live agent
+ * token; `forbidden_origin` for an Origin other than the app's; `forbidden_host` for a Host other than the bound
+ * loopback address. The app re-reads the discovery file and reconnects; it never retries with the same token.
+ * Then, per request: `payload_too_large` for a body over 1 MiB, `invalid_request` for a body or query off the
+ * contract (a bug in the app: show the message), `not_found` for an unknown route, `method_not_allowed` for
+ * /events or /mcp with the wrong method, `internal_error` when the service failed (show the message; the request
+ * may be retried).
  */
 export const ServerErrorCode = z.enum([
   "unauthorized",
@@ -116,24 +116,23 @@ export const ServerErrorCode = z.enum([
 export type ServerErrorCode = z.infer<typeof ServerErrorCode>;
 
 /**
- * `POST /agents` when the repo path doesn't name a folder in the workspace (`repo_not_found`, 422) or leads out of
- * it through a symlink (`repo_outside_workspace`, 422). The app shows the message and lets the user pick another
- * repo.
+ * `POST /agents` when the repo path doesn't name a folder in the workspace (`repo_not_found`) or leads out of it
+ * through a symlink (`repo_outside_workspace`). The app shows the message and lets the user pick another repo.
  */
 export const RepoErrorCode = z.enum(["repo_not_found", "repo_outside_workspace"]);
 export type RepoErrorCode = z.infer<typeof RepoErrorCode>;
 
 /**
  * The agent routes' error codes, and an agent summary's `error.code`:
- * - `not_found` (404): no agent with that id (any `/agents/:id` route), or no open permission request with that id
+ * - `not_found`: no agent with that id (any `/agents/:id` route), or no open permission request with that id
  *   (`POST /agents/:id/permissions/:requestId`). The app refetches the agents or the log.
- * - `busy` (409): `POST /agents/:id/messages` while a turn runs. The app waits for the turn to end, or cancels it.
- * - `not_running` (409): a command to a stopped or exited agent, or to a service shutting down. The app offers a new
+ * - `busy`: `POST /agents/:id/messages` while a turn runs. The app waits for the turn to end, or cancels it.
+ * - `not_running`: a command to a stopped or exited agent, or to a service shutting down. The app offers a new
  *   agent; the history stays readable.
- * - `kind_not_offered` (422): a permission answer the agent didn't offer. The app answers with an offered kind.
- * - `unknown_harness` (422) and the RepoErrorCode codes: `POST /agents` with a harness or repo that doesn't exist.
- * - `auth_required` (502): `POST /agents` when the harness needs a login. The app tells the user to log in.
- * - `agent_failed` (502): `POST /agents` when the agent didn't start; as a summary's `error.code`, a turn that failed
+ * - `kind_not_offered`: a permission answer the agent didn't offer. The app answers with an offered kind.
+ * - `unknown_harness` and the RepoErrorCode codes: `POST /agents` with a harness or repo that doesn't exist.
+ * - `auth_required`: `POST /agents` when the harness needs a login. The app tells the user to log in.
+ * - `agent_failed`: `POST /agents` when the agent didn't start; as a summary's `error.code`, a turn that failed
  *   or a process that ended unexpectedly. The app shows the message and offers a new agent.
  */
 export const AgentErrorCode = z.enum([
@@ -149,18 +148,18 @@ export const AgentErrorCode = z.enum([
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 
 /**
- * `POST /proposals/:id/approve` and `/reject`: `proposal_not_found` (404) for an unknown proposal id,
- * `proposal_not_pending` (409) for one already decided. The app refetches the proposals.
+ * `POST /proposals/:id/approve` and `/reject`: `proposal_not_found` for an unknown proposal id,
+ * `proposal_not_pending` for one already decided. The app refetches the proposals.
  */
 export const ProposalErrorCode = z.enum(["proposal_not_found", "proposal_not_pending"]);
 export type ProposalErrorCode = z.infer<typeof ProposalErrorCode>;
 
 /**
- * The items routes' error codes: `items_not_configured` (409) when the service runs without an items root (the app
- * hides the items views), `structure_not_found` and `item_not_found` (404) for an unknown structure id or handle (the
- * app refetches the structures). The proposal routes add the ProposalErrorCode codes. `items_not_writable` is reserved
+ * The items routes' error codes: `items_not_configured` when the service runs without an items root (the app hides
+ * the items views), `structure_not_found` and `item_not_found` for an unknown structure id or handle (the app
+ * refetches the structures). The proposal routes add the ProposalErrorCode codes. `items_not_writable` is reserved
  * for a write the items root's filesystem can't take; no route sends it yet: such a failure on approve answers
- * `internal_error` (500).
+ * `internal_error`.
  */
 export const ItemsErrorCode = z.enum([
   "items_not_configured",
@@ -175,7 +174,7 @@ export type ItemsErrorCode = z.infer<typeof ItemsErrorCode>;
  * Why the item writer refused a write; nothing on disk changed. Internal to the service, never sent. On /mcp the
  * access module turns each one but `items_not_writable` into an AccessErrorCode refusal (the agent gets its message);
  * approving a proposal turns them into a `conflict` proposal. `items_not_writable` fails the call: /mcp answers the
- * agent with a generic failure, approve answers `internal_error` (500).
+ * agent with a generic failure, approve answers `internal_error`.
  */
 export const ItemWriteErrorCode = z.enum([
   "stale_version",
@@ -249,9 +248,9 @@ export const AgentSummary = z.object({
    */
   branch: z.string().exactOptional(),
   /**
-   * The latest agent message's text, whitespace folded, trimmed and cut to 200 characters. Updated whenever the
-   * agent's state changes (a turn ending, a permission request); replaced, not appended, by the next message; absent
-   * until the agent sends text.
+   * A short excerpt of the latest agent message's text (whitespace folded, trimmed). Current at least each time a
+   * turn ends; replaced, not appended, by the next message, and cleared when the latest message has no text (an
+   * image only). Absent until the agent sends text.
    */
   lastText: z.string().exactOptional(),
   /** When the service last accepted a message or a permission answer from the app; never cleared. */

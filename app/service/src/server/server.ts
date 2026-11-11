@@ -4,7 +4,6 @@ import type { AddressInfo } from "node:net";
 import { getRequestListener, type HttpBindings } from "@hono/node-server";
 import { API_VERSION } from "@wombat/shared";
 import {
-  AgentErrorCode,
   AnswerPermissionRequest,
   GetItemResponse as GetItemSchema,
   ItemsErrorCode,
@@ -30,10 +29,9 @@ import {
 import { Proposal as ProposalSchema, type Proposal } from "@wombat/shared/items";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 
-import { AgentError, type Manager } from "../agents/manager.ts";
+import { AgentError, notFound, type Manager } from "../agents/manager.ts";
 import { openAccess, ProposalError } from "../items/access.ts";
 import { handlesById, summarize, withLinks } from "../items/api-view.ts";
 import { findByHandle, type Catalog } from "../items/catalog.ts";
@@ -41,7 +39,7 @@ import type { Writer } from "../items/write.ts";
 import type { Harness } from "../harness/harness.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
-import { errorResponse } from "./errors.ts";
+import { AGENT_STATUS, errorResponse, ITEMS_STATUS, SERVER_STATUS } from "./errors.ts";
 import { createAlertStreams } from "./events.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { portRules } from "./port-rules.ts";
@@ -68,6 +66,8 @@ export type ServerOptions = {
    * which main passes. Without it the route still stops the agents, but the service keeps running.
    */
   onShutdown?: () => void;
+  /** Called when POST /shutdown begins, before any agent is stopped; main removes the discovery file there. */
+  onShutdownStart?: () => void;
 };
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -76,29 +76,7 @@ const MIN_TOKEN_LENGTH = 16;
 /** How long close() lets ended responses flush before it drops the connections left. */
 const CLOSE_GRACE_MS = 1_000;
 
-const STATUS: Record<AgentErrorCode, ContentfulStatusCode> = {
-  not_found: 404,
-  busy: 409,
-  not_running: 409,
-  kind_not_offered: 422,
-  unknown_harness: 422,
-  repo_not_found: 422,
-  repo_outside_workspace: 422,
-  auth_required: 502,
-  agent_failed: 502,
-};
-
-/** No route sends `items_not_writable` yet: a writer failure on approve falls through to `internal_error`. */
-const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {
-  items_not_configured: 409,
-  structure_not_found: 404,
-  item_not_found: 404,
-  items_not_writable: 500,
-  proposal_not_found: 404,
-  proposal_not_pending: 409,
-};
-
-/** Thrown by a route on a request that breaks the contract; answered with 400. */
+/** Thrown by a route on a request that breaks the contract; answered with invalid_request. */
 class InvalidRequest extends Error {}
 
 const describeIssues = (error: z.ZodError) =>
@@ -143,6 +121,7 @@ export const startServer = async ({
   items,
   writer,
   onShutdown,
+  onShutdownStart,
 }: ServerOptions): Promise<{ port: number; close: () => Promise<void> }> => {
   if (token.length < MIN_TOKEN_LENGTH) {
     throw new Error(
@@ -175,7 +154,7 @@ export const startServer = async ({
     bodyLimit({
       maxSize: MAX_BODY_BYTES,
       onError: (c) =>
-        errorResponse(c, 413, ServerErrorCode.enum.payload_too_large, "The request body is over 1 MiB. Send a shorter message."),
+        errorResponse(c, SERVER_STATUS.payload_too_large, ServerErrorCode.enum.payload_too_large, "The request body is over 1 MiB. Send a shorter message."),
     }),
   );
 
@@ -203,7 +182,7 @@ export const startServer = async ({
     }
     const agentId = c.req.param("id");
     if (!store.listAgents().some((agent) => agent.id === agentId)) {
-      return errorResponse(c, 404, AgentErrorCode.enum.not_found, `There's no agent ${agentId}. List the agents to see which exist.`);
+      throw notFound(agentId);
     }
     const { after, limit = defaultLogLimit } = query.data;
     const { entries, truncated } = store.readLog(agentId, after, limit);
@@ -240,6 +219,7 @@ export const startServer = async ({
     if ((await c.req.text()) !== "") {
       throw new InvalidRequest("POST /shutdown takes no body. Send it again without one.");
     }
+    onShutdownStart?.();
     // Attached before the agents are stopped, so the service stops even if the client leaves meanwhile (its
     // close would come before anything attached later). It fires once the answer is out or the client is gone;
     // the stop path awaits the same manager shutdown before it closes the store.
@@ -327,7 +307,7 @@ export const startServer = async ({
     // no client ever reads or cancels.
     if (c.req.method === "HEAD") {
       c.header("allow", "GET");
-      return errorResponse(c, 405, ServerErrorCode.enum.method_not_allowed, "The alert stream only answers GET. Open it with GET /events.");
+      return errorResponse(c, SERVER_STATUS.method_not_allowed, ServerErrorCode.enum.method_not_allowed, "The alert stream only answers GET. Open it with GET /events.");
     }
     return alerts.respond();
   });
@@ -335,21 +315,21 @@ export const startServer = async ({
   app.notFound((c) =>
     errorResponse(
       c,
-      404,
+      SERVER_STATUS.not_found,
       ServerErrorCode.enum.not_found,
       `There's no route ${c.req.method} ${c.req.path}. See the API contract for the routes.`,
     ),
   );
 
   app.onError((error, c) => {
-    if (error instanceof InvalidRequest) return errorResponse(c, 400, ServerErrorCode.enum.invalid_request, error.message);
+    if (error instanceof InvalidRequest) return errorResponse(c, SERVER_STATUS.invalid_request, ServerErrorCode.enum.invalid_request, error.message);
     if (error instanceof ProposalError) return errorResponse(c, ITEMS_STATUS[error.code satisfies ProposalErrorCode], error.code, error.message);
-    if (error instanceof AgentError) return errorResponse(c, STATUS[error.code], error.code, error.message, error.hint);
+    if (error instanceof AgentError) return errorResponse(c, AGENT_STATUS[error.code], error.code, error.message, error.hint);
     // The details stay in the service: an error's message may quote agent content or paths.
     log("request_failed", { method: c.req.method, route: c.req.routePath, error: error.name });
     return errorResponse(
       c,
-      500,
+      SERVER_STATUS.internal_error,
       ServerErrorCode.enum.internal_error,
       "The agent service failed to handle the request. Try again; if it keeps failing, restart the service.",
     );
@@ -364,7 +344,7 @@ export const startServer = async ({
           message: "The request's Host header or path is malformed. Send a well-formed request.",
         },
       };
-      return Response.json(body, { status: 400 });
+      return Response.json(body, { status: SERVER_STATUS.invalid_request });
     },
   });
   // The listener handles its own failures; the server only needs it started.

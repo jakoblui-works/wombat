@@ -156,6 +156,16 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
         log,
         // Only called from a request, and none is handled before `stop` below is defined.
         onShutdown: () => stop("POST /shutdown"),
+        // The file goes first, while the agents still stop: a start that finds it would take this service for a
+        // running one, exit 0, and leave nothing running once this one exits. Without the file it waits for the
+        // lock, which this service releases last. A failure here is logged; the stop path tries the removal again.
+        onShutdownStart: () => {
+          try {
+            removeDiscovery(config.discoveryPath, process.pid);
+          } catch (error) {
+            log("shutdown_step_failed", { step: "discovery", error: error instanceof Error ? error.name : "unknown" });
+          }
+        },
         ...items,
       });
     } catch (error) {

@@ -150,7 +150,7 @@ const withTimeout = <T>(promise: Promise<T>, ms: number, error: () => Error): Pr
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 };
 
-const notFound = (agentId: string) =>
+export const notFound = (agentId: string) =>
   new AgentError(AgentErrorCode.enum.not_found, `There's no agent ${agentId}. List the agents to see which exist.`);
 
 const notRunning = () =>
