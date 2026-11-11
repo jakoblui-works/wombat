@@ -3,11 +3,11 @@ import { type ReactNode, useSyncExternalStore } from "react";
 import { AgentList } from "../AgentList/AgentList.tsx";
 import { Chat } from "../Chat/Chat.tsx";
 import { EmptyFiles } from "../EmptyFiles/EmptyFiles.tsx";
-import { EmptyState } from "../EmptyState/EmptyState.tsx";
 import { NeedsMe } from "../NeedsMe/NeedsMe.tsx";
 import { Reconnecting } from "../Reconnecting/Reconnecting.tsx";
 import { EditorGroup } from "../Shell/EditorGroup.tsx";
 import { Shell } from "../Shell/Shell.tsx";
+import { EmptyState } from "../../workbench/views/EmptyState/EmptyState.tsx";
 
 const EmptyGroup = () => <EmptyState title="No tab open" body="Open an agent from the list, or drag a tab here." />;
 
@@ -30,10 +30,9 @@ const ChatEditor = () => (
 );
 
 const SCREENS: Record<string, () => ReactNode> = {
-  shell: () => <Shell activity="agents" sidebar={<AgentList selected="a1" />} editor={<SplitEditor />} />,
+  shell: () => <Shell sidebar={<AgentList selected="a1" />} editor={<SplitEditor />} />,
   agents: () => (
     <Shell
-      activity="agents"
       sidebar={<AgentList />}
       editor={
         <EditorGroup tabs={[]}>
@@ -42,10 +41,10 @@ const SCREENS: Record<string, () => ReactNode> = {
       }
     />
   ),
-  chat: () => <Shell activity="agents" sidebar={<AgentList selected="a1" />} editor={<ChatEditor />} />,
-  "needs-me": () => <Shell activity="agents" sidebar={<AgentList selected="a1" />} editor={<ChatEditor />} needsMe={<NeedsMe />} />,
+  chat: () => <Shell sidebar={<AgentList selected="a1" />} editor={<ChatEditor />} />,
+  "needs-me": () => <Shell sidebar={<AgentList selected="a1" />} editor={<ChatEditor />} needsMe={<NeedsMe />} />,
   reconnecting: () => (
-    <Shell activity="agents" sidebar={<AgentList selected="a1" />} editor={<SplitEditor />} connection="reconnecting" blocker={<Reconnecting />} />
+    <Shell sidebar={<AgentList selected="a1" />} editor={<SplitEditor />} connection="reconnecting" blocker={<Reconnecting />} />
   ),
   "empty-files": () => <Shell activity="files" sidebar={<EmptyFiles />} editor={<SplitEditor />} />,
 };

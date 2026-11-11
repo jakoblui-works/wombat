@@ -31,10 +31,10 @@ const register = (): void => {
     resolves: chatResolves,
   });
 
-  unbuilt("files", "Files", Files, { title: "Files", body: "Browsing and editing the workspace's files comes in step 9." });
-  unbuilt("source-control", "Source control", GitBranch, { title: "Source control", body: "Changes, commits and branches come in step 10." });
-  unbuilt("workspace", "Workspace", FolderCog, { title: "Workspace", body: "The workspace's repos and settings come in step 8." });
-  unbuilt("project-overview", "Project overview", LayoutDashboard, { title: "Project overview", body: "An overview of the project comes later." });
+  unbuilt("files", "Files", Files, { title: "Files arrive in step 9", body: "Browse and edit the workspace's files here." });
+  unbuilt("source-control", "Source control", GitBranch, { title: "Source control arrives in step 10", body: "Review changes, commit and switch branches here." });
+  unbuilt("workspace", "Workspace", FolderCog, { title: "Workspace arrives in step 8", body: "See the workspace's repos and settings here." });
+  unbuilt("project-overview", "Project overview", LayoutDashboard, { title: "Project overview arrives later", body: "See the project's codebase and what's being worked on here." });
 };
 
 // The registry lives as long as the page and refuses an id twice, so a second copy of this module (a hot update in

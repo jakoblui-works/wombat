@@ -2,7 +2,7 @@ import { Inbox } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { WORKSPACE } from "../fixtures.ts";
-import { WombatSymbol } from "../WombatSymbol/WombatSymbol.tsx";
+import { WombatSymbol } from "../../workbench/views/EmptyState/WombatSymbol.tsx";
 
 /** The window's title area: the symbol and workspace on the left, the Needs me toggle on the right. */
 export const TitleBar = ({ needsMe, needsMeOpen }: { needsMe: number; needsMeOpen: boolean }) => (

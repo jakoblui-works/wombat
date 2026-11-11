@@ -1,6 +1,6 @@
 /*
  * Wombat's design tokens: every colour, size, radius and duration the renderer uses is defined here.
- * Components reach them through the Tailwind utilities bound below (bg-surface-1, text-fg-secondary, w-sidebar, …)
+ * Components reach them through the Tailwind utilities bound below (bg-surface-1, text-fg-secondary, w-activity-bar, …)
  * or through var(--…); shadcn's variables (globals.css) are mapped onto them.
  * Dark only. Surfaces step up in lightness from the window chrome to raised elements; text comes in three steps.
  * Naming: app code uses these Wombat names; shadcn's names (--primary, --muted, …) are used only inside components/ui.
@@ -14,7 +14,7 @@
   --surface-2: oklch(0.208 0.006 275);
   --surface-3: oklch(0.248 0.007 275);
   /* What dims the views behind a blocking state (reconnecting). */
-  --scrim: oklch(0.152 0.004 275 / 72%);
+  --scrim: oklch(from var(--surface-0) l c h / 72%);
 
   /* Lines: dividers inside a surface, the borders between regions, and the borders of controls. */
   --line-subtle: oklch(1 0 0 / 6%);
@@ -55,9 +55,9 @@
 
   /* Approve/reject and diff lines only. */
   --success: oklch(0.76 0.13 148);
-  --success-subtle: oklch(0.76 0.13 148 / 11%);
+  --success-subtle: oklch(from var(--success) l c h / 11%);
   --danger: oklch(0.67 0.19 25);
-  --danger-subtle: oklch(0.67 0.19 25 / 12%);
+  --danger-subtle: oklch(from var(--danger) l c h / 12%);
 
   /* Type: the system UI and monospace stacks; a scale of six sizes with their line heights. */
   --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
@@ -75,12 +75,10 @@
   --font-size-2xl: 22px;
   --line-height-2xl: 28px;
 
-  /* Spacing on a 4px grid, and the fixed sizes of the workbench's regions. */
+  /* Spacing on a 4px grid, and the fixed sizes of the workbench's chrome (sidebar widths are the layout's: workbench/layout.ts). */
   --space: 4px;
   --size-titlebar: 36px;
   --size-activity-bar: 48px;
-  --size-sidebar: 280px;
-  --size-needs-me: 296px;
   --size-tab-strip: 36px;
   --size-chat: 760px;
   --size-empty-state: 280px;
@@ -158,8 +156,6 @@
   --spacing: var(--space);
   --spacing-titlebar: var(--size-titlebar);
   --spacing-activity-bar: var(--size-activity-bar);
-  --spacing-sidebar: var(--size-sidebar);
-  --spacing-needs-me: var(--size-needs-me);
   --spacing-tab-strip: var(--size-tab-strip);
   --container-chat: var(--size-chat);
   --container-empty-state: var(--size-empty-state);

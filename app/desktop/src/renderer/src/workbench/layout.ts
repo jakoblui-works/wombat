@@ -15,7 +15,8 @@ export type SavedLayout = {
 
 /** The activity `id` names if it's registered, else the default (Agents). */
 const knownActivity = (id: string | undefined): string => activityOrDefault(id)?.id ?? "";
-const DEFAULT_SIDEBARS: SavedLayout["sidebars"] = { left: 260, right: 300, rightCollapsed: true };
+/** The sidebars' widths (px) and state until the user changes them. */
+export const DEFAULT_SIDEBARS: Readonly<SavedLayout["sidebars"]> = { left: 280, right: 296, rightCollapsed: true };
 const DEFAULT_GROUP_ID = "editor";
 
 type GridNode = { type: "leaf"; data: { id: string; views: string[]; activeView?: string | undefined } } | { type: "branch"; data: GridNode[] };
