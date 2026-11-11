@@ -1,4 +1,4 @@
-import type { ErrorBody } from "@wombat/shared/api";
+import type { ErrorBody, ErrorCode } from "@wombat/shared/api";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
@@ -6,7 +6,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 export const errorResponse = (
   c: Context,
   status: ContentfulStatusCode,
-  code: string,
+  code: ErrorCode,
   message: string,
   hint?: string,
 ) => {

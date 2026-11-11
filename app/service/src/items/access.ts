@@ -6,6 +6,7 @@
 // before anything is written or stored. Approving applies a proposal through the writer on the version the agent
 // read, under the structure's settings as they are now; anything changed since makes it a conflict, never an
 // overwrite.
+import { AccessErrorCode, ItemWriteErrorCode, ProposalErrorCode } from "@wombat/shared/api";
 import { ITEM_FIELDS, type Problem, type Proposal, type ProposalStatus } from "@wombat/shared/items";
 
 import { logToStderr, type Log } from "../log.ts";
@@ -15,8 +16,6 @@ import { SETTINGS_FILE } from "./structures.ts";
 import { TOOL } from "./tools.ts";
 import { ownValue, propertyOf, setOwn } from "./validate.ts";
 import { ItemWriteError, listed, presentValues, StructureProblemsError, type NewItem, type Writer } from "./write.ts";
-
-export type AccessErrorCode = "not_found" | "read_only" | "use_propose" | "use_edit" | "locked" | "stale_version" | "invalid_fields";
 
 /** Why an agent's call was refused; the message says what to do next. */
 export class AccessError extends Error {
@@ -30,8 +29,6 @@ export class AccessError extends Error {
     this.problems = problems;
   }
 }
-
-export type ProposalErrorCode = "proposal_not_found" | "proposal_not_pending";
 
 /** Why deciding a proposal was refused; nothing changed. */
 export class ProposalError extends Error {
@@ -197,15 +194,15 @@ const scrubbedSettings = (view: View, problems: NamedProblem[], structure: Valid
 // Refusals. The not_found texts name only what the agent typed, so a hidden name reads exactly like a missing one.
 
 const noItem = (handle: string) =>
-  new AccessError("not_found", `No item has the handle ${handle}. Check it, or find the item with ${TOOL.search} or ${TOOL.listItems}.`);
+  new AccessError(AccessErrorCode.enum.not_found, `No item has the handle ${handle}. Check it, or find the item with ${TOOL.search} or ${TOOL.listItems}.`);
 
 const noStructure = (id: string) =>
-  new AccessError("not_found", `No structure has the id ${id}. Call ${TOOL.describeStructure} without a structure to see the ones you can use.`);
+  new AccessError(AccessErrorCode.enum.not_found, `No structure has the id ${id}. Call ${TOOL.describeStructure} without a structure to see the ones you can use.`);
 
 const stale = (handle: string) =>
-  new AccessError("stale_version", `${handle} changed since you read it (by hand or by another write). Re-read it with ${TOOL.getItem} and try again.`);
+  new AccessError(AccessErrorCode.enum.stale_version, `${handle} changed since you read it (by hand or by another write). Re-read it with ${TOOL.getItem} and try again.`);
 
-const invalidFields = (message: string, problems: Problem[] = []) => new AccessError("invalid_fields", message, problems);
+const invalidFields = (message: string, problems: Problem[] = []) => new AccessError(AccessErrorCode.enum.invalid_fields, message, problems);
 
 /** The one message of an `invalid_fields` refusal for its problems, so a scrubbed one can't be told apart by its shape. */
 const nothingChanged = (problems: Problem[]) => `Nothing was changed: ${listed(problems)}. Fix what's named, or ask the user to, and try again.`;
@@ -229,16 +226,16 @@ const itemFor = (view: View, handle: string) => {
 const checkLevel = (structure: ValidStructure, family: Family, change: Change) => {
   const { access } = structure.settings;
   if (access === "read") {
-    throw new AccessError("read_only", `${structure.id} is read-only for agents: its items can be read, never changed. Ask the user if it needs this change.`);
+    throw new AccessError(AccessErrorCode.enum.read_only, `${structure.id} is read-only for agents: its items can be read, never changed. Ask the user if it needs this change.`);
   }
   if (access === family) return;
   if (access === "propose") {
     throw new AccessError(
-      "use_propose",
+      AccessErrorCode.enum.use_propose,
       `${structure.id} takes proposals, not direct changes: use ${CHANGE_TOOLS[change].propose} with a reason, and the user approves or rejects it.`,
     );
   }
-  throw new AccessError("use_edit", `${structure.id} is open to direct changes, so there's nothing to propose: use ${CHANGE_TOOLS[change].edit} instead.`);
+  throw new AccessError(AccessErrorCode.enum.use_edit, `${structure.id} is open to direct changes, so there's nothing to propose: use ${CHANGE_TOOLS[change].edit} instead.`);
 };
 
 /** The locked fields among those a change sets; a create always sets the title and body, so they never count. */
@@ -251,7 +248,7 @@ const checkLocks = (structure: ValidStructure, kind: Change, names: string[]) =>
   if (locked.length === 0) return;
   const one = locked.length === 1;
   throw new AccessError(
-    "locked",
+    AccessErrorCode.enum.locked,
     `${locked.join(", ")} ${one ? "is" : "are"} locked in ${structure.id}: agents can't change ${one ? "it" : "them"}. Leave ${one ? "it" : "them"} out, or ask the user to make the change.`,
   );
 };
@@ -326,22 +323,22 @@ const agentWriteError = (view: View, error: unknown, subject: { handle?: string;
   // The structure's problems found by the writer's own read (they appeared after the view's).
   if (error instanceof StructureProblemsError) return structureRefusal(view, subject.structure, error.problems);
   switch (error.code) {
-    case "stale_version":
+    case ItemWriteErrorCode.enum.stale_version:
       return stale(subject.handle ?? "The item");
-    case "item_not_found":
+    case ItemWriteErrorCode.enum.item_not_found:
       return noItem(subject.handle ?? "");
-    case "structure_not_found":
+    case ItemWriteErrorCode.enum.structure_not_found:
       return noStructure(subject.structure.id);
-    case "field_not_writable":
+    case ItemWriteErrorCode.enum.field_not_writable:
       // Names only the service's own keys the call gave; it has no problems.
       return invalidFields(error.message);
-    case "invalid_fields": {
+    case ItemWriteErrorCode.enum.invalid_fields: {
       // Always built from the scrubbed problems, never the writer's message: that shows root-relative paths, and
       // one format whatever was scrubbed means a scrubbed refusal can't be told apart by its shape.
       const problems = scrubbed(view, error.problems, subject.handle ?? "the item", subject.structure);
       return invalidFields(nothingChanged(problems), problems);
     }
-    case "items_not_writable":
+    case ItemWriteErrorCode.enum.items_not_writable:
       return error;
   }
 };
@@ -488,10 +485,10 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
 
   const pending = (id: string) => {
     const stored = store.getProposal(id);
-    if (stored === undefined) throw new ProposalError("proposal_not_found", `No proposal has the id ${id}. Refresh the proposals to see the current ones.`);
+    if (stored === undefined) throw new ProposalError(ProposalErrorCode.enum.proposal_not_found, `No proposal has the id ${id}. Refresh the proposals to see the current ones.`);
     if (stored.status !== "pending") {
       throw new ProposalError(
-        "proposal_not_pending",
+        ProposalErrorCode.enum.proposal_not_pending,
         `Proposal ${id} is already ${stored.status}; only a pending proposal can be approved or rejected. Refresh the proposals to see its state.`,
       );
     }
@@ -542,8 +539,8 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
       else await writer.deleteItem(item.handle, baseVersion);
       return {};
     } catch (error) {
-      if (!(error instanceof ItemWriteError) || error.code === "items_not_writable") throw error;
-      if (error.code === "stale_version" || error.code === "item_not_found") {
+      if (!(error instanceof ItemWriteError) || error.code === ItemWriteErrorCode.enum.items_not_writable) throw error;
+      if (error.code === ItemWriteErrorCode.enum.stale_version || error.code === ItemWriteErrorCode.enum.item_not_found) {
         return conflict(`The item changed (edited, renamed or deleted) since the agent read it, so nothing was applied. Reject the proposal, or ask the agent to read the item again and propose anew.`);
       }
       const [only] = error.problems;

@@ -1,11 +1,13 @@
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
+import { APP_ORIGIN } from "@wombat/shared";
 
-// The built renderer is served from `app://wombat/`, a fixed origin of the app's own, instead
-// of file:// (which would put every file on the disk one navigation away).
-export const APP_SCHEME = "app";
-export const APP_HOST = "wombat";
-export const APP_INDEX_URL = `${APP_SCHEME}://${APP_HOST}/index.html`;
+// The built renderer is served from APP_ORIGIN, a fixed origin of the app's own, instead of
+// file:// (which would put every file on the disk one navigation away).
+const appOrigin = new URL(APP_ORIGIN);
+export const APP_SCHEME = appOrigin.protocol.slice(0, -1);
+export const APP_HOST = appOrigin.host;
+export const APP_INDEX_URL = `${APP_ORIGIN}/index.html`;
 
 // Node's URL gives non-special schemes an opaque origin ("null"), so compare scheme and host.
 export const isAppOrigin = (url: string): boolean => {

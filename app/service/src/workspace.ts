@@ -1,7 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 
-export type RepoErrorCode = "repo_not_found" | "repo_outside_workspace";
+import { RepoErrorCode } from "@wombat/shared/api";
 
 /** A repo path that doesn't name a folder inside the workspace. */
 export class RepoError extends Error {
@@ -28,7 +28,7 @@ export const resolveRepo = (workspaceRoot: string, repo: string): string => {
     rootReal = realpathSync(workspaceRoot);
   } catch {
     throw new RepoError(
-      "repo_not_found",
+      RepoErrorCode.enum.repo_not_found,
       `The workspace root ${workspaceRoot} doesn't exist. Check the service's workspace setting.`,
     );
   }
@@ -37,19 +37,19 @@ export const resolveRepo = (workspaceRoot: string, repo: string): string => {
     real = realpathSync(join(rootReal, repo));
   } catch {
     throw new RepoError(
-      "repo_not_found",
+      RepoErrorCode.enum.repo_not_found,
       `There's no folder "${repo}" in the workspace. Give a repo path relative to the workspace root.`,
     );
   }
   if (!isWithin(rootReal, real)) {
     throw new RepoError(
-      "repo_outside_workspace",
+      RepoErrorCode.enum.repo_outside_workspace,
       `The repo "${repo}" leads outside the workspace (through a symlink). Choose a folder inside the workspace.`,
     );
   }
   if (!statSync(real).isDirectory()) {
     throw new RepoError(
-      "repo_not_found",
+      RepoErrorCode.enum.repo_not_found,
       `"${repo}" in the workspace is a file, not a folder. Give the path of a repo folder.`,
     );
   }

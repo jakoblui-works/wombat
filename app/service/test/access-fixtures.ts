@@ -4,10 +4,11 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import type { AccessErrorCode } from "@wombat/shared/api";
 import { Problem } from "@wombat/shared/items";
 import { expect } from "vitest";
 
-import { AccessError, openAccess, type Access, type AccessErrorCode } from "../src/items/access.ts";
+import { AccessError, openAccess, type Access } from "../src/items/access.ts";
 import { openItems, writeRoot, type Opened } from "./items-fixtures.ts";
 
 /** In every name, title, body and value of the hidden structure, in mixed case; never in a visible one. */

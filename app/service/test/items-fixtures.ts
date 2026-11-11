@@ -6,10 +6,11 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdtempSyn
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import type { ItemWriteErrorCode } from "@wombat/shared/api";
 import { expect, onTestFinished } from "vitest";
 
 import { openCatalog, type Catalog, type LoadedItem } from "../src/items/catalog.ts";
-import { ItemWriteError, openWriter, type ItemWriteErrorCode, type Writer } from "../src/items/write.ts";
+import { ItemWriteError, openWriter, type Writer } from "../src/items/write.ts";
 import { openStore, type Store } from "../src/store/store.ts";
 import { tempStorePath } from "./store-fixtures.ts";
 

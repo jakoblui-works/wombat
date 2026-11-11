@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import type { McpServer, RequestPermissionRequest, RequestPermissionResponse } from "@agentclientprotocol/sdk";
 import {
+  AgentErrorCode,
   AnswerPermissionRequest,
   LogEntry,
   parseLogEntry,
@@ -20,17 +21,6 @@ import type { NewLogEntry, Store } from "../store/store.ts";
 import { RepoError, resolveRepo } from "../workspace.ts";
 import { connectAgent, type AcpAgent } from "./acp-client.ts";
 import { createScopes, DEFAULT_SLICE } from "./scope.ts";
-
-export type AgentErrorCode =
-  | "not_found"
-  | "busy"
-  | "not_running"
-  | "kind_not_offered"
-  | "auth_required"
-  | "unknown_harness"
-  | "repo_not_found"
-  | "repo_outside_workspace"
-  | "agent_failed";
 
 /** A failed manager call; the server maps `code` to its HTTP status. */
 export class AgentError extends Error {
@@ -143,11 +133,11 @@ const withTimeout = <T>(promise: Promise<T>, ms: number, error: () => Error): Pr
 };
 
 const notFound = (agentId: string) =>
-  new AgentError("not_found", `There's no agent ${agentId}. List the agents to see which exist.`);
+  new AgentError(AgentErrorCode.enum.not_found, `There's no agent ${agentId}. List the agents to see which exist.`);
 
 const notRunning = () =>
   new AgentError(
-    "not_running",
+    AgentErrorCode.enum.not_running,
     "The agent isn't running (it was stopped or its process ended). Start a new agent to continue; its history is kept.",
   );
 
@@ -240,7 +230,7 @@ export const createManager = ({
   const assertOpen = () => {
     if (shuttingDown) {
       throw new AgentError(
-        "not_running",
+        AgentErrorCode.enum.not_running,
         "The agent service is shutting down and takes no more agent commands. Start the service again.",
       );
     }
@@ -348,7 +338,7 @@ export const createManager = ({
       const code = rpcCode(error);
       safely(agentId, "turn_failed", () =>
         setState(agentId, "error", {
-          code: "agent_failed",
+          code: AgentErrorCode.enum.agent_failed,
           message:
             `The agent reported an error during the turn${code === undefined ? "" : ` (ACP error ${code})`}. ` +
             "Send the message again, or stop the agent and start a new one.",
@@ -396,7 +386,7 @@ export const createManager = ({
         const how = code === null ? `was killed (${signal ?? "unknown signal"})` : `exited with code ${code}`;
         safely(agentId, "exited", () =>
           setState(agentId, "error", {
-            code: "agent_failed",
+            code: AgentErrorCode.enum.agent_failed,
             message: `The agent process ${how} unexpectedly. Start a new agent to continue; this one's history is kept.`,
           }),
         );
@@ -455,7 +445,7 @@ export const createManager = ({
     const code = rpcCode(error);
     if (code === ACP_AUTH_REQUIRED) {
       return new AgentError(
-        "auth_required",
+        AgentErrorCode.enum.auth_required,
         `${harness.name} needs a login before it can start a session. Log in, then start the agent again.`,
         harness.loginHint,
       );
@@ -464,7 +454,7 @@ export const createManager = ({
       // systemd-run exits without running the agent when it can't create the scope; from here that looks
       // like an agent that ended at once, so both are named.
       return new AgentError(
-        "agent_failed",
+        AgentErrorCode.enum.agent_failed,
         `The agent process ended before its session started: either its systemd scope (${proc.unit}) couldn't be ` +
           `created, or ${harness.name} failed. Check that \`systemctl --user\` works and that ${harness.name} is ` +
           "installed and runs, then try again.",
@@ -473,7 +463,7 @@ export const createManager = ({
     const what = proc.acp.isClosed()
       ? "The agent process ended before its session started"
       : `The agent refused to start a session${code === undefined ? "" : ` (ACP error ${code})`}`;
-    return new AgentError("agent_failed", `${what}. Check that ${harness.name} is installed and runs, then try again.`);
+    return new AgentError(AgentErrorCode.enum.agent_failed, `${what}. Check that ${harness.name} is installed and runs, then try again.`);
   };
 
   // Agents stored by an earlier run have no process any more.
@@ -491,7 +481,7 @@ export const createManager = ({
     assertOpen();
     const harness = findHarness(harnessId, harnesses);
     if (!harness) {
-      throw new AgentError("unknown_harness", `There's no harness "${harnessId}". List the harnesses to see which exist.`);
+      throw new AgentError(AgentErrorCode.enum.unknown_harness, `There's no harness "${harnessId}". List the harnesses to see which exist.`);
     }
     let cwd: string;
     try {
@@ -510,7 +500,7 @@ export const createManager = ({
     log("agent_starting", { agentId, harness: harness.id });
     const tooSlow = () =>
       new AgentError(
-        "agent_failed",
+        AgentErrorCode.enum.agent_failed,
         `${harness.name} didn't start a session within ${START_TIMEOUT_MS / 1000} s. Check that it runs, then try again.`,
       );
     try {
@@ -566,7 +556,7 @@ export const createManager = ({
     const proc = procs.get(agentId);
     if (!proc?.recorded || proc.ending) throw notRunning();
     if (proc.turn) {
-      throw new AgentError("busy", "The agent is still working on the last message. Wait for it to finish, or cancel it.");
+      throw new AgentError(AgentErrorCode.enum.busy, "The agent is still working on the last message. Wait for it to finish, or cancel it.");
     }
     const [seq = 0] = appendLog(agentId, [{ type: "user_message", text, ...(commandId === undefined ? {} : { commandId }) }]);
     if (commandId !== undefined) knownCommands(agentId).set(commandId, seq);
@@ -589,14 +579,14 @@ export const createManager = ({
     const pending = proc?.pending.get(requestId);
     if (!proc || !pending) {
       throw new AgentError(
-        "not_found",
+        AgentErrorCode.enum.not_found,
         `There's no open permission request ${requestId} for this agent: it was answered or cancelled, or never asked. Fetch the agent's log for the current one.`,
       );
     }
     const optionId = pending.offered.get(kind);
     if (optionId === undefined) {
       throw new AgentError(
-        "kind_not_offered",
+        AgentErrorCode.enum.kind_not_offered,
         `The agent didn't offer ${kind} for this request. Answer with one of: ${[...pending.offered.keys()].join(", ")}.`,
       );
     }

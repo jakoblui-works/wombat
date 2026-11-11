@@ -4,24 +4,27 @@ import type { AddressInfo } from "node:net";
 import { getRequestListener } from "@hono/node-server";
 import { API_VERSION } from "@wombat/shared";
 import {
+  AgentErrorCode,
   AnswerPermissionRequest,
   GetItemResponse as GetItemSchema,
+  ItemsErrorCode,
   ListItemsResponse as ListItemsSchema,
   ListLogQuery,
   ListProposalsQuery,
   ListProposalsResponse as ListProposalsSchema,
   ListStructuresResponse as ListStructuresSchema,
   SendMessageRequest,
+  ServerErrorCode,
   StartAgentRequest,
   type ErrorBody,
   type GetItemResponse,
-  type ItemsErrorCode,
   type ListAgentsResponse,
   type ListHarnessesResponse,
   type ListItemsResponse,
   type ListLogResponse,
   type ListProposalsResponse,
   type ListStructuresResponse,
+  type ProposalErrorCode,
   type VersionResponse,
 } from "@wombat/shared/api";
 import { Proposal as ProposalSchema, type Proposal } from "@wombat/shared/items";
@@ -30,8 +33,8 @@ import { bodyLimit } from "hono/body-limit";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 
-import { AgentError, type AgentErrorCode, type Manager } from "../agents/manager.ts";
-import { openAccess, ProposalError, type ProposalErrorCode } from "../items/access.ts";
+import { AgentError, type Manager } from "../agents/manager.ts";
+import { openAccess, ProposalError } from "../items/access.ts";
 import { handlesById, summarize, withLinks } from "../items/api-view.ts";
 import { findByHandle, type Catalog } from "../items/catalog.ts";
 import type { Writer } from "../items/write.ts";
@@ -60,6 +63,11 @@ export type ServerOptions = {
   items?: Catalog;
   /** Writes the items; with `items`, it opens the agents' write tools on /mcp. */
   writer?: Writer;
+  /**
+   * Called once POST /shutdown has stopped every agent and answered: the service's SIGTERM path (main passes it).
+   * Stub for step 6 T3: the route doesn't exist yet.
+   */
+  onShutdown?: () => void;
 };
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -80,7 +88,7 @@ const STATUS: Record<AgentErrorCode, ContentfulStatusCode> = {
   agent_failed: 502,
 };
 
-/** `items_not_writable` is what the write routes answer; no read route does. */
+/** No route sends `items_not_writable` yet: a writer failure on approve falls through to `internal_error`. */
 const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {
   items_not_configured: 409,
   structure_not_found: 404,
@@ -166,7 +174,7 @@ export const startServer = async ({
     bodyLimit({
       maxSize: MAX_BODY_BYTES,
       onError: (c) =>
-        errorResponse(c, 413, "payload_too_large", "The request body is over 1 MiB. Send a shorter message."),
+        errorResponse(c, 413, ServerErrorCode.enum.payload_too_large, "The request body is over 1 MiB. Send a shorter message."),
     }),
   );
 
@@ -194,7 +202,7 @@ export const startServer = async ({
     }
     const agentId = c.req.param("id");
     if (!store.listAgents().some((agent) => agent.id === agentId)) {
-      return errorResponse(c, 404, "not_found", `There's no agent ${agentId}. List the agents to see which exist.`);
+      return errorResponse(c, 404, AgentErrorCode.enum.not_found, `There's no agent ${agentId}. List the agents to see which exist.`);
     }
     const { after, limit = defaultLogLimit } = query.data;
     const { entries, truncated } = store.readLog(agentId, after, limit);
@@ -231,7 +239,7 @@ export const startServer = async ({
     errorResponse(
       c,
       ITEMS_STATUS.items_not_configured,
-      "items_not_configured",
+      ItemsErrorCode.enum.items_not_configured,
       "The items aren't set up. Set WOMBAT_ITEMS to the absolute path of the items folder and restart the service.",
     );
 
@@ -253,7 +261,7 @@ export const startServer = async ({
       return errorResponse(
         c,
         ITEMS_STATUS.structure_not_found,
-        "structure_not_found",
+        ItemsErrorCode.enum.structure_not_found,
         `There's no structure ${id}. List the structures to see which exist.`,
       );
     }
@@ -272,7 +280,7 @@ export const startServer = async ({
       return errorResponse(
         c,
         ITEMS_STATUS.item_not_found,
-        "item_not_found",
+        ItemsErrorCode.enum.item_not_found,
         `There's no item ${handle}. List a structure's items to see their handles.`,
       );
     }
@@ -305,7 +313,7 @@ export const startServer = async ({
     // no client ever reads or cancels.
     if (c.req.method === "HEAD") {
       c.header("allow", "GET");
-      return errorResponse(c, 405, "method_not_allowed", "The alert stream only answers GET. Open it with GET /events.");
+      return errorResponse(c, 405, ServerErrorCode.enum.method_not_allowed, "The alert stream only answers GET. Open it with GET /events.");
     }
     return alerts.respond();
   });
@@ -314,13 +322,13 @@ export const startServer = async ({
     errorResponse(
       c,
       404,
-      "not_found",
+      ServerErrorCode.enum.not_found,
       `There's no route ${c.req.method} ${c.req.path}. See the API contract for the routes.`,
     ),
   );
 
   app.onError((error, c) => {
-    if (error instanceof InvalidRequest) return errorResponse(c, 400, "invalid_request", error.message);
+    if (error instanceof InvalidRequest) return errorResponse(c, 400, ServerErrorCode.enum.invalid_request, error.message);
     if (error instanceof ProposalError) return errorResponse(c, ITEMS_STATUS[error.code satisfies ProposalErrorCode], error.code, error.message);
     if (error instanceof AgentError) return errorResponse(c, STATUS[error.code], error.code, error.message, error.hint);
     // The details stay in the service: an error's message may quote agent content or paths.
@@ -328,7 +336,7 @@ export const startServer = async ({
     return errorResponse(
       c,
       500,
-      "internal_error",
+      ServerErrorCode.enum.internal_error,
       "The agent service failed to handle the request. Try again; if it keeps failing, restart the service.",
     );
   });
@@ -338,7 +346,7 @@ export const startServer = async ({
     errorHandler: () => {
       const body: ErrorBody = {
         error: {
-          code: "invalid_request",
+          code: ServerErrorCode.enum.invalid_request,
           message: "The request's Host header or path is malformed. Send a well-formed request.",
         },
       };

@@ -91,21 +91,128 @@ const ErrorDetail = z.object({
 export const ErrorBody = z.object({ error: ErrorDetail });
 export type ErrorBody = z.infer<typeof ErrorBody>;
 
+// Error codes: `ErrorBody.code` stays a plain string on read (a newer service may add codes), but every code the
+// service sends is one of these, so the app can switch on them by name.
+
 /**
- * The items routes' error codes: `items_not_configured` when the service runs without an items root,
- * `structure_not_found` and `item_not_found` for an unknown structure id or handle, `items_not_writable` when the
- * items root's filesystem can't take the service's writes. The proposal routes add `proposal_not_found` for an
- * unknown proposal id and `proposal_not_pending` for one already decided.
+ * Any route, before it runs: `unauthorized` (401) without the discovery file's token, or on /mcp without a live
+ * agent token; `forbidden_origin` (403) for an Origin other than the app's; `forbidden_host` (403) for a Host
+ * other than the bound loopback address. The app re-reads the discovery file and reconnects; it never retries with
+ * the same token. Then, per request: `payload_too_large` (413) for a body over 1 MiB, `invalid_request` (400) for
+ * a body or query off the contract (a bug in the app: show the message), `not_found` (404) for an unknown route,
+ * `method_not_allowed` (405) for /events or /mcp with the wrong method, `internal_error` (500) when the service
+ * failed (show the message; the request may be retried).
+ */
+export const ServerErrorCode = z.enum([
+  "unauthorized",
+  "forbidden_origin",
+  "forbidden_host",
+  "payload_too_large",
+  "invalid_request",
+  "not_found",
+  "method_not_allowed",
+  "internal_error",
+]);
+export type ServerErrorCode = z.infer<typeof ServerErrorCode>;
+
+/**
+ * `POST /agents` when the repo path doesn't name a folder in the workspace (`repo_not_found`, 422) or leads out of
+ * it through a symlink (`repo_outside_workspace`, 422). The app shows the message and lets the user pick another
+ * repo.
+ */
+export const RepoErrorCode = z.enum(["repo_not_found", "repo_outside_workspace"]);
+export type RepoErrorCode = z.infer<typeof RepoErrorCode>;
+
+/**
+ * The agent routes' error codes, and an agent summary's `error.code`:
+ * - `not_found` (404): no agent with that id (any `/agents/:id` route), or no open permission request with that id
+ *   (`POST /agents/:id/permissions/:requestId`). The app refetches the agents or the log.
+ * - `busy` (409): `POST /agents/:id/messages` while a turn runs. The app waits for the turn to end, or cancels it.
+ * - `not_running` (409): a command to a stopped or exited agent, or to a service shutting down. The app offers a new
+ *   agent; the history stays readable.
+ * - `kind_not_offered` (422): a permission answer the agent didn't offer. The app answers with an offered kind.
+ * - `unknown_harness` (422) and the RepoErrorCode codes: `POST /agents` with a harness or repo that doesn't exist.
+ * - `auth_required` (502): `POST /agents` when the harness needs a login. The app tells the user to log in.
+ * - `agent_failed` (502): `POST /agents` when the agent didn't start; as a summary's `error.code`, a turn that failed
+ *   or a process that ended unexpectedly. The app shows the message and offers a new agent.
+ */
+export const AgentErrorCode = z.enum([
+  "not_found",
+  "busy",
+  "not_running",
+  "kind_not_offered",
+  "auth_required",
+  "unknown_harness",
+  ...RepoErrorCode.options,
+  "agent_failed",
+]);
+export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
+
+/**
+ * `POST /proposals/:id/approve` and `/reject`: `proposal_not_found` (404) for an unknown proposal id,
+ * `proposal_not_pending` (409) for one already decided. The app refetches the proposals.
+ */
+export const ProposalErrorCode = z.enum(["proposal_not_found", "proposal_not_pending"]);
+export type ProposalErrorCode = z.infer<typeof ProposalErrorCode>;
+
+/**
+ * The items routes' error codes: `items_not_configured` (409) when the service runs without an items root (the app
+ * hides the items views), `structure_not_found` and `item_not_found` (404) for an unknown structure id or handle (the
+ * app refetches the structures). The proposal routes add the ProposalErrorCode codes. `items_not_writable` is reserved
+ * for a write the items root's filesystem can't take; no route sends it yet: such a failure on approve answers
+ * `internal_error` (500).
  */
 export const ItemsErrorCode = z.enum([
   "items_not_configured",
   "structure_not_found",
   "item_not_found",
   "items_not_writable",
-  "proposal_not_found",
-  "proposal_not_pending",
+  ...ProposalErrorCode.options,
 ]);
 export type ItemsErrorCode = z.infer<typeof ItemsErrorCode>;
+
+/**
+ * Why the item writer refused a write; nothing on disk changed. Internal to the service, never sent. On /mcp the
+ * access module turns each one but `items_not_writable` into an AccessErrorCode refusal (the agent gets its message);
+ * approving a proposal turns them into a `conflict` proposal. `items_not_writable` fails the call: /mcp answers the
+ * agent with a generic failure, approve answers `internal_error` (500).
+ */
+export const ItemWriteErrorCode = z.enum([
+  "stale_version",
+  "invalid_fields",
+  "item_not_found",
+  "structure_not_found",
+  "field_not_writable",
+  "items_not_writable",
+]);
+export type ItemWriteErrorCode = z.infer<typeof ItemWriteErrorCode>;
+
+/**
+ * Why /mcp refused an agent's items tool call: `not_found` (no such item or structure the agent may see),
+ * `read_only`, `use_propose` or `use_edit` (the structure's level calls for another tool), `locked` (a locked field),
+ * `stale_version` (the item changed since the agent read it), `invalid_fields` (the values don't fit the structure).
+ * The agent gets only the message, which says what to do next; the app never sees these.
+ */
+export const AccessErrorCode = z.enum([
+  "not_found",
+  "read_only",
+  "use_propose",
+  "use_edit",
+  "locked",
+  "stale_version",
+  "invalid_fields",
+]);
+export type AccessErrorCode = z.infer<typeof AccessErrorCode>;
+
+/** Every error code the service uses; `errorResponse` sends only these. */
+export const ErrorCode = z.union([
+  ServerErrorCode,
+  AgentErrorCode,
+  ItemsErrorCode,
+  ItemWriteErrorCode,
+  AccessErrorCode,
+]);
+export type ErrorCode = z.infer<typeof ErrorCode>;
 
 export const VersionResponse = z.object({ apiVersion: z.int() });
 export type VersionResponse = z.infer<typeof VersionResponse>;
@@ -177,15 +284,30 @@ const ToolCallContent = z.discriminatedUnion("type", [
 
 const ToolCallLocation = z.object({ path: z.string(), line: z.number().nullable().exactOptional() });
 
-const toolCallUpdateFields = {
+/**
+ * A tool call's fields. `tool_call` requires the id and title and may leave out the rest; `tool_call_update` (and a
+ * permission request's tool call) requires only the id, and any other field may also be null.
+ */
+const toolCallFields = {
   toolCallId: z.string(),
-  title: z.string().nullable().exactOptional(),
-  kind: ToolKind.nullable().exactOptional(),
-  status: z.unknown().exactOptional(),
-  content: knownItems(ToolCallContent).nullable().exactOptional(),
-  locations: knownItems(ToolCallLocation).nullable().exactOptional(),
-  rawInput: z.unknown().exactOptional(),
-  rawOutput: z.unknown().exactOptional(),
+  title: z.string(),
+  kind: ToolKind,
+  status: z.unknown(),
+  content: knownItems(ToolCallContent),
+  locations: knownItems(ToolCallLocation),
+  rawInput: z.unknown(),
+  rawOutput: z.unknown(),
+};
+const { toolCallId, title, ...toolCallDetails } = toolCallFields;
+
+const nullable = <T extends Record<string, z.ZodType>>(fields: T) =>
+  Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.nullable()])) as {
+    [K in keyof T]: z.ZodNullable<T[K]>;
+  };
+
+const toolCallUpdateFields = {
+  toolCallId,
+  ...z.object(nullable({ title, ...toolCallDetails })).exactPartial().shape,
 };
 const ToolCallUpdateFields = z.object(toolCallUpdateFields).transform(knownStatus(ToolCallStatus.nullable()));
 
@@ -198,14 +320,9 @@ export const SessionUpdate = z.discriminatedUnion("sessionUpdate", [
   z
     .object({
       sessionUpdate: z.literal("tool_call"),
-      toolCallId: z.string(),
-      title: z.string(),
-      kind: ToolKind.exactOptional(),
-      status: z.unknown().exactOptional(),
-      content: knownItems(ToolCallContent).exactOptional(),
-      locations: knownItems(ToolCallLocation).exactOptional(),
-      rawInput: z.unknown().exactOptional(),
-      rawOutput: z.unknown().exactOptional(),
+      toolCallId,
+      title,
+      ...z.object(toolCallDetails).exactPartial().shape,
     })
     .transform(knownStatus(ToolCallStatus)),
   z

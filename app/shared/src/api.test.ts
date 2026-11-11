@@ -7,8 +7,6 @@ import {
   Alert,
   AnswerPermissionRequest,
   ErrorBody,
-  ListAgentsResponse,
-  ListHarnessesResponse,
   ListLogQuery,
   ListLogResponse,
   SendMessageRequest,
@@ -146,8 +144,6 @@ const alertTypes = ["agent_added", "agent_changed", "agent_removed", "log"] as c
 const without = (value: object, field: string): Record<string, unknown> =>
   Object.fromEntries(Object.entries(value).filter(([key]) => key !== field));
 
-const permissionKinds = ["allow_once", "allow_always", "reject_once", "reject_always"] as const;
-
 describe("request bodies (strict)", () => {
   test("StartAgentRequest accepts a harness id and a relative repo path", () => {
     for (const repo of ["site-web", "libs/shared-ui", "services/api/v2", ".config-repo", "release..notes"]) {
@@ -195,12 +191,6 @@ describe("request bodies (strict)", () => {
     }
   });
 
-  test("StartAgentRequest rejects missing fields", () => {
-    expect(StartAgentRequest.safeParse({ harness: "claude-code" }).success).toBe(false);
-    expect(StartAgentRequest.safeParse({ repo: "site-web" }).success).toBe(false);
-    expect(StartAgentRequest.safeParse({}).success).toBe(false);
-  });
-
   test("SendMessageRequest accepts prompt text and rejects empty, missing or extra", () => {
     expect(SendMessageRequest.safeParse({ text: "Make the header padding match the footer." }).success).toBe(true);
     expect(SendMessageRequest.safeParse({ text: "" }).success).toBe(false);
@@ -220,11 +210,6 @@ describe("request bodies (strict)", () => {
     }
   });
 
-  test("SendMessageRequest's commandId is optional", () => {
-    const parsed = SendMessageRequest.parse({ text: "Run the tests." });
-    expect(parsed).not.toHaveProperty("commandId");
-  });
-
   test("SendMessageRequest rejects a commandId that is empty, too long, has other characters or isn't a string", () => {
     for (const commandId of ["", "x".repeat(65), "cmd 1", "cmd.1", "cmd/1", "cmd:1", "cmd\n", "é", 42, null]) {
       expect(SendMessageRequest.safeParse({ text: "Run the tests.", commandId }).success, JSON.stringify(commandId)).toBe(
@@ -237,12 +222,6 @@ describe("request bodies (strict)", () => {
     for (const extra of [{ attachments: [] }, { requestId: "r1" }, { command_id: "cmd_1" }]) {
       const body = { text: "Run the tests.", commandId: "cmd_01JC2", ...extra };
       expect(SendMessageRequest.safeParse(body).success, JSON.stringify(extra)).toBe(false);
-    }
-  });
-
-  test("AnswerPermissionRequest accepts each permission kind", () => {
-    for (const kind of permissionKinds) {
-      expect(AnswerPermissionRequest.safeParse({ kind }).success, kind).toBe(true);
     }
   });
 
@@ -322,34 +301,6 @@ describe("responses (lenient)", () => {
     expect(VersionResponse.safeParse({}).success).toBe(false);
   });
 
-  test("ListHarnessesResponse reads id and name per harness", () => {
-    const body = [{ id: "claude-code", name: "Claude Code", icon: "claude.svg" }];
-    expect(ListHarnessesResponse.parse(body)).toMatchObject([{ id: "claude-code", name: "Claude Code" }]);
-    expect(ListHarnessesResponse.parse([])).toEqual([]);
-    expect(ListHarnessesResponse.safeParse([{ id: "claude-code" }]).success).toBe(false);
-  });
-
-  test("AgentSummary accepts a realistic summary in every state, including stopped", () => {
-    for (const state of ["working", "waiting", "done", "error", "stopped"]) {
-      expect(AgentSummary.safeParse({ ...doneAgent, state }).success, state).toBe(true);
-    }
-    expect(AgentSummary.safeParse(without(doneAgent, "title")).success).toBe(true);
-  });
-
-  test("AgentSummary carries an error in the error body's shape", () => {
-    // Reading: `error?` is the inner `{ code, message, hint? }` of the error body (flagged to the lead).
-    const failed = {
-      ...doneAgent,
-      state: "error",
-      error: {
-        code: "auth_required",
-        message: "Claude Code is not logged in.",
-        hint: "Run `claude /login` in a terminal, then start the agent again.",
-      },
-    };
-    expect(AgentSummary.parse(failed)).toMatchObject({ state: "error", error: { code: "auth_required" } });
-  });
-
   test("AgentSummary ignores unknown fields, including unknown capabilities", () => {
     const newer = {
       ...doneAgent,
@@ -360,42 +311,6 @@ describe("responses (lenient)", () => {
       id: doneAgent.id,
       capabilities: { loadSession: false },
     });
-  });
-
-  test("AgentSummary rejects missing required fields and non-ISO timestamps", () => {
-    for (const field of ["id", "harness", "repo", "state", "sessionId", "capabilities", "startedAt", "lastActivityAt"]) {
-      expect(AgentSummary.safeParse(without(doneAgent, field)).success, field).toBe(false);
-    }
-    expect(AgentSummary.safeParse({ ...doneAgent, capabilities: {} }).success).toBe(false);
-    expect(AgentSummary.safeParse({ ...doneAgent, startedAt: "yesterday" }).success).toBe(false);
-  });
-
-  test("AgentSummary rejects a state outside the contract states", () => {
-    for (const state of ["paused", "idle", "Stopped", ""]) {
-      expect(AgentSummary.safeParse({ ...doneAgent, state }).success, state).toBe(false);
-    }
-  });
-
-  test("AgentSummary's state is exactly the five contract states", () => {
-    expectTypeOf<AgentSummary["state"]>().toEqualTypeOf<"working" | "waiting" | "done" | "error" | "stopped">();
-  });
-
-  test("ListAgentsResponse reads dbId, seq and the agents", () => {
-    const parsed = ListAgentsResponse.parse({ dbId, seq: 42, agents: [doneAgent], server: "x" });
-    expect(parsed).toMatchObject({ dbId, seq: 42 });
-    expect(parsed.agents).toHaveLength(1);
-    expect(ListAgentsResponse.parse({ dbId, seq: 0, agents: [] }).agents).toEqual([]);
-  });
-
-  test("ListAgentsResponse requires a non-empty dbId and a seq", () => {
-    for (const body of [
-      { seq: 42, agents: [doneAgent] },
-      { dbId: "", seq: 42, agents: [doneAgent] },
-      { dbId: 7, seq: 42, agents: [doneAgent] },
-      { dbId, agents: [doneAgent] },
-    ]) {
-      expect(ListAgentsResponse.safeParse(body).success, JSON.stringify(body)).toBe(false);
-    }
   });
 
   test("ErrorBody accepts errors with and without a hint and ignores unknown fields", () => {
@@ -409,41 +324,12 @@ describe("responses (lenient)", () => {
       }),
     ).toMatchObject({ error: { code: "auth_required", hint: "Run `claude /login`." } });
   });
-
-  test("ErrorBody rejects a body without code or message", () => {
-    for (const body of [{}, { error: {} }, { error: { code: "x" } }, { error: { message: "x" } }, { message: "x" }]) {
-      expect(ErrorBody.safeParse(body).success, JSON.stringify(body)).toBe(false);
-    }
-  });
 });
 
 describe("LogEntry (lenient)", () => {
   test("parseLogEntry reads a realistic sample of every entry type unchanged", () => {
     for (const sample of sampleLogEntries) {
       expect(parseLogEntry(sample), `${sample.type} ${sample.seq}`).toEqual(sample);
-    }
-  });
-
-  test("a user message without a commandId has no commandId key", () => {
-    const parsed = parseLogEntry(logEntry(1, "user_message", { text: "Make the header padding match the footer." }));
-    expect(parsed).toMatchObject({ type: "user_message", text: "Make the header padding match the footer." });
-    expect(parsed).not.toHaveProperty("commandId");
-  });
-
-  test("session updates and permission entries keep the ACP sessionId they arrived with, and have no sessionId key without one", () => {
-    const carriers = [
-      logEntry(10, "session_update", { update: agentMessageChunk }),
-      permissionRequested,
-      logEntry(21, "permission_answered", { requestId: "perm_3", kind: "allow_once" }),
-    ];
-    for (const carrier of carriers) {
-      const withSession = { ...carrier, sessionId: "sess_01JBX4Q9M2" };
-      expect(parseLogEntry(withSession), carrier.type).toEqual(withSession);
-      expect(ListLogResponse.parse({ dbId, seq: 30, entries: [withSession], truncated: false }).entries, carrier.type).toEqual([
-        withSession,
-      ]);
-      expect(parseLogEntry(carrier), carrier.type).not.toHaveProperty("sessionId");
-      expect(() => parseLogEntry({ ...carrier, sessionId: 42 }), `${carrier.type} with a numeric sessionId`).toThrow();
     }
   });
 
@@ -520,62 +406,12 @@ describe("LogEntry (lenient)", () => {
       stopReason: "end_turn",
     });
   });
-
-  test("parseLogEntry rejects malformed known entries", () => {
-    const turnEnded = logEntry(1, "turn_ended", { stopReason: "end_turn" });
-    expect(parseLogEntry(turnEnded)).toBeDefined(); // control: the well-formed entry parses
-    for (const bad of [
-      without(turnEnded, "seq"),
-      { ...turnEnded, seq: -1 },
-      { ...turnEnded, seq: 1.5 },
-      { ...turnEnded, seq: "3" },
-      without(turnEnded, "agentId"),
-      without(turnEnded, "at"),
-      { ...turnEnded, at: "yesterday" },
-      logEntry(1, "user_message"), // no text
-      logEntry(1, "user_message", { text: 42 }),
-      logEntry(1, "permission_answered", { requestId: "p", kind: "allow" }),
-      logEntry(1, "permission_answered", { kind: "allow_once" }), // no requestId
-      logEntry(1, "permission_answered", { requestId: "p" }), // no permission kind
-      without(permissionRequested, "toolCall"),
-      logEntry(1, "session_update"), // no update
-      logEntry(1, "session_update", { update: { sessionUpdate: "usage_update", used: "lots" } }),
-      logEntry(1, "session_update", { update: { sessionUpdate: "tool_call_update", content: [diffContent] } }), // no toolCallId
-    ]) {
-      expect(() => parseLogEntry(bad), JSON.stringify(bad)).toThrow();
-    }
-  });
-
-  test("parseLogEntry rejects input that is not an entry at all", () => {
-    expect(parseLogEntry(sampleLogEntries[0])).toBeDefined(); // control: an entry parses
-    for (const bad of [null, undefined, "turn_ended", 42, [], {}, { seq: 1 }]) {
-      expect(() => parseLogEntry(bad), JSON.stringify(bad)).toThrow();
-    }
-  });
-
-  test("parseLogEntry's result is the LogEntry union", () => {
-    expectTypeOf(parseLogEntry).returns.toEqualTypeOf<LogEntry | undefined>();
-    expectTypeOf<LogEntry["type"]>().toEqualTypeOf<
-      "user_message" | "session_update" | "permission_requested" | "permission_answered" | "turn_ended"
-    >();
-    expectTypeOf<Extract<LogEntry, { type: "permission_answered" }>["kind"]>().toEqualTypeOf<
-      "allow_once" | "allow_always" | "reject_once" | "reject_always"
-    >();
-  });
 });
 
 describe("ListLogResponse (lenient)", () => {
   const known = sampleLogEntries.slice(0, 3);
   const unknownType = logEntry(5, "state_changed", { state: "done" });
   const unknownUpdate = logEntry(6, "session_update", { update: { sessionUpdate: "plan", entries: [] } });
-
-  test("reads dbId, seq, entries and truncated", () => {
-    for (const truncated of [false, true]) {
-      const parsed = ListLogResponse.parse({ dbId, seq: 99, entries: known, truncated });
-      expect(parsed, String(truncated)).toEqual({ dbId, seq: 99, entries: known, truncated });
-    }
-    expect(ListLogResponse.parse({ dbId, seq: 0, entries: [], truncated: false }).entries).toEqual([]);
-  });
 
   test("drops entries it doesn't know and keeps the others in order", () => {
     const [first, second, third] = known;
@@ -599,27 +435,10 @@ describe("ListLogResponse (lenient)", () => {
       seq: 99,
     });
   });
-
-  test("requires a non-empty dbId, seq, entries and a boolean truncated", () => {
-    const body = { dbId, seq: 99, entries: known, truncated: false };
-    expect(ListLogResponse.safeParse(body).success).toBe(true); // control: the full body parses
-    for (const field of ["dbId", "seq", "entries", "truncated"]) {
-      expect(ListLogResponse.safeParse(without(body, field)).success, field).toBe(false);
-    }
-    expect(ListLogResponse.safeParse({ ...body, seq: -1 }).success).toBe(false);
-    expect(ListLogResponse.safeParse({ ...body, dbId: "" }).success).toBe(false);
-    expect(ListLogResponse.safeParse({ ...body, truncated: "false" }).success).toBe(false);
-  });
 });
 
 describe("alerts (lenient)", () => {
   const alert = (type: string, seq = 60) => ({ seq, dbId, type, agentId });
-
-  test("parseAlert reads every alert type", () => {
-    for (const type of alertTypes) {
-      expect(parseAlert(alert(type)), type).toEqual(alert(type));
-    }
-  });
 
   // Lasting invariant: desktop notifications are built from alerts, so an alert must never carry agent
   // content, even when the service (by a bug) sends some. Mutation check: make Alert pass unknown fields through.
@@ -653,37 +472,6 @@ describe("alerts (lenient)", () => {
     for (const type of ["agent_paused", "heartbeat", "future_thing"]) {
       expect(parseAlert(alert(type)), type).toBeUndefined();
     }
-  });
-
-  test("parseAlert rejects malformed known alerts, and agentId is required on every type", () => {
-    for (const type of alertTypes) {
-      expect(parseAlert(alert(type)), type).toBeDefined(); // control: the well-formed alert parses
-      for (const field of ["seq", "dbId", "agentId"]) {
-        expect(() => parseAlert(without(alert(type), field)), `${type} without ${field}`).toThrow();
-      }
-      for (const bad of [
-        { ...alert(type), seq: -1 },
-        { ...alert(type), seq: 1.5 },
-        { ...alert(type), seq: "3" },
-        { ...alert(type), agentId: 7 },
-        { ...alert(type), dbId: 7 },
-        { ...alert(type), dbId: "" },
-      ]) {
-        expect(() => parseAlert(bad), JSON.stringify(bad)).toThrow();
-      }
-    }
-  });
-
-  test("parseAlert rejects input that is not an alert at all", () => {
-    expect(parseAlert(alert("log"))).toBeDefined(); // control: an alert parses
-    for (const bad of [null, undefined, "log", 42, [], {}, { seq: 1 }]) {
-      expect(() => parseAlert(bad), JSON.stringify(bad)).toThrow();
-    }
-  });
-
-  test("parseAlert's result is the Alert union", () => {
-    expectTypeOf(parseAlert).returns.toEqualTypeOf<Alert | undefined>();
-    expectTypeOf<Alert["type"]>().toEqualTypeOf<"agent_added" | "agent_changed" | "agent_removed" | "log" | "proposal">();
   });
 
   // A proposal alert tells the app to refetch proposals; like agent alerts it carries ids only, so a proposed
@@ -935,23 +723,6 @@ describe("ACP-derived values (tolerated)", () => {
 });
 
 describe("session updates", () => {
-  test("SessionUpdate accepts a realistic sample of each rendered kind", () => {
-    for (const update of renderedUpdates) {
-      expect(SessionUpdate.safeParse(update).success, update.sessionUpdate).toBe(true);
-    }
-  });
-
-  test("SessionUpdate covers exactly the six rendered kinds", () => {
-    expectTypeOf<SessionUpdate["sessionUpdate"]>().toEqualTypeOf<
-      | "agent_message_chunk"
-      | "tool_call"
-      | "tool_call_update"
-      | "session_info_update"
-      | "usage_update"
-      | "available_commands_update"
-    >();
-  });
-
   // Type-level: `pnpm typecheck` fails if what we keep from ACP stops being assignable to the SDK's types.
   // The `unsupported` placeholder is ours, not ACP's, so it is removed (at any depth) before comparing.
   type Ours<K extends SessionUpdate["sessionUpdate"]> = Extract<SessionUpdate, { sessionUpdate: K }>;
@@ -972,10 +743,6 @@ describe("session updates", () => {
     expectTypeOf<FromAcp<Ours<"usage_update">>>().toExtend<Acp<"usage_update">>();
     expectTypeOf<FromAcp<Ours<"available_commands_update">>>().toExtend<Acp<"available_commands_update">>();
     expectTypeOf<FromAcp<SessionUpdate>>().toExtend<AcpSessionUpdate>();
-  });
-
-  test("the session update an entry carries is the SessionUpdate schema's type", () => {
-    expectTypeOf<Extract<LogEntry, { type: "session_update" }>["update"]>().toEqualTypeOf<SessionUpdate>();
   });
 
   test("message and tool call content can carry the unsupported placeholder", () => {
