@@ -10,6 +10,13 @@ import { bridgeRequest, expect, isAlive, REPO, test, waitForConnection, type San
 // reviewed decision, made here and in the preload together.
 // The globals the preload adds to the page (beyond what a blank page of the same engine has).
 const ALLOWED_BRIDGE_GLOBALS = ["wombat"];
+// Globals the page's own libraries set on window (not the preload: they reach nothing in the host). Each is named,
+// with its library, and may only hold data, never a function. zod (T8's data layer) keeps its config and, once a
+// schema is registered, its registry there.
+const PAGE_LIBRARY_GLOBALS: Record<string, string> = {
+  __zod_globalConfig: "zod",
+  __zod_globalRegistry: "zod",
+};
 // The names on `window.wombat`.
 // (interface-S3, T6: the bridge's shape is `WombatBridge` in desktop/src/shared/bridge.ts.)
 const ALLOWED_BRIDGE_NAMES = ["apiVersion", "service", "workspace", "settings", "onOpenAgent"];
@@ -365,7 +372,8 @@ test("the preload bridge exposes only the allowed globals, names and functions",
     frame.remove();
     const added = Object.getOwnPropertyNames(window)
       .filter((name) => !baseline.has(name) && !/^\d+$/.test(name))
-      .sort();
+      .sort()
+      .map((name) => ({ name, type: typeof (window as unknown as Record<string, unknown>)[name] }));
 
     const root = (window as unknown as { wombat?: unknown }).wombat;
     const functions: string[] = [];
@@ -384,7 +392,9 @@ test("the preload bridge exposes only the allowed globals, names and functions",
     };
   });
   expect(bridge.names, "window.wombat is missing").not.toBeNull();
-  expect(bridge).toEqual({
+  const library = bridge.added.filter(({ name }) => Object.hasOwn(PAGE_LIBRARY_GLOBALS, name));
+  expect(library.filter(({ type }) => type === "function"), "a page library's global is a function").toEqual([]);
+  expect({ ...bridge, added: bridge.added.filter((global) => !library.includes(global)).map(({ name }) => name) }).toEqual({
     added: [...ALLOWED_BRIDGE_GLOBALS].sort(),
     names: [...ALLOWED_BRIDGE_NAMES].sort(),
     functions: [...ALLOWED_BRIDGE_FUNCTIONS].sort(),

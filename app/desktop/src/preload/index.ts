@@ -3,6 +3,7 @@ import type { Alert } from "@wombat/shared/api";
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { CHANNELS, type ConnectionUpdate, type Unsubscribe, type WombatBridge } from "../shared/bridge.ts";
 import { connectionFeed } from "./connection-feed.ts";
+import { heldEvents } from "./held-events.ts";
 import { fromMain, withoutUndefined } from "./invoke.ts";
 
 // The page's only bridge to the host. Everything added here widens what a page can reach;
@@ -30,6 +31,10 @@ ipcRenderer
     console.error("Wombat couldn't read the service connection's state:", error);
   });
 
+// Main may ask to open an agent before the page has subscribed; the first subscriber still gets it.
+const openAgent = heldEvents<string>();
+ipcRenderer.on(CHANNELS.openAgent, (_event, agentId: string) => openAgent.take(agentId));
+
 const bridge: WombatBridge = {
   apiVersion: API_VERSION,
   service: {
@@ -46,7 +51,7 @@ const bridge: WombatBridge = {
     get: () => invoke(CHANNELS.settingsGet),
     set: (patch) => invoke(CHANNELS.settingsSet, withoutUndefined(patch)),
   },
-  onOpenAgent: (cb) => subscribe<string>(CHANNELS.openAgent, cb),
+  onOpenAgent: (cb) => openAgent.subscribe(cb),
 };
 
 contextBridge.exposeInMainWorld("wombat", bridge);

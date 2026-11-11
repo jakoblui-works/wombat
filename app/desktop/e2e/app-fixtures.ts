@@ -31,6 +31,12 @@ const REAL_SLICE = "wombat-agents.slice";
 /** The repo every sandbox workspace holds (invented). */
 export const REPO = "bakery-site";
 
+/**
+ * The window's content size. Under the headless platform a hidden window's content is 1x1, too small for anything
+ * laid out (dockview's groups, a drag between them); every launch gets this size.
+ */
+export const VIEWPORT = { width: 1440, height: 900 };
+
 /** How long a check waits for the app or a service to get somewhere. */
 export const WAIT_MS = 20_000;
 
@@ -52,6 +58,11 @@ export type LaunchOptions = {
   workspaceAnswer?: string | null;
   /** More env for the app (the quit and restart answers). */
   env?: Record<string, string>;
+  /**
+   * Runs as soon as the app's window exists, before the page has loaded (so before it has subscribed to anything):
+   * for what main sends a page that isn't listening yet.
+   */
+  onWindow?: (app: ElectronApplication) => Promise<void>;
 };
 
 export type LaunchedApp = {
@@ -303,7 +314,7 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
   const apps: LaunchedApp[] = [];
   const directServices: ChildProcess[] = [];
 
-  const launch: Sandbox["launch"] = async ({ profile: at = profile, workspaceAnswer = workspace, env: extra = {} } = {}) => {
+  const launch: Sandbox["launch"] = async ({ profile: at = profile, workspaceAnswer = workspace, env: extra = {}, onWindow } = {}) => {
     const appEnv = env({ XDG_CONFIG_HOME: at, ...extra });
     if (workspaceAnswer !== null) appEnv[SWITCH.workspace] = workspaceAnswer;
     const app = await electron.launch({ args: [...HEADLESS_ARGS, mainEntry()], env: appEnv, chromiumSandbox: true });
@@ -341,6 +352,10 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
       throw new Error(`SAFETY: the app's userData is ${userData}, outside the e2e sandbox ${root}; stopped it.`);
     }
     launched.page = await app.firstWindow();
+    if (onWindow) await onWindow(app);
+    await app.evaluate(({ BrowserWindow }, { width, height }) => {
+      for (const window of BrowserWindow.getAllWindows()) window.setContentSize(width, height);
+    }, VIEWPORT);
     await launched.page.waitForLoadState("domcontentloaded");
     return launched;
   };

@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* The editor area's panes and tabs (dockview); imported here only. */
+@import "dockview-react/dist/styles/dockview.css";
 
 /* Proof pages are gitignored, which Tailwind's source detection skips. */
 @source "../**/*.proof.tsx";
