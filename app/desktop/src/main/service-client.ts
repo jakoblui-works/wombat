@@ -1,4 +1,5 @@
 import { APP_ORIGIN } from "@wombat/shared";
+import { ListAgentsResponse, type AgentSummary } from "@wombat/shared/api";
 import type { DiscoveryFile } from "@wombat/shared/discovery";
 import { appRoute, MAX_BODY_BYTES } from "@wombat/shared/routes";
 import type { ServiceAnswer } from "../shared/bridge.ts";
@@ -23,6 +24,18 @@ export const callService = (
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.any([...(timeoutMs === undefined ? [] : [AbortSignal.timeout(timeoutMs)]), ...(signal === undefined ? [] : [signal])]),
   });
+
+const LIST_TIMEOUT_MS = 5_000;
+
+/** The service's agents (GET /agents), for main's own use; rejects when the service doesn't answer with a list. */
+export const listAgents = async (file: DiscoveryFile): Promise<AgentSummary[]> => {
+  const response = await callService(file, "GET", "/agents", { timeoutMs: LIST_TIMEOUT_MS });
+  if (response.status !== 200) {
+    await response.body?.cancel();
+    throw new Error(`The service answered GET /agents with HTTP ${String(response.status)}.`);
+  }
+  return ListAgentsResponse.parse(await response.json()).agents;
+};
 
 /** Stopping an agent waits for it to exit, which can take a while. */
 const REQUEST_TIMEOUT_MS = 60_000;

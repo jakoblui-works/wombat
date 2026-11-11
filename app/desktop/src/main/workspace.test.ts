@@ -140,3 +140,20 @@ test("a page's settings change whose save fails leaves the settings as they were
   expect(logged.join("\n"), "main's log keeps the reason").toContain(blocked);
   expect(workspace.settings()).toEqual(before);
 });
+
+test("shutdown stops the running service, and restart then starts one for the saved workspace", async () => {
+  const sandbox = serviceSandbox();
+  const saved = sandbox.workspace("saved");
+  saveWorkspace(sandbox, saved);
+  const workspace = control(sandbox);
+  const first = await workspace.restart();
+
+  await workspace.shutdown();
+  expect(isRunning(first.pid), "the service still runs").toBe(false);
+  expect(existsSync(sandbox.discoveryPath)).toBe(false);
+
+  const second = await workspace.restart();
+  expect(second.pid).not.toBe(first.pid);
+  expect(second.workspace).toBe(saved);
+  expect(isRunning(second.pid)).toBe(true);
+});

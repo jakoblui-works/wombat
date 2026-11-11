@@ -33,6 +33,10 @@ export type WorkspaceControl = {
   switchWorkspace: (workspace: string) => Promise<DiscoveryFile>;
   /** Starts the service for the saved workspace again if none runs (after it stopped or crashed). */
   restart: () => Promise<DiscoveryFile>;
+  /** Stops the running service and its agents (POST /shutdown, then its exit), whichever workspace it's for. */
+  shutdown: () => Promise<void>;
+  /** Settles once every start, switch, restart and shutdown asked for so far has. */
+  idle: () => Promise<void>;
   settings: () => Settings;
   /** Saves `change(current settings)`; the one way to change them while the control holds them. */
   updateSettings: (change: (current: Settings) => Settings) => void;
@@ -95,6 +99,12 @@ export const workspaceControl = ({
     return ensure(workspace);
   };
 
+  const shutdown = (): Promise<void> =>
+    enqueue(async () => {
+      const file = await findRunning();
+      if (file !== undefined) await stopService(file);
+    });
+
   const open = async (): Promise<OpenedWorkspace | undefined> => {
     let workspace = settings.workspace;
     if (workspace === undefined) {
@@ -116,6 +126,8 @@ export const workspaceControl = ({
     open,
     switchWorkspace,
     restart,
+    shutdown,
+    idle: () => queue.then(() => undefined),
     settings: () => settings,
     updateSettings,
   };

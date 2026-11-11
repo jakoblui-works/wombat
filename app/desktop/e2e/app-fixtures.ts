@@ -74,6 +74,8 @@ export type LaunchedApp = {
   /** Resolves once the app's process has exited; fails after `timeoutMs`. */
   exited: (timeoutMs?: number) => Promise<void>;
   isRunning: () => boolean;
+  /** Electron's pid, taken at launch (Playwright's handle may be gone once the app has exited). */
+  pid: number | undefined;
 };
 
 export type Sandbox = {
@@ -105,7 +107,7 @@ export type Sandbox = {
   discovery: () => Discovery | undefined;
   /** Waits for a discovery file whose service is alive and answers /version with its token, and that passes `check`. */
   waitForService: (check?: (file: Discovery) => boolean, timeoutMs?: number) => Promise<Discovery>;
-  /** Every service start so far (pids, the ones that exited too). */
+  /** Every service start so far (pids, the ones that exited too), including one spawned a moment ago. */
   serviceStarts: () => number[];
   /** The service pids still alive. */
   liveServices: () => number[];
@@ -136,6 +138,27 @@ const killGroupAndPid = (pid: number): void => {
       // Gone already, or not a group leader.
     }
   }
+};
+
+/**
+ * This sandbox's service-entry processes alive now, found in /proc by their command line and their
+ * WOMBAT_E2E_SANDBOX_ROOT. With the pids the entry records, a start is counted from the moment it's spawned: it's
+ * alive, or it has already recorded its pid (the entry records it before anything else).
+ */
+const sandboxEntryProcesses = (root: string): number[] => {
+  const found: number[] = [];
+  for (const name of readdirSync("/proc")) {
+    if (!/^\d+$/.test(name)) continue;
+    try {
+      const cmdline = readFileSync(`/proc/${name}/cmdline`, "utf8");
+      if (!cmdline.includes("app-e2e-entry.ts")) continue;
+      const environ = readFileSync(`/proc/${name}/environ`, "utf8").split("\0");
+      if (environ.includes(`WOMBAT_E2E_SANDBOX_ROOT=${root}`)) found.push(Number(name));
+    } catch {
+      // Gone meanwhile, or not ours to read.
+    }
+  }
+  return found;
 };
 
 const pidsIn = (dir: string): number[] => (existsSync(dir) ? readdirSync(dir).map(Number).filter((pid) => pid > 0) : []);
@@ -318,6 +341,7 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
           new Promise<void>((_, reject) => setTimeout(() => reject(new Error(`the app didn't exit within ${String(timeoutMs)} ms`)), timeoutMs)),
         ]),
       isRunning: () => child.exitCode === null && child.signalCode === null,
+      pid: child.pid,
     };
     apps.push(launched);
     // Safety net, after the fact: by now the app has started up, so this only reports a profile outside the sandbox
@@ -388,8 +412,8 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
     startService,
     discovery,
     waitForService,
-    serviceStarts: () => pidsIn(servicePidDir),
-    liveServices: () => pidsIn(servicePidDir).filter(isAlivePid),
+    serviceStarts: () => [...new Set([...pidsIn(servicePidDir), ...sandboxEntryProcesses(root)])].sort((a, b) => a - b),
+    liveServices: () => [...new Set([...pidsIn(servicePidDir), ...sandboxEntryProcesses(root)])].filter(isAlivePid).sort((a, b) => a - b),
     agentPids: () => pidsIn(agentPidDir),
     api,
     freePort,
@@ -400,12 +424,11 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
     // The app's whole process group (Playwright starts Electron as a group leader): Chromium's helpers would
     // otherwise go on writing into the profile while it's being removed.
     for (const launched of apps) {
-      const pid = launched.app.process().pid;
-      if (pid !== undefined) killGroupAndPid(pid);
+      if (launched.pid !== undefined) killGroupAndPid(launched.pid);
       await launched.exited(5_000).catch(() => undefined);
     }
     const file = discovery();
-    const services = [...pidsIn(servicePidDir), ...(file ? [file.pid] : []), ...directServices.flatMap((child) => (child.pid ? [child.pid] : []))];
+    const services = [...pidsIn(servicePidDir), ...sandboxEntryProcesses(root), ...(file ? [file.pid] : []), ...directServices.flatMap((child) => (child.pid ? [child.pid] : []))];
     for (const pid of services) killGroupAndPid(pid);
     for (const pid of pidsIn(agentPidDir)) killGroupAndPid(pid);
     const touched = sliceCalls(systemd.calls());

@@ -7,6 +7,9 @@ const switches = {
   WOMBAT_E2E_WORKSPACE: "/tmp/wombat-e2e/workspace",
   WOMBAT_E2E_SERVICE_ENTRY: "/tmp/wombat-e2e/entry.ts",
   WOMBAT_E2E_RESTART_ANSWER: "restart",
+  WOMBAT_E2E_QUIT_ANSWER: "leave",
+  WOMBAT_E2E_QUIT_DONT_ASK: "1",
+  WOMBAT_E2E_STOP_ANSWER: "stop",
 };
 
 test("the switches are ignored unless WOMBAT_E2E=1", () => {
@@ -18,5 +21,8 @@ test("the switches are ignored unless WOMBAT_E2E=1", () => {
     workspace: "/tmp/wombat-e2e/workspace",
     serviceEntry: "/tmp/wombat-e2e/entry.ts",
     restartAnswer: "restart",
+    quitAnswer: "leave",
+    quitDontAsk: true,
+    stopAnswer: "stop",
   });
 });

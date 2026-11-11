@@ -145,3 +145,37 @@ test("until it connects it keeps trying, waiting longer between tries but never 
   expect(Math.max(...gaps), "a wait went past the cap").toBeLessThan(maxRetryMs * 4);
   expect(connection.current().state.state).toBe("connecting");
 });
+
+test("a shutdown shows failed at once, with a message saying to restart; restart connects again", async () => {
+  const sandbox = serviceSandbox();
+  const first = await alertService(sandbox);
+  const { connection, states } = connect(sandbox);
+  void connection.reconnect(() => Promise.resolve());
+  await vi.waitFor(() => {
+    expect(first.streams()).toBe(1);
+  }, WAIT);
+
+  await connection.shutdown(() => first.kill());
+  const last = states.at(-1);
+  expect(last?.state).toBe("failed");
+  expect(last?.message).toContain("Restart");
+  expect(states.map(({ state }) => state), "it tried to reconnect to the stopped service").not.toContain("reconnecting");
+
+  await connection.reconnect(() => alertService(sandbox));
+  expect(connection.current().state.state).toBe("connected");
+});
+
+test("a shutdown whose stop fails connects to the still-running service again and rejects", async () => {
+  const sandbox = serviceSandbox();
+  const service = await alertService(sandbox);
+  const { connection, states, reached } = connect(sandbox);
+  void connection.reconnect(() => Promise.resolve());
+  await reached("connected");
+
+  await expect(connection.shutdown(() => Promise.reject(new Error("the service refused to stop")))).rejects.toThrow("refused to stop");
+  expect(states).toContainEqual({ state: "connecting", message: "Stopping the service…" });
+  await reached("connected");
+  await vi.waitFor(() => {
+    expect(service.streams()).toBe(1);
+  }, WAIT);
+});

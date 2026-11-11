@@ -2,10 +2,10 @@
 // and follows the service across restarts: on every (re)connect it re-reads the discovery file (a new service may
 // be on a new port) and checks GET /version. It never starts a service by itself; only `reconnect` with a start does.
 import { API_VERSION } from "@wombat/shared";
-import { parseAlert, VersionResponse, type Alert } from "@wombat/shared/api";
+import { parseAlert, VersionResponse, type AgentSummary, type Alert } from "@wombat/shared/api";
 import { readDiscovery, type DiscoveryFile } from "@wombat/shared/discovery";
 import type { ConnectionState, ConnectionUpdate, ServiceAnswer } from "../shared/bridge.ts";
-import { callService, requestService } from "./service-client.ts";
+import { callService, listAgents, requestService } from "./service-client.ts";
 import { pageMessage } from "./service-start.ts";
 
 export type ConnectionTiming = {
@@ -46,6 +46,15 @@ export type ServiceConnection = {
    * the newest reconnect has (connected, incompatible or failed); never rejects.
    */
   reconnect: (start: () => Promise<unknown>) => Promise<void>;
+  /** The connected service's agents (for main's own use); rejects while not connected. */
+  agents: () => Promise<AgentSummary[]>;
+  /**
+   * Drops the connection (`connecting`, "Stopping the service…") and runs `stopIt` (a stop of the service), then
+   * shows `failed`, with Restart. When `stopIt` fails it connects again (the service may still run) and rejects with
+   * its error.
+   */
+  shutdown: (stopIt: () => Promise<void>) => Promise<void>;
+  /** Stops the stream and every retry wait, for good. */
   close: () => void;
 };
 
@@ -53,8 +62,6 @@ type Probe = { found: DiscoveryFile } | { incompatible: string } | { missing: tr
 
 /** Where the tries of one outage are: when it began, and the next wait. */
 type Retry = { since: number; wait: number };
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const serviceConnection = ({ discoveryFile, onState, onAlert, timing = {}, log = console.warn }: ConnectionDeps): ServiceConnection => {
   const { firstRetryMs, maxRetryMs, failAfterMs, stallMs, healthyMs } = { ...DEFAULT_TIMING, ...timing };
@@ -64,6 +71,16 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, timing = {}
   let run = 0;
   let stream: AbortController | undefined;
   let newest: Promise<void> = Promise.resolve();
+  // The retry waits, so close can end them; an ended wait resolves and its loop stops at the run check.
+  const waits = new Map<NodeJS.Timeout, () => void>();
+  const delay = (ms: number) =>
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        waits.delete(timer);
+        resolve();
+      }, ms);
+      waits.set(timer, resolve);
+    });
 
   const set = (state: ConnectionState): void => {
     if (state.state === update.state.state && state.message === update.state.message) return;
@@ -223,6 +240,18 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, timing = {}
   return {
     current: () => update,
     request: (method, pathname, body) => requestService(connected, method, pathname, body),
+    agents: () => (connected === undefined ? Promise.reject(new Error("The service isn't connected.")) : listAgents(connected)),
+    shutdown: async (stopIt) => {
+      const mine = stop();
+      set({ state: "connecting", message: "Stopping the service…" });
+      try {
+        await stopIt();
+      } catch (error) {
+        if (mine === run) newest = connect(mine);
+        throw error;
+      }
+      if (mine === run) set({ state: "failed", message: "The service and its agents are stopped. Restart it to start it again." });
+    },
     reconnect: async (start) => {
       const mine = stop();
       set({ state: "connecting" });
@@ -237,6 +266,11 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, timing = {}
     },
     close: () => {
       stop();
+      for (const [timer, resolve] of waits) {
+        clearTimeout(timer);
+        resolve();
+      }
+      waits.clear();
     },
   };
 };
