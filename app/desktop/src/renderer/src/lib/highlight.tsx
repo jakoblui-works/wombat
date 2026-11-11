@@ -20,7 +20,7 @@ const highlighter = createHighlighterCoreSync({
 });
 
 // Code as React elements: token colours become style props (set through CSSOM), never a
-// style="" attribute or raw HTML, so the page's CSP (style-src-attr 'none') allows them.
+// style="" string or raw HTML, since the code shown may be agent content.
 // (The cast: hast-util-to-jsx-runtime types its result as the global `JSX.Element`, which React
 // 19's types no longer declare.)
 export const Code = ({ code, lang }: { code: string; lang: CodeLang }): JSX.Element =>

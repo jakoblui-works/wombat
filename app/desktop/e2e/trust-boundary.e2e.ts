@@ -41,16 +41,19 @@ const OUTSIDE_PATTERN = "https://example.com/**";
 const SETTLE_MS = 2_000;
 
 // The only sources the page's CSP (contract "Page CSP") may use: 'self' and 'none' anywhere, the
-// style nonce only where <style> elements are governed, data: only for images. Anything else (a
-// host, a scheme, a hash, a dev nonce, 'unsafe-*', 'strict-dynamic') is a relaxation.
+// style nonce only where <style> elements are governed, data: only for images, 'unsafe-inline' only
+// for style="" attributes (VS Code's own style policy; Monaco draws its lines with them). Anything
+// else (a host, a scheme, a hash, a dev nonce, any other 'unsafe-*', 'strict-dynamic') is a relaxation.
 const isNonce = (source: string): boolean => /^'nonce-[^']+'$/.test(source);
 const NONCE_DIRECTIVES = ["style-src-elem", "style-src"];
 const DATA_DIRECTIVES = ["img-src"];
+const UNSAFE_INLINE_DIRECTIVES = ["style-src-attr"];
 const allowedSource = (directive: string, source: string): boolean =>
   source === "'self'" ||
   source === "'none'" ||
   (isNonce(source) && NONCE_DIRECTIVES.includes(directive)) ||
-  (source === "data:" && DATA_DIRECTIVES.includes(directive));
+  (source === "data:" && DATA_DIRECTIVES.includes(directive)) ||
+  (source === "'unsafe-inline'" && UNSAFE_INLINE_DIRECTIVES.includes(directive));
 // Directives that must be exactly 'none'.
 const NONE_DIRECTIVES = ["object-src", "base-uri", "form-action", "frame-ancestors"];
 
@@ -118,15 +121,16 @@ const cspProblems = (policy: string): string[] => {
   exactly("script-src-attr", d.get("script-src-attr") ?? scripts, "'self'");
   exactly("worker-src", d.get("worker-src") ?? d.get("child-src") ?? scripts, "'self'");
   exactly("connect-src", d.get("connect-src") ?? defaults ?? [], "'none'");
-  // Styles: <style>/<link> elements need 'self' or the page's nonce; style="" attributes are never
-  // allowed (CSSOM styles, i.e. React style props, are not governed by CSP).
+  // Styles: <style>/<link> elements need 'self' or the page's nonce; style="" attributes are allowed
+  // inline and nothing else, as in VS Code's own style policy (Monaco draws its lines with them).
+  // CSSOM styles, i.e. React style props, are not governed by CSP.
   const styles = d.get("style-src") ?? defaults ?? [];
   const styleElems = d.get("style-src-elem") ?? styles;
   const elemOthers = styleElems.filter((source) => source !== "'self'" && !isNonce(source));
   if (!styleElems.includes("'self'") || styleElems.filter(isNonce).length !== 1 || elemOthers.length > 0) {
     problems.push(`style-src-elem (effective) is not exactly 'self' and one nonce: ${styleElems.join(" ")}`);
   }
-  exactly("style-src-attr", d.get("style-src-attr") ?? styles, "'none'");
+  exactly("style-src-attr", d.get("style-src-attr") ?? styles, "'unsafe-inline'");
   return problems;
 };
 
@@ -288,7 +292,9 @@ test("every load of the page gets a fresh nonce, 128 bits or more, which the csp
   expect(loads[0]?.header[0], "two loads got the same nonce").not.toBe(loads[1]?.header[0]);
 });
 
-test("the page enforces its CSP: inline scripts, un-nonced <style> and style attributes are blocked; nonced <style> and CSSOM styles apply", async () => {
+// The style attribute probes show the relaxation Monaco needs (style="" attributes, as in VS Code's own
+// style policy) is in place, and limited to attributes: <style> elements still need the nonce.
+test("the page enforces its CSP: inline scripts and un-nonced <style> are blocked; nonced <style>, CSSOM styles and style attributes apply", async () => {
   const { page } = opened();
   await reloadPage(page);
   const nonce = await metaNonce(page);
@@ -336,8 +342,8 @@ test("the page enforces its CSP: inline scripts, un-nonced <style> and style att
   // (No eval probe: Playwright's evaluate runs outside the page's CSP, so eval would pass anyway.)
   expect(outcome).toEqual({
     inlineScript: false,
-    markupStyleAttribute: false,
-    setAttributeStyle: false,
+    markupStyleAttribute: true,
+    setAttributeStyle: true,
     cssomStyle: true,
     styleWithoutNonce: false,
     styleWithNonce: true,

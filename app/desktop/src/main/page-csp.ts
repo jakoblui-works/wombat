@@ -17,8 +17,8 @@ export type DevRelaxations = {
 };
 
 // The page's Content-Security-Policy, sent as a response header. <style> elements need 'self' or
-// the nonce (libraries read it from the csp-nonce meta); style="" attributes are never allowed,
-// so styles set at runtime go through CSSOM (React style props).
+// the nonce (libraries read it from the csp-nonce meta). style="" attributes are allowed inline,
+// VS Code's own policy, because Monaco draws its lines with them.
 export const pageCsp = (nonce: string, dev?: DevRelaxations): string => {
   const scripts = ["'self'", ...(dev?.scriptHashes.map((hash) => `'${hash}'`) ?? [])];
   const connect = dev === undefined ? ["'none'"] : [dev.hmrSocket];
@@ -26,7 +26,7 @@ export const pageCsp = (nonce: string, dev?: DevRelaxations): string => {
     "default-src 'self'",
     `script-src ${scripts.join(" ")}`,
     `style-src-elem 'self' 'nonce-${nonce}'`,
-    "style-src-attr 'none'",
+    "style-src-attr 'unsafe-inline'",
     `connect-src ${connect.join(" ")}`,
     "worker-src 'self'",
     "object-src 'none'",
