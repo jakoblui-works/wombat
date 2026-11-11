@@ -7,10 +7,10 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import type { AgentSummary, LogEntry } from "@wombat/shared/api";
 import { fakeService, type FakeService } from "../../../../test/fake-bridge.ts";
-import { chunk, summary, toolCall, turnEnded, user } from "../../../../test/log-entries.ts";
+import { chunk, proposal, summary, toolCall, turnEnded, user } from "../../../../test/log-entries.ts";
 import { connectAlerts } from "./alerts.ts";
 import { keys } from "./keys.ts";
-import { type AgentLog, agentLogQuery, agentsQuery, createQueryClient } from "./query-client.ts";
+import { type AgentLog, agentLogQuery, agentsQuery, createQueryClient, proposalsQuery } from "./query-client.ts";
 
 const A = "agent-bakery-1";
 const B = "agent-bakery-2";
@@ -231,4 +231,39 @@ test("after a reconnect, the cached logs of agents no longer listed are removed"
     expect(cached(client, B)).toBeUndefined();
   });
   expect(cached(client, A)).toBeDefined();
+});
+
+test("a reconnect reads the cached proposals again", async () => {
+  const { service, client } = setup();
+  mount(new QueryObserver(client, proposalsQuery()));
+  await settled(service, () => expect(client.getQueryData(keys.proposals)).toEqual({ proposals: [] }));
+
+  service.connection("reconnecting");
+  // Proposed while the stream was down: no alert for it, ever.
+  service.addProposal(proposal("prop-1"));
+  service.connection("connected");
+
+  await settled(service, () => expect(client.getQueryData(keys.proposals)).toEqual({ proposals: [proposal("prop-1")] }));
+});
+
+test("an agents read that comes back from another store resets every query", async () => {
+  const { service, client } = setup();
+  service.append(A, user("old one"), chunk("old two"));
+  agentsView(client);
+  await settled(service, () => expect(agentsCached(client)).toHaveLength(1));
+  cacheLog(service, client, A);
+  // A query no refresh reads again: only a reset clears it.
+  client.setQueryData(keys.harnesses, [{ id: "fake-reply", name: "Old store's harness" }]);
+
+  service.connection("reconnecting");
+  service.newStore("db-2");
+  service.append(A, user("new one"));
+  service.connection("connected");
+
+  await settled(service, () => {
+    expect(client.getQueryData<{ dbId: string }>(keys.agents)?.dbId).toBe("db-2");
+    expect(client.getQueryData(keys.harnesses)).toBeUndefined();
+    const log = cached(client, A);
+    if (log !== undefined) expect(log.entries).toEqual(service.log(A));
+  });
 });

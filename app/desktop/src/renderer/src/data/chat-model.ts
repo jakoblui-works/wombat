@@ -1,6 +1,7 @@
 // Turns an agent's log into what the chat shows. Pure, and the same however the log arrived: entries are taken in
 // seq order, once each (chat-model.append-order.test.ts).
 import type { LogEntry } from "@wombat/shared/api";
+import { bySeq } from "./by-seq.ts";
 import type { AgentLogEntry } from "./query-client.ts";
 
 type Update = Extract<LogEntry, { type: "session_update" }>["update"];
@@ -81,15 +82,8 @@ const applyToolFields = (item: ToolItem, fields: Omit<ToolCallUpdate, "sessionUp
   if (fields.locations !== undefined) item.locations = fields.locations ?? [];
 };
 
-/** In seq order, each seq once. */
-const ordered = (entries: readonly AgentLogEntry[]): AgentLogEntry[] => {
-  const bySeq = new Map<number, AgentLogEntry>();
-  for (const entry of entries) if (!bySeq.has(entry.seq)) bySeq.set(entry.seq, entry);
-  return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
-};
-
 export const chatModel = (entries: readonly AgentLogEntry[], { mainSessionId }: ChatModelOptions = {}): ChatModel => {
-  const log = ordered(entries);
+  const log = bySeq(entries);
   const main = mainSessionId ?? log.find(fromSession)?.sessionId;
   /** The entry's session when it isn't the main one; an entry without a sessionId belongs to the main one. */
   const sessionOf = (entry: AgentLogEntry): string | undefined =>

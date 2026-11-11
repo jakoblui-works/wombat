@@ -1,5 +1,5 @@
 // The page's QueryClient and its queries: how each key is read.
-import { hashKey, QueryClient, type QueryKey, queryOptions } from "@tanstack/react-query";
+import { type FetchQueryOptions, hashKey, QueryClient, type QueryKey, queryOptions } from "@tanstack/react-query";
 import { z } from "zod";
 
 import {
@@ -10,6 +10,7 @@ import {
   type LogEntry,
   parseLogEntry,
 } from "@wombat/shared/api";
+import { bySeq } from "./by-seq.ts";
 import { call } from "./client.ts";
 import { keys, logAgentId } from "./keys.ts";
 
@@ -60,13 +61,6 @@ const readEntry = (raw: { seq: number; at: unknown }): AgentLogEntry | undefined
 
 const lastSeq = (entries: AgentLogEntry[]): number => entries.at(-1)?.seq ?? 0;
 
-/** `entries` and `more` as one list, sorted by seq, unique by seq. */
-const merged = (entries: AgentLogEntry[], more: AgentLogEntry[]): AgentLogEntry[] => {
-  const bySeq = new Map<number, AgentLogEntry>();
-  for (const entry of [...entries, ...more]) bySeq.set(entry.seq, entry);
-  return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
-};
-
 /**
  * `useAgentLog`'s query function, the non-hook seam: reads the agent's log through the client, paging with an
  * explicit limit; with `cached` (same dbId) it reads from the cached cursor and appends, with another dbId it reloads
@@ -84,7 +78,7 @@ export const agentLogQueryFn = async (agentId: string, cached?: AgentLog): Promi
       continue;
     }
     const read = page.entries.flatMap((raw) => readEntry(raw) ?? []);
-    log = { dbId: page.dbId, entries: merged(log?.entries ?? [], read), truncated: (log?.truncated ?? false) || page.truncated };
+    log = { dbId: page.dbId, entries: bySeq([...(log?.entries ?? []), ...read]), truncated: (log?.truncated ?? false) || page.truncated };
     const next = Math.max(after, ...page.entries.map((raw) => raw.seq));
     // A full page that didn't move the cursor would be asked for again forever.
     if (page.entries.length < LOG_PAGE_LIMIT || next <= after) return log;
@@ -100,15 +94,20 @@ const readAgentLog = (queryClient: QueryClient, agentId: string) => () =>
 export const agentLogQuery = (queryClient: QueryClient, agentId: string) =>
   queryOptions({ queryKey: keys.log(agentId), queryFn: readAgentLog(queryClient, agentId) });
 
-/** How `key` is read; undefined for a key the page has no query for. */
-export const queryFor = (queryClient: QueryClient, key: QueryKey): { queryKey: QueryKey; queryFn: () => Promise<unknown> } | undefined => {
+/** The read of `key` again, through its query options above; undefined for a key the page has no query for. */
+export const queryFor = (queryClient: QueryClient, key: QueryKey): (() => Promise<unknown>) | undefined => {
+  // Stale or not: the caller knows it changed.
+  const again = <T, K extends QueryKey>(options: FetchQueryOptions<T, Error, T, K> & { queryKey: K }) => ({
+    queryKey: options.queryKey,
+    read: () => queryClient.fetchQuery({ ...options, staleTime: 0 }),
+  });
   const agentId = logAgentId(key);
-  if (agentId !== undefined) return { queryKey: key, queryFn: readAgentLog(queryClient, agentId) };
-  const lists: [QueryKey, () => Promise<unknown>][] = [
-    [keys.agents, readAgents],
-    [keys.harnesses, readHarnesses],
-    [keys.proposals, readProposals],
-  ];
-  const found = lists.find(([listKey]) => hashKey(listKey) === hashKey(key));
-  return found && { queryKey: key, queryFn: found[1] };
+  if (agentId !== undefined) return again(agentLogQuery(queryClient, agentId)).read;
+  const lists = [again(agentsQuery()), again(harnessesQuery()), again(proposalsQuery())];
+  return lists.find((list) => hashKey(list.queryKey) === hashKey(key))?.read;
+};
+
+/** The one way an agent's cached data goes (it was removed or deleted, or is no longer listed). */
+export const forgetAgent = (queryClient: QueryClient, agentId: string): void => {
+  queryClient.removeQueries({ queryKey: keys.log(agentId), exact: true });
 };

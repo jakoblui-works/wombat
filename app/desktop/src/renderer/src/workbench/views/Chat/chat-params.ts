@@ -1,16 +1,23 @@
 import { z } from "zod";
 
-import type { ResolveContext } from "../../registry.ts";
+import type { KnownContext, ResolveContext } from "../../registry.ts";
 
 export const ChatParams = z.object({ agentId: z.string() });
 
-/** A chat tab applies while its agent exists (and is kept while the agents are loading). */
-export const chatResolves = (params: unknown, { agents }: ResolveContext): boolean => {
+/** How much of an agent id a title shows when there's nothing better. */
+const SHORT_ID_LENGTH = 8;
+
+/** A chat tab applies while its agent exists. */
+export const chatResolves = (params: unknown, { agents }: KnownContext): boolean => {
   const parsed = ChatParams.safeParse(params);
-  return parsed.success && (agents === undefined || agents.some((agent) => agent.id === parsed.data.agentId));
+  return parsed.success && agents.some((agent) => agent.id === parsed.data.agentId);
 };
 
-export const chatTitle = (params: unknown): string => {
+/** The agent's title, else its repo, else (not listed, or the list is loading) the start of its id. */
+export const chatTitle = (params: unknown, { agents }: ResolveContext): string => {
   const parsed = ChatParams.safeParse(params);
-  return parsed.success ? `Chat ${parsed.data.agentId}` : "Chat";
+  if (!parsed.success) return "Chat";
+  const { agentId } = parsed.data;
+  const agent = agents?.find(({ id }) => id === agentId);
+  return agent?.title ?? agent?.repo ?? agentId.slice(0, SHORT_ID_LENGTH);
 };

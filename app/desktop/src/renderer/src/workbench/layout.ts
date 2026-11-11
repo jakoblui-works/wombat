@@ -1,7 +1,7 @@
 // The layout the user left, saved per workspace through settings.set({ layout }) and restored once on load.
 import type { SerializedDockview } from "dockview-react";
 import { z } from "zod";
-import { activities, getActivity } from "./registry.ts";
+import { activityOrDefault } from "./registry.ts";
 
 /** Whether a saved tab still applies: its view is registered and its params pass paramsSchema and resolves. */
 export type IsKnown = (viewId: string, params: unknown) => boolean;
@@ -13,8 +13,8 @@ export type SavedLayout = {
   activity: string;
 };
 
-/** The activity a layout without a known one opens on: the first registered, Agents (activities.ts). */
-const defaultActivity = (): string => activities()[0]?.id ?? "";
+/** The activity `id` names if it's registered, else the default (Agents). */
+const knownActivity = (id: string | undefined): string => activityOrDefault(id)?.id ?? "";
 const DEFAULT_SIDEBARS: SavedLayout["sidebars"] = { left: 260, right: 300, rightCollapsed: true };
 const DEFAULT_GROUP_ID = "editor";
 
@@ -60,7 +60,7 @@ const defaultDockview = (): SerializedDockview =>
   }) as unknown as SerializedDockview;
 
 /** The default layout: one empty group, the Agents activity, default sidebar widths. */
-export const defaultLayout = (): SavedLayout => ({ version: 1, dockview: defaultDockview(), sidebars: { ...DEFAULT_SIDEBARS }, activity: defaultActivity() });
+export const defaultLayout = (): SavedLayout => ({ version: 1, dockview: defaultDockview(), sidebars: { ...DEFAULT_SIDEBARS }, activity: knownActivity(undefined) });
 
 /** The grid without the dropped tabs; a group (or split) pruning emptied is removed, one that was empty stays. */
 const pruneNode = (node: GridNode, kept: (panelId: string) => boolean): GridNode | undefined => {
@@ -102,7 +102,7 @@ export const pruneLayout = (saved: SavedLayout, isKnown: IsKnown): SavedLayout =
   return {
     ...saved,
     dockview: { ...dockview, grid: { ...grid, root: root as SerializedDockview["grid"]["root"] }, panels: keptPanels, ...(active === undefined ? {} : { activeGroup: active }) },
-    activity: getActivity(saved.activity) === undefined ? defaultActivity() : saved.activity,
+    activity: knownActivity(saved.activity),
   };
 };
 

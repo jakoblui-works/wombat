@@ -1,11 +1,12 @@
 // Keeps the cache current from the service's alerts. The event stream never replays, so after a reconnect the agents
-// are read again and every cached log is read on from its cursor. While not connected nothing is cleared: views keep
-// the last data and dim themselves.
-import type { QueryClient } from "@tanstack/react-query";
+// and proposals are read again and every cached log is read on from its cursor. While not connected nothing is
+// cleared: views keep the last data and dim themselves.
+import { hashKey, type QueryClient } from "@tanstack/react-query";
 
 import type { Alert, ListAgentsResponse } from "@wombat/shared/api";
 import type { ConnectionState, WombatBridge } from "../../../shared/bridge.ts";
 import { keys, logAgentId } from "./keys.ts";
+import { forgetAgent } from "./query-client.ts";
 import { refresh } from "./refresh.ts";
 
 /** Keeps the cache current from the bridge's alerts and connection states; returns the unsubscribe. */
@@ -16,20 +17,35 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
       .findAll({ queryKey: keys.logs })
       .flatMap((query) => logAgentId(query.queryKey) ?? []);
 
-  const onAlert = (alert: Alert): void => {
-    const agents = queryClient.getQueryData<ListAgentsResponse>(keys.agents);
-    if (agents !== undefined && agents.dbId !== alert.dbId) {
-      // Another store: every cached seq and id may mean something else now. Resetting cancels the reads under way.
-      void queryClient.resetQueries();
-      return;
+  // The store the cached data comes from: the dbId of the agents list, or of the alerts since it was reset.
+  let store = queryClient.getQueryData<ListAgentsResponse>(keys.agents)?.dbId;
+  /** False for another store than the cache's: then every query is reset (the reads under way are cancelled). */
+  const sameStore = (dbId: string): boolean => {
+    if (store === undefined || store === dbId) {
+      store = dbId;
+      return true;
     }
+    // Every cached seq and id may mean something else now.
+    store = undefined;
+    void queryClient.resetQueries();
+    return false;
+  };
+
+  const agentsHash = hashKey(keys.agents);
+  const offCache = queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== "updated" || event.action.type !== "success" || event.query.queryHash !== agentsHash) return;
+    sameStore((event.action.data as ListAgentsResponse).dbId);
+  });
+
+  const onAlert = (alert: Alert): void => {
+    if (!sameStore(alert.dbId)) return;
     switch (alert.type) {
       case "agent_added":
       case "agent_changed":
         void refresh(queryClient, keys.agents);
         break;
       case "agent_removed":
-        queryClient.removeQueries({ queryKey: keys.log(alert.agentId) });
+        forgetAgent(queryClient, alert.agentId);
         void refresh(queryClient, keys.agents);
         break;
       case "log":
@@ -46,7 +62,7 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
     const agents = queryClient.getQueryData<ListAgentsResponse>(keys.agents);
     if (agents === undefined) return;
     const listed = new Set(agents.agents.map((agent) => agent.id));
-    for (const agentId of cachedLogs()) if (!listed.has(agentId)) queryClient.removeQueries({ queryKey: keys.log(agentId) });
+    for (const agentId of cachedLogs()) if (!listed.has(agentId)) forgetAgent(queryClient, agentId);
   };
 
   let previous: ConnectionState["state"] | undefined;
@@ -60,6 +76,7 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
       // The first connection loads through the queries themselves; only a later one has anything to catch up.
       if (seenConnected) {
         void refresh(queryClient, keys.agents).then(dropUnlisted);
+        void refresh(queryClient, keys.proposals);
         for (const agentId of cachedLogs()) void refresh(queryClient, keys.log(agentId));
       }
       seenConnected = true;
@@ -70,6 +87,7 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
   const offAlert = bridge.service.onAlert(onAlert);
   const offConnection = bridge.service.onConnection(onConnection);
   return () => {
+    offCache();
     offAlert();
     offConnection();
   };

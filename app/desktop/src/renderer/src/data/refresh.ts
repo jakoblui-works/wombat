@@ -12,8 +12,8 @@ const runningByClient = new WeakMap<QueryClient, Map<string, Running>>();
 
 /** Reads `queryKey` again if the cache holds it (data, an error or a view on it); settles once read. */
 export const refresh = (queryClient: QueryClient, queryKey: QueryKey): Promise<void> => {
-  const query = queryFor(queryClient, queryKey);
-  if (query === undefined) return Promise.resolve();
+  const fetchAgain = queryFor(queryClient, queryKey);
+  if (fetchAgain === undefined) return Promise.resolve();
   let running = runningByClient.get(queryClient);
   if (running === undefined) {
     running = new Map();
@@ -28,7 +28,7 @@ export const refresh = (queryClient: QueryClient, queryKey: QueryKey): Promise<v
 
   const held = () => queryClient.getQueryCache().find({ queryKey, exact: true });
   // A failed read stays in the query's error state; the next alert or connection reads again.
-  const read = () => queryClient.fetchQuery({ ...query, staleTime: 0 }).then(
+  const read = () => fetchAgain().then(
     () => undefined,
     () => undefined,
   );

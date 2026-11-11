@@ -117,13 +117,16 @@ const PATCH_FIELDS = new Intl.ListFormat("en-GB", { type: "conjunction" }).forma
 /** A change from the page that doesn't fit; its message is safe to show the page. */
 export class SettingsChangeRefused extends Error {}
 
-/** `settings` with the page's `patch` applied; throws SettingsChangeRefused when it doesn't fit RendererSettingsPatch. */
-export const withRendererPatch = (settings: Settings, patch: unknown): Settings => {
+/**
+ * `settings` with the page's `patch` applied; throws SettingsChangeRefused when it doesn't fit RendererSettingsPatch.
+ * With `keepLayout` false the patch's layout is checked but not kept.
+ */
+export const withRendererPatch = (settings: Settings, patch: unknown, keepLayout = true): Settings => {
   const parsed = RendererSettingsPatch.safeParse(patch);
   if (!parsed.success) throw new SettingsChangeRefused(`The settings change isn't valid (${z.prettifyError(parsed.error)}); send only ${PATCH_FIELDS}.`);
   const { layout, ...rest } = parsed.data;
   const next: Settings = { ...settings, ...rest };
-  if (layout === undefined) return next;
+  if (layout === undefined || !keepLayout) return next;
   const { workspace } = settings;
   if (workspace === undefined) throw new SettingsChangeRefused("There's no workspace yet to keep a layout for; choose one first.");
   return { ...next, workspaces: { ...settings.workspaces, [workspace]: { ...settings.workspaces[workspace], layout } } };
@@ -137,9 +140,10 @@ export const savePageSettings = (
   update: (change: (current: Settings) => Settings) => void,
   patch: unknown,
   log: (line: string) => void = console.error,
+  keepLayout = true,
 ): void => {
   try {
-    update((current) => withRendererPatch(current, patch));
+    update((current) => withRendererPatch(current, patch, keepLayout));
   } catch (error) {
     if (error instanceof SettingsChangeRefused) throw error;
     log(`Wombat couldn't save the settings: ${error instanceof Error ? error.message : String(error)}`);

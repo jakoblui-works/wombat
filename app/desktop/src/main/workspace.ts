@@ -8,7 +8,8 @@ import { discoveryPath, findRunningService, type DiscoveryFile } from "@wombat/s
 import { runningCount } from "./quit.ts";
 import { listAgents } from "./service-client.ts";
 import { otherWorkspaceFailure, ServiceStartFailed, startService, stopService } from "./service-start.ts";
-import { loadSettings, saveSettings, type Settings } from "./settings.ts";
+import type { RendererSettings } from "../shared/bridge.ts";
+import { loadSettings, rendererSettings, savePageSettings, saveSettings, type Settings } from "./settings.ts";
 
 export type WorkspaceDeps = {
   env: NodeJS.ProcessEnv;
@@ -53,6 +54,13 @@ export type WorkspaceControl = {
   settings: () => Settings;
   /** Saves `change(current settings)`; the one way to change them while the control holds them. */
   updateSettings: (change: (current: Settings) => Settings) => void;
+  /** The page's settings.get. The first one after a switch is the reloaded page's: it lets layouts save again. */
+  pageSettings: () => RendererSettings;
+  /**
+   * The page's settings.set. From the start of a switch until the reloaded page reads its settings, the layout in a
+   * patch is dropped: it's the old workspace's, and once the switch saves the new workspace it would land there.
+   */
+  setPageSettings: (patch: unknown) => void;
 };
 
 export const workspaceControl = ({
@@ -91,8 +99,12 @@ export const workspaceControl = ({
       throw otherWorkspaceFailure(running, workspace);
     });
 
-  const switchWorkspace = (workspace: string): Promise<DiscoveryFile> =>
-    enqueue(async () => {
+  let layoutFrozen = false;
+
+  const switchWorkspace = (workspace: string): Promise<DiscoveryFile> => {
+    // At once, not in the queue: a layout save may already be on its way.
+    layoutFrozen = true;
+    const switched = enqueue(async () => {
       let file = await findRunning();
       if (file?.workspace !== workspace) {
         if (file !== undefined) await stopService(file);
@@ -101,6 +113,12 @@ export const workspaceControl = ({
       save({ workspace });
       return file;
     });
+    // A switch that failed reloads nothing: the page still shows the saved workspace, and saves its layout again.
+    switched.catch(() => {
+      layoutFrozen = false;
+    });
+    return switched;
+  };
 
   const idle = () => queue.then(() => undefined);
 
@@ -153,6 +171,11 @@ export const workspaceControl = ({
     idle,
     settings: () => settings,
     updateSettings,
+    pageSettings: () => {
+      layoutFrozen = false;
+      return rendererSettings(settings);
+    },
+    setPageSettings: (patch) => savePageSettings(updateSettings, patch, undefined, !layoutFrozen),
   };
 };
 

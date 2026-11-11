@@ -2,6 +2,7 @@
 // so they stay in step with `@wombat/shared/api`. A "body" is an entry without its seq, agent and time; `entries()`
 // numbers a list of bodies from seq 1 for one agent.
 import type { AgentSummary, LogEntry } from "@wombat/shared/api";
+import type { Proposal } from "@wombat/shared/items";
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -92,3 +93,18 @@ export const inSession = (body: Body, sessionId: string): Body => ({ ...body, se
 
 /** A known entry type that fails its schema (a user message whose text isn't a string), as a buggy service might store it. */
 export const MALFORMED: Body = { type: "user_message", text: { not: "a string" } } as unknown as Body;
+
+/** A pending proposal as GET /proposals lists it (an invented edit to an opening-hours page). */
+export const proposal = (id: string, agentId = AGENT): Proposal => ({
+  id,
+  structure: "pages",
+  kind: "update",
+  handle: "PAGE-3",
+  fields: { title: "Opening hours" },
+  file: null,
+  reason: "Saturday hours changed",
+  baseVersion: "v1",
+  status: "pending",
+  agentId,
+  at: atFor(2),
+});

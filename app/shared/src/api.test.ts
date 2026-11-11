@@ -13,6 +13,7 @@ import {
   SessionUpdate,
   StartAgentRequest,
   VersionResponse,
+  isWaiting,
   parseAlert,
   parseLogEntry,
 } from "./api.ts";
@@ -332,6 +333,12 @@ describe("responses (lenient)", () => {
 
   test("an AgentSummary from before pendingPermissions existed reads with none", () => {
     expect(AgentSummary.parse(doneAgent).pendingPermissions).toEqual([]);
+  });
+
+  test("only a waiting agent waits on the user", () => {
+    const states = AgentSummary.shape.state.options;
+    expect(states.filter((state) => isWaiting({ state }))).toEqual(["waiting"]);
+    expect(isWaiting(undefined)).toBe(false);
   });
 
   test("ErrorBody accepts errors with and without a hint and ignores unknown fields", () => {

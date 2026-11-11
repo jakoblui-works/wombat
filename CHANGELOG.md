@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Quitting while agents work or wait asks whether to stop them or leave them running ("Don't ask again" turns the question off). The menu has Switch Workspace and Stop Service and Agents; both ask before stopping agents. Restarting a service from an older version of Wombat asks, then replaces it.
 - A desktop notification says when an agent is waiting for you, without anything from the agent in it.
 - The app's page is served with a content security policy header and a fresh nonce on every load; UI libraries (Tailwind, Base UI, dockview, Shiki) run under it.
+- The desktop app has a workbench: an activity bar with five activities (Agents, and four that name the step that fills them), a sidebar, a split, tabbed editor area and a collapsible right sidebar. Agents opens each agent's chat in a tab. The layout (splits, tabs, sidebar widths) reopens per workspace; tabs of deleted agents close, and a layout that can't be restored opens the default without overwriting the saved one.
 - CI that lints, type-checks, tests, builds and runs the desktop end-to-end tests on every push and pull request.
 - The Wombat logo: a mark and a symbol, in colour and in one colour, in `app/desktop/assets/brand/`; the mark heads the README.
 

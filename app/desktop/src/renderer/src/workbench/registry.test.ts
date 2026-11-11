@@ -7,7 +7,7 @@ import { z } from "zod";
 
 import { summary } from "../../../../test/log-entries.ts";
 import "./activities.ts";
-import { activities, isKnown, registerView, type ResolveContext } from "./registry.ts";
+import { activities, getView, isKnown, registerView, type ResolveContext } from "./registry.ts";
 
 test.each<[string, string, unknown, ResolveContext, boolean]>([
   ["a chat tab whose agent exists", "chat", { agentId: "a1" }, { agents: [summary("a1"), summary("a2")] }, true],
@@ -38,4 +38,32 @@ test("a tab whose params fail its view's paramsSchema doesn't apply", () => {
   const known = isKnown({ agents: [] });
   expect(known("test-schema-only", { path: "hours.md" })).toBe(true);
   expect(known("test-schema-only", { path: 7 })).toBe(false);
+});
+
+// S4 fix round: "keep a tab while the agents list is unknown" is isKnown's rule; a view's resolves only ever sees a
+// known list.
+test("while the agents list is unknown a tab is kept without asking its view", () => {
+  registerView({
+    id: "test-needs-a-list",
+    title: "Needs a list",
+    icon: Circle,
+    locations: ["editor"],
+    component: () => null,
+    // Throws on an unknown list, as a view written to the rule may.
+    resolves: (_params, { agents }) => (agents as unknown[]).length > 0,
+  });
+  expect(isKnown({ agents: undefined })("test-needs-a-list", {})).toBe(true);
+  expect(isKnown({ agents: [] })("test-needs-a-list", {})).toBe(false);
+});
+
+test.each<[string, ResolveContext, (id: string, title: string) => boolean]>([
+  ["the agent's title", { agents: [summary("3f2a9c1e-77aa-4b1e-9e0d-5c3b2a1f0e9d", { title: "Opening hours" })] }, (_id, title) => title === "Opening hours"],
+  ["else its repo", { agents: [summary("3f2a9c1e-77aa-4b1e-9e0d-5c3b2a1f0e9d", { repo: "bakery-site" })] }, (_id, title) => title === "bakery-site"],
+  ["else a short id", { agents: [] }, (id, title) => title.length > 0 && title.length < id.length && id.includes(title)],
+  ["else a short id, while the agents load", { agents: undefined }, (id, title) => title.length > 0 && title.length < id.length && id.includes(title)],
+])("a chat tab's title: %s", (_name, ctx, fits) => {
+  const agentId = "3f2a9c1e-77aa-4b1e-9e0d-5c3b2a1f0e9d";
+  const title = getView("chat")?.title;
+  const text = typeof title === "function" ? title({ agentId }, ctx) : title;
+  expect(fits(agentId, text ?? ""), `title: ${String(text)}`).toBe(true);
 });

@@ -1,13 +1,16 @@
 // A fake of `window.wombat` for the renderer's data tests (T8): an in-memory agent service behind the bridge's
-// `service` calls, answering GET /agents and GET /agents/:id/log?after=&limit= the way the real service does
-// (service/src/store/store.ts readLog): at most `limit` entries above `after` (FAKE_DEFAULT_LIMIT when the read sends
-// none), numbered by one store-wide seq, sent through JSON as IPC would; entries of a type the app doesn't know are
-// stored and sent raw; `truncated` is true exactly when the cap dropped an entry of this agent after `after`
-// (`capDrop` models the cap). Plus alert and connection feeds the test drives. It records the requests it answered,
-// so a test can tell an append from a full reload. A test can also make it misbehave the ways the page must survive:
-// refuse while not connected (as main does), or ignore `after` for one agent; a log read past MAX_LOG_READS for one
-// agent answers 500, so a client that loops fails its test instead of hanging it.
-import type { AgentSummary, Alert, LogEntry } from "@wombat/shared/api";
+// `service` calls. GET /agents lists the agents, GET /proposals the proposals, and GET /agents/:id/log?after=&limit=
+// reads like the service's store.readLog: the query parsed with ListLogQuery (400 with an ErrorBody when it fails),
+// at most `limit` entries above `after` (FAKE_DEFAULT_LIMIT when the read sends none), numbered by one store-wide
+// seq, sent through JSON as IPC would; entries of a type the app doesn't know are stored and sent raw; `truncated` is
+// true exactly when the cap dropped an entry of this agent after `after` (`capDrop` models the cap). The read-cases
+// table (test/log-read-cases.test.ts, shared with the service's own test) keeps this in step with the service.
+// Plus alert and connection feeds the test drives. It records the requests it answered, so a test can tell an append
+// from a full reload. A test can also make it misbehave the ways the page must survive: refuse while not connected
+// (as main does), or ignore `after` for one agent; a log read past MAX_LOG_READS for one agent answers 500, so a
+// client that loops fails its test instead of hanging it.
+import { type AgentSummary, type Alert, ListLogQuery, type LogEntry } from "@wombat/shared/api";
+import type { Proposal } from "@wombat/shared/items";
 import type { ConnectionState, WombatBridge } from "../src/shared/bridge.ts";
 import { atFor, type Body, summary } from "./log-entries.ts";
 
@@ -31,6 +34,8 @@ export type FakeService = {
   connection: (state: ConnectionState["state"]) => void;
   /** Sets fields of an agent's summary (listed by GET /agents from then on, log or not). */
   setAgent: (agentId: string, fields: Partial<AgentSummary>) => void;
+  /** Adds a proposal to GET /proposals. */
+  addProposal: (proposal: Proposal) => void;
   /** Deletes an agent: gone from GET /agents, its log reads answer 404. */
   removeAgent: (agentId: string) => void;
   /** Main's refusal while not connected: request() rejects unless the last connection state is `connected`. */
@@ -67,6 +72,7 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
   const ignoringAfter = new Set<string>();
   const logReads = new Map<string, number>();
   let refusing = false;
+  const proposals: Proposal[] = [];
 
   const answer = (method: string, path: string): { status: number; body: unknown } => {
     const url = new URL(path, "http://service.invalid");
@@ -74,6 +80,7 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
       const ids = [...new Set([...logs.keys(), ...agentFields.keys()])];
       return { status: 200, body: { dbId, seq, agents: ids.map((id) => summary(id, agentFields.get(id))) } };
     }
+    if (method === "GET" && url.pathname === "/proposals") return { status: 200, body: { proposals } };
     const logMatch = /^\/agents\/([^/]+)\/log$/.exec(url.pathname);
     if (method === "GET" && logMatch) {
       const agentId = decodeURIComponent(logMatch[1] ?? "");
@@ -82,9 +89,19 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
       if (reads > MAX_LOG_READS) {
         return { status: 500, body: { error: { code: "internal_error", message: `fake: more than ${String(MAX_LOG_READS)} log reads of ${agentId}` } } };
       }
-      const after = ignoringAfter.has(agentId) ? 0 : Number(url.searchParams.get("after") ?? "0");
-      const limit = Number(url.searchParams.get("limit") ?? String(FAKE_DEFAULT_LIMIT));
-      const all = logs.get(agentId);
+      // The query as the route reads it: a repeated key arrives as a list (and fails), as it does there.
+      const raw: Record<string, string | string[]> = {};
+      for (const key of new Set(url.searchParams.keys())) {
+        const values = url.searchParams.getAll(key);
+        raw[key] = values.length === 1 ? (values[0] ?? "") : values;
+      }
+      const query = ListLogQuery.safeParse(raw);
+      if (!query.success) {
+        return { status: 400, body: { error: { code: "invalid_request", message: query.error.issues[0]?.message ?? "invalid query" } } };
+      }
+      const after = ignoringAfter.has(agentId) ? 0 : query.data.after;
+      const limit = query.data.limit ?? FAKE_DEFAULT_LIMIT;
+      const all = logs.get(agentId) ?? (agentFields.has(agentId) ? [] : undefined);
       if (all === undefined) return { status: 404, body: { error: { code: "not_found", message: `No agent ${agentId}.` } } };
       const dropped = droppedThrough.get(agentId);
       return {
@@ -170,6 +187,9 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
     },
     setAgent: (agentId, fields) => {
       agentFields.set(agentId, { ...agentFields.get(agentId), ...fields });
+    },
+    addProposal: (added) => {
+      proposals.push(added);
     },
     removeAgent: (agentId) => {
       agentFields.delete(agentId);

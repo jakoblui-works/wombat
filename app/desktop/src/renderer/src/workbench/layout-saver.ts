@@ -55,3 +55,26 @@ export const layoutSaver = (read: () => SavedLayout, write: (layout: SavedLayout
 
 /** A dockview layout change is the user's unless it only changed sizes (dockview fitting the panes to its box). */
 export const dockviewChange = (reasons: ReadonlySet<string>): LayoutChange => ([...reasons].every((reason) => reason === "geometry") ? "passive" : "user");
+
+/**
+ * Marks the dockview changes the page makes itself (closing tabs that no longer apply, new titles) as passive, so they
+ * never arm the saver. Dockview reports layout changes on a later microtask, coalesced: a change run through `run` is
+ * reported before the microtask `run` queues to end the mark.
+ */
+export const pageChanges = () => {
+  let marked = false;
+  return {
+    run: (change: () => void): void => {
+      marked = true;
+      try {
+        change();
+      } finally {
+        queueMicrotask(() => {
+          marked = false;
+        });
+      }
+    },
+    /** What a dockview layout event counts as. */
+    classify: (reasons: ReadonlySet<string>): LayoutChange => (marked ? "passive" : dockviewChange(reasons)),
+  };
+};

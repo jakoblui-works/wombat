@@ -9,7 +9,7 @@ import { NONCE_PLACEHOLDER, newNonce, pageCsp, withNonce } from "./page-csp.ts";
 import { decideQuit, restartService, stopIfConfirmed, type QuitChoice } from "./quit.ts";
 import { listAgents } from "./service-client.ts";
 import { serviceConnection } from "./service-connection.ts";
-import { rendererSettings, savePageSettings, settingsPath } from "./settings.ts";
+import { settingsPath } from "./settings.ts";
 import { waitingNotices, type ShownNotice, type WAITING_NOTICE } from "./waiting-notice.ts";
 import { workspaceControl, workspaceRepos } from "./workspace.ts";
 
@@ -307,9 +307,9 @@ handleBridge(CHANNELS.restart, async () => {
   });
 });
 handleBridge(CHANNELS.workspaceSwitch, switchWorkspace);
-handleBridge(CHANNELS.settingsGet, () => rendererSettings(workspace.settings()));
+handleBridge(CHANNELS.settingsGet, () => workspace.pageSettings());
 handleBridge(CHANNELS.settingsSet, (patch) => {
-  savePageSettings(workspace.updateSettings, patch);
+  workspace.setPageSettings(patch);
 });
 
 const menu = (): Menu =>

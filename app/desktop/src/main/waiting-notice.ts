@@ -1,6 +1,6 @@
 // A desktop notification when an agent starts waiting on the user. The desktop shows it outside the app (and may
 // keep it in a history), so it says nothing of the agent: fixed text only, and the agent's id stays in main.
-import type { AgentSummary, Alert } from "@wombat/shared/api";
+import { type AgentSummary, type Alert, isWaiting } from "@wombat/shared/api";
 
 /** The notification's whole text; e2e/quit-notifications.e2e.ts checks it holds none of the agent's. */
 export const WAITING_NOTICE = { title: "Wombat", body: "An agent is waiting for you" } as const;
@@ -31,9 +31,6 @@ export type WaitingNotices = {
 };
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-
-/** The one rule for which agents are waiting on the user. */
-const isWaiting = (agent: Pick<AgentSummary, "state"> | undefined): boolean => agent?.state === "waiting";
 
 export const waitingNotices = ({ agents, show, openAgent, log = console.warn }: WaitingNoticeDeps): WaitingNotices => {
   // The agents last seen waiting: one notification per turn to waiting, however many alerts it brings.
