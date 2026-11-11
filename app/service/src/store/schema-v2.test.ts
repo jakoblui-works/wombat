@@ -1,6 +1,6 @@
-// Lasting check (contract "Store schema v2", silent failure): a store written by the previous version
-// (schema 1) opens in place as schema 2, keeping every agent and log entry, and gains `item_counters` and
-// `proposals`; a fresh store has both; reopening a v2 store changes nothing. Without it, an upgrade would lose
+// Lasting check (contract "Store schema v2", silent failure): a store written by schema 1 opens in place as
+// the current schema, keeping every agent and log entry, and gains `item_counters` and
+// `proposals`; a fresh store has both; reopening it changes nothing. Without it, an upgrade would lose
 // the agents' history or leave a table missing until the first proposal fails.
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -48,7 +48,9 @@ const writeV1Store = (path: string) => {
   db.exec(V1_SCHEMA);
   db.prepare("INSERT INTO meta (key, value) VALUES ('db_id', ?), ('seq', ?)").run(DB_ID, LAST_SEQ);
   for (const agent of AGENTS) {
-    db.prepare("INSERT INTO agents (id, started_at, summary) VALUES (?, ?, ?)").run(agent.id, agent.startedAt, JSON.stringify(agent));
+    // A v1 summary had no pendingPermissions; the store reads it back as [].
+    const v1Summary = JSON.stringify(agent, (key, value: unknown) => (key === "pendingPermissions" ? undefined : value));
+    db.prepare("INSERT INTO agents (id, started_at, summary) VALUES (?, ?, ?)").run(agent.id, agent.startedAt, v1Summary);
   }
   for (const { seq, agentId, body } of ENTRIES) {
     const text = JSON.stringify(body);
@@ -78,15 +80,16 @@ const inspect = (path: string) => {
   }
 };
 
-const expectV2 = (path: string) => {
+/** The current schema: v1 migrates through v2 to it, with the v2 tables. */
+const expectCurrentSchema = (path: string) => {
   const { version, tables, counterColumns } = inspect(path);
-  expect(version).toBe(2);
+  expect(version).toBe(3);
   expect(tables).toEqual(expect.arrayContaining(["meta", "agents", "log_entries", "item_counters", "proposals"]));
   expect(counterColumns.sort()).toEqual(["last", "structure"]);
 };
 
 describe("store schema v2", () => {
-  test("a v1 store migrates in place and keeps every agent, entry, seq and its db id", () => {
+  test("a v1 store migrates in place to the current schema and keeps every agent, entry, seq and its db id", () => {
     const path = tempStorePath();
     mkdirSync(dirname(path), { recursive: true });
     writeV1Store(path);
@@ -102,17 +105,17 @@ describe("store schema v2", () => {
     ]);
     expect(store.readLog("a2").entries.map((entry) => entry.seq)).toEqual([5]);
     store.close();
-    expectV2(path);
+    expectCurrentSchema(path);
   });
 
-  test("a fresh store is v2 with both tables, and reopening it changes nothing", () => {
+  test("a fresh store has the current schema with the v2 tables, and reopening it changes nothing", () => {
     const path = tempStorePath();
     const first = open({ path });
     first.putAgent(summary("a1"));
     const { dbId } = first;
     const seq = first.currentSeq();
     first.close();
-    expectV2(path);
+    expectCurrentSchema(path);
 
     const again = open({ path });
 
@@ -120,6 +123,6 @@ describe("store schema v2", () => {
     expect(again.currentSeq()).toBe(seq);
     expect(again.listAgents().map((agent) => agent.id)).toEqual(["a1"]);
     again.close();
-    expectV2(path);
+    expectCurrentSchema(path);
   });
 });

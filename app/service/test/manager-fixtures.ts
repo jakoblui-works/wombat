@@ -47,6 +47,7 @@ export const trackedHarness = (scenario: FakeScenario, pidDir: string): Harness 
 export const ALL_SCENARIOS: FakeScenario[] = [
   "reply",
   "permission",
+  "permissions-three",
   "image",
   "auth",
   "crash",
@@ -58,6 +59,9 @@ export const ALL_SCENARIOS: FakeScenario[] = [
   "early-update",
   "mcp-config",
   "call-tool",
+  "message-ids",
+  "message-runs",
+  "plan-thought",
 ];
 
 export const isAlive = (pid: number) => {
@@ -260,4 +264,21 @@ export const childPidOf = (entries: LogEntry[]) => {
     }
   }
   throw new Error("the spawn-child scenario reported no childPid");
+};
+
+/** Runs git in `dir` with no user or system config, so a test doesn't depend on (or sign with) the developer's. */
+export const git = (dir: string, ...args: string[]) => {
+  const result = spawnSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", ...args], {
+    cwd: dir,
+    encoding: "utf8",
+    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+  });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
+  return result.stdout.trim();
+};
+
+/** Makes `dir` a git repo on `branch` with one empty commit. */
+export const gitRepo = (dir: string, branch: string) => {
+  git(dir, "init", "--quiet", "--initial-branch", branch);
+  git(dir, "commit", "--quiet", "--allow-empty", "--message", "Start");
 };

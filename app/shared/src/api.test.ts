@@ -42,6 +42,21 @@ const agentMessageChunk = {
   content: { type: "text", text: "I'll start by reading the header component." },
 };
 
+const agentThoughtChunk = {
+  sessionUpdate: "agent_thought_chunk",
+  messageId: "msg_1",
+  content: { type: "text", text: "The footer uses px-6, so the header should too." },
+};
+
+const plan = {
+  sessionUpdate: "plan",
+  entries: [
+    { content: "Read the header component", priority: "high", status: "completed" },
+    { content: "Match the footer padding", priority: "medium", status: "in_progress" },
+    { content: "Check the mobile breakpoint", priority: "low", status: "pending" },
+  ],
+};
+
 const toolCall = {
   sessionUpdate: "tool_call",
   toolCallId: "toolu_01A",
@@ -100,6 +115,8 @@ const availableCommandsUpdate = {
 
 const renderedUpdates = [
   agentMessageChunk,
+  agentThoughtChunk,
+  plan,
   toolCall,
   toolCallUpdate,
   toolCallUpdateNewFile,
@@ -313,6 +330,10 @@ describe("responses (lenient)", () => {
     });
   });
 
+  test("an AgentSummary from before pendingPermissions existed reads with none", () => {
+    expect(AgentSummary.parse(doneAgent).pendingPermissions).toEqual([]);
+  });
+
   test("ErrorBody accepts errors with and without a hint and ignores unknown fields", () => {
     expect(ErrorBody.safeParse({ error: { code: "agent_busy", message: "The agent is still working." } }).success).toBe(
       true,
@@ -347,8 +368,7 @@ describe("LogEntry (lenient)", () => {
 
   test("parseLogEntry ignores session updates of kinds we don't render", () => {
     for (const update of [
-      { sessionUpdate: "plan", entries: [{ content: "Read the header", priority: "high", status: "pending" }] },
-      { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Thinking about padding." } },
+      { sessionUpdate: "user_message_chunk", content: { type: "text", text: "Match the footer." } },
       { sessionUpdate: "some_future_kind" },
     ]) {
       expect(parseLogEntry(logEntry(40, "session_update", { update })), update.sessionUpdate).toBeUndefined();
@@ -411,7 +431,7 @@ describe("LogEntry (lenient)", () => {
 describe("ListLogResponse (lenient)", () => {
   const known = sampleLogEntries.slice(0, 3);
   const unknownType = logEntry(5, "state_changed", { state: "done" });
-  const unknownUpdate = logEntry(6, "session_update", { update: { sessionUpdate: "plan", entries: [] } });
+  const unknownUpdate = logEntry(6, "session_update", { update: { sessionUpdate: "some_future_kind", entries: [] } });
 
   test("drops entries it doesn't know and keeps the others in order", () => {
     const [first, second, third] = known;
@@ -591,6 +611,17 @@ describe("ACP-derived values (tolerated)", () => {
     }
   });
 
+  test("a plan entry's unknown priority reads as medium and its unknown status as pending", () => {
+    const parsed = parseLogEntry(
+      logEntry(43, "session_update", {
+        update: { sessionUpdate: "plan", entries: [{ content: "Ship the header", priority: "urgent", status: "cancelled" }] },
+      }),
+    );
+    expect(parsed).toMatchObject({
+      update: { sessionUpdate: "plan", entries: [{ content: "Ship the header", priority: "medium", status: "pending" }] },
+    });
+  });
+
   test("a malformed tool call location is dropped and the others are kept", () => {
     const locations = [{ path: "/work/site-web/a.ts", line: 3 }, { line: 5 }, { path: 42 }, { path: "/work/site-web/b.ts" }];
     for (const { path, logEntry: make, pick } of toolCallPaths) {
@@ -737,6 +768,8 @@ describe("session updates", () => {
 
   test("each rendered update kind, minus our placeholder, is assignable to the ACP SDK's SessionUpdate", () => {
     expectTypeOf<FromAcp<Ours<"agent_message_chunk">>>().toExtend<Acp<"agent_message_chunk">>();
+    expectTypeOf<FromAcp<Ours<"agent_thought_chunk">>>().toExtend<Acp<"agent_thought_chunk">>();
+    expectTypeOf<FromAcp<Ours<"plan">>>().toExtend<Acp<"plan">>();
     expectTypeOf<FromAcp<Ours<"tool_call">>>().toExtend<Acp<"tool_call">>();
     expectTypeOf<FromAcp<Ours<"tool_call_update">>>().toExtend<Acp<"tool_call_update">>();
     expectTypeOf<FromAcp<Ours<"session_info_update">>>().toExtend<Acp<"session_info_update">>();

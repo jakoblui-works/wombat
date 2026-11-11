@@ -9,7 +9,7 @@ import type { Problem, Proposal, ProposalStatus } from "@wombat/shared/items";
 /** The default cap on one agent's stored entries, in bytes of their stored JSON. */
 export const LOG_BYTES_PER_AGENT = 16 * 1024 * 1024;
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -112,6 +112,12 @@ const SCHEMA_V2 = `
   CREATE INDEX proposals_by_status ON proposals (status, at);
 `;
 
+// The summary row is JSON, so new summary fields need no column; summaries written before `pendingPermissions`
+// existed get it as [] (no request outlives the service that held it).
+const SCHEMA_V3 = `
+  UPDATE agents SET summary = json_insert(summary, '$.pendingPermissions', json('[]'));
+`;
+
 /** SQLite creates these with the database's mode; ones left looser are tightened on open. */
 const sideFiles = (path: string) => [`${path}-wal`, `${path}-shm`];
 
@@ -183,6 +189,7 @@ export const openStore = ({
           insertMeta.run("seq", 0);
         }
         if (version < 2) db.exec(SCHEMA_V2);
+        if (version < 3) db.exec(SCHEMA_V3);
         db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       });
     }

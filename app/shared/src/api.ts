@@ -220,6 +220,18 @@ export type VersionResponse = z.infer<typeof VersionResponse>;
 export const ListHarnessesResponse = z.array(z.object({ id: z.string(), name: z.string() }));
 export type ListHarnessesResponse = z.infer<typeof ListHarnessesResponse>;
 
+// Newer ACP tool kinds read as "other".
+const ToolKind = z
+  .enum(["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other"])
+  .catch("other");
+
+/**
+ * An open permission request, as the agent list shows it. `title` and `kind` come from the request's tool call, else
+ * from the latest stored `tool_call`/`tool_call_update` with its id, else `""` and `"other"`; `at` is its
+ * `permission_requested` entry's time.
+ */
+const PendingPermission = z.object({ requestId: z.string(), at: Timestamp, title: z.string(), kind: ToolKind });
+
 export const AgentSummary = z.object({
   id: z.string(),
   harness: z.string(),
@@ -231,6 +243,25 @@ export const AgentSummary = z.object({
   startedAt: Timestamp,
   lastActivityAt: Timestamp,
   error: ErrorDetail.exactOptional(),
+  /**
+   * The agent folder's current local branch, read when the agent starts and at each turn's end. Absent outside a git
+   * repo, on a detached HEAD, or when the read failed.
+   */
+  branch: z.string().exactOptional(),
+  /**
+   * The latest agent message's text, whitespace folded, trimmed and cut to 200 characters. Updated whenever the
+   * agent's state changes (a turn ending, a permission request); replaced, not appended, by the next message; absent
+   * until the agent sends text.
+   */
+  lastText: z.string().exactOptional(),
+  /** When the service last accepted a message or a permission answer from the app; never cleared. */
+  lastUserAt: Timestamp.exactOptional(),
+  /**
+   * The agent's open permission requests, oldest first. A row appears when the agent asks and leaves when the request
+   * is answered, the turn is cancelled or ends, or the agent stops or exits; a service restart clears them all.
+   * `[]` when reading a summary from before the field existed.
+   */
+  pendingPermissions: z.array(PendingPermission).default([]),
 });
 export type AgentSummary = z.infer<typeof AgentSummary>;
 
@@ -258,10 +289,6 @@ const ContentBlock = z.union([
     })),
 ]);
 
-// Newer ACP tool kinds read as "other".
-const ToolKind = z
-  .enum(["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other"])
-  .catch("other");
 const ToolCallStatus = z.enum(["pending", "in_progress", "completed", "failed"]);
 
 /** Drops `status` when it isn't one we know (newer ACP), instead of failing the whole tool call. */
@@ -311,12 +338,21 @@ const toolCallUpdateFields = {
 };
 const ToolCallUpdateFields = z.object(toolCallUpdateFields).transform(knownStatus(ToolCallStatus.nullable()));
 
+const contentChunkFields = { messageId: z.string().nullable().exactOptional(), content: ContentBlock };
+
+/** A plan entry; newer ACP priorities read as "medium", newer statuses as "pending". */
+const PlanEntry = z.object({
+  content: z.string(),
+  priority: z.enum(["high", "medium", "low"]).catch("medium"),
+  status: z.enum(["pending", "in_progress", "completed"]).catch("pending"),
+});
+
 export const SessionUpdate = z.discriminatedUnion("sessionUpdate", [
-  z.object({
-    sessionUpdate: z.literal("agent_message_chunk"),
-    messageId: z.string().nullable().exactOptional(),
-    content: ContentBlock,
-  }),
+  z.object({ sessionUpdate: z.literal("agent_message_chunk"), ...contentChunkFields }),
+  /** The agent's reasoning, shaped as a message chunk. */
+  z.object({ sessionUpdate: z.literal("agent_thought_chunk"), ...contentChunkFields }),
+  /** The agent's whole current plan: each one replaces the last. */
+  z.object({ sessionUpdate: z.literal("plan"), entries: z.array(PlanEntry) }),
   z
     .object({
       sessionUpdate: z.literal("tool_call"),
@@ -407,6 +443,8 @@ export type LogEntry = z.infer<typeof LogEntry>;
 const logEntryTypes = new Set<unknown>(LogEntry.options.map((option) => option.shape.type.value));
 const updateKinds: Record<SessionUpdate["sessionUpdate"], true> = {
   agent_message_chunk: true,
+  agent_thought_chunk: true,
+  plan: true,
   tool_call: true,
   tool_call_update: true,
   session_info_update: true,

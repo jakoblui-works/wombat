@@ -9,6 +9,7 @@ import { agent, ndJsonStream, RequestError, type AgentContext, type SessionUpdat
 const SCENARIOS = [
   "reply",
   "permission",
+  "permissions-three",
   "image",
   "auth",
   "crash",
@@ -21,6 +22,9 @@ const SCENARIOS = [
   "early-update",
   "mcp-config",
   "call-tool",
+  "message-ids",
+  "message-runs",
+  "plan-thought",
 ] as const;
 
 export type FakeScenario = (typeof SCENARIOS)[number];
@@ -61,6 +65,12 @@ const PNG_BASE64 =
 
 const text = (value: string): SessionUpdate => ({
   sessionUpdate: "agent_message_chunk",
+  content: { type: "text", text: value },
+});
+
+const messageText = (value: string, messageId: string): SessionUpdate => ({
+  sessionUpdate: "agent_message_chunk",
+  messageId,
   content: { type: "text", text: value },
 });
 
@@ -154,6 +164,46 @@ const run = (scenario: FakeScenario) => {
           });
           return { stopReason: turnCancelled ? "cancelled" : "end_turn" };
         }
+        case "permissions-three": {
+          // Three requests open at once, asked in this order, each naming its tool call differently: the first only
+          // by id (its title and kind are in the earlier tool_call), the second in the request itself (over an
+          // earlier tool_call that says otherwise), the third by an id nothing else mentions.
+          const [stored, named, bare] = [randomUUID(), randomUUID(), randomUUID()];
+          await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId: stored, title: "Edit notes.txt", kind: "edit", status: "pending" });
+          await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId: named, title: "Run tests", kind: "other", status: "pending" });
+          cancelled.delete(sessionId);
+          // Sent before any is answered, so all three are open at once.
+          const asked = [
+            client.request("session/request_permission", {
+              sessionId,
+              toolCall: { toolCallId: stored },
+              options: [
+                { optionId: "allow", name: "Allow", kind: "allow_once" },
+                { optionId: "reject", name: "Reject", kind: "reject_once" },
+              ],
+            }),
+            client.request("session/request_permission", {
+              sessionId,
+              toolCall: { toolCallId: named, title: "Run the test suite", kind: "execute" },
+              options: [
+                { optionId: "allow", name: "Allow", kind: "allow_once" },
+                { optionId: "reject", name: "Reject", kind: "reject_once" },
+              ],
+            }),
+            client.request("session/request_permission", {
+              sessionId,
+              toolCall: { toolCallId: bare },
+              options: [
+                { optionId: "allow", name: "Allow", kind: "allow_once" },
+                { optionId: "reject", name: "Reject", kind: "reject_once" },
+              ],
+            }),
+          ];
+          const outcomes = await Promise.all(asked);
+          const turnCancelled = cancelled.has(sessionId) || outcomes.some(({ outcome }) => outcome.outcome === "cancelled");
+          cancelled.delete(sessionId);
+          return { stopReason: turnCancelled ? "cancelled" : "end_turn" };
+        }
         case "image":
           await send(client, sessionId, {
             sessionUpdate: "agent_message_chunk",
@@ -193,8 +243,11 @@ const run = (scenario: FakeScenario) => {
           return { stopReason: "end_turn" };
         }
         case "unknown-update":
+          // A kind ACP has but the shared contract doesn't: the SDK drops kinds unknown to ACP itself before the
+          // service sees them, so this is the nearest a test gets to a newer agent's update.
           await send(client, sessionId, {
-            sessionUpdate: "agent_thought_chunk",
+            sessionUpdate: "compaction_summary_chunk",
+            compactionId: "compaction-1",
             content: { type: "text", text: SKIPPED_UPDATE_MARKER },
           });
           await send(client, sessionId, text("Thinking is over."));
@@ -239,6 +292,31 @@ const run = (scenario: FakeScenario) => {
           await send(client, sessionId, text(reply));
           return { stopReason: "end_turn" };
         }
+        case "message-ids":
+          // Two messages told apart by messageId only, each in two chunks.
+          await send(client, sessionId, messageText("The first message,", "msg-1"));
+          await send(client, sessionId, messageText(" in two chunks.", "msg-1"));
+          await send(client, sessionId, messageText("  The second   message\n\nreplaces", "msg-2"));
+          await send(client, sessionId, messageText(" the first. ", "msg-2"));
+          return { stopReason: "end_turn" };
+        case "message-runs":
+          // Chunks without a messageId, split into two runs by a tool call.
+          await send(client, sessionId, text("Before the tool call."));
+          await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId: randomUUID(), title: "Read notes.txt", kind: "read", status: "completed" });
+          await send(client, sessionId, text("After the"));
+          await send(client, sessionId, text(" tool call."));
+          return { stopReason: "end_turn" };
+        case "plan-thought":
+          await send(client, sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Weighing where the footer link lives." } });
+          await send(client, sessionId, {
+            sessionUpdate: "plan",
+            entries: [
+              { content: "Find the footer component", priority: "high", status: "completed" },
+              { content: "Rename the footer link", priority: "medium", status: "in_progress" },
+            ],
+          });
+          await send(client, sessionId, text("Planned the footer change."));
+          return { stopReason: "end_turn" };
         case "auth":
           break;
       }

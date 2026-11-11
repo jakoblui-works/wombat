@@ -15,7 +15,10 @@ const SKIPPED_UPDATE_MARKER = "thought-content-must-not-be-logged";
 // What the fake systemctl prints on stdout and stderr when it fails.
 const SYSTEMCTL_OUTPUT_MARKER = "systemctl-output-must-not-be-logged";
 
-/** Every piece of agent or user content in the entries: texts, tool titles, diff paths and texts, option names. */
+/**
+ * Every piece of agent or user content in the entries: texts, reasoning, plan entries, tool titles, diff paths and
+ * texts, option names.
+ */
 const contentOf = (entries: LogEntry[]) =>
   entries.flatMap((entry): string[] => {
     switch (entry.type) {
@@ -25,6 +28,10 @@ const contentOf = (entries: LogEntry[]) =>
         return [entry.toolCall.title ?? "", ...entry.options.map((option) => option.name)];
       case "session_update": {
         const { update } = entry;
+        if (update.sessionUpdate === "agent_thought_chunk") {
+          return update.content.type === "text" ? [update.content.text] : [];
+        }
+        if (update.sessionUpdate === "plan") return update.entries.map((planEntry) => planEntry.content);
         if (update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update") {
           return chunkTexts([entry]);
         }
@@ -46,13 +53,13 @@ const contentOf = (entries: LogEntry[]) =>
 
 describe("no agent content in logs", () => {
   test(
-    "across reply, permission, crash, noisy stderr and skipped updates, log lines carry ids and states, never content",
+    "across reply, permission, crash, noisy stderr, plan and reasoning, and skipped updates, log lines carry ids and states, never content",
     async () => {
       const t = setup();
       const prompt = (label: string) => `${label} prompt ${randomUUID()}`;
       const ids: string[] = [];
 
-      for (const scenario of ["reply", "noisy", "unknown-update"] as const) {
+      for (const scenario of ["reply", "noisy", "plan-thought", "unknown-update"] as const) {
         const { id } = await t.manager.start(`fake-${scenario}`, REPO);
         ids.push(id);
         await t.manager.send(id, { text: prompt(scenario) });
