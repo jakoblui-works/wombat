@@ -2,51 +2,25 @@ import { type ReactNode, useSyncExternalStore } from "react";
 
 import { AgentList } from "../AgentList/AgentList.tsx";
 import { Chat } from "../Chat/Chat.tsx";
-import { EmptyFiles } from "../EmptyFiles/EmptyFiles.tsx";
 import { NeedsMe } from "../NeedsMe/NeedsMe.tsx";
-import { Reconnecting } from "../Reconnecting/Reconnecting.tsx";
-import { EditorGroup } from "../Shell/EditorGroup.tsx";
-import { Shell } from "../Shell/Shell.tsx";
-import { EmptyState } from "../../workbench/views/EmptyState/EmptyState.tsx";
 
-const EmptyGroup = () => <EmptyState title="No tab open" body="Open an agent from the list, or drag a tab here." />;
-
-/** The editor area split in two: the checkout agent's chat beside an empty group. */
-const SplitEditor = () => (
-  <>
-    <EditorGroup tabs={["a1", "a4"]} active="a1" wide>
-      <Chat />
-    </EditorGroup>
-    <EditorGroup tabs={[]}>
-      <EmptyGroup />
-    </EditorGroup>
-  </>
-);
-
-const ChatEditor = () => (
-  <EditorGroup tabs={["a1", "a4"]} active="a1">
-    <Chat />
-  </EditorGroup>
-);
-
+/** The S7 views on their own, until S7 builds them into the workbench. */
 const SCREENS: Record<string, () => ReactNode> = {
-  shell: () => <Shell sidebar={<AgentList selected="a1" />} editor={<SplitEditor />} />,
   agents: () => (
-    <Shell
-      sidebar={<AgentList />}
-      editor={
-        <EditorGroup tabs={[]}>
-          <EmptyState title="No agent open" body="Open an agent from the list to see its chat, or start a new one." />
-        </EditorGroup>
-      }
-    />
+    <div className="flex h-screen w-80 flex-col bg-surface-0">
+      <AgentList selected="a1" />
+    </div>
   ),
-  chat: () => <Shell sidebar={<AgentList selected="a1" />} editor={<ChatEditor />} />,
-  "needs-me": () => <Shell sidebar={<AgentList selected="a1" />} editor={<ChatEditor />} needsMe={<NeedsMe />} />,
-  reconnecting: () => (
-    <Shell sidebar={<AgentList selected="a1" />} editor={<SplitEditor />} connection="reconnecting" blocker={<Reconnecting />} />
+  chat: () => (
+    <div className="flex h-screen bg-surface-1">
+      <Chat />
+    </div>
   ),
-  "empty-files": () => <Shell activity="files" sidebar={<EmptyFiles />} editor={<SplitEditor />} />,
+  "needs-me": () => (
+    <div className="flex h-screen w-80 flex-col bg-surface-0">
+      <NeedsMe />
+    </div>
+  ),
 };
 
 const subscribeToHash = (onChange: () => void) => {

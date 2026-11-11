@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { AGENT_STATE_ORDER, AGENT_STATES } from "@/lib/agent-state";
 import { cn } from "@/lib/utils";
 import { AGENTS, type DesignAgent, WORKSPACE } from "../fixtures.ts";
-import { SidebarHeader } from "../SidebarHeader/SidebarHeader.tsx";
+import { SidebarHeader } from "../../workbench/SidebarHeader/SidebarHeader.tsx";
 
 const AgentRow = ({ agent, selected }: { agent: DesignAgent; selected: boolean }) => {
   const state = AGENT_STATES[agent.state];

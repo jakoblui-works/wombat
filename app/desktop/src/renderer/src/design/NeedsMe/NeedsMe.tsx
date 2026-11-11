@@ -4,7 +4,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { AGENT_STATES } from "@/lib/agent-state";
 import { cn } from "@/lib/utils";
 import { agentById, type DesignRequest, REQUESTS } from "../fixtures.ts";
-import { SidebarHeader } from "../SidebarHeader/SidebarHeader.tsx";
+import { SidebarHeader } from "../../workbench/SidebarHeader/SidebarHeader.tsx";
 
 const KIND_ICONS = { edit: Pencil, execute: Terminal } as const;
 

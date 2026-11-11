@@ -13,8 +13,9 @@
   --surface-1: oklch(0.178 0.005 275);
   --surface-2: oklch(0.208 0.006 275);
   --surface-3: oklch(0.248 0.007 275);
-  /* What dims the views behind a blocking state (reconnecting). */
-  --scrim: oklch(from var(--surface-0) l c h / 72%);
+  /* How much of a view shows through while a blocking state dims it (reconnecting); the scrim is its complement. */
+  --dim-opacity: 0.28;
+  --scrim: oklch(from var(--surface-0) l c h / calc(1 - var(--dim-opacity)));
 
   /* Lines: dividers inside a surface, the borders between regions, and the borders of controls. */
   --line-subtle: oklch(1 0 0 / 6%);
@@ -87,6 +88,9 @@
   --duration-fast: 100ms;
   --duration-base: 160ms;
   --duration-slow: 240ms;
+  /* The connection's waiting marks: a pulse and a spin, each a full cycle. */
+  --duration-pulse: 1600ms;
+  --duration-spin: 1000ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -102,6 +106,26 @@
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+
+@keyframes wombat-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes wombat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@utility dimmed {
+  opacity: var(--dim-opacity);
+}
+@utility motion-pulse {
+  animation: wombat-pulse var(--duration-pulse) var(--ease-standard) infinite;
+}
+@utility motion-spin {
+  animation: wombat-spin var(--duration-spin) linear infinite;
 }
 
 /* The tokens as Tailwind utilities. Tailwind's own palette is cleared, so only these colours exist as classes. */

@@ -1,12 +1,13 @@
 // Importing this module registers the activities and their views, in the activity bar's order (Agents first).
-import { Bot, Files, FolderCog, GitBranch, LayoutDashboard, List, MessageSquare, type LucideIcon } from "lucide-react";
+import { Bot, Files, Inbox, FolderCog, GitBranch, LayoutDashboard, List, MessageSquare, type LucideIcon } from "lucide-react";
 import { createElement } from "react";
 
 import { type ActivityDescriptor, registerActivity, registerView } from "./registry.ts";
 import { AgentsList } from "./views/AgentsList/AgentsList.tsx";
 import { Chat } from "./views/Chat/Chat.tsx";
 import { ChatParams, chatResolves, chatTitle } from "./views/Chat/chat-params.ts";
-import { EmptyState } from "./views/EmptyState/EmptyState.tsx";
+import { NeedsMe } from "./views/NeedsMe/NeedsMe.tsx";
+import { EmptyActivity } from "./views/EmptyActivity/EmptyActivity.tsx";
 
 export const AGENTS_ACTIVITY = "agents";
 
@@ -14,7 +15,7 @@ export const AGENTS_ACTIVITY = "agents";
 const unbuilt = (id: string, title: string, icon: LucideIcon, emptyState: NonNullable<ActivityDescriptor["emptyState"]>): void => {
   const sidebarView = `${id}-empty`;
   registerActivity({ id, title, icon, sidebarView, emptyState });
-  registerView({ id: sidebarView, title, icon, locations: ["left"], activity: id, component: () => createElement(EmptyState, emptyState) });
+  registerView({ id: sidebarView, title, icon, locations: ["left"], activity: id, component: () => createElement(EmptyActivity, { ...emptyState, heading: title }) });
 };
 
 const register = (): void => {
@@ -30,6 +31,8 @@ const register = (): void => {
     paramsSchema: ChatParams,
     resolves: chatResolves,
   });
+
+  registerView({ id: "needs-me", title: "Needs me", icon: Inbox, locations: ["right"], component: NeedsMe });
 
   unbuilt("files", "Files", Files, { title: "Files arrive in step 9", body: "Browse and edit the workspace's files here." });
   unbuilt("source-control", "Source control", GitBranch, { title: "Source control arrives in step 10", body: "Review changes, commit and switch branches here." });

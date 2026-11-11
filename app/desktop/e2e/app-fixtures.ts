@@ -21,6 +21,7 @@ import path from "node:path";
 import { _electron as electron, test as base, expect, type ElectronApplication, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "@wombat/shared";
 import { fakeSystemd, type Call, type FakeSystemd, type FakeSystemdOptions } from "../../service/test/fake-systemd.ts";
+import { CHANNELS } from "../src/shared/bridge.ts";
 import { RECORDED_NOTIFICATIONS, SWITCH } from "./switch-names.ts";
 
 export { RECORDED_NOTIFICATIONS, SWITCH };
@@ -560,3 +561,42 @@ export const startWaitingAgent = async (sandbox: Sandbox, prompt: string): Promi
   await until(`agent ${agentId} to be waiting`, WAIT_MS, async () => ((await agentSummary(sandbox, agentId))?.state === "waiting" ? true : undefined));
   return agentId;
 };
+
+/** One editor group as the page shows it: its tabs' text and the active tab's. */
+export type GroupView = { tabs: string[]; active: string | undefined };
+
+/** Asks the page to open an agent's chat, as main does for a notification click. */
+export const sendOpenAgent = (app: ElectronApplication, agentId: string): Promise<void> =>
+  app.evaluate(
+    ({ BrowserWindow }, [channel, id]) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.send(channel, id);
+    },
+    [CHANNELS.openAgent, agentId] as const,
+  );
+
+// 0 while the page is still loading (its context may be replaced under the count).
+export const tabCount = (page: Page): Promise<number> => page.locator(".dv-tab").count().catch(() => 0);
+
+/** Opens the agent's chat once, as one notification click would, and waits for its tab (the `tabsAfter`th). */
+export const openAgent = async (launched: LaunchedApp, agentId: string, tabsAfter: number): Promise<void> => {
+  await sendOpenAgent(launched.app, agentId);
+  await until(`the chat tab of ${agentId}`, WAIT_MS, async () => ((await tabCount(launched.page)) >= tabsAfter ? true : undefined));
+};
+
+/** The editor's groups, left to right then top to bottom, each with its tabs' text and the active tab's. */
+export const layoutOf = (page: Page): Promise<GroupView[]> =>
+  page.evaluate(() =>
+    [...document.querySelectorAll<HTMLElement>(".dv-groupview")]
+      .map((group) => {
+        const box = group.getBoundingClientRect();
+        const tabs = [...group.querySelectorAll<HTMLElement>(".dv-tab")];
+        return {
+          x: box.x,
+          y: box.y,
+          tabs: tabs.map((tab) => (tab.textContent ?? "").trim()),
+          active: group.querySelector<HTMLElement>(".dv-tab.dv-active-tab")?.textContent?.trim(),
+        };
+      })
+      .sort((a, b) => a.x - b.x || a.y - b.y)
+      .map(({ tabs, active }) => ({ tabs, active })),
+  );

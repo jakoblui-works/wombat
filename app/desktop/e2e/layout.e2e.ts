@@ -1,47 +1,8 @@
 // T9: the saved layout, against the built app. Every launch runs in its own sandbox (app-fixtures.ts): temp profile,
 // runtime and state dirs, fake systemd, fake agents. Tabs open the way a notification click opens them (main sends
 // CHANNELS.openAgent, once); the split is a tab dragged to the right edge of its group, as the user would make it.
-import type { ElectronApplication, Page } from "@playwright/test";
-import { CHANNELS } from "../src/shared/bridge.ts";
-import { agentSummary, expect, type LaunchedApp, type Sandbox, startAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
-
-type GroupView = { tabs: string[]; active: string | undefined };
-
-/** Asks the page to open an agent's chat, as main does for a notification click. */
-const sendOpenAgent = (app: ElectronApplication, agentId: string): Promise<void> =>
-  app.evaluate(
-    ({ BrowserWindow }, [channel, id]) => {
-      BrowserWindow.getAllWindows()[0]?.webContents.send(channel, id);
-    },
-    [CHANNELS.openAgent, agentId] as const,
-  );
-
-// 0 while the page is still loading (its context may be replaced under the count).
-const tabCount = (page: Page): Promise<number> => page.locator(".dv-tab").count().catch(() => 0);
-
-/** Opens the agent's chat once, as one notification click would, and waits for its tab (the `tabsAfter`th). */
-const openAgent = async (launched: LaunchedApp, agentId: string, tabsAfter: number): Promise<void> => {
-  await sendOpenAgent(launched.app, agentId);
-  await waitUntil(`the chat tab of ${agentId}`, WAIT_MS, async () => ((await tabCount(launched.page)) >= tabsAfter ? true : undefined));
-};
-
-/** The editor's groups, left to right then top to bottom, each with its tabs' text and the active tab's. */
-const layoutOf = (page: Page): Promise<GroupView[]> =>
-  page.evaluate(() =>
-    [...document.querySelectorAll<HTMLElement>(".dv-groupview")]
-      .map((group) => {
-        const box = group.getBoundingClientRect();
-        const tabs = [...group.querySelectorAll<HTMLElement>(".dv-tab")];
-        return {
-          x: box.x,
-          y: box.y,
-          tabs: tabs.map((tab) => (tab.textContent ?? "").trim()),
-          active: group.querySelector<HTMLElement>(".dv-tab.dv-active-tab")?.textContent?.trim(),
-        };
-      })
-      .sort((a, b) => a.x - b.x || a.y - b.y)
-      .map(({ tabs, active }) => ({ tabs, active })),
-  );
+import type { Page } from "@playwright/test";
+import { agentSummary, expect, type GroupView, layoutOf, openAgent, type Sandbox, sendOpenAgent, startAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 
 /** Every leaf (group) in a saved dockview grid, read loosely: the test checks the app's file, not its types. */
 const savedGroups = (layout: unknown): unknown[] => {

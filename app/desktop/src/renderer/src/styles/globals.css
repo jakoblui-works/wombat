@@ -3,6 +3,8 @@
 @import "./tokens.css";
 /* The editor area's panes and tabs (dockview); imported here only. */
 @import "dockview-react/dist/styles/dockview.css";
+/* Wombat's dockview theme, from the tokens. */
+@import "./dockview-theme.css";
 
 /* Proof pages are gitignored, which Tailwind's source detection skips. */
 @source "../**/*.proof.tsx";

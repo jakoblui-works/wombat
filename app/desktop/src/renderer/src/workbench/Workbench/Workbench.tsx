@@ -1,19 +1,25 @@
 import { type QueryState, useQueryClient } from "@tanstack/react-query";
 import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewPanelProps } from "dockview-react";
-import { PanelRight } from "lucide-react";
-import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { createContext, useContext, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 
 import type { ListAgentsResponse } from "@wombat/shared/api";
 import type { ConnectionState } from "../../../../shared/bridge.ts";
+import { isSettled, NO_RESTART, restartAttempt, showsBanner } from "@/lib/connection-state";
+import { cn } from "@/lib/utils";
 import { useAgents, useConnection } from "../../data/hooks.ts";
 import { keys } from "../../data/keys.ts";
 import { AGENTS_ACTIVITY } from "../activities.ts";
 import { defaultLayout, restoreLayout, type SavedLayout } from "../layout.ts";
 import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
-import { activities, activityOrDefault, getView, isKnown, viewsFor } from "../registry.ts";
+import { activities, activityOrDefault, getView, isKnown, viewsFor, viewTitle } from "../registry.ts";
+import { ActivityBar } from "../ActivityBar/ActivityBar.tsx";
+import { ConnectionBanner } from "../ConnectionBanner/ConnectionBanner.tsx";
+import { ConnectionIndicator } from "../ConnectionIndicator/ConnectionIndicator.tsx";
+import { EmptyGroup } from "../EmptyGroup/EmptyGroup.tsx";
 import { ResizeHandle } from "../ResizeHandle/ResizeHandle.tsx";
 import { pruneTabs, type Reveals, retitleTabs, revealStore, TAB_COMPONENT, type TabParams, workbenchActions } from "../tabs.ts";
+import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
 
 type Chrome = Pick<SavedLayout, "sidebars" | "activity">;
@@ -43,7 +49,7 @@ type SavedRead = { raw: unknown; readable: boolean };
  */
 const agentsAnswered = (state: QueryState<ListAgentsResponse> | undefined, connection: ConnectionState["state"]): boolean =>
   state?.status === "success" ||
-  (state?.status === "error" && state.fetchStatus === "idle" && (connection === "connected" || connection === "failed" || connection === "incompatible"));
+  (state?.status === "error" && state.fetchStatus === "idle" && (connection === "connected" || isSettled(connection)));
 
 /**
  * The window: activity bar, left sidebar (the activity's view), the editor's tabs (dockview) and the right sidebar.
@@ -53,7 +59,7 @@ const agentsAnswered = (state: QueryState<ListAgentsResponse> | undefined, conne
 export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const queryClient = useQueryClient();
   const agents = useAgents();
-  const connection = useConnection().state;
+  const { state: connection, message: connectionMessage } = useConnection();
   const [api, setApi] = useState<DockviewApi>();
   const [saved, setSaved] = useState<SavedRead>();
   const [chrome, setChrome] = useState<Chrome>(() => {
@@ -171,56 +177,84 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const activity = activityOrDefault(chrome.activity);
   const Sidebar = activity === undefined ? undefined : getView(activity.sidebarView)?.component;
   const rightViews = viewsFor("right");
+  const rightView = rightViews[0] === undefined ? undefined : { title: viewTitle(rightViews[0], {}, { agents: undefined }), icon: rightViews[0].icon };
   const resize = (side: "left" | "right", dx: number) =>
     changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, [side]: clampWidth(current.sidebars[side] + dx) } }));
+
+  // Whether the service was ever connected: the first `connecting` is the app starting, not a loss.
+  const [connectedBefore, setConnectedBefore] = useState(false);
+  if (connection === "connected" && !connectedBefore) setConnectedBefore(true);
+  const blocked = showsBanner(connection, connectedBefore);
+
+  // Kept here, not in the banner, which unmounts when the state moves (a first connecting) while a restart runs.
+  const [attempt, dispatchAttempt] = useReducer(restartAttempt, NO_RESTART);
+  useEffect(() => dispatchAttempt({ type: "connection", state: connection }), [connection]);
+  const restart = () => {
+    dispatchAttempt({ type: "start" });
+    window.wombat.service.restart().then(
+      () => dispatchAttempt({ type: "settled" }),
+      (failure: unknown) =>
+        dispatchAttempt({
+          type: "rejected",
+          error: `Couldn't restart the service${failure instanceof Error ? `: ${failure.message}` : ""}. Try Restart again.`,
+        }),
+    );
+  };
 
   return (
     <WorkbenchContext value={actions}>
       <RevealsContext value={reveals}>
-        <div className="flex h-screen w-screen overflow-hidden">
-          <nav aria-label="Activities" className="flex shrink-0 flex-col">
-            {activities().map(({ id, title, icon: Icon }) => (
-              <button
-                key={id}
-                type="button"
-                title={title}
-                aria-label={title}
-                aria-pressed={id === activity?.id}
-                onClick={() => changeChrome((current) => ({ ...current, activity: id }))}
-              >
-                <Icon />
-              </button>
-            ))}
-            <button
-              type="button"
-              title="Right sidebar"
-              aria-label="Right sidebar"
-              aria-pressed={!chrome.sidebars.rightCollapsed}
-              onClick={() => changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } }))}
+        <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
+          <TitleBar
+            right={rightView}
+            rightOpen={!chrome.sidebars.rightCollapsed}
+            onToggleRight={() =>
+              changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } }))
+            }
+          />
+          {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
+          <div className="flex min-h-0 flex-1">
+            <ActivityBar
+              activities={activities()}
+              active={activity?.id}
+              blocked={blocked}
+              onSelect={(id) => changeChrome((current) => ({ ...current, activity: id }))}
             >
-              <PanelRight />
-            </button>
-            <span className="mt-auto">
-              API <span data-testid="api-version">{window.wombat.apiVersion}</span>
-            </span>
-          </nav>
-          <aside aria-label={activity?.title} className="shrink-0 overflow-auto" style={{ width: chrome.sidebars.left }}>
-            {Sidebar && <Sidebar params={{}} />}
-          </aside>
-          <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
-          <div className="min-w-0 flex-1">
-            <DockviewReact className="dockview-theme-dark" components={COMPONENTS} onReady={(event: DockviewReadyEvent) => setApi(event.api)} />
-          </div>
-          {!chrome.sidebars.rightCollapsed && (
-            <>
-              <ResizeHandle label="Resize the right sidebar" onDrag={(dx) => resize("right", -dx)} />
-              <aside aria-label="Right sidebar" className="shrink-0 overflow-auto" style={{ width: chrome.sidebars.right }}>
-                {rightViews.map(({ id, component: View }) => (
-                  <View key={id} params={{}} />
-                ))}
+              <ConnectionIndicator connection={connection} />
+            </ActivityBar>
+            {/* Always here, so the views never remount: while blocked it is inert and the scrim over it shows. */}
+            <div inert={blocked} className="relative flex min-w-0 flex-1">
+              <aside aria-label={activity?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.left }}>
+                {Sidebar && <Sidebar params={{}} />}
               </aside>
-            </>
-          )}
+              <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
+              <main className="min-w-0 flex-1">
+                <DockviewReact
+                  className="dockview-theme-wombat"
+                  components={COMPONENTS}
+                  watermarkComponent={EmptyGroup}
+                  onReady={(event: DockviewReadyEvent) => setApi(event.api)}
+                />
+              </main>
+              {!chrome.sidebars.rightCollapsed && (
+                <>
+                  <ResizeHandle label="Resize the right sidebar" onDrag={(dx) => resize("right", -dx)} />
+                  <aside aria-label={rightView?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.right }}>
+                    {rightViews.map(({ id, component: View }) => (
+                      <View key={id} params={{}} />
+                    ))}
+                  </aside>
+                </>
+              )}
+              <div
+                aria-hidden
+                className={cn("pointer-events-none absolute inset-0 z-20 bg-scrim transition-opacity", blocked ? "opacity-100" : "opacity-0")}
+              />
+            </div>
+          </div>
+          <span className="sr-only">
+            Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
+          </span>
         </div>
       </RevealsContext>
     </WorkbenchContext>
