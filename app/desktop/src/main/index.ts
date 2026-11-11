@@ -1,7 +1,8 @@
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { app, BrowserWindow, protocol, session, shell, type WebContents } from "electron";
 import { APP_INDEX_URL, APP_SCHEME, contentType, isAppOrigin, resolveAppFile } from "./app-protocol.ts";
+import { NONCE_PLACEHOLDER, newNonce, pageCsp, withNonce } from "./page-csp.ts";
 
 // The app's trust boundary (design doc, "App trust boundary"): a sandboxed renderer with no
 // Node, no permissions, no new windows, and no navigation away from the app's own page.
@@ -49,11 +50,33 @@ const lockDown = (contents: WebContents): void => {
   });
 };
 
+const indexFile = path.join(rendererRoot, "index.html");
+
+// The page itself: a fresh nonce per response, in the CSP header and the csp-nonce meta.
+const servePage = async (file: string): Promise<Response> => {
+  const html = await readFile(file, "utf8");
+  if (!html.includes(NONCE_PLACEHOLDER)) {
+    return new Response(
+      `index.html has no ${NONCE_PLACEHOLDER} placeholder for the page's CSP nonce; restore the csp-nonce meta in src/renderer/index.html and rebuild.`,
+      { status: 500 },
+    );
+  }
+  const nonce = newNonce();
+  return new Response(withNonce(html, nonce), {
+    headers: {
+      "content-type": contentType(file),
+      "x-content-type-options": "nosniff",
+      "content-security-policy": pageCsp(nonce),
+    },
+  });
+};
+
 // Serves only regular files under out/renderer; everything else is a 404.
 const serveRenderer = async (request: Request): Promise<Response> => {
   if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
   const file = await resolveAppFile(rendererRoot, request.url);
   if (file === null) return new Response("Not found", { status: 404 });
+  if (file === (await realpath(indexFile))) return servePage(file);
   return new Response(await readFile(file), {
     headers: { "content-type": contentType(file), "x-content-type-options": "nosniff" },
   });
