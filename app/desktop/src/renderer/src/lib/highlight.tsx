@@ -13,15 +13,24 @@ const THEME = "github-dark-default";
 
 export type CodeLang = keyof typeof LANGS;
 
+/** Shiki's built-in plain text: no grammar, no colours beyond the theme's foreground. */
+const PLAIN = "text";
+
 const highlighter = createHighlighterCoreSync({
   themes: [githubDarkDefault],
   langs: Object.values(LANGS),
   engine: createJavaScriptRegexEngine(),
 });
 
+const loaded = new Set(highlighter.getLoadedLanguages());
+
+/** The language to highlight `lang` as: a bundled language or one of its aliases ("ts"), else plain text. */
+const knownLang = (lang: string | undefined): string => (lang !== undefined && loaded.has(lang.toLowerCase()) ? lang.toLowerCase() : PLAIN);
+
 // Code as React elements: token colours become style props (set through CSSOM), never a
 // style="" string or raw HTML, since the code shown may be agent content.
 // (The cast: hast-util-to-jsx-runtime types its result as the global `JSX.Element`, which React
 // 19's types no longer declare.)
-export const Code = ({ code, lang }: { code: string; lang: CodeLang }): JSX.Element =>
-  toJsxRuntime(highlighter.codeToHast(code, { lang, theme: THEME }), { Fragment, jsx, jsxs }) as JSX.Element;
+// A language that isn't bundled (or none) shows as plain text.
+export const Code = ({ code, lang }: { code: string; lang?: string | undefined }): JSX.Element =>
+  toJsxRuntime(highlighter.codeToHast(code, { lang: knownLang(lang), theme: THEME }), { Fragment, jsx, jsxs }) as JSX.Element;

@@ -1,14 +1,14 @@
 import type { AgentSummary } from "@wombat/shared/api";
 import { Ellipsis, GitBranch } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
-import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "../../../components/ui/alert-dialog";
-import { Button } from "../../../components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../../components/ui/dropdown-menu";
 import { AGENT_STATES } from "../../../lib/agent-state";
 import { ago } from "../../../lib/ago";
 import { cn } from "../../../lib/utils";
 import { agentTitle } from "../Chat/chat-params.ts";
+import { useActionError } from "../Chat/DeleteAgentDialog/action-error.ts";
+import { DeleteAgentDialog } from "../Chat/DeleteAgentDialog/DeleteAgentDialog.tsx";
 import { canStop, useAgentActions } from "./agent-actions.ts";
 
 type Props = {
@@ -26,15 +26,7 @@ export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props)
   const title = agentTitle(agent.id, agent);
   const actions = useAgentActions(agent.id);
   const [confirming, setConfirming] = useState(false);
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  const [deleteError, setDeleteError] = useState<string>();
-
-  const confirmDelete = () => {
-    actions.remove().then(
-      () => setConfirming(false),
-      (error: unknown) => setDeleteError(error instanceof Error ? error.message : String(error)),
-    );
-  };
+  const error = useActionError(actions.error, agent.state, confirming);
 
   return (
     <div className="group/row relative">
@@ -74,41 +66,18 @@ export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props)
           {canStop(agent.state) ? <DropdownMenuItem onClick={actions.stop}>Stop</DropdownMenuItem> : null}
           <DropdownMenuItem
             variant="destructive"
-            onClick={() => {
-              setDeleteError(undefined);
-              setConfirming(true);
-            }}
+            onClick={() => setConfirming(true)}
           >
             Delete
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {actions.error === undefined || confirming ? null : (
+      {error === undefined ? null : (
         <p role="alert" className="px-2.5 pt-0.5 pl-8 text-xs text-danger">
-          {actions.error.message}
+          {error.message}
         </p>
       )}
-      <AlertDialog open={confirming} onOpenChange={setConfirming}>
-        <AlertDialogContent initialFocus={cancelRef}>
-          <AlertDialogTitle>Delete {title}?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This stops the agent if it's running and removes it and its history. This can't be undone.
-          </AlertDialogDescription>
-          {deleteError === undefined ? null : (
-            <p role="alert" className="text-sm text-danger">
-              {deleteError}
-            </p>
-          )}
-          <AlertDialogFooter>
-            <Button ref={cancelRef} type="button" variant="ghost" onClick={() => setConfirming(false)}>
-              Cancel
-            </Button>
-            <Button type="button" variant="destructive" disabled={actions.pending} onClick={confirmDelete}>
-              Delete
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteAgentDialog title={title} open={confirming} onOpenChange={setConfirming} actions={actions} />
     </div>
   );
 };
