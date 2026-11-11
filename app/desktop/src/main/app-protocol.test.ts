@@ -4,7 +4,7 @@ import path from "node:path";
 import { APP_ORIGIN } from "@wombat/shared";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
-import { contentType, isAppOrigin, resolveAppFile } from "./app-protocol.ts";
+import { contentType, isAppOrigin, isBridgeSender, resolveAppFile } from "./app-protocol.ts";
 
 // A built renderer at <tmp>/out/renderer, with a file outside it that traversal would reach.
 let base: string;
@@ -90,4 +90,16 @@ test.each([
   "not a url",
 ])("isAppOrigin rejects lookalike or foreign URL %s", (url) => {
   expect(isAppOrigin(url)).toBe(false);
+});
+
+test("only the app's own page may call the bridge; the dev server's origin only in a dev build", () => {
+  const devUrl = "http://localhost:5173/";
+  expect(isBridgeSender(`${APP_ORIGIN}/index.html`, undefined)).toBe(true);
+  expect(isBridgeSender(null, undefined), "a call whose frame is gone").toBe(false);
+  expect(isBridgeSender(undefined, undefined)).toBe(false);
+  expect(isBridgeSender("https://example.com/", undefined)).toBe(false);
+  expect(isBridgeSender("app://wombat.evil/index.html", undefined)).toBe(false);
+  expect(isBridgeSender("http://localhost:5173/index.html", undefined), "the dev server in a built app").toBe(false);
+  expect(isBridgeSender("http://localhost:5173/index.html", devUrl)).toBe(true);
+  expect(isBridgeSender(`${APP_ORIGIN}/index.html`, devUrl), "app:// in a dev build, which loads from the dev server").toBe(false);
 });

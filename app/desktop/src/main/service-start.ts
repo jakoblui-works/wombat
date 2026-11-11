@@ -18,7 +18,23 @@ const SHUTDOWN_TIMEOUT_MS = 120_000;
 const EXIT_TIMEOUT_MS = 30_000;
 
 /** A start or stop that failed; the message says what to do and names the service's log. */
-export class ServiceStartFailed extends Error {}
+export class ServiceStartFailed extends Error {
+  /** Paths in the message that lie outside the workspace, which the page never sees (see pageMessage). */
+  readonly privatePaths: readonly string[];
+
+  constructor(message: string, privatePaths: readonly (string | undefined)[] = []) {
+    super(message);
+    this.privatePaths = privatePaths.filter((at) => at !== undefined);
+  }
+}
+
+/** A start failure's message for the page: its private paths cut to their last part, and nothing of other errors. */
+export const pageMessage = (error: unknown): string => {
+  if (!(error instanceof ServiceStartFailed)) {
+    return "Wombat couldn't start the service. Restart to try again; if it fails again, start Wombat from a terminal to see why.";
+  }
+  return error.privatePaths.reduce((message, at) => message.replaceAll(at, `…/${path.basename(at)}`), error.message);
+};
 
 /** The service's log, in Wombat's state folder; throws when there's no state folder. */
 export const serviceLogPath = (env: NodeJS.ProcessEnv): string => path.join(stateDir(env), "service.log");
@@ -75,6 +91,7 @@ export const startService = async ({
   if (!existsSync(entry)) {
     throw new ServiceStartFailed(
       `The service's entry ${entry} is missing. Rebuild the app (\`pnpm --filter @wombat/desktop build\` in app/) and start it again.`,
+      [entry],
     );
   }
   const logPath = serviceLogPath(env);
@@ -96,6 +113,7 @@ export const startService = async ({
       if (code === 0) return;
       failure ??= new ServiceStartFailed(
         `The service stopped while starting (${signal ?? `exit code ${String(code)}`}). Its log ${logPath} says why; fix that and start Wombat again.`,
+        [logPath],
       );
     });
     child.unref();
@@ -111,12 +129,14 @@ export const startService = async ({
       throw new ServiceStartFailed(
         `A service for another workspace (${found.workspace ?? "one it doesn't name"}) started while Wombat was starting one for ${workspace}. ` +
           `Switch to ${workspace} again to restart the service for it.`,
+        [found.workspace],
       );
     }
     if (found !== undefined) return found;
     if (Date.now() > deadline) {
       throw new ServiceStartFailed(
         `The service didn't start within ${String(Math.round(timeoutMs / 1000))} s. Its log ${logPath} says why; fix that and start Wombat again.`,
+        [logPath],
       );
     }
     await delay(POLL_MS);

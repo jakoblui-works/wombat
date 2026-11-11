@@ -21,6 +21,16 @@ export const isAppOrigin = (url: string): boolean => {
   );
 };
 
+/** The app's own pages: APP_ORIGIN, or in development (`devUrl` set) the dev server's origin instead. */
+export const isAppUrl = (url: string, devUrl: string | undefined): boolean => {
+  if (devUrl !== undefined) return URL.parse(url)?.origin === new URL(devUrl).origin;
+  return isAppOrigin(url);
+};
+
+/** Whether a bridge call's sending frame is the app's own page; a call without a frame (it's gone) isn't. */
+export const isBridgeSender = (frameUrl: string | null | undefined, devUrl: string | undefined): boolean =>
+  typeof frameUrl === "string" && isAppUrl(frameUrl, devUrl);
+
 const isInside = (root: string, target: string): boolean => target.startsWith(root + path.sep);
 
 // The file under `root` that an app:// URL names, or null for anything else: another host,

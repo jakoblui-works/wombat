@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, onTestFinished, test } from "vitest";
 
-import { loadSettings, saveSettings, settingsPath, type Settings } from "./settings.ts";
+import { loadSettings, rendererSettings, saveSettings, settingsPath, withRendererPatch, type Settings } from "./settings.ts";
 
 const tempUserData = (): string => {
   const base = mkdtempSync(path.join(tmpdir(), "wombat-settings-"));
@@ -53,4 +53,23 @@ test("a settings file from a newer version is kept aside as settings.json.bad, n
   expect(loadSettings(file, () => undefined)).toEqual(DEFAULTS);
   expect(readFileSync(`${file}.bad`, "utf8")).toBe(newer);
   expect(existsSync(file)).toBe(false);
+});
+
+test("the page sees and sets only askOnQuit, lastAgentFolder and the current workspace's layout", () => {
+  const settings: Settings = {
+    ...DEFAULTS,
+    workspace: "/home/dev/bakery",
+    workspaces: { "/home/dev/bakery": { itemsRoot: "/home/dev/bakery/docs", layout: { panes: 2 } }, "/home/dev/other": { layout: { panes: 5 } } },
+  };
+  expect(rendererSettings(settings)).toEqual({ askOnQuit: true, layout: { panes: 2 } });
+
+  const next = withRendererPatch(settings, { askOnQuit: false, layout: { panes: 3 } });
+  expect(next.askOnQuit).toBe(false);
+  expect(next.workspaces).toEqual({
+    "/home/dev/bakery": { itemsRoot: "/home/dev/bakery/docs", layout: { panes: 3 } },
+    "/home/dev/other": { layout: { panes: 5 } },
+  });
+  expect(() => withRendererPatch(settings, { workspace: "/home/dev/other" })).toThrow(/askOnQuit, lastAgentFolder and layout/);
+  // A layout that couldn't be written as JSON is refused, so it can't block later saves.
+  expect(() => withRendererPatch(settings, { layout: { panes: 10n } })).toThrow(/settings change isn't valid/);
 });

@@ -27,6 +27,7 @@ import {
   type VersionResponse,
 } from "@wombat/shared/api";
 import { Proposal as ProposalSchema, type Proposal } from "@wombat/shared/items";
+import { MAX_BODY_BYTES } from "@wombat/shared/routes";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { z } from "zod";
@@ -70,7 +71,6 @@ export type ServerOptions = {
   onShutdownStart?: () => void;
 };
 
-const MAX_BODY_BYTES = 1024 * 1024;
 /** Shorter tokens are guessable by a local process that can try requests in a loop. */
 const MIN_TOKEN_LENGTH = 16;
 /** How long close() lets ended responses flush before it drops the connections left. */
@@ -154,7 +154,7 @@ export const startServer = async ({
     bodyLimit({
       maxSize: MAX_BODY_BYTES,
       onError: (c) =>
-        errorResponse(c, SERVER_STATUS.payload_too_large, ServerErrorCode.enum.payload_too_large, "The request body is over 1 MiB. Send a shorter message."),
+        errorResponse(c, SERVER_STATUS.payload_too_large, ServerErrorCode.enum.payload_too_large, `The request body is over ${String(MAX_BODY_BYTES / 1024 / 1024)} MiB. Send a shorter message.`),
     }),
   );
 

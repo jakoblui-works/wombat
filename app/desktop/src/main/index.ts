@@ -1,11 +1,14 @@
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
-import { app, BrowserWindow, dialog, protocol, session, shell, type WebContents } from "electron";
-import { APP_INDEX_URL, APP_SCHEME, contentType, isAppOrigin, resolveAppFile } from "./app-protocol.ts";
+import { discoveryPath } from "@wombat/shared/discovery";
+import { app, BrowserWindow, dialog, ipcMain, protocol, session, shell, type WebContents } from "electron";
+import { CHANNELS } from "../shared/bridge.ts";
+import { APP_INDEX_URL, APP_SCHEME, contentType, isAppUrl, isBridgeSender, resolveAppFile } from "./app-protocol.ts";
 import { readE2eSwitches } from "./e2e-switches.ts";
 import { NONCE_PLACEHOLDER, newNonce, pageCsp, withNonce } from "./page-csp.ts";
-import { settingsPath } from "./settings.ts";
-import { workspaceControl } from "./workspace.ts";
+import { serviceConnection } from "./service-connection.ts";
+import { rendererSettings, savePageSettings, settingsPath } from "./settings.ts";
+import { workspaceControl, workspaceRepos } from "./workspace.ts";
 
 // The app's trust boundary (design doc, "App trust boundary"): a sandboxed renderer with no
 // Node, no permissions, no new windows, and no navigation away from the app's own page.
@@ -27,12 +30,6 @@ app.setPath("userData", path.join(app.getPath("appData"), app.getName()));
 const devServerUrl = (): string | undefined =>
   import.meta.env.DEV ? process.env["ELECTRON_RENDERER_URL"] : undefined;
 
-// The app's own pages: APP_ORIGIN, or the dev server's origin in development.
-const isAppUrl = (url: string): boolean => {
-  const devUrl = devServerUrl();
-  if (devUrl !== undefined) return URL.parse(url)?.origin === new URL(devUrl).origin;
-  return isAppOrigin(url);
-};
 
 // https links go to the host's browser; nothing else leaves the app.
 const openExternally = (url: string): void => {
@@ -44,7 +41,7 @@ const openExternally = (url: string): void => {
 };
 
 const guardNavigation = (event: Electron.Event<{ url: string }>): void => {
-  if (isAppUrl(event.url)) return;
+  if (isAppUrl(event.url, devServerUrl())) return;
   event.preventDefault();
   openExternally(event.url);
 };
@@ -185,14 +182,58 @@ const workspace = workspaceControl({
   confirmRestart,
 });
 
+const broadcast = (channel: string, value: unknown): void => {
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, value);
+};
+
+// The page's way to the service: main holds the token, the page sees the states and alerts.
+const connection = serviceConnection({
+  discoveryFile: () => discoveryPath(process.env),
+  onState: (update) => {
+    broadcast(CHANNELS.connection, update);
+  },
+  onAlert: (alert) => {
+    broadcast(CHANNELS.alert, alert);
+  },
+});
+
+/** The bridge's calls; only the app's own page may make them. */
+const handleBridge = (channel: string, listener: (...args: unknown[]) => unknown): void => {
+  ipcMain.handle(channel, (event, ...args: unknown[]) => {
+    if (!isBridgeSender(event.senderFrame?.url, devServerUrl())) throw new Error("Only Wombat's own page may use its bridge.");
+    return listener(...args);
+  });
+};
+
+const currentWorkspace = (): string => {
+  const root = workspace.settings().workspace;
+  if (root === undefined) throw new Error("No workspace is open yet; choose one with Switch Workspace.");
+  return root;
+};
+
+handleBridge(CHANNELS.request, (method, pathname, body) => connection.request(method, pathname, body));
+handleBridge(CHANNELS.restart, () => connection.reconnect(() => workspace.restart()));
+handleBridge(CHANNELS.connectionNow, () => connection.current());
+handleBridge(CHANNELS.workspaceGet, async () => {
+  const root = currentWorkspace();
+  return { root, repos: await workspaceRepos(root) };
+});
+handleBridge(CHANNELS.workspaceSwitch, async () => {
+  const folder = await chooseFolder();
+  if (folder !== undefined) await connection.reconnect(() => workspace.switchWorkspace(folder));
+});
+handleBridge(CHANNELS.settingsGet, () => rendererSettings(workspace.settings()));
+handleBridge(CHANNELS.settingsSet, (patch) => {
+  savePageSettings(workspace.updateSettings, patch);
+});
+
 /** Picks the workspace and starts its service; false when the app should quit (cancelled, or it couldn't). */
 const openWorkspace = async (): Promise<boolean> => {
   try {
     const opened = await workspace.open();
     if (opened === undefined) return false;
-    opened.service.catch((error: unknown) => {
-      reportError("The Wombat service isn't running", error);
-    });
+    // A start that fails shows as the `failed` state, with Restart.
+    void connection.reconnect(() => opened.service);
     return true;
   } catch (error) {
     reportError("Wombat couldn't open the workspace", error);

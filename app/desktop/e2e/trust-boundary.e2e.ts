@@ -1,17 +1,9 @@
 // The app's trust boundary, checked against the built app (`out/main/index.js`, rebuilt by
-// `global-setup.ts` before every run). Each test launches its own app, display-less (see
-// `launch`), with `WOMBAT_E2E=1`, which the app uses to keep its window hidden.
-import { existsSync } from "node:fs";
-import path from "node:path";
-import {
-  _electron as electron,
-  expect,
-  test,
-  type ElectronApplication,
-  type Page,
-  type Response,
-} from "@playwright/test";
+// `global-setup.ts` before every run). Each test launches its own app in its own sandbox
+// (app-fixtures.ts: display-less, `WOMBAT_E2E=1`, temp dirs, fake systemd and fake agents).
+import type { ElectronApplication, Page, Response } from "@playwright/test";
 import { API_VERSION } from "@wombat/shared";
+import { bridgeRequest, expect, isAlive, REPO, test, waitForConnection, type Sandbox } from "./app-fixtures.ts";
 
 // Everything the preload may expose to the page. Adding a global, a name or a function widens
 // what a page (and anything that gets into it) can reach in the host: each is a deliberate,
@@ -19,9 +11,20 @@ import { API_VERSION } from "@wombat/shared";
 // The globals the preload adds to the page (beyond what a blank page of the same engine has).
 const ALLOWED_BRIDGE_GLOBALS = ["wombat"];
 // The names on `window.wombat`.
-const ALLOWED_BRIDGE_NAMES = ["apiVersion"];
+// (interface-S3, T6: the bridge's shape is `WombatBridge` in desktop/src/shared/bridge.ts.)
+const ALLOWED_BRIDGE_NAMES = ["apiVersion", "service", "workspace", "settings", "onOpenAgent"];
 // The paths under `window.wombat` whose values are functions (e.g. "service.connect").
-const ALLOWED_BRIDGE_FUNCTIONS: string[] = [];
+const ALLOWED_BRIDGE_FUNCTIONS: string[] = [
+  "service.request",
+  "service.onAlert",
+  "service.onConnection",
+  "service.restart",
+  "workspace.get",
+  "workspace.switch",
+  "settings.get",
+  "settings.set",
+  "onOpenAgent",
+];
 
 // An outside https URL. Requests to it are answered locally (see `stubOutside`),
 // so if the app let it load it would load, with or without a network.
@@ -44,40 +47,6 @@ const allowedSource = (directive: string, source: string): boolean =>
 // Directives that must be exactly 'none'.
 const NONE_DIRECTIVES = ["object-src", "base-uri", "form-action", "frame-ancestors"];
 
-const mainEntry = (): string => {
-  const configFile = test.info().config.configFile;
-  if (!configFile) throw new Error("Run these checks through `playwright test` with app/desktop/playwright.config.ts.");
-  const entry = path.join(path.dirname(configFile), "out", "main", "index.js");
-  if (!existsSync(entry)) {
-    throw new Error(`The built app is missing (${entry}). Build it first: \`pnpm exec electron-vite build\` in app/desktop.`);
-  }
-  return entry;
-};
-
-// Keep test runs off the desktop, whatever the app does (a broken window.open block would
-// otherwise show a real window). Linux only; none of this applies on macOS.
-// - Windows: Electron runs on Chromium's headless display platform, and the env names no X or
-//   Wayland display, so even without that flag it couldn't open a window.
-// - D-Bus: the session bus address is dead, so portal dialogs (file pickers), desktop
-//   notifications and shell.showItemInFolder can't reach the desktop. Unset, GDBus would fall
-//   back to $XDG_RUNTIME_DIR/bus, so it's set rather than removed.
-const HEADLESS_ARGS = ["--ozone-platform=headless"];
-const DISPLAY_ENV = ["DISPLAY", "WAYLAND_DISPLAY", "WAYLAND_SOCKET", "XAUTHORITY", "ELECTRON_OZONE_PLATFORM_HINT"];
-
-// The app's env, minus the display (above) and ELECTRON_RUN_AS_NODE: when the runner itself is
-// started from an Electron-based tool it inherits that variable, which would make Electron run as plain Node.
-const appEnv = (): Record<string, string> => {
-  const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && key !== "ELECTRON_RUN_AS_NODE" && !DISPLAY_ENV.includes(key)) env[key] = value;
-  }
-  // Unset, Wayland falls back to the socket `wayland-0`; point it at one that can't exist.
-  env["WAYLAND_DISPLAY"] = "/nonexistent/wombat-e2e-no-display";
-  env["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=/nonexistent/wombat-e2e-no-bus";
-  env["WOMBAT_E2E"] = "1";
-  return env;
-};
-
 // Handing an https URL to the host's browser is a legitimate way for the app to handle a link,
 // so the checks don't care whether it happens; but a test must never open the real browser.
 // App code must call `shell.openExternal(...)` at the moment of use, not a copy captured at load.
@@ -91,17 +60,12 @@ const recordOpenExternal = (app: ElectronApplication): Promise<void> =>
     };
   });
 
-const launch = async (): Promise<{ app: ElectronApplication; page: Page }> => {
-  const launched = await electron.launch({
-    args: [...HEADLESS_ARGS, mainEntry()],
-    env: appEnv(),
-    // Without this Playwright adds `--no-sandbox`; the checks must see the real sandbox.
-    chromiumSandbox: true,
-  });
-  await recordOpenExternal(launched);
-  const firstPage = await launched.firstWindow();
-  await firstPage.waitForLoadState("domcontentloaded");
-  return { app: launched, page: firstPage };
+// Every launch runs in a sandbox of its own (app-fixtures.ts): display-less, temp profile, runtime and state dirs,
+// fake systemd and fake agents, so a check never reaches the real service, settings or agents.
+const launch = async (sandbox: Sandbox): Promise<{ app: ElectronApplication; page: Page }> => {
+  const launched = await sandbox.launch();
+  await recordOpenExternal(launched.app);
+  return { app: launched.app, page: launched.page };
 };
 
 // Answer outside requests locally, so the outcome never depends on the network.
@@ -214,14 +178,11 @@ const opened = (): { app: ElectronApplication; page: Page } => {
   return { app, page };
 };
 
-test.beforeEach(async () => {
+// The sandbox's teardown stops the app, its service and agents.
+test.beforeEach(async ({ sandbox }) => {
   app = undefined;
   page = undefined;
-  ({ app, page } = await launch());
-});
-
-test.afterEach(async () => {
-  await app?.close();
+  ({ app, page } = await launch(sandbox));
 });
 
 test("the page shows the API version that @wombat/shared exports", async () => {
@@ -462,4 +423,135 @@ test("permission requests and checks from the renderer are denied", async () => 
     geolocationError: 1,
     queries: { notifications: "denied", geolocation: "denied", microphone: "denied", camera: "denied" },
   });
+});
+
+// T6 (D1): the token lives in main only. Searched everywhere the page can read: the globals the page adds, the bridge
+// itself, everything the bridge answers or sends (settings, workspace, service answers, a refusal's message,
+// connection states), storage, cookies and the document. The port and the discovery file's path count too: the
+// page never needs them.
+test("the page holds no token, service address or discovery path: not in its globals, the bridge, its storage or its document", async ({ sandbox }) => {
+  const { page } = opened();
+  await waitForConnection(page, "connected");
+  const file = await sandbox.waitForService();
+  // Something for the bridge to answer with: an agent with a log.
+  const started = await bridgeRequest(page, "POST", "/agents", { harness: "fake-reply", repo: REPO });
+  expect(started, "starting an agent through the bridge failed").toMatchObject({ ok: true, status: 201 });
+  const agentId = (started as { body: { id: string } }).body.id;
+
+  const seen = await page.evaluate(async (id) => {
+    const texts: string[] = [];
+    const visited = new WeakSet<object>();
+    const collect = (value: unknown, depth: number): void => {
+      if (typeof value === "string") texts.push(value);
+      else if (typeof value === "number" || typeof value === "bigint") texts.push(String(value));
+      if (value === null || (typeof value !== "object" && typeof value !== "function") || depth > 6) return;
+      if (visited.has(value) || value instanceof Node || value === window) return;
+      visited.add(value);
+      for (const key of Object.getOwnPropertyNames(value)) {
+        texts.push(key);
+        let inner: unknown;
+        try {
+          inner = (value as Record<string, unknown>)[key];
+        } catch {
+          continue;
+        }
+        collect(inner, depth + 1);
+      }
+    };
+    // The globals the page adds beyond a blank page of the same engine.
+    const frame = document.createElement("iframe");
+    document.body.append(frame);
+    const baseline = new Set(frame.contentWindow ? Object.getOwnPropertyNames(frame.contentWindow) : []);
+    frame.remove();
+    for (const name of Object.getOwnPropertyNames(window)) {
+      if (!baseline.has(name)) collect((window as unknown as Record<string, unknown>)[name], 0);
+    }
+    // Everything the bridge answers or sends.
+    type Bridge = {
+      settings: { get: () => Promise<unknown> };
+      workspace: { get: () => Promise<unknown> };
+      service: {
+        request: (method: string, path: string) => Promise<unknown>;
+        onConnection: (cb: (state: unknown) => void) => unknown;
+      };
+    };
+    const bridge = (window as unknown as { wombat: Bridge }).wombat;
+    const calls: (() => Promise<unknown>)[] = [
+      () => bridge.settings.get(),
+      () => bridge.workspace.get(),
+      () => bridge.service.request("GET", "/version"),
+      () => bridge.service.request("GET", "/agents"),
+      () => bridge.service.request("GET", "/harnesses"),
+      () => bridge.service.request("GET", `/agents/${id}/log`),
+      () => bridge.service.request("GET", "/no-such-route"),
+      () => bridge.service.request("POST", "/shutdown"),
+    ];
+    for (const call of calls) {
+      try {
+        collect(await call(), 0);
+      } catch (error) {
+        texts.push(String(error), error instanceof Error ? (error.stack ?? "") : "");
+      }
+    }
+    bridge.service.onConnection((state) => collect(state, 0));
+    // Storage, cookies, the document, and what the page loaded.
+    for (const storage of [localStorage, sessionStorage]) {
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i) ?? "";
+        texts.push(key, storage.getItem(key) ?? "");
+      }
+    }
+    texts.push(document.cookie, document.documentElement.outerHTML, location.href);
+    texts.push(...performance.getEntries().map((entry) => entry.name));
+    return texts;
+  }, agentId);
+
+  const secrets = {
+    token: file.token,
+    "service address (127.0.0.1)": `127.0.0.1:${String(file.port)}`,
+    "service address (localhost)": `localhost:${String(file.port)}`,
+    "discovery path": sandbox.discoveryPath,
+  };
+  for (const [what, secret] of Object.entries(secrets)) {
+    expect(seen.filter((text) => text.includes(secret)), `the page can read the ${what}`).toEqual([]);
+  }
+  expect(seen.length, "the search found nothing at all; it isn't looking").toBeGreaterThan(10);
+});
+
+// T6: request() is limited to APP_ROUTES (@wombat/shared/routes), checked in main before any network call. A refusal
+// rejects the call (it never comes back as a service answer). The /shutdown variants show that nothing reached the
+// service: one that did would end it.
+test("the bridge refuses, in main, every method and path outside the app's routes, and none reaches the service", async ({ sandbox }) => {
+  const { page } = opened();
+  await waitForConnection(page, "connected");
+  const file = await sandbox.waitForService();
+  const outside: [string, string][] = [
+    ["POST", "/shutdown"],
+    ["POST", "/shutdown?now=1"],
+    ["POST", "/agents/x/../../shutdown"],
+    ["POST", "/agents/%2e%2e/%2e%2e/shutdown"],
+    ["POST", `http://127.0.0.1:${String(file.port)}/shutdown`],
+    ["POST", `//127.0.0.1:${String(file.port)}/shutdown`],
+    ["POST", "/mcp"],
+    // Main reads the alert stream itself; the page gets alerts through onAlert.
+    ["GET", "/events"],
+    ["GET", "/no-such-route"],
+    ["PUT", "/agents"],
+    // A listed path with another method, a parameter spanning segments, a listed path with more after it.
+    ["GET", "/agents/x/stop"],
+    ["GET", "/agents/x/y/log"],
+    ["POST", "/agents/x/stop/more"],
+  ];
+  const answers: Record<string, unknown> = {};
+  for (const [method, pathname] of outside) {
+    const answer = await bridgeRequest(page, method, pathname);
+    if (answer.ok) answers[`${method} ${pathname}`] = answer;
+  }
+  expect(answers, "these went through instead of being refused in main").toEqual({});
+
+  expect(isAlive(file.pid), "a refused request reached the service and shut it down").toBe(true);
+  expect(sandbox.discovery()?.pid).toBe(file.pid);
+  expect((await sandbox.api("GET", "/version")).status).toBe(200);
+  // Control: a listed route goes through.
+  expect(await bridgeRequest(page, "GET", "/version")).toMatchObject({ ok: true, status: 200 });
 });

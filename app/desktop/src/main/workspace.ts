@@ -1,6 +1,9 @@
 // One workspace at a time: the settings name it, and the one service (per runtime dir) runs for it. The app starts
 // the service when none runs and leaves it running when it quits. Every start, switch and restart runs through one
 // queue, so two of them never race to start services for different workspaces.
+import { existsSync } from "node:fs";
+import { readdir } from "node:fs/promises";
+import path from "node:path";
 import { discoveryPath, findRunningService, type DiscoveryFile } from "@wombat/shared/discovery";
 import { ServiceStartFailed, startService, stopService } from "./service-start.ts";
 import { loadSettings, saveSettings, type Settings } from "./settings.ts";
@@ -31,6 +34,8 @@ export type WorkspaceControl = {
   /** Starts the service for the saved workspace again if none runs (after it stopped or crashed). */
   restart: () => Promise<DiscoveryFile>;
   settings: () => Settings;
+  /** Saves `change(current settings)`; the one way to change them while the control holds them. */
+  updateSettings: (change: (current: Settings) => Settings) => void;
 };
 
 export const workspaceControl = ({
@@ -42,10 +47,13 @@ export const workspaceControl = ({
   log = console.warn,
 }: WorkspaceDeps): WorkspaceControl => {
   let settings = loadSettings(settingsFile, log);
-  const save = (patch: Partial<Settings>) => {
-    settings = { ...settings, ...patch };
-    saveSettings(settingsFile, settings);
+  // Saved first: a save that fails leaves the settings in memory as they are in the file.
+  const updateSettings = (change: (current: Settings) => Settings) => {
+    const next = change(settings);
+    saveSettings(settingsFile, next);
+    settings = next;
   };
+  const save = (patch: Partial<Settings>) => updateSettings((current) => ({ ...current, ...patch }));
   const findRunning = () => findRunningService(discoveryPath(env));
   const startFor = (workspace: string) =>
     startService({ env, entry: serviceEntry, workspace, itemsRoot: settings.workspaces[workspace]?.itemsRoot });
@@ -66,6 +74,7 @@ export const workspaceControl = ({
       throw new ServiceStartFailed(
         `The running service is for another workspace (${running.workspace ?? "one it doesn't name"}), not ${workspace}. ` +
           `Switch to ${workspace} again to restart the service for it.`,
+        [running.workspace],
       );
     });
 
@@ -103,5 +112,20 @@ export const workspaceControl = ({
     return { workspace: running.workspace, service: Promise.resolve(running) };
   };
 
-  return { open, switchWorkspace, restart, settings: () => settings };
+  return {
+    open,
+    switchWorkspace,
+    restart,
+    settings: () => settings,
+    updateSettings,
+  };
+};
+
+/** The names of `root`'s immediate subfolders that are git repos (a `.git` folder, or file in a worktree), sorted. */
+export const workspaceRepos = async (root: string): Promise<string[]> => {
+  const entries = await readdir(root, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isDirectory() && existsSync(path.join(root, entry.name, ".git")))
+    .map((entry) => entry.name)
+    .sort();
 };

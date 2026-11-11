@@ -5,6 +5,7 @@ import { readFileSync, renameSync } from "node:fs";
 import path from "node:path";
 import { writePrivateFile } from "@wombat/shared/private-file";
 import { z } from "zod";
+import type { RendererSettings } from "../shared/bridge.ts";
 
 const VERSION = 1;
 
@@ -76,3 +77,54 @@ export const loadSettings = (file: string, log: (line: string) => void = console
 /** Writes `settings` to `file`, private to the user and atomically. */
 export const saveSettings = (file: string, settings: Settings): void =>
   writePrivateFile(file, `${JSON.stringify(Settings.parse(settings), null, 2)}\n`);
+
+/** What the page may change: the patch `settings.set` takes. */
+export const RendererSettingsPatch = z.strictObject({
+  askOnQuit: Settings.shape.askOnQuit.unwrap().exactOptional(),
+  lastAgentFolder: z.string().exactOptional(),
+  // JSON only: a value that can't be written would block every later save.
+  layout: z.json().exactOptional(),
+});
+
+/** The settings the page sees: no workspace paths but the current workspace's layout. */
+export const rendererSettings = (settings: Settings): RendererSettings => {
+  const layout = settings.workspace === undefined ? undefined : settings.workspaces[settings.workspace]?.layout;
+  return {
+    askOnQuit: settings.askOnQuit,
+    ...(settings.lastAgentFolder === undefined ? {} : { lastAgentFolder: settings.lastAgentFolder }),
+    ...(layout === undefined ? {} : { layout }),
+  };
+};
+
+/** A change from the page that doesn't fit; its message is safe to show the page. */
+export class SettingsChangeRefused extends Error {}
+
+/** `settings` with the page's `patch` applied; throws SettingsChangeRefused when it doesn't fit RendererSettingsPatch. */
+export const withRendererPatch = (settings: Settings, patch: unknown): Settings => {
+  const parsed = RendererSettingsPatch.safeParse(patch);
+  if (!parsed.success) throw new SettingsChangeRefused(`The settings change isn't valid (${z.prettifyError(parsed.error)}); send only askOnQuit, lastAgentFolder and layout.`);
+  const { layout, ...rest } = parsed.data;
+  const next: Settings = { ...settings, ...rest };
+  if (layout === undefined) return next;
+  const { workspace } = settings;
+  if (workspace === undefined) throw new SettingsChangeRefused("There's no workspace yet to keep a layout for; choose one first.");
+  return { ...next, workspaces: { ...settings.workspaces, [workspace]: { ...settings.workspaces[workspace], layout } } };
+};
+
+/**
+ * Applies the page's `patch` through `update` (the workspace control's). A save that fails is logged here in full and
+ * rejected with a message that names no path: the error itself names the settings file.
+ */
+export const savePageSettings = (
+  update: (change: (current: Settings) => Settings) => void,
+  patch: unknown,
+  log: (line: string) => void = console.error,
+): void => {
+  try {
+    update((current) => withRendererPatch(current, patch));
+  } catch (error) {
+    if (error instanceof SettingsChangeRefused) throw error;
+    log(`Wombat couldn't save the settings: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error("Wombat couldn't save the settings. Check that its settings folder is yours and writable, then try again.", { cause: error });
+  }
+};

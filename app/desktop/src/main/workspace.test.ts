@@ -1,13 +1,13 @@
 // The workspace control: which workspace the app opens, and which service runs for it. Dialogs are injected; the
 // services are the fake service (test/fake-service.ts) or one in this process, in a temp sandbox.
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
 
 import { isRunning, startService } from "./service-start.ts";
-import { loadSettings, saveSettings } from "./settings.ts";
+import { loadSettings, savePageSettings, saveSettings } from "./settings.ts";
 import { FAKE_SERVICE_ENTRY, inProcessService, serviceSandbox, type ServiceSandbox } from "../../test/service-sandbox.ts";
-import { workspaceControl, type WorkspaceDeps } from "./workspace.ts";
+import { workspaceControl, workspaceRepos, type WorkspaceDeps } from "./workspace.ts";
 
 const control = (sandbox: ServiceSandbox, deps: Partial<WorkspaceDeps> = {}) =>
   workspaceControl({
@@ -104,4 +104,39 @@ test("Cancel on a service that doesn't name its workspace keeps it, and the sett
   expect(opened?.workspace).toBe(saved);
   expect(await opened?.service).toEqual(running);
   expect(savedWorkspace(sandbox)).toBe(saved);
+});
+
+test("workspaceRepos lists the root's immediate subfolders that are git repos, worktrees included", async () => {
+  const sandbox = serviceSandbox();
+  const root = sandbox.workspace("main");
+  mkdirSync(path.join(root, "web", ".git"), { recursive: true });
+  mkdirSync(path.join(root, "api"), { recursive: true });
+  writeFileSync(path.join(root, "api", ".git"), "gitdir: /elsewhere\n");
+  mkdirSync(path.join(root, "notes"), { recursive: true });
+  mkdirSync(path.join(root, "notes", "nested", ".git"), { recursive: true });
+  writeFileSync(path.join(root, "README.md"), "");
+
+  expect(await workspaceRepos(root)).toEqual(["api", "web"]);
+});
+
+test("a page's settings change whose save fails leaves the settings as they were, and the page's error names no path", () => {
+  const sandbox = serviceSandbox();
+  // The settings folder's place is taken by a file, so every save fails (naming the path).
+  const blocked = path.join(sandbox.base, "blocked");
+  writeFileSync(blocked, "");
+  const workspace = control(sandbox, { settingsFile: path.join(blocked, "settings.json") });
+  const before = workspace.settings();
+  const logged: string[] = [];
+
+  let pageError: unknown;
+  try {
+    savePageSettings(workspace.updateSettings, { askOnQuit: false }, (line) => logged.push(line));
+  } catch (error) {
+    pageError = error;
+  }
+
+  expect(pageError).toBeInstanceOf(Error);
+  expect((pageError as Error).message).not.toContain(sandbox.base);
+  expect(logged.join("\n"), "main's log keeps the reason").toContain(blocked);
+  expect(workspace.settings()).toEqual(before);
 });
