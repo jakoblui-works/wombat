@@ -1,11 +1,12 @@
 import { Plus } from "lucide-react";
-import { useState } from "react";
 
 import { Button } from "../../../components/ui/button";
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { AGENT_STATES } from "../../../lib/agent-state";
 import { useNow } from "../../../lib/ago";
 import { useAgents, useRepos } from "../../../data/hooks.ts";
+import { useNewAgentDialog } from "../../commands/new-agent-dialog.ts";
+import { runCommand } from "../../commands/registry.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useActiveTab, useWorkbench } from "../../workbench-context.ts";
 import { CHAT_VIEW, ChatParams } from "../Chat/chat-params.ts";
@@ -20,7 +21,7 @@ export const AgentsList = () => {
   const { openTab } = useWorkbench();
   const active = useActiveTab();
   const now = useNow();
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useNewAgentDialog();
   // The workspace folder's name comes from the service's folder list (its first entry, ".").
   const repos = useRepos();
   const workspaceName = repos.data?.repos.find(({ path }) => path === ".")?.name ?? ".";
@@ -31,7 +32,9 @@ export const AgentsList = () => {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <SidebarHeader title="Agents" {...(list === undefined ? {} : { count: list.length })}>
-        <Button variant="secondary" size="sm" onClick={() => setCreating(true)}>
+        <Button variant="secondary" size="sm" onClick={() => {
+            runCommand("agent.new").catch((error: unknown) => console.error('The command "agent.new" failed:', error));
+          }}>
           <Plus />
           New agent
         </Button>

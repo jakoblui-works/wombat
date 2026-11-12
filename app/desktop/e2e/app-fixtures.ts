@@ -637,3 +637,42 @@ export const layoutOf = (page: Page): Promise<GroupView[]> =>
       .sort((a, b) => a.x - b.x || a.y - b.y)
       .map(({ tabs, active }) => ({ tabs, active })),
   );
+
+type CommandWindow = {
+  wombat?: { command?: (id: unknown) => Promise<void>; onZoom?: (cb: (level: number) => void) => unknown };
+  __e2eZooms?: number[];
+};
+
+/**
+ * Calls `window.wombat.command(id)` in the page with any value, as a hostile page could: "resolved", or "rejected: "
+ * and main's message.
+ */
+export const bridgeCommand = (page: Page, id: unknown): Promise<string> =>
+  page.evaluate(async (value) => {
+    const command = (window as unknown as CommandWindow).wombat?.command;
+    if (typeof command !== "function") throw new Error("window.wombat.command is missing: the preload bridge (src/preload/index.ts) doesn't expose it");
+    try {
+      await command(value);
+      return "resolved";
+    } catch (error) {
+      return `rejected: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }, id);
+
+/** The zoom level main has applied to the app's window (webContents.getZoomLevel()). */
+export const zoomLevel = (app: ElectronApplication): Promise<number | undefined> =>
+  app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.getZoomLevel());
+
+/** Subscribes the page to `window.wombat.onZoom`, recording each level it hears in the page. */
+export const watchZoom = async (page: Page): Promise<void> => {
+  await page.evaluate(() => {
+    const w = window as unknown as CommandWindow;
+    if (typeof w.wombat?.onZoom !== "function") throw new Error("window.wombat.onZoom is missing: the preload bridge (src/preload/index.ts) doesn't expose it");
+    if (w.__e2eZooms) return;
+    w.__e2eZooms = [];
+    w.wombat.onZoom((level) => w.__e2eZooms?.push(level));
+  });
+};
+
+/** The zoom levels the page has heard through onZoom, in order. */
+export const zoomsHeard = (page: Page): Promise<number[]> => page.evaluate(() => [...((window as unknown as CommandWindow).__e2eZooms ?? [])]);

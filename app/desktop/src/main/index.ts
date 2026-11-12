@@ -1,9 +1,10 @@
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { discoveryPath, readDiscovery } from "@wombat/shared/discovery";
-import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, protocol, session, shell, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent, Menu, Notification, protocol, session, shell, type WebContents } from "electron";
 import { CHANNELS, type WorkspaceInfo } from "../shared/bridge.ts";
 import { APP_INDEX_URL, APP_SCHEME, contentType, isAppUrl, isBridgeSender, resolveAppFile } from "./app-protocol.ts";
+import { mainCommands } from "./commands.ts";
 import { readE2eSwitches, recordE2eNotification } from "./e2e-switches.ts";
 import { noticeSink } from "./notice-sink.ts";
 import { NONCE_PLACEHOLDER, newNonce, pageCsp, withNonce } from "./page-csp.ts";
@@ -126,6 +127,7 @@ const createWindow = async (): Promise<void> => {
       nodeIntegration: false,
     },
   });
+  commands.watchWindow(window);
   // Under the e2e checks the window never shows.
   if (e2e === undefined) {
     window.once("ready-to-show", () => {
@@ -245,10 +247,10 @@ const connection = serviceConnection({
 });
 
 /** The bridge's calls; only the app's own page may make them. */
-const handleBridge = (channel: string, listener: (...args: unknown[]) => unknown): void => {
+const handleBridge = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown): void => {
   ipcMain.handle(channel, (event, ...args: unknown[]) => {
     if (!isBridgeSender(event.senderFrame?.url, devServerUrl())) throw new Error("Only Wombat's own page may use its bridge.");
-    return listener(...args);
+    return listener(event, ...args);
   });
 };
 
@@ -258,7 +260,7 @@ const currentWorkspace = (): string => {
   return root;
 };
 
-handleBridge(CHANNELS.request, (method, pathname, body) => connection.request(method, pathname, body));
+handleBridge(CHANNELS.request, (_event, method, pathname, body) => connection.request(method, pathname, body));
 handleBridge(CHANNELS.connectionNow, () => connection.current());
 handleBridge(CHANNELS.workspaceGet, (): WorkspaceInfo => ({ root: currentWorkspace() }));
 /**
@@ -311,36 +313,24 @@ handleBridge(CHANNELS.restart, async () => {
 });
 handleBridge(CHANNELS.workspaceSwitch, switchWorkspace);
 handleBridge(CHANNELS.settingsGet, () => workspace.pageSettings());
-handleBridge(CHANNELS.settingsSet, (patch) => {
+handleBridge(CHANNELS.settingsSet, (_event, patch) => {
   workspace.setPageSettings(patch);
 });
 
-const menu = (): Menu =>
-  Menu.buildFromTemplate([
-    {
-      label: "File",
-      submenu: [
-        {
-          label: "Switch Workspace…",
-          click: () => {
-            switchWorkspace().catch((error: unknown) => reportError("Wombat couldn't switch the workspace", error));
-          },
-        },
-        {
-          label: "Stop Service and Agents",
-          click: () => {
-            stopIfConfirmed({ agents: serviceAgents, confirm: confirmStop, stop: stopServiceAndAgents }).catch((error: unknown) => {
-              reportError("Wombat couldn't stop the service", error);
-            });
-          },
-        },
-        { type: "separator" },
-        { role: "quit" },
-      ],
-    },
-    { role: "editMenu" },
-    { role: "windowMenu" },
-  ]);
+const commands = mainCommands({
+  switchWorkspace: () => switchWorkspace().catch((error: unknown) => reportError("Wombat couldn't switch the workspace", error)),
+  stopService: () =>
+    stopIfConfirmed({ agents: serviceAgents, confirm: confirmStop, stop: stopServiceAndAgents }).then(
+      () => undefined,
+      (error: unknown) => reportError("Wombat couldn't stop the service", error),
+    ),
+  quit: () => app.quit(),
+  zoom: {
+    level: () => workspace.settings().zoomLevel,
+    save: (zoomLevel) => workspace.updateSettings((current) => ({ ...current, zoomLevel })),
+  },
+});
+handleBridge(CHANNELS.command, (event, id) => commands.fromPage(id, BrowserWindow.fromWebContents(event.sender) ?? undefined));
 
 const askOnQuit = async (running: number | undefined): Promise<QuitChoice> => {
   if (e2e !== undefined) return { answer: e2e.quitAnswer, dontAsk: e2e.quitDontAsk };
@@ -427,7 +417,7 @@ app
   .then(async () => {
     denyPermissions();
     protocol.handle(APP_SCHEME, serveRenderer);
-    Menu.setApplicationMenu(menu());
+    Menu.setApplicationMenu(commands.applicationMenu());
     if (!(await openWorkspace())) {
       // Nothing opened, so nothing to ask about (a service left running is another workspace's).
       quitNow();

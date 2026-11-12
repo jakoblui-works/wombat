@@ -3,7 +3,7 @@
 // (app-fixtures.ts: display-less, `WOMBAT_E2E=1`, temp dirs, fake systemd and fake agents).
 import type { ElectronApplication, Page, Response } from "@playwright/test";
 import { API_VERSION } from "@wombat/shared";
-import { bridgeRequest, expect, isAlive, REPO, test, waitForConnection, type Sandbox } from "./app-fixtures.ts";
+import { bridgeCommand, bridgeRequest, expect, isAlive, REPO, test, waitForConnection, waitUntil, WAIT_MS, watchZoom, zoomLevel, zoomsHeard, type Sandbox } from "./app-fixtures.ts";
 
 // Everything the preload may expose to the page. Adding a global, a name or a function widens
 // what a page (and anything that gets into it) can reach in the host: each is a deliberate,
@@ -19,7 +19,7 @@ const PAGE_LIBRARY_GLOBALS: Record<string, string> = {
 };
 // The names on `window.wombat`.
 // (The bridge's shape is `WombatBridge` in desktop/src/shared/bridge.ts.)
-const ALLOWED_BRIDGE_NAMES = ["apiVersion", "service", "workspace", "settings", "onOpenAgent"];
+const ALLOWED_BRIDGE_NAMES = ["apiVersion", "service", "workspace", "settings", "onOpenAgent", "command", "onZoom"];
 // The paths under `window.wombat` whose values are functions (e.g. "service.connect").
 const ALLOWED_BRIDGE_FUNCTIONS: string[] = [
   "service.request",
@@ -31,6 +31,8 @@ const ALLOWED_BRIDGE_FUNCTIONS: string[] = [
   "settings.get",
   "settings.set",
   "onOpenAgent",
+  "command",
+  "onZoom",
 ];
 
 // An outside https URL. Requests to it are answered locally (see `stubOutside`),
@@ -597,4 +599,42 @@ test("the bridge refuses, in main, every method and path outside the app's route
   expect((await sandbox.api("GET", "/version")).status).toBe(200);
   // Control: a listed route goes through.
   expect(await bridgeRequest(page, "GET", "/version")).toMatchObject({ ok: true, status: 200 });
+});
+
+// command() runs only the ids in MAIN_COMMAND_IDS (src/shared/bridge.ts), checked in main: anything else rejects and
+// runs nothing. Each refused value is a near miss of zoom.in or window.close, so a command that ran anyway would show
+// as a changed zoom level, a level heard through onZoom, or a closed window.
+test("the bridge refuses, in main, every command id outside MAIN_COMMAND_IDS, and runs nothing for it", async () => {
+  const { app, page } = opened();
+  await watchZoom(page);
+  expect(await zoomLevel(app), "a fresh profile starts at zoom level 0").toBe(0);
+  const outside: unknown[] = [
+    "zoom.in ",
+    "ZOOM.IN",
+    "zoom",
+    "app.relaunch",
+    "view.split.right",
+    "__proto__",
+    "toString",
+    "constructor",
+    "",
+    42,
+    null,
+    { id: "zoom.in" },
+    ["zoom.in"],
+    ["window.close"],
+  ];
+  const answers: Record<string, string> = {};
+  for (const id of outside) answers[JSON.stringify(id)] = await bridgeCommand(page, id);
+  const notRefused = Object.entries(answers).filter(([, answer]) => !answer.startsWith("rejected"));
+  expect(notRefused, "these went through instead of being refused in main").toEqual([]);
+  expect(await zoomLevel(app), "a refused id changed the zoom").toBe(0);
+  expect(await zoomsHeard(page), "a refused id zoomed").toEqual([]);
+  expect(await windowCount(app), "a refused id closed the window").toBe(1);
+
+  // Control: a listed id runs, and the witnesses above would have seen it.
+  expect(await bridgeCommand(page, "zoom.in")).toBe("resolved");
+  await waitUntil("zoom.in to change the zoom level", WAIT_MS, async () => ((await zoomLevel(app)) !== 0 ? true : undefined));
+  expect(await bridgeCommand(page, "zoom.reset")).toBe("resolved");
+  await waitUntil("zoom.reset to bring the level back to 0", WAIT_MS, async () => ((await zoomLevel(app)) === 0 ? true : undefined));
 });

@@ -22,6 +22,36 @@ export type WorkspaceInfo = { root: string };
 
 export type Unsubscribe = () => void;
 
+/**
+ * The commands the page may ask main to run: the ones only main can do (zoom, the window, the clipboard through
+ * webContents, the workspace and service dialogs, quitting). Main runs an id only when isMainCommandId takes it, so
+ * this list is the whole of what `command` can reach; the trust-boundary e2e checks the rest are refused.
+ */
+export const MAIN_COMMAND_IDS = [
+  "zoom.in",
+  "zoom.out",
+  "zoom.reset",
+  "edit.undo",
+  "edit.redo",
+  "edit.cut",
+  "edit.copy",
+  "edit.paste",
+  "edit.selectAll",
+  "window.minimize",
+  "window.maximize",
+  "window.close",
+  "workspace.switch",
+  "service.stop",
+  "app.quit",
+] as const;
+
+export type MainCommandId = (typeof MAIN_COMMAND_IDS)[number];
+
+const MAIN_COMMANDS: ReadonlySet<unknown> = new Set(MAIN_COMMAND_IDS);
+
+/** Whether `id` is one of MAIN_COMMAND_IDS itself: a Set lookup, so nothing that only coerces to one passes. */
+export const isMainCommandId = (id: unknown): id is MainCommandId => MAIN_COMMANDS.has(id);
+
 export type WombatBridge = {
   readonly apiVersion: typeof API_VERSION;
   readonly service: {
@@ -55,6 +85,10 @@ export type WombatBridge = {
     set: (patch: Partial<RendererSettings>) => Promise<void>;
   };
   onOpenAgent: (cb: (agentId: string) => void) => Unsubscribe;
+  /** Runs a main command; rejects, running nothing, for an id outside MAIN_COMMAND_IDS. */
+  command: (id: MainCommandId) => Promise<void>;
+  /** Calls `cb` with the app's zoom level (an Electron zoom level, 0 is 100%) after each change is applied. */
+  onZoom: (cb: (level: number) => void) => Unsubscribe;
 };
 
 /** A connection state as main sends it: `seq` orders the states, so a late answer never replaces a newer state. */
@@ -71,4 +105,6 @@ export const CHANNELS = {
   settingsGet: "wombat:settings:get",
   settingsSet: "wombat:settings:set",
   openAgent: "wombat:open-agent",
+  command: "wombat:command",
+  zoom: "wombat:zoom",
 } as const;

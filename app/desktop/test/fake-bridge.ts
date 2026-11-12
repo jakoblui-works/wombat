@@ -124,6 +124,8 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
 
   const bridge: WombatBridge = {
     apiVersion: 1,
+    command: () => Promise.resolve(),
+    onZoom: () => () => undefined,
     service: {
       request: async (method, path) => {
         if (refusing && state.state !== "connected") {

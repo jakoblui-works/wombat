@@ -24,7 +24,7 @@ const tempUserData = (): string => {
   return path.join(base, "Wombat");
 };
 
-const DEFAULTS: Settings = { version: 1, workspaces: {}, askOnQuit: true };
+const DEFAULTS: Settings = { version: 1, workspaces: {}, askOnQuit: true, zoomLevel: 0 };
 
 test("loadSettings gives the defaults for a missing file and missing fields, and drops unknown fields", () => {
   const userData = tempUserData();

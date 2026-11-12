@@ -52,6 +52,8 @@ const bridge: WombatBridge = {
     set: (patch) => invoke(CHANNELS.settingsSet, withoutUndefined(patch)),
   },
   onOpenAgent: (cb) => openAgent.subscribe(cb),
+  command: (id) => invoke(CHANNELS.command, id),
+  onZoom: (cb) => subscribe<number>(CHANNELS.zoom, cb),
 };
 
 contextBridge.exposeInMainWorld("wombat", bridge);

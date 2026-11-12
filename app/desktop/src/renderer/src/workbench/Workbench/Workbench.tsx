@@ -16,6 +16,8 @@ import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
 import { activities, activityOrDefault, getView, isKnown, isRestorable, viewsFor, viewTitle } from "../registry.ts";
 import { ActivityBar } from "../ActivityBar/ActivityBar.tsx";
+import { commandForKey, runCommand } from "../commands/registry.ts";
+import { activityCommandId, registerWorkbenchCommands } from "../commands/workbench-commands.ts";
 import { ConnectionBanner } from "../ConnectionBanner/ConnectionBanner.tsx";
 import { ConnectionIndicator } from "../ConnectionIndicator/ConnectionIndicator.tsx";
 import { EmptyGroup } from "../EmptyGroup/EmptyGroup.tsx";
@@ -33,6 +35,7 @@ import {
 } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { type ActiveTab, ActiveTabContext, type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
+import { ZoomToast } from "../ZoomToast/ZoomToast.tsx";
 
 type Chrome = Pick<SavedLayout, "sidebars" | "activity">;
 
@@ -169,6 +172,8 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     // Saved after the delay, by which time the change has rendered into chromeRef.
     saver.current?.schedule("user");
   };
+  const changeChromeRef = useRef(changeChrome);
+  changeChromeRef.current = changeChrome;
 
   // The active tab, for views that mark what's open.
   const [activeTab, setActiveTab] = useState<ActiveTab>();
@@ -211,6 +216,34 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     });
   }, [ready, agentsKnown, openAgents, actions]);
 
+  // The workbench's commands, and the page's one key listener: every key binding runs through the registry.
+  useEffect(
+    () =>
+      registerWorkbenchCommands({
+        api: () => api,
+        activities: activities(),
+        showActivity,
+        toggleRightSidebar: () =>
+          changeChromeRef.current((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } })),
+        blocked: () => blockedRef.current,
+      }),
+    [api, showActivity],
+  );
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const command = commandForKey(event);
+      if (command === undefined) return;
+      event.preventDefault();
+      runCommand(command.id).catch((error: unknown) => console.error(`The command "${command.id}" failed:`, error));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  /** Runs a command from a button; a failure is logged, as for a key. */
+  const run = (id: string) => {
+    runCommand(id).catch((error: unknown) => console.error(`The command "${id}" failed:`, error));
+  };
+
   const activity = activityOrDefault(chrome.activity);
   const Sidebar = activity === undefined ? undefined : getView(activity.sidebarView)?.component;
   const rightViews = viewsFor("right");
@@ -222,6 +255,8 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const [connectedBefore, setConnectedBefore] = useState(false);
   if (connection === "connected" && !connectedBefore) setConnectedBefore(true);
   const blocked = showsBanner(connection, connectedBefore);
+  const blockedRef = useRef(blocked);
+  blockedRef.current = blocked;
 
   // Kept here, not in the banner, which unmounts when the state moves (a first connecting) while a restart runs.
   const [attempt, dispatchAttempt] = useReducer(restartAttempt, NO_RESTART);
@@ -248,9 +283,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                 right={rightView}
                 count={agentList === undefined ? 0 : needsMe(agentList).length}
                 rightOpen={!chrome.sidebars.rightCollapsed}
-                onToggleRight={() =>
-                  changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } }))
-                }
+                onToggleRight={() => run("view.toggleRightSidebar")}
               />
               {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
               <div className="flex min-h-0 flex-1">
@@ -258,7 +291,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   activities={activities()}
                   active={activity?.id}
                   blocked={blocked}
-                  onSelect={(id) => changeChrome((current) => ({ ...current, activity: id }))}
+                  onSelect={(id) => run(activityCommandId(id))}
                 >
                   <ConnectionIndicator connection={connection} />
                 </ActivityBar>
@@ -292,6 +325,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   />
                 </div>
               </div>
+              <ZoomToast />
               <span className="sr-only">
                 Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
               </span>

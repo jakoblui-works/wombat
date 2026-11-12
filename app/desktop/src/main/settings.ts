@@ -6,6 +6,7 @@ import path from "node:path";
 import { writePrivateFile } from "@wombat/shared/private-file";
 import { z } from "zod";
 import type { RendererSettings } from "../shared/bridge.ts";
+import { clampZoom } from "./zoom.ts";
 
 const VERSION = 1;
 
@@ -22,6 +23,8 @@ export const Settings = z.object({
   workspaces: z.record(z.string(), WorkspaceSettings).default({}),
   askOnQuit: z.boolean().default(true),
   lastAgentFolder: z.string().optional(),
+  /** Main's alone: the page changes it only through the zoom commands. */
+  zoomLevel: z.number().transform(clampZoom).default(0),
 });
 export type Settings = z.infer<typeof Settings>;
 
@@ -99,8 +102,8 @@ export const loadSettings = (file: string, log: (line: string) => void = console
   return defaults();
 };
 
-/** Writes `settings` to `file`, private to the user and atomically. */
-export const saveSettings = (file: string, settings: Settings): void =>
+/** Writes `settings` to `file`, private to the user and atomically; a field left out is saved as its default. */
+export const saveSettings = (file: string, settings: z.input<typeof Settings>): void =>
   writePrivateFile(file, `${JSON.stringify(Settings.parse(settings), null, 2)}\n`);
 
 /** What the page may change: the patch `settings.set` takes. */
