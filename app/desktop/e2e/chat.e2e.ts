@@ -10,7 +10,7 @@ import type { Page } from "@playwright/test";
 
 import { HOSTILE } from "../../service/test/fake-agent.ts";
 import { MAX_SHOWN_CHARS } from "../src/renderer/src/workbench/views/Chat/clip-text.ts";
-import { agentSummary, expect, openAgent, REPO, startAgent, startWaitingAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import { agentSummary, expect, layoutOf, openAgent, REPO, startAgent, startWaitingAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 import { answersIn, groupWithTab, logOf, prompt } from "./agent-views.ts";
 
 const marker = (page: Page): Promise<unknown> => page.evaluate((name) => (window as unknown as Record<string, unknown>)[name], HOSTILE.marker);
@@ -60,7 +60,10 @@ test.describe("T13: chat", () => {
     await sandbox.startService(sandbox.workspace);
     const agentId = await startAgent(sandbox, "fake-hostile");
     await prompt(sandbox, agentId, "Show me everything.");
-    await waitUntil("the hostile agent to wait on its permission", WAIT_MS, async () => ((await agentSummary(sandbox, agentId))?.state === "waiting" ? true : undefined));
+    await waitUntil("the hostile agent to wait on its two requests", WAIT_MS, async () => {
+      const agent = await agentSummary(sandbox, agentId);
+      return agent?.state === "waiting" && agent.pendingPermissions?.length === 2 ? true : undefined;
+    });
 
     const launched = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
     const { page, app } = launched;
@@ -76,8 +79,29 @@ test.describe("T13: chat", () => {
     await expect(chat.getByText("Hostile message starts.")).toBeVisible({ timeout: WAIT_MS });
     await expandAll(chat);
 
+    // Every other place agent content shows: Needs me (the requests' titles), the Agents list (the message's
+    // excerpt), and the edit's diff tab (its title from the agent's path, its texts in Monaco).
+    const needsMeToggle = page.getByRole("button", { name: /^Needs me\b/ });
+    if ((await needsMeToggle.getAttribute("aria-pressed")) !== "true") await needsMeToggle.click();
+    const needsMe = page.getByRole("complementary", { name: "Needs me", exact: true });
+    await expect(needsMe.getByRole("button")).toHaveCount(2, { timeout: WAIT_MS });
+    const diffTab = `${HOSTILE.editFileName()} (diff)`;
+    await chat.getByRole("region", { name: "Edit approval" }).getByRole("button", { name: "Open side by side" }).click();
+    const diff = groupWithTab(page, diffTab);
+    await expect(diff.locator(".monaco-diff-editor")).toHaveCount(1, { timeout: WAIT_MS });
+    await expect(diff).toContainText("Opening hours", { timeout: WAIT_MS });
+    expect((await layoutOf(page)).flatMap((group) => group.tabs), "the diff tab's title, as text").toContain(diffTab);
+    const needsMeText = await needsMe.innerText();
+    for (const where of ["permission title", "edit title"]) expect(needsMeText, `Needs me: the ${where} as text`).toContain(`<b>${where}</b>`);
+    expect(await page.getByRole("complementary", { name: "Agents", exact: true }).innerText(), "the Agents list's excerpt").toContain("Hostile message starts.");
+    // Monaco draws spaces as no-break spaces.
+    const diffText = (await diff.innerText()).replace(/\u00a0/g, " ");
+    for (const where of ["diff old", "diff new"]) expect(diffText, `the diff tab: the ${where} text`).toContain(`<b>${where}</b>`);
+
     // Everything is there to read, as text.
     const text = await chat.innerText();
+    expect(text, "the edit card's file").toContain(HOSTILE.editFileName());
+    for (const where of ["diff old", "diff new"]) expect(text, `the edit card: the ${where} text`).toContain(`<b>${where}</b>`);
     for (const where of ["message", "reasoning", "tool content"]) {
       expect(text, `the ${where}'s markdown`).toContain(`Hostile ${where} starts.`);
       expect(text, `the ${where}'s raw script`).toContain(`<script>window.__wombatHostile = "${where}: script"</script>`);
@@ -89,7 +113,7 @@ test.describe("T13: chat", () => {
       expect(text, `the ${where} as text`).toContain(`<b>${where}</b>`);
     }
 
-    // Nothing runs, loads or links anywhere but https: in the whole page (the sidebar's excerpt included).
+    // Nothing runs, loads or links anywhere but https: in the whole page (sidebars, chat, diff tab and tab titles).
     expect(await activeContent(page)).toEqual([]);
     expect(await marker(page)).toBeUndefined();
 

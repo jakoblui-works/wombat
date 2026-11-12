@@ -150,7 +150,8 @@ const rows: Row[] = [
       expect(sent).toContain(JSON.stringify(HOSTILE.markdown("message")).slice(1, -1));
       expect(sent).toContain(JSON.stringify(HOSTILE.html("plan entry")).slice(1, -1));
       expect(sent.length).toBeGreaterThan(HOSTILE.hugeChars);
-      expect(run.received.some((item) => item.type === "permission")).toBe(true);
+      expect(run.received.filter((item) => item.type === "permission")).toHaveLength(2);
+      expect(sent).toContain(JSON.stringify(HOSTILE.edit().path).slice(1, -1));
     },
   },
 ];

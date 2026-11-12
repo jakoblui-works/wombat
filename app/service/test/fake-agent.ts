@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync, writeSync } from "node:fs";
 import { Readable, Transform, Writable } from "node:stream";
 
-import { agent, ndJsonStream, RequestError, type AgentContext, type SessionUpdate } from "@agentclientprotocol/sdk";
+import { agent, ndJsonStream, RequestError, type AgentContext, type RequestPermissionResponse, type SessionUpdate } from "@agentclientprotocol/sdk";
 
 export const SCENARIOS = [
   "reply",
@@ -80,6 +80,15 @@ export const HOSTILE = {
   hugeText: (chars: number): string => "huge output line 0123456789\n".repeat(Math.ceil(chars / 28)).slice(0, chars),
   /** The permission request's title (its tool call's). */
   permissionTitle: (): string => HOSTILE.html("permission title"),
+  /** The edit's file name: hostile markup without a "/" (the last path segment is what shows, as the diff tab's title). */
+  editFileName: (): string => `<img src=x onerror="window.__wombatHostile='diff title'"><i>diff title<i>.md`,
+  /** The edit request: its title, path and both texts carry the payloads (the inline card, the diff tab and its title). */
+  edit: (): { title: string; path: string; oldText: string; newText: string } => ({
+    title: HOSTILE.html("edit title"),
+    path: `/tmp/hostile/${HOSTILE.editFileName()}`,
+    oldText: `Opening hours\n${HOSTILE.html("diff old")}\nClosed on Sundays\n`,
+    newText: `Opening hours\n${HOSTILE.html("diff new")}\nClosed on Sundays\n`,
+  }),
 } as const;
 
 // Well past a pipe buffer (~64 KiB), so an agent whose stderr isn't read blocks.
@@ -386,18 +395,31 @@ const run = (scenario: FakeScenario) => {
             status: "completed",
             rawOutput: HOSTILE.hugeText(HOSTILE.hugeChars),
           });
+          // Two requests open at once: a command, and an edit whose path and texts are hostile.
           const toolCallId = randomUUID();
           await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId, title: HOSTILE.permissionTitle(), kind: "execute", status: "pending" });
-          cancelled.delete(sessionId);
-          const { outcome } = await client.request("session/request_permission", {
-            sessionId,
-            toolCall: { toolCallId },
-            options: [
-              { optionId: "allow", name: "Allow", kind: "allow_once" },
-              { optionId: "reject", name: "Reject", kind: "reject_once" },
-            ],
+          const edit = HOSTILE.edit();
+          const editId = randomUUID();
+          await send(client, sessionId, {
+            sessionUpdate: "tool_call",
+            toolCallId: editId,
+            title: edit.title,
+            kind: "edit",
+            status: "pending",
+            locations: [{ path: edit.path }],
+            content: [{ type: "diff", path: edit.path, oldText: edit.oldText, newText: edit.newText }],
           });
-          const turnCancelled = outcome.outcome === "cancelled" || cancelled.has(sessionId);
+          cancelled.delete(sessionId);
+          const options = [
+            { optionId: "allow", name: "Allow", kind: "allow_once" as const },
+            { optionId: "reject", name: "Reject", kind: "reject_once" as const },
+          ];
+          const asked = [
+            client.request<RequestPermissionResponse>("session/request_permission", { sessionId, toolCall: { toolCallId }, options }),
+            client.request<RequestPermissionResponse>("session/request_permission", { sessionId, toolCall: { toolCallId: editId }, options }),
+          ];
+          const outcomes = await Promise.all(asked);
+          const turnCancelled = cancelled.has(sessionId) || outcomes.some(({ outcome }) => outcome.outcome === "cancelled");
           cancelled.delete(sessionId);
           return { stopReason: turnCancelled ? "cancelled" : "end_turn" };
         }
