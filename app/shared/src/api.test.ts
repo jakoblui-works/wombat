@@ -337,12 +337,17 @@ describe("responses (lenient)", () => {
     expect(AgentSummary.parse(doneAgent).pendingPermissions).toEqual([]);
   });
 
-  test("an AgentSummary from before hasProcess existed reads as having no process", () => {
-    expect(AgentSummary.parse(doneAgent).hasProcess).toBe(false);
+  test("an AgentSummary from before hasProcess existed has a process only while running", () => {
+    const read = (state: AgentSummary["state"]) => AgentSummary.parse({ ...doneAgent, state }).hasProcess;
+    expect(read("working")).toBe(true);
+    expect(read("waiting")).toBe(true);
+    expect(read("done")).toBe(false);
+    expect(read("error")).toBe(false);
+    expect(read("stopped")).toBe(false);
   });
 
   test("only a waiting agent waits on the user", () => {
-    const states = AgentSummary.shape.state.options;
+    const states = AgentSummary.out.shape.state.options;
     expect(states.filter((state) => isWaiting({ state }))).toEqual(["waiting"]);
     expect(isWaiting(undefined)).toBe(false);
   });

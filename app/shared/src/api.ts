@@ -239,7 +239,7 @@ const ToolKind = z
  */
 const PendingPermission = z.object({ requestId: z.string(), at: Timestamp, title: z.string(), kind: ToolKind });
 
-export const AgentSummary = z.object({
+const AgentSummaryFields = z.object({
   id: z.string(),
   harness: z.string(),
   repo: z.string(),
@@ -272,11 +272,20 @@ export const AgentSummary = z.object({
   /**
    * Whether the agent's process runs, whatever its state (a done agent, or an error one after a failed turn, may
    * still have one): what Stop and the quit count go by. True once the process runs and the summary is stored;
-   * false once the process ends (stopped, exited or crashed) and for every agent a restarted service loads. `false`
-   * when reading a summary from before the field existed.
+   * false once the process ends (stopped, exited or crashed) and for every agent a restarted service loads. When
+   * reading a summary from before the field existed, true if the agent is running (see `isRunning`), so the app
+   * still offers Stop and asks before quitting.
    */
-  hasProcess: z.boolean().default(false),
+  hasProcess: z.boolean(),
 });
+
+export const AgentSummary = z.preprocess(
+  (value: unknown): unknown =>
+    typeof value === "object" && value !== null && (value as { hasProcess?: unknown }).hasProcess === undefined
+      ? { ...value, hasProcess: isRunning(value as Pick<z.infer<typeof AgentSummaryFields>, "state">) }
+      : value,
+  AgentSummaryFields,
+);
 export type AgentSummary = z.infer<typeof AgentSummary>;
 
 /** Whether the agent waits on the user: the one rule for the app's "needs me" list and its waiting notifications. */
@@ -440,6 +449,13 @@ export type ListProposalsResponse = z.infer<typeof ListProposalsResponse>;
 // Log entries (lenient): an agent's stored history, read through `GET /agents/:id/log`.
 
 const logEntryFields = { seq: Seq, agentId: z.string(), at: Timestamp };
+
+/**
+ * The stop reasons the service itself writes in `turn_ended`, besides ACP's: "error" (the turn failed) and "stopped"
+ * (the agent's process ended during the turn).
+ */
+export const SERVICE_STOP_REASON = { error: "error", stopped: "stopped" } as const;
+
 /** The ACP session an update or permission request came from; one agent may run more than one (sub-agents). */
 const SessionId = z.string().exactOptional();
 
@@ -467,8 +483,8 @@ export const LogEntry = z.discriminatedUnion("type", [
     kind: PermissionKind,
   }),
   /**
-   * Ends each turn. Besides ACP's stop reasons, the service writes "error" (the turn failed) and "stopped" (the
-   * agent's process ended during the turn). Older logs may lack these two, leaving such a turn without an end.
+   * Ends each turn. Besides ACP's stop reasons, the service writes those in `SERVICE_STOP_REASON`. Older logs may
+   * lack these two, leaving such a turn without an end.
    */
   z.object({ ...logEntryFields, type: z.literal("turn_ended"), stopReason: z.string().min(1) }),
 ]);

@@ -27,6 +27,7 @@ export const SCENARIOS = [
   "plan-thought",
   "hostile",
   "prompt-error",
+  "stop-error",
 ] as const;
 
 export type FakeScenario = (typeof SCENARIOS)[number];
@@ -429,6 +430,15 @@ const run = (scenario: FakeScenario) => {
           // ACP error, every time.
           await send(client, sessionId, text("Looking into it."));
           throw RequestError.internalError(undefined, "the fake agent fails every turn");
+        case "stop-error": {
+          // An agent that answers its open prompt with an error when told to end (SIGTERM) and lingers: the
+          // answer reaches the service while it is still ending the process. The handler is set before
+          // the message, so a stop sent once the message arrives always meets it.
+          const told = new Promise<void>((release) => process.once("SIGTERM", () => release()));
+          await send(client, sessionId, text("Working on it."));
+          await told;
+          throw RequestError.internalError(undefined, "the fake agent was told to end mid-turn");
+        }
         case "auth":
           break;
       }

@@ -9,6 +9,7 @@ import {
   parseLogEntry,
   permissionTitle,
   PROPOSAL_ALERT,
+  SERVICE_STOP_REASON,
   type AgentSummary,
   type Alert,
   type ErrorBody,
@@ -92,8 +93,8 @@ type Proc = {
   /** Why the service is ending the process: "stop" keeps the agent (stopped), "remove" writes nothing. */
   ending: "stop" | "remove" | undefined;
   /**
-   * True from send until the turn's `turn_ended` is written; once the connection closes, only the close handler
-   * clears it.
+   * True from send until the turn's `turn_ended` is written; once the connection closes or the service is ending the
+   * process, only the close handler clears it.
    */
   turn: boolean;
   /** Open permission requests by requestId, oldest first; the summary's pendingPermissions mirror it. */
@@ -432,13 +433,13 @@ export const createManager = ({
       await refreshBranch(agentId, proc.cwd);
     } catch (error) {
       cancelPending(proc);
-      // The connection closed: the process ended, and its close handler records why and ends the turn, so the
-      // turn stays open for it to see.
-      if (proc.acp.isClosed()) return;
+      // The connection closed, or the service is ending the process (whose answer may beat the close): the close
+      // handler records why and ends the turn, so the turn stays open for it to see.
+      if (proc.acp.isClosed() || proc.ending) return;
       proc.turn = false;
       const code = rpcCode(error);
       safely(agentId, "turn_failed", () => {
-        appendLog(agentId, [{ type: "turn_ended", stopReason: "error" }]);
+        appendLog(agentId, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.error }]);
         setState(agentId, "error", {
           error: {
             code: AgentErrorCode.enum.agent_failed,
@@ -490,7 +491,7 @@ export const createManager = ({
       // A turn the process ended under gets its end in the log too; a removed agent has no log left.
       if (proc.recorded && proc.turn && proc.ending !== "remove") {
         proc.turn = false;
-        safely(agentId, "turn_stopped", () => appendLog(agentId, [{ type: "turn_ended", stopReason: "stopped" }]));
+        safely(agentId, "turn_stopped", () => appendLog(agentId, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.stopped }]));
       }
       if (proc.recorded && proc.ending === "stop") {
         safely(agentId, "stopped", () => setState(agentId, "stopped"));

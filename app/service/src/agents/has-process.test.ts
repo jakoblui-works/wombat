@@ -1,4 +1,4 @@
-// Lasting check (D15, D18, silent failure): an agent's summary says `hasProcess: true` exactly while its process
+// Lasting check (silent failure): an agent's summary says `hasProcess: true` exactly while its process
 // runs, whatever its state: after start, through and after a turn, after a failed turn (state error, process
 // alive); false once the process ends (stop, exit), and for every agent a restarted service loads, including one
 // stored as still having a process by a service that died. The app reads it as it would: the stored summary
