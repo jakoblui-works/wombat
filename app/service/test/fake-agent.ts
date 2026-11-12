@@ -26,6 +26,7 @@ export const SCENARIOS = [
   "message-runs",
   "plan-thought",
   "hostile",
+  "prompt-error",
 ] as const;
 
 export type FakeScenario = (typeof SCENARIOS)[number];
@@ -423,6 +424,11 @@ const run = (scenario: FakeScenario) => {
           cancelled.delete(sessionId);
           return { stopReason: turnCancelled ? "cancelled" : "end_turn" };
         }
+        case "prompt-error":
+          // A turn the agent fails while its process and the connection stay up: the prompt answers with an
+          // ACP error, every time.
+          await send(client, sessionId, text("Looking into it."));
+          throw RequestError.internalError(undefined, "the fake agent fails every turn");
         case "auth":
           break;
       }

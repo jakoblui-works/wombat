@@ -91,6 +91,10 @@ type Proc = {
   held: { sessionId: string; update: unknown }[];
   /** Why the service is ending the process: "stop" keeps the agent (stopped), "remove" writes nothing. */
   ending: "stop" | "remove" | undefined;
+  /**
+   * True from send until the turn's `turn_ended` is written; once the connection closes, only the close handler
+   * clears it.
+   */
   turn: boolean;
   /** Open permission requests by requestId, oldest first; the summary's pendingPermissions mirror it. */
   pending: Map<string, Pending>;
@@ -424,12 +428,14 @@ export const createManager = ({
       log("turn_ended", { agentId, stopReason: safeName(stopReason) });
       await refreshBranch(agentId, proc.cwd);
     } catch (error) {
-      proc.turn = false;
       cancelPending(proc);
-      // The connection closed: the process ended, and its close handler records why.
+      // The connection closed: the process ended, and its close handler records why and ends the turn, so the
+      // turn stays open for it to see.
       if (proc.acp.isClosed()) return;
+      proc.turn = false;
       const code = rpcCode(error);
-      safely(agentId, "turn_failed", () =>
+      safely(agentId, "turn_failed", () => {
+        appendLog(agentId, [{ type: "turn_ended", stopReason: "error" }]);
         setState(agentId, "error", {
           error: {
             code: AgentErrorCode.enum.agent_failed,
@@ -437,8 +443,8 @@ export const createManager = ({
               `The agent reported an error during the turn${code === undefined ? "" : ` (ACP error ${code})`}. ` +
               "Send the message again, or stop the agent and start a new one.",
           },
-        }),
-      );
+        });
+      });
       log("turn_failed", { agentId, code: code ?? -1 });
       await refreshBranch(agentId, proc.cwd);
     }
@@ -478,6 +484,11 @@ export const createManager = ({
       procs.delete(agentId);
       proc.acp.close();
       cancelPending(proc);
+      // A turn the process ended under gets its end in the log too; a removed agent has no log left.
+      if (proc.recorded && proc.turn && proc.ending !== "remove") {
+        proc.turn = false;
+        safely(agentId, "turn_stopped", () => appendLog(agentId, [{ type: "turn_ended", stopReason: "stopped" }]));
+      }
       if (proc.recorded && proc.ending === "stop") {
         safely(agentId, "stopped", () => setState(agentId, "stopped"));
       } else if (proc.recorded && proc.ending === undefined) {

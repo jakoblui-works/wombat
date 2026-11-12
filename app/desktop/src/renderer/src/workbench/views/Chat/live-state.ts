@@ -1,8 +1,9 @@
-// What of the chat is live now, pure. The log alone can't say: a turn that fails, or an agent process that ends, logs
-// no `turn_ended`, so its turn and its open requests would look live forever. The agent's summary says what the
-// service holds now; but the summary and the log arrive apart, so the summary only ends things, never starts them
-// early: a request the summary doesn't list yet stays open (its buttons wait), and a turn the log has begun stays on
-// until the summary says the agent has finished. Without a summary (the list is loading) the log is all there is.
+// What of the chat is live now, pure. The log alone can't say: logs written by older services have no `turn_ended`
+// after a failed turn or an ended process, so its turn and its open requests would look live forever. The agent's
+// summary says what the service holds now; but the summary and the log arrive apart, so the summary only ends things,
+// never starts them early: a request the summary doesn't list yet stays open (its buttons wait), and a turn the log has
+// begun stays on until the summary says the agent has finished. Without a summary (the list is loading) the log is all
+// there is.
 import { type AgentSummary, isRunning } from "@wombat/shared/api";
 
 import type { ChatItem, ChatModel } from "../../../data/chat-model.ts";

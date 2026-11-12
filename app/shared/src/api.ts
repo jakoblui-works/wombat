@@ -459,6 +459,10 @@ export const LogEntry = z.discriminatedUnion("type", [
     requestId: z.string(),
     kind: PermissionKind,
   }),
+  /**
+   * Ends each turn. Besides ACP's stop reasons, the service writes "error" (the turn failed) and "stopped" (the
+   * agent's process ended during the turn). Older logs may lack these two, leaving such a turn without an end.
+   */
   z.object({ ...logEntryFields, type: z.literal("turn_ended"), stopReason: z.string().min(1) }),
 ]);
 export type LogEntry = z.infer<typeof LogEntry>;
