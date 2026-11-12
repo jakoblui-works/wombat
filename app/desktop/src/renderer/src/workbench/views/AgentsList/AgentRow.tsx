@@ -53,7 +53,7 @@ export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props)
             </>
           )}
         </span>
-        {agent.state === "working" && agent.activity != null ? (
+        {agent.activity != null ? (
           <span className="truncate pl-5.5 text-xs text-fg-secondary">Working · {activityLabel(agent.activity)}</span>
         ) : null}
         {agent.lastText === undefined ? null : <span className="line-clamp-2 pl-5.5 text-sm text-fg-secondary">{agent.lastText}</span>}

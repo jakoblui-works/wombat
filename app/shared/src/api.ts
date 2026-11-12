@@ -440,6 +440,20 @@ export const ConfigOption = nullsAbsent(
 );
 export type ConfigOption = z.infer<typeof ConfigOption>;
 
+type SelectConfigOption = Extract<ConfigOption, { type: "select" }>;
+type SelectValue = z.infer<typeof SelectOption>;
+type SelectValueGroup = z.infer<typeof SelectGroup>;
+
+/** Every value a select option takes, in the agent's order, whether its options are flat or in groups. */
+export const selectValues = (option: Pick<SelectConfigOption, "options">): SelectValue[] =>
+  option.options.flatMap((entry): SelectValue[] => ("group" in entry ? entry.options : [entry]));
+
+/** A select option's groups, or undefined when its options are flat (or there are none). */
+export const selectGroups = (option: Pick<SelectConfigOption, "options">): SelectValueGroup[] | undefined => {
+  const groups = option.options.filter((entry): entry is SelectValueGroup => "group" in entry);
+  return groups.length === 0 ? undefined : groups;
+};
+
 export const SessionUpdate = z.discriminatedUnion("sessionUpdate", [
   z.object({ sessionUpdate: z.literal("agent_message_chunk"), ...contentChunkFields }),
   /** The agent's reasoning, shaped as a message chunk. */

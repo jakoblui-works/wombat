@@ -217,6 +217,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
           </div>
         </ScrollArea>
       )}
+      {/* The summary says whether the agent works, the log what it does; both must agree before the line shows. */}
       {agent?.state === "working" ? <WorkingLine activity={model?.activity ?? null} /> : null}
       <Composer agentId={agentId} turnActive={live?.turnActive ?? false} connected={connected && model !== undefined} />
       {agent === undefined ? null : (

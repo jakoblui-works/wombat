@@ -15,6 +15,7 @@ import {
   type ErrorBody,
   type SendMessageRequest,
   type ServerErrorCode,
+  selectValues,
 } from "@wombat/shared/api";
 import {
   activityOf,
@@ -183,7 +184,7 @@ const checkConfigValue = (option: ConfigOption, value: string | boolean) => {
     return;
   }
   if (option.type !== "select" || !("options" in option)) throw fail("is of a type the service can't set");
-  const values = option.options.flatMap((entry) => ("group" in entry ? entry.options : [entry])).map((entry) => entry.value);
+  const values = selectValues(option).map((entry) => entry.value);
   if (typeof value !== "string" || !values.includes(value)) throw fail(`takes one of: ${values.join(", ")}`);
 };
 

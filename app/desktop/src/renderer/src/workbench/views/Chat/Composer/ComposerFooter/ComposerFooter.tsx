@@ -1,4 +1,4 @@
-import type { ConfigOption } from "@wombat/shared/api";
+import { type ConfigOption, selectGroups, selectValues } from "@wombat/shared/api";
 import { useState } from "react";
 
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "../../../../../components/ui/select";
@@ -17,9 +17,6 @@ type Props = {
 
 type Set = (configId: string, value: string | boolean) => void;
 type SelectConfig = Extract<ConfigOption, { type: "select" }>;
-type Entry = { value: string; name: string };
-type Group = { group: string; name: string; options: Entry[] };
-
 const isSelect = (option: ConfigOption): option is SelectConfig => option.type === "select" && "options" in option;
 const isBoolean = (option: ConfigOption): option is Extract<ConfigOption, { type: "boolean" }> =>
   option.type === "boolean" && typeof option.currentValue === "boolean";
@@ -28,16 +25,9 @@ const isBoolean = (option: ConfigOption): option is Extract<ConfigOption, { type
 const readOnlyText = (value: unknown): string =>
   typeof value === "string" ? value : typeof value === "number" || typeof value === "boolean" ? String(value) : JSON.stringify(value);
 
-const groupsOf = (option: SelectConfig): Group[] | undefined => {
-  const groups = option.options.filter((entry): entry is Group => "group" in entry);
-  return groups.length === 0 ? undefined : groups;
-};
-const entriesOf = (option: SelectConfig): Entry[] =>
-  option.options.flatMap((entry): Entry[] => ("group" in entry ? entry.options : [entry]));
-
 const SelectOption = ({ option, onSet }: { option: SelectConfig; onSet: Set }) => {
-  const groups = groupsOf(option);
-  const entries = entriesOf(option);
+  const groups = selectGroups(option);
+  const entries = selectValues(option);
   return (
     <Select
       value={option.currentValue}
