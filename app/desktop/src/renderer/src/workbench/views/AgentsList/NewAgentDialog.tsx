@@ -21,6 +21,7 @@ const NewAgentForm = ({ onDone }: { onDone: () => void }) => {
   const { openTab } = useWorkbench();
   const [last, setLast] = useState<{ read: boolean; folder?: string }>({ read: false });
   const [picked, setPicked] = useState<string>();
+  const [pickedTool, setPickedTool] = useState<string>();
   const [text, setText] = useState("");
   const [failure, setFailure] = useState<Error>();
 
@@ -37,7 +38,8 @@ const NewAgentForm = ({ onDone }: { onDone: () => void }) => {
 
   const folders = repos.data?.repos ?? [];
   const folder = picked ?? (last.read ? defaultFolder(folders.map(({ path }) => path), last.folder) : undefined);
-  const harness = harnesses.data?.[0]?.id;
+  const tools = harnesses.data ?? [];
+  const harness = pickedTool !== undefined && tools.some(({ id }) => id === pickedTool) ? pickedTool : tools[0]?.id;
   const ready = folder !== undefined && harness !== undefined && text.trim() !== "" && !start.isPending;
 
   const submit = async () => {
@@ -84,6 +86,27 @@ const NewAgentForm = ({ onDone }: { onDone: () => void }) => {
           <SelectContent>
             {folders.map(({ path, name }) => (
               <SelectItem key={path} value={path}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <span id="new-agent-tool-label" className="text-sm font-medium text-fg-secondary">
+          Tool
+        </span>
+        <Select
+          value={harness ?? null}
+          onValueChange={(value) => setPickedTool(value ?? undefined)}
+          items={tools.map(({ id, name }) => ({ value: id, label: name }))}
+        >
+          <SelectTrigger aria-labelledby="new-agent-tool-label" disabled={tools.length === 0}>
+            <SelectValue placeholder="Choose a tool" />
+          </SelectTrigger>
+          <SelectContent>
+            {tools.map(({ id, name }) => (
+              <SelectItem key={id} value={id}>
                 {name}
               </SelectItem>
             ))}

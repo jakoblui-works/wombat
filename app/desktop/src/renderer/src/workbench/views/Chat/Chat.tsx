@@ -2,7 +2,8 @@ import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef } fro
 
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { type ChatItem, type ChatModel } from "../../../data/chat-model.ts";
-import { useConnection } from "../../../data/hooks.ts";
+import { useSetConfig } from "../../../data/commands.ts";
+import { useConnection, useHarnesses } from "../../../data/hooks.ts";
 import type { Reveal, ViewProps } from "../../registry.ts";
 import { useWorkbench } from "../../workbench-context.ts";
 import { DIFF_VIEW } from "../Diff/diff-params.ts";
@@ -15,12 +16,14 @@ import { sameBlock } from "./same-item.ts";
 import { useChatModel } from "../approvals/use-chat-model.ts";
 import { ChatHeader } from "./ChatHeader/ChatHeader.tsx";
 import { Composer } from "./Composer/Composer.tsx";
+import { ComposerFooter } from "./Composer/ComposerFooter/ComposerFooter.tsx";
 import { LogError } from "../approvals/LogError/LogError.tsx";
 import { Markdown } from "./Markdown/Markdown.tsx";
 import { Permission } from "./Permission/Permission.tsx";
 import { Plan } from "./Plan/Plan.tsx";
 import { Reasoning } from "./Reasoning/Reasoning.tsx";
 import { ToolCalls } from "./ToolCall/ToolCall.tsx";
+import { WorkingLine } from "./WorkingLine/WorkingLine.tsx";
 
 /** How close to the end (px) still counts as "at the bottom": new content then scrolls into view. */
 const BOTTOM_SLACK_PX = 24;
@@ -129,6 +132,8 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const { model, agent, log } = useChatModel(agentId);
   const connected = useConnection().state === "connected";
   const answers = useAnswer(agentId);
+  const harnesses = useHarnesses();
+  const setConfig = useSetConfig();
   const blocks = useMemo(() => (model === undefined ? [] : chatBlocks(model.items)), [model]);
   const edits = useMemo(() => (model === undefined ? new Map<string, EditRequest>() : editRequests(model, blocks)), [model, blocks]);
   const workbench = useWorkbench();
@@ -195,7 +200,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
         <p className="p-5 text-sm text-fg-tertiary">Loading…</p>
       ) : (
         <ScrollArea viewportRef={viewport} className="min-h-0 flex-1">
-          <div ref={content} className="mx-auto flex max-w-chat flex-col gap-3 px-5 pt-2 pb-4">
+          <div ref={content} role="log" aria-label="Conversation" className="mx-auto flex max-w-chat flex-col gap-3 px-5 pt-2 pb-4">
             {log.data?.truncated ? <p className="text-sm text-fg-tertiary">Earlier history wasn't kept.</p> : null}
             {blocks.map((block) => (
               <Block
@@ -212,7 +217,16 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
           </div>
         </ScrollArea>
       )}
+      {agent?.state === "working" ? <WorkingLine activity={model?.activity ?? null} /> : null}
       <Composer agentId={agentId} turnActive={live?.turnActive ?? false} connected={connected && model !== undefined} />
+      {agent === undefined ? null : (
+        <ComposerFooter
+          toolName={harnesses.data?.find(({ id }) => id === agent.harness)?.name ?? agent.harness}
+          options={model?.config}
+          usage={model?.usage}
+          onSet={(configId, value) => setConfig.mutateAsync({ agentId, configId, value })}
+        />
+      )}
     </div>
   );
 };

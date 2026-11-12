@@ -31,7 +31,7 @@ const marker = (page: Page): Promise<unknown> => page.evaluate((name) => (window
 
 /** Expands every collapsed part of `root` (reasoning, tool calls), however deep, a bounded number of rounds. */
 const expandAll = async (root: ReturnType<typeof groupWithTab>): Promise<void> => {
-  const collapsed = root.locator('[aria-expanded="false"]');
+  const collapsed = root.getByRole("log", { name: "Conversation" }).locator('[aria-expanded="false"]');
   for (let round = 0; round < 10 && (await collapsed.count()) > 0; round += 1) await click(collapsed.first());
   await expect(collapsed, "parts of the chat stay collapsed").toHaveCount(0);
 };

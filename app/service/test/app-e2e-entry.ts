@@ -12,7 +12,8 @@
 //
 // Harnesses, in this order (the New agent dialog starts the first): `fake-reply` (answers and ends its turn),
 // `fake-permission` (asks for a permission and waits), `fake-hang` (stays working until cancelled) and `fake-hostile`
-// (hostile content everywhere agent content shows, then a permission request; see HOSTILE in fake-agent.ts).
+// (hostile content everywhere agent content shows, then a permission request; see HOSTILE in fake-agent.ts) and `fake-replay` (plays the steps its prompt is a JSON array of; see ReplayStep
+// in fake-agent.ts, whose `awaitFile` holds a turn mid-way).
 import { writeFileSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 
@@ -56,6 +57,7 @@ await main({
     trackedHarness("permission", pidDir),
     trackedHarness("hang", pidDir),
     trackedHarness("hostile", pidDir),
+    trackedHarness("replay", pidDir),
   ],
   slice,
 });

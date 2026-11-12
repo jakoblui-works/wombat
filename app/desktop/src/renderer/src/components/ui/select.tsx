@@ -65,4 +65,12 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
   )
 }
 
-export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue }
+function SelectGroup(props: SelectPrimitive.Group.Props) {
+  return <SelectPrimitive.Group data-slot="select-group" {...props} />
+}
+
+function SelectLabel({ className, ...props }: SelectPrimitive.GroupLabel.Props) {
+  return <SelectPrimitive.GroupLabel data-slot="select-label" className={cn("px-2 py-1 text-sm text-fg-tertiary", className)} {...props} />
+}
+
+export { Select, SelectGroup, SelectLabel, SelectContent, SelectItem, SelectTrigger, SelectValue }
