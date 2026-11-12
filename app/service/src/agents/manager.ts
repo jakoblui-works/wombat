@@ -16,6 +16,7 @@ import {
   type SendMessageRequest,
   type ServerErrorCode,
   selectValues,
+  type ContextBreakdown,
 } from "@wombat/shared/api";
 import {
   activityOf,
@@ -30,7 +31,7 @@ import {
 } from "@wombat/shared/log-fold";
 import { z } from "zod";
 
-import { MCP_SERVER_NAME, startAgentProcess, type AgentScope, type Harness } from "../harness/harness.ts";
+import { MCP_SERVER_NAME, startAgentProcess, type AgentScope, type CacheState, type Harness } from "../harness/harness.ts";
 import { defaultHarnesses, findHarness } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { NewLogEntry, Store } from "../store/store.ts";
@@ -86,9 +87,15 @@ type Pending = Pick<PendingPermission, "at"> & {
   respond: (response: RequestPermissionResponse) => void;
 };
 
+/** A harness waiting for one of the agent's extension notifications (see `ContextAgent.nextExt`). */
+type ExtWaiter = { method: string; match: (params: unknown) => boolean; resolve: (params: unknown) => void; reject: (error: Error) => void };
+
 /** One agent process, from spawn until it closed. */
 type Proc = {
   agentId: string;
+  harness: Harness;
+  /** The agent's HOME from its spawn environment, for its harness (`ContextAgent.home`). */
+  home: string | undefined;
   /** The agent's folder. */
   cwd: string;
   pid: number | undefined;
@@ -123,9 +130,21 @@ type Proc = {
   /** The latest stored main-session config options (`configOf`, kept across the fold's restarts); what a set is checked against. */
   config: ConfigOption[] | undefined;
   skipped: number;
+  /**
+   * True while a hidden turn (`contextBreakdown`) runs: the agent's updates are dropped, and messages and config
+   * changes answer `busy`. Set and cleared only by `contextBreakdown`.
+   */
+  hidden: boolean;
+  /** The prompt cache as the harness last reported it (`AgentSummary.cache`); in memory only. */
+  cache: CacheState | null;
+  /** Harnesses waiting for extension notifications; rejected when the process ends. */
+  extWaiters: Set<ExtWaiter>;
 };
 
 const START_TIMEOUT_MS = 60_000;
+/** Why a message or config change is refused while the agent reports its context. */
+const HIDDEN_BUSY =
+  "The agent is reporting its context. Try again in a moment; if it stays busy, stop the agent and start a new one.";
 /** How long an agent gets to exit after SIGTERM before its process group is killed. */
 const KILL_GRACE_MS = 2_000;
 /** How long after an agent exits its stdio may stay open (still being read) before the service drops it. */
@@ -191,6 +210,11 @@ const checkConfigValue = (option: ConfigOption, value: string | boolean) => {
 export const notFound = (agentId: string) =>
   new AgentError(AgentErrorCode.enum.not_found, `There's no agent ${agentId}. List the agents to see which exist.`);
 
+const busy = (message: string) => new AgentError(AgentErrorCode.enum.busy, message);
+
+const sameCache = (a: CacheState | null, b: CacheState | null) =>
+  a === b || (a !== null && b !== null && a.ttlSeconds === b.ttlSeconds && a.lastRequestAt === b.lastRequestAt);
+
 const notRunning = () =>
   new AgentError(
     AgentErrorCode.enum.not_running,
@@ -251,10 +275,15 @@ export const createManager = ({
     proc.tokenKey = undefined;
   };
 
-  /** Stores the summary with `hasProcess` derived from the live processes, its only source. */
+  /**
+   * Stores the summary with `hasProcess` derived from the live processes, its only source. `cache` stays on the
+   * in-memory summary and is never stored (D19).
+   */
   const putSummary = (fields: Omit<AgentSummary, "hasProcess">, type: "agent_added" | "agent_changed") => {
     const summary: AgentSummary = { ...fields, hasProcess: procs.has(fields.id) };
-    const seq = store.putAgent(summary);
+    const stored = { ...summary };
+    delete stored.cache;
+    const seq = store.putAgent(stored);
     summaries.set(summary.id, summary);
     emit({ seq, agentId: summary.id, type });
     return summary;
@@ -401,6 +430,10 @@ export const createManager = ({
     }
     const { agentId } = proc;
     const kind = safeName((update as { sessionUpdate?: unknown } | null)?.sessionUpdate);
+    if (proc.hidden) {
+      log("update_hidden", { agentId, kind });
+      return;
+    }
     let entry: LogEntry | undefined;
     try {
       entry = parseLogEntry({ type: "session_update", seq: 0, agentId, at: now(), sessionId, update });
@@ -424,6 +457,60 @@ export const createManager = ({
     });
   };
 
+  /**
+   * An extension notification: the harness reads it (a cache state it reports is kept on the proc and, when it
+   * changed, written to the in-memory summary), then any harness waiting for it gets its params.
+   */
+  const handleExt = (proc: Proc, method: string, params: unknown) => {
+    const { agentId } = proc;
+    let result: ReturnType<NonNullable<Harness["extNotification"]>>;
+    try {
+      result = proc.harness.extNotification?.(method, params, proc.cache);
+    } catch {
+      log("ext_invalid", { agentId });
+    }
+    const cache = result?.cache;
+    if (cache !== undefined && !sameCache(cache, proc.cache)) {
+      proc.cache = cache;
+      const current = summaries.get(agentId);
+      if (proc.recorded && current) safely(agentId, "cache", () => putSummary({ ...current, cache }, "agent_changed"));
+    }
+    for (const waiter of [...proc.extWaiters]) {
+      let matched = false;
+      try {
+        matched = waiter.method === method && waiter.match(params);
+      } catch {
+        // A match that throws is no match.
+      }
+      if (!matched) continue;
+      proc.extWaiters.delete(waiter);
+      waiter.resolve(params);
+    }
+  };
+
+  /** `ContextAgent.nextExt` for the agent: the params of its next notification `method` that `match` accepts. */
+  const nextExt = (proc: Proc, method: string, match: (params: unknown) => boolean, timeoutMs: number) =>
+    new Promise<unknown>((resolve, reject) => {
+      const waiter: ExtWaiter = {
+        method,
+        match,
+        resolve: (params) => {
+          clearTimeout(timer);
+          resolve(params);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          proc.extWaiters.delete(waiter);
+          reject(error);
+        },
+      };
+      const timer = setTimeout(
+        () => waiter.reject(new Error(`The agent sent no report within ${timeoutMs / 1000} s.`)),
+        timeoutMs,
+      );
+      proc.extWaiters.add(waiter);
+    });
+
   /** Stores the agent's main-session options as a config_option_update; false when they don't parse. */
   const appendConfig = (proc: Proc, options: unknown[]) => {
     const parsed = ConfigOptions.safeParse(options);
@@ -439,6 +526,11 @@ export const createManager = ({
     const { agentId } = proc;
     const { sessionId } = request;
     const requestId = randomUUID();
+    // A hidden turn leaves no trace, and nobody could answer: the agent gets `cancelled`.
+    if (proc.hidden) {
+      log("permission_hidden", { agentId, requestId });
+      return Promise.resolve<RequestPermissionResponse>({ outcome: { outcome: "cancelled" } });
+    }
     const offered = new Map<PermissionKind, string>();
     for (const option of request.options) {
       const kind = AnswerPermissionRequest.shape.kind.safeParse(option.kind);
@@ -513,10 +605,13 @@ export const createManager = ({
   };
 
   const spawnAgent = (agentId: string, harness: Harness, cwd: string, scope: AgentScope | undefined): Proc => {
-    const child: ChildProcessWithoutNullStreams = startAgentProcess(harness.spawn(cwd, env), scope ? { scope } : {});
+    const spec = harness.spawn(cwd, env);
+    const child: ChildProcessWithoutNullStreams = startAgentProcess(spec, scope ? { scope } : {});
     const { promise: closed, resolve: markClosed } = Promise.withResolvers<void>();
     const proc: Proc = {
       agentId,
+      harness,
+      home: spec.env.HOME,
       cwd,
       pid: child.pid,
       unit: scope?.unit,
@@ -525,6 +620,7 @@ export const createManager = ({
       acp: connectAgent(child, {
         update: (sessionId, update) => handleUpdate(proc, sessionId, update),
         permission: (request) => requestPermission(proc, request),
+        ext: (method, params) => handleExt(proc, method, params),
       }),
       tokenKey: undefined,
       closed,
@@ -537,6 +633,9 @@ export const createManager = ({
       fold: undefined,
       config: undefined,
       skipped: 0,
+      hidden: false,
+      cache: null,
+      extWaiters: new Set(),
     };
 
     let finished = false;
@@ -547,6 +646,7 @@ export const createManager = ({
       procs.delete(agentId);
       proc.acp.close();
       cancelPending(proc);
+      for (const waiter of [...proc.extWaiters]) waiter.reject(new Error("The agent's process ended."));
       // A turn the process ended under gets its end in the log too; a removed agent has no log left.
       if (proc.recorded && proc.turn && proc.ending !== "remove") {
         proc.turn = false;
@@ -741,9 +841,8 @@ export const createManager = ({
     }
     const proc = procs.get(agentId);
     if (!proc?.recorded || proc.ending) throw notRunning();
-    if (proc.turn) {
-      throw new AgentError(AgentErrorCode.enum.busy, "The agent is still working on the last message. Wait for it to finish, or cancel it.");
-    }
+    if (proc.turn) throw busy("The agent is still working on the last message. Wait for it to finish, or cancel it.");
+    if (proc.hidden) throw busy(HIDDEN_BUSY);
     const at = now();
     const [seq = 0] = appendLog(proc, [
       { type: "user_message", at, text, ...(commandId === undefined ? {} : { commandId }) },
@@ -798,6 +897,7 @@ export const createManager = ({
     if (!summaries.has(agentId)) throw notFound(agentId);
     const proc = procs.get(agentId);
     if (!proc?.recorded || proc.ending) throw notRunning();
+    if (proc.hidden) throw busy(HIDDEN_BUSY);
     const option = proc.config?.find(({ id }) => id === configId);
     if (option === undefined) {
       const ids = (proc.config ?? []).map(({ id }) => id);
@@ -908,9 +1008,78 @@ export const createManager = ({
   /** Tells the listeners about a committed proposal change (stored, approved, rejected, conflict). */
   const proposalCommitted = (proposalId: string, seq: number) => emit({ seq, type: PROPOSAL_ALERT, proposalId });
 
+  /**
+   * The agent's context breakdown, by a hidden turn its harness drives: nothing of the turn reaches the log, the
+   * summary or the events, and nothing else runs on the agent meanwhile. Refused while a turn runs (`busy`); a failure
+   * answers `agent_error` with the agent's message, and the agent stays as it was.
+   */
+  const contextBreakdown = async (agentId: string): Promise<ContextBreakdown> => {
+    assertOpen();
+    if (!summaries.has(agentId)) throw notFound(agentId);
+    const proc = procs.get(agentId);
+    if (!proc?.recorded || proc.ending) throw notRunning();
+    const report = proc.harness.contextBreakdown;
+    if (report === undefined) {
+      throw new AgentError(
+        AgentErrorCode.enum.unsupported,
+        `${proc.harness.name} doesn't report its context. Use an agent whose harness offers the context feature.`,
+      );
+    }
+    if (proc.turn) throw busy("The agent is working on a turn; its context is available once it is idle. Try again then.");
+    if (proc.hidden) throw busy(HIDDEN_BUSY);
+    proc.hidden = true;
+    // The hidden turn's prompts still unanswered: it stays hidden until the agent has answered them all, even when
+    // the harness gave up on one earlier.
+    let open = 0;
+    let ended = false;
+    const unhide = () => {
+      if (ended && open === 0) proc.hidden = false;
+    };
+    try {
+      return await report({
+        prompt: (text) => {
+          open += 1;
+          return proc.acp.prompt(proc.sessionId, text).finally(() => {
+            open -= 1;
+            unhide();
+          });
+        },
+        nextExt: (method, match, timeoutMs) => nextExt(proc, method, match, timeoutMs),
+        home: proc.home,
+      });
+    } catch (error) {
+      if (proc.acp.isClosed() || proc.ending) throw notRunning();
+      const code = rpcCode(error);
+      log("context_failed", { agentId, code: code ?? -1 });
+      const said = rpcMessage(error);
+      // An ACP error is the agent's, and may pass: try again. Anything else is the harness's, whose message names the
+      // remedy.
+      const next =
+        code === undefined
+          ? (said ?? "")
+          : `Try again.${said === undefined || said === "" ? "" : ` The agent said: ${said}`}`;
+      throw new AgentError(
+        AgentErrorCode.enum.agent_error,
+        `The agent couldn't report its context${code === undefined ? "" : ` (ACP error ${code})`}; it keeps running as it was.${next === "" ? "" : ` ${next}`}`,
+      );
+    } finally {
+      ended = true;
+      // A prompt the harness no longer waits for is cancelled; the turn stays hidden until the agent answers it.
+      if (open > 0) {
+        log("context_cancelled", { agentId });
+        void proc.acp.cancel(proc.sessionId).catch(() => undefined);
+      }
+      unhide();
+    }
+  };
+
+  /** The agent's live cache state (`AgentSummary.cache`): undefined without a process, null when none is known. */
+  const liveCache = (agentId: string): CacheState | null | undefined => procs.get(agentId)?.cache;
+
   return {
     start,
     send,
+    contextBreakdown,
     answer,
     setConfig,
     cancel,
@@ -921,6 +1090,7 @@ export const createManager = ({
     setMcpUrl,
     agentForToken,
     proposalCommitted,
+    liveCache,
   };
 };
 

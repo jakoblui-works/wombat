@@ -16,7 +16,7 @@ import { readInstructions } from "../src/items/instructions.ts";
 import type { Harness } from "../src/harness/harness.ts";
 import { openStore, type Store, type StoreOptions } from "../src/store/store.ts";
 import { SCENARIOS, type FakeScenario } from "./fake-agent.ts";
-import { fakeHarness } from "./fake-harness.ts";
+import { fakeHarness, type FakeHarnessOptions } from "./fake-harness.ts";
 import { fakeSystemd, type FakeSystemd, type FakeSystemdOptions } from "./fake-systemd.ts";
 
 /** Per-test timeout and how long a test waits for an agent to get somewhere, in one place. */
@@ -32,8 +32,8 @@ export type { Committed };
 const RECORD_PID = pathToFileURL(join(import.meta.dirname, "record-pid.ts")).href;
 
 /** The fake agent on `scenario`, with id `fake-<scenario>`, recording its pid in `pidDir`. */
-export const trackedHarness = (scenario: FakeScenario, pidDir: string): Harness => {
-  const fake = fakeHarness(scenario);
+export const trackedHarness = (scenario: FakeScenario, pidDir: string, options: FakeHarnessOptions = {}): Harness => {
+  const fake = fakeHarness(scenario, options);
   return {
     ...fake,
     id: `fake-${scenario}`,
@@ -45,6 +45,23 @@ export const trackedHarness = (scenario: FakeScenario, pidDir: string): Harness 
 };
 
 export const ALL_SCENARIOS: readonly FakeScenario[] = SCENARIOS;
+
+/** A harness on the reply scenario that doesn't offer the context breakdown (no `contextBreakdown`). */
+export const NO_CONTEXT_HARNESS = "fake-reply-no-context";
+
+/**
+ * A harness on the hang scenario whose `contextBreakdown` gives up after CONTEXT_GIVE_UP_MS, while the agent still
+ * holds the `/context` prompt (until a release file or a cancel; see CONTEXT_CANCELLED_FILE).
+ */
+export const GIVE_UP_HARNESS = "fake-hang-gives-up";
+export const CONTEXT_GIVE_UP_MS = 300;
+
+/** Every harness the fixtures give the manager: each scenario as `fake-<scenario>`, NO_CONTEXT_HARNESS and GIVE_UP_HARNESS. */
+export const fixtureHarnesses = (pidDir: string): Harness[] => [
+  ...ALL_SCENARIOS.map((scenario) => trackedHarness(scenario, pidDir)),
+  { ...trackedHarness("reply", pidDir, { context: false }), id: NO_CONTEXT_HARNESS },
+  { ...trackedHarness("hang", pidDir, { contextTimeoutMs: CONTEXT_GIVE_UP_MS }), id: GIVE_UP_HARNESS },
+];
 
 export const isAlive = (pid: number) => {
   try {
@@ -143,7 +160,7 @@ export const setup = ({ systemd = "none", fake, storeOptions = {} }: SetupOption
   const pidDir = join(base, "pids");
   mkdirSync(pidDir);
   const storePath = join(base, "state", "wombat", "service.db");
-  const harnesses = ALL_SCENARIOS.map((scenario) => trackedHarness(scenario, pidDir));
+  const harnesses = fixtureHarnesses(pidDir);
   const logs: LogLine[] = [];
   const committed: Committed[] = [];
 

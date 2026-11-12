@@ -88,7 +88,7 @@ describe("session/new", () => {
       await manager.start("plain", "repo");
 
       expect(read("claude")._meta).toEqual({
-        claudeCode: { options: { allowedTools: ["mcp__wombat__*"] } },
+        claudeCode: { options: { allowedTools: ["mcp__wombat__*"] }, emitRawSDKMessages: [{ type: "assistant" }] },
       });
       expect(read("plain")).not.toHaveProperty("_meta");
     },

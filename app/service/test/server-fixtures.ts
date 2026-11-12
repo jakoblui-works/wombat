@@ -12,7 +12,7 @@ import { expect, onTestFinished } from "vitest";
 import { openCatalog } from "../src/items/catalog.ts";
 import { openWriter } from "../src/items/write.ts";
 import { startServer } from "../src/server/server.ts";
-import { ALL_SCENARIOS, REPO, setup, trackedHarness, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
+import { fixtureHarnesses, REPO, setup, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
 
 export { APP_ORIGIN };
 
@@ -30,6 +30,7 @@ export const appRoutes = (agentId: string): { method: string; path: string; body
   { method: "POST", path: `/agents/${agentId}/messages`, body: { text: "Refused prompt" } },
   { method: "POST", path: `/agents/${agentId}/permissions/req_1`, body: { kind: "allow_once" } },
   { method: "POST", path: `/agents/${agentId}/config`, body: { configId: "model", value: "fake-small" } },
+  { method: "POST", path: `/agents/${agentId}/context` },
   { method: "POST", path: `/agents/${agentId}/cancel` },
   { method: "POST", path: `/agents/${agentId}/stop` },
   { method: "DELETE", path: `/agents/${agentId}` },
@@ -264,7 +265,7 @@ export type Served = Setup & {
 export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentTokens = {}, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
   const t = setup(setupOptions);
   const token = randomBytes(24).toString("base64url");
-  const harnesses = ALL_SCENARIOS.map((scenario) => trackedHarness(scenario, t.pidDir));
+  const harnesses = fixtureHarnesses(t.pidDir);
   // The server gets the manager with onCommitted counted, so tests can see subscriptions it leaves behind, and with
   // the stub agent tokens.
   let live = 0;

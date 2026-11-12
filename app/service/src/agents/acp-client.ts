@@ -12,10 +12,12 @@ import {
   type RequestPermissionResponse,
 } from "@agentclientprotocol/sdk";
 
-/** What the agent asks of the client; both handlers must not throw. */
+/** What the agent asks of the client; the handlers must not throw. */
 export type AgentHandlers = {
   /** A `session/update`'s update, unparsed: the caller checks it against the shared contract. */
   update: (sessionId: string, update: unknown) => void;
+  /** Every other notification (ACP extension notifications, `_`-prefixed), with its method and params unparsed. */
+  ext: (method: string, params: unknown) => void;
   permission: (request: RequestPermissionRequest) => Promise<RequestPermissionResponse>;
 };
 
@@ -59,6 +61,10 @@ export const connectAgent = (child: ChildProcessWithoutNullStreams, handlers: Ag
   const app = client({ name: "wombat-service" })
     .onNotification("session/update", ({ params }) => {
       handlers.update(params.sessionId, params.update);
+    })
+    // The SDK's fallback, after normal dispatch: every notification no handler above took.
+    .onNotification("*", ({ method, params }) => {
+      handlers.ext(method, params);
     })
     // No fs or terminal capabilities are advertised, so permission requests are the only requests expected.
     .onRequest("session/request_permission", ({ params }) => handlers.permission(params));

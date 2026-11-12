@@ -25,6 +25,7 @@ export const AGENT_STATUS: Record<AgentErrorCode, ContentfulStatusCode> = {
   auth_required: 502,
   agent_failed: 502,
   agent_error: 502,
+  unsupported: 409,
 };
 
 /** No route sends `items_not_writable` yet: a writer failure on approve falls through to `internal_error`. */

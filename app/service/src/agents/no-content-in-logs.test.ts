@@ -5,7 +5,14 @@ import { randomUUID } from "node:crypto";
 import type { LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
-import { CONFIG_REFUSAL_MESSAGE, FAKE_CONFIG } from "../../test/fake-agent.ts";
+import {
+  CONFIG_REFUSAL_MESSAGE,
+  CONTEXT_FAILURE_MESSAGE,
+  FAKE_BREAKDOWN,
+  FAKE_CONFIG,
+  HIDDEN_TITLE,
+  HIDDEN_UPDATE_MARKER,
+} from "../../test/fake-agent.ts";
 import { killedUnits, sliceStops } from "../../test/fake-systemd.ts";
 import { chunkTexts, REPO, setup, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
 
@@ -148,3 +155,19 @@ describe("no agent content in logs", () => {
     TEST_TIMEOUT_MS,
   );
 });
+
+// S2c, T13 (row T13-5): a hidden /context turn drops the agent's updates; dropping them must not log what they carry.
+test(
+  "a hidden /context turn's content never reaches a log line, also when the turn fails",
+  async () => {
+    const t = setup();
+    const reply = await t.manager.start("fake-reply", REPO);
+    expect(await t.manager.contextBreakdown(reply.id), "the hidden turn ran").toEqual(FAKE_BREAKDOWN);
+    const failing = await t.manager.start("fake-prompt-error", REPO);
+    await expect(t.manager.contextBreakdown(failing.id), "the failing hidden turn ran").rejects.toMatchObject({ code: "agent_error" });
+
+    const lines = JSON.stringify(t.logs);
+    for (const marker of [HIDDEN_UPDATE_MARKER, HIDDEN_TITLE, CONTEXT_FAILURE_MESSAGE]) expect(lines).not.toContain(marker);
+  },
+  TEST_TIMEOUT_MS,
+);

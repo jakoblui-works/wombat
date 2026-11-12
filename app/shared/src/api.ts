@@ -142,8 +142,10 @@ export type RepoErrorCode = z.infer<typeof RepoErrorCode>;
  * - `auth_required`: `POST /agents` when the harness needs a login. The app tells the user to log in.
  * - `agent_failed`: `POST /agents` when the agent didn't start; as a summary's `error.code`, a turn that failed
  *   or a process that ended unexpectedly. The app shows the message and offers a new agent.
- * - `agent_error`: the agent refused a request (today only `POST /agents/:id/config`). The message ends with the
- *   agent's own; the app shows it, and the agent keeps running as it was.
+ * - `agent_error`: the agent refused a request (`POST /agents/:id/config`) or failed one (`POST /agents/:id/context`).
+ *   The message ends with the agent's own; the app shows it, and the agent keeps running as it was.
+ * - `unsupported`: the agent's harness doesn't offer what was asked (`POST /agents/:id/context` without the `context`
+ *   feature). The app doesn't offer it for that harness.
  */
 export const AgentErrorCode = z.enum([
   "not_found",
@@ -155,6 +157,7 @@ export const AgentErrorCode = z.enum([
   ...RepoErrorCode.options,
   "agent_failed",
   "agent_error",
+  "unsupported",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 
@@ -231,7 +234,11 @@ export type ErrorCode = z.infer<typeof ErrorCode>;
 export const VersionResponse = z.object({ apiVersion: z.int(), startedAt: Timestamp.exactOptional(), codeId: z.string().exactOptional() });
 export type VersionResponse = z.infer<typeof VersionResponse>;
 
-export const ListHarnessesResponse = z.array(z.object({ id: z.string(), name: z.string() }));
+/**
+ * `features`: what the harness offers beyond the core (`context`: `POST /agents/:id/context`); `[]` from a service
+ * from before the field.
+ */
+export const ListHarnessesResponse = z.array(z.object({ id: z.string(), name: z.string(), features: z.array(z.string()).default([]) }));
 export type ListHarnessesResponse = z.infer<typeof ListHarnessesResponse>;
 
 /** The folders an agent may start in: the workspace root (`path: "."`) first, then its git repos by name. */
@@ -297,6 +304,12 @@ const AgentSummaryFields = z.object({
    * still offers Stop and asks before quitting.
    */
   hasProcess: z.boolean(),
+  /**
+   * The agent's prompt cache as its harness last reported it: how long it lives and when the last request that wrote
+   * or read it was. In memory only, never stored: absent for an agent whose harness reports none and after a restart;
+   * null when the harness knows of no cache.
+   */
+  cache: z.object({ ttlSeconds: z.number(), lastRequestAt: Timestamp }).nullable().exactOptional(),
 });
 
 export const AgentSummary = z.preprocess(
@@ -460,6 +473,13 @@ type SelectValueGroup = z.infer<typeof SelectGroup>;
 /** Every value a select option takes, in the agent's order, whether its options are flat or in groups. */
 export const selectValues = (option: Pick<SelectConfigOption, "options">): SelectValue[] =>
   option.options.flatMap((entry): SelectValue[] => ("group" in entry ? entry.options : [entry]));
+
+/**
+ * The first option with that ACP category (`model`, `thought_level`, `mode`), or undefined when none has it: the one
+ * rule for which option is the model, the effort, the mode. Never by id or name.
+ */
+export const optionByCategory = (options: readonly ConfigOption[], category: string): ConfigOption | undefined =>
+  options.find((option) => option.category === category);
 
 /** A select option's groups, or undefined when its options are flat (or there are none). */
 export const selectGroups = (option: Pick<SelectConfigOption, "options">): SelectValueGroup[] | undefined => {
@@ -652,3 +672,26 @@ export const parseAlert = (data: unknown): Alert | undefined => {
   }
   return Alert.parse(data);
 };
+
+/**
+ * An agent's context window broken down (`POST /agents/:id/context`), made by its harness from the agent's own report.
+ * `used` and `size` in tokens; `categories` in the agent's order, a kind this app doesn't know reading as "used";
+ * `lists` are the harness's named lists (memory files, tools, ...), each with an id a harness-specific dialog may
+ * match on and a title any dialog shows.
+ */
+export const ContextBreakdown = z.object({
+  model: z.string(),
+  used: z.number(),
+  size: z.number(),
+  categories: z.array(
+    z.object({ name: z.string(), tokens: z.number(), kind: z.enum(["used", "free", "buffer", "deferred"]).catch("used") }),
+  ),
+  lists: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      rows: z.array(z.object({ name: z.string(), detail: z.string().exactOptional(), tokens: z.number() })),
+    }),
+  ),
+});
+export type ContextBreakdown = z.infer<typeof ContextBreakdown>;

@@ -18,6 +18,8 @@ import {
   ServerErrorCode,
   SetConfigRequest,
   StartAgentRequest,
+  type AgentSummary,
+  type ContextBreakdown,
   type ErrorBody,
   type GetItemResponse,
   type ListAgentsResponse,
@@ -42,6 +44,7 @@ import { handlesById, summarize, withLinks } from "../items/api-view.ts";
 import { findByHandle, type Catalog } from "../items/catalog.ts";
 import type { Writer } from "../items/write.ts";
 import type { Harness } from "../harness/harness.ts";
+import { harnessFeatures } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { listRepos, RepoError } from "../workspace.ts";
@@ -143,6 +146,11 @@ export const startServer = async ({
   let boundPort = 0;
   const alerts = createAlertStreams({ onCommitted: manager.onCommitted, dbId: store.dbId, heartbeatMs });
   const app = new Hono();
+  /** A stored summary with the agent's live cache state, which is never stored (D19); the only place it is added. */
+  const withLiveCache = (agent: AgentSummary): AgentSummary => {
+    const cache = manager.liveCache(agent.id);
+    return cache === undefined ? agent : { ...agent, cache };
+  };
   // Proposal changes reach the alert stream through the manager's listeners, like agent changes.
   const access =
     items && writer
@@ -172,13 +180,13 @@ export const startServer = async ({
   app.get("/version", (c) => c.json({ apiVersion: API_VERSION, ...identity } satisfies VersionResponse));
 
   app.get("/harnesses", (c) =>
-    c.json(harnesses.map(({ id, name }) => ({ id, name })) satisfies ListHarnessesResponse),
+    c.json(harnesses.map((harness) => ({ id: harness.id, name: harness.name, features: harnessFeatures(harness) })) satisfies ListHarnessesResponse),
   );
 
   app.get("/repos", (c) => c.json({ repos: listRepos(workspaceRoot) } satisfies ListReposResponse));
 
   app.get("/agents", (c) =>
-    c.json({ dbId: store.dbId, seq: store.currentSeq(), agents: store.listAgents() } satisfies ListAgentsResponse),
+    c.json({ dbId: store.dbId, seq: store.currentSeq(), agents: store.listAgents().map(withLiveCache) } satisfies ListAgentsResponse),
   );
 
   app.post("/agents", async (c) => {
@@ -219,6 +227,9 @@ export const startServer = async ({
     await manager.setConfig(c.req.param("id"), configId, value);
     return c.body(null, 204);
   });
+
+  // A hidden turn: the breakdown, with nothing of the turn in the agent's log or summary.
+  app.post("/agents/:id/context", async (c) => c.json(await manager.contextBreakdown(c.req.param("id")) satisfies ContextBreakdown));
 
   app.post("/agents/:id/cancel", async (c) => {
     await manager.cancel(c.req.param("id"));
