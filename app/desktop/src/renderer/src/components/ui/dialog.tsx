@@ -1,4 +1,5 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
+import { X } from "lucide-react"
 import { cn } from "../../lib/utils"
 
 function Dialog(props: DialogPrimitive.Root.Props) {
@@ -29,8 +30,22 @@ function DialogDescription({ className, ...props }: DialogPrimitive.Description.
   return <DialogPrimitive.Description data-slot="dialog-description" className={cn("text-sm text-fg-secondary", className)} {...props} />
 }
 
+/** A × in the popup's top-right corner; the popup's content leaves room for it (`pr-8` on the title). */
+function DialogClose({ className, ...props }: DialogPrimitive.Close.Props) {
+  return (
+    <DialogPrimitive.Close
+      data-slot="dialog-close"
+      aria-label="Close"
+      className={cn("absolute top-3 right-3 inline-flex size-7 items-center justify-center rounded-md text-fg-secondary outline-none hover:bg-surface-3 hover:text-fg-primary focus-visible:ring-2 focus-visible:ring-focus", className)}
+      {...props}
+    >
+      <X aria-hidden="true" className="size-4" />
+    </DialogPrimitive.Close>
+  )
+}
+
 function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
   return <div data-slot="dialog-footer" className={cn("flex justify-end gap-2", className)} {...props} />
 }
 
-export { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle }
+export { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogTitle }

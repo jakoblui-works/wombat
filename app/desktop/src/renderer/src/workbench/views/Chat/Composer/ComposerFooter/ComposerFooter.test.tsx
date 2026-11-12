@@ -1,9 +1,14 @@
-// T6-2: the footer shows the agent's options in the agent's order, each by its type; nothing in it names a tool vendor.
-import type { ConfigOption } from "@wombat/shared/api";
+// T6-2, as S2c changes it (T14, row T14-6): the footer shows the agent's tool and its settings through the slots;
+// nothing in it, nor in the default dialogs' bodies, names a tool vendor. (Which option shows how is the settings
+// dialog's: SettingsDialog/SettingsPanel.test.tsx.)
+import type { ConfigOption, ContextBreakdown } from "@wombat/shared/api";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 
+import { summary } from "../../../../../../../../test/summaries.ts";
 import { ComposerFooter } from "./ComposerFooter.tsx";
+import { SettingsPanel } from "./SettingsDialog/SettingsDialog.tsx";
+import { footerSlot } from "./slots.ts";
 
 const options: ConfigOption[] = [
   { id: "z", name: "Zed mode", type: "boolean", currentValue: true },
@@ -11,6 +16,7 @@ const options: ConfigOption[] = [
     id: "m",
     name: "Model",
     type: "select",
+    category: "model",
     currentValue: "small",
     options: [
       { value: "small", name: "Small one" },
@@ -22,28 +28,37 @@ const options: ConfigOption[] = [
     id: "g",
     name: "Effort",
     type: "select",
+    category: "thought_level",
     currentValue: "low",
     options: [{ group: "tiers", name: "Tiers", options: [{ value: "low", name: "Low effort" }] }],
   },
 ];
-const render = (given: ConfigOption[] | undefined) => renderToStaticMarkup(<ComposerFooter toolName="Some tool" options={given} usage={undefined} onSet={() => undefined} />);
 
-test("options come in the agent's order, each by its type", () => {
-  const html = render(options);
-  const at = (text: string) => html.indexOf(text);
-  expect([at("Some tool"), at("Zed mode"), at("Model"), at("Thinking"), at("Effort")].every((index, i, all) => index >= 0 && (i === 0 || index > (all[i - 1] ?? 0)))).toBe(true);
-  expect(html).toMatch(/role="switch"[^>]*aria-label="Zed mode"|aria-label="Zed mode"[^>]*role="switch"/);
-  expect(html.match(/role="combobox"/g)).toHaveLength(2);
-  expect(html).toContain("Small one");
-  expect(html).toContain("Low effort");
-  // A type this app doesn't know reads as text, with its value.
-  expect(html).toMatch(/<span[^>]*>Thinking: 3<\/span>/);
-});
+const breakdown: ContextBreakdown = {
+  model: "small",
+  used: 52_000,
+  size: 200_000,
+  categories: [
+    { name: "Conversation", tokens: 52_000, kind: "used" },
+    { name: "Free space", tokens: 148_000, kind: "free" },
+  ],
+  lists: [{ id: "notes", title: "Notes", rows: [{ name: "opening-hours.md", detail: "Project", tokens: 300 }] }],
+};
 
-test("without options only the tool name shows, and nothing names a vendor", () => {
-  const html = render(undefined);
-  expect(html).toContain("Some tool");
-  expect(html).not.toContain('role="combobox"');
-  expect(html.toLowerCase()).not.toContain("claude");
-  expect(render(options).toLowerCase()).not.toContain("claude");
+const agent = summary("agent-bakery-1", { harness: "fake-reply" });
+
+const render = (given: ConfigOption[] | undefined) =>
+  renderToStaticMarkup(<ComposerFooter agent={agent} toolName="Some tool" options={given} usage={{ used: 52_000, size: 200_000 }} onSet={() => undefined} />);
+
+test("the footer shows the tool's name, and neither it nor the default dialogs name a vendor", () => {
+  expect(render(undefined)).toContain("Some tool");
+  const DefaultContextDialog = footerSlot(agent.harness, "contextDialog");
+  const shown = [
+    render(undefined),
+    render(options),
+    renderToStaticMarkup(<SettingsPanel config={options} setConfig={() => Promise.resolve()} />),
+    renderToStaticMarkup(<DefaultContextDialog agent={agent} breakdown={breakdown} error={undefined} />),
+    renderToStaticMarkup(<DefaultContextDialog agent={agent} breakdown={undefined} error="Available once the agent is idle" />),
+  ];
+  for (const html of shown) expect(html.toLowerCase()).not.toMatch(/claude|anthropic/);
 });

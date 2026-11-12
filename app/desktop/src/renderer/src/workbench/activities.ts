@@ -2,6 +2,7 @@
 import { Bot, Columns2, Files, Inbox, FolderCog, GitBranch, LayoutDashboard, List, MessageSquare, type LucideIcon } from "lucide-react";
 import { createElement } from "react";
 
+import "../harnesses/claude/claude-ui.ts";
 import { AGENTS_ACTIVITY } from "./activity-ids.ts";
 import { type ActivityDescriptor, registerActivity, registerView } from "./registry.ts";
 import { AgentsList } from "./views/AgentsList/AgentsList.tsx";

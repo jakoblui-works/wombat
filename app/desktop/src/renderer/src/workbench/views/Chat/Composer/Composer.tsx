@@ -3,13 +3,20 @@ import { useEffect, useReducer } from "react";
 
 import { Button } from "../../../../components/ui/button";
 import { sendMessageVars, useCancelTurn, useSendMessage } from "../../../../data/commands.ts";
-import { canSend, composerReducer, keyAction } from "./composer-state.ts";
+import { appCommand, canSend, composerReducer, keyAction } from "./composer-state.ts";
 import { forgetUnsent, openingComposer } from "./unsent.ts";
 
-type Props = { agentId: string; turnActive: boolean; connected: boolean };
+type Props = {
+  agentId: string;
+  turnActive: boolean;
+  connected: boolean;
+  /** The agent's harness features (`GET /harnesses`): which app commands the text may be. */
+  features: readonly string[];
+  onOpenContext: () => void;
+};
 
 /** The message box: Send, and Cancel while a turn runs. */
-export const Composer = ({ agentId, turnActive, connected }: Props) => {
+export const Composer = ({ agentId, turnActive, connected, features, onOpenContext }: Props) => {
   // A message handed over (the first one, when it wasn't sent) shows as a failed send, its text in the box.
   const [state, dispatch] = useReducer(composerReducer, agentId, openingComposer);
   useEffect(() => forgetUnsent(agentId), [agentId]);
@@ -21,6 +28,12 @@ export const Composer = ({ agentId, turnActive, connected }: Props) => {
   useEffect(() => resetCancel(), [turnActive, resetCancel]);
 
   const send = () => {
+    // Before canSend: the breakdown works while a turn runs (the dialog says if the agent isn't idle).
+    if (appCommand(state.text, features) === "context") {
+      dispatch({ type: "edit", text: "" });
+      onOpenContext();
+      return;
+    }
     if (!sendable) return;
     dispatch({ type: "send" });
     cancelling.reset();

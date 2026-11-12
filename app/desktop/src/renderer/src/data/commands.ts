@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   AgentSummary,
   type AnswerPermissionRequest,
+  ContextBreakdown,
   type SendMessageRequest,
   type SetConfigRequest,
   type StartAgentRequest,
@@ -73,6 +74,10 @@ export const setConfigFn = async ({ agentId, configId, value }: SetConfigVars): 
   await call("POST", `${agentPath(agentId)}/config`, Ignored, { configId, value } satisfies SetConfigRequest);
 };
 
+/** Asks the agent for its context breakdown; a hidden turn, so nothing in the log or the agent list changes. */
+export const contextBreakdownFn = (agentId: string): Promise<ContextBreakdown> =>
+  call("POST", `${agentPath(agentId)}/context`, ContextBreakdown);
+
 export const cancelTurnFn = async (agentId: string): Promise<void> => {
   await call("POST", `${agentPath(agentId)}/cancel`, Ignored);
 };
@@ -103,6 +108,9 @@ export const answerPermissionMutation = (queryClient: QueryClient) =>
 export const setConfigMutation = (queryClient: QueryClient) =>
   mutationOptions({ mutationFn: setConfigFn, onSettled: (_data, _error, { agentId }) => refreshAgent(queryClient, agentId) });
 
+// Nothing to refresh: the breakdown is only for the dialog that asked.
+export const contextBreakdownMutation = () => mutationOptions({ mutationFn: contextBreakdownFn });
+
 export const cancelTurnMutation = (queryClient: QueryClient) =>
   mutationOptions({ mutationFn: cancelTurnFn, onSettled: (_data, _error, agentId: string) => refreshAgent(queryClient, agentId) });
 
@@ -122,6 +130,7 @@ export const useStartAgent = () => useMutation(startAgentMutation(useQueryClient
 export const useSendMessage = () => useMutation(sendMessageMutation(useQueryClient()));
 export const useAnswerPermission = () => useMutation(answerPermissionMutation(useQueryClient()));
 export const useSetConfig = () => useMutation(setConfigMutation(useQueryClient()));
+export const useContextBreakdown = () => useMutation(contextBreakdownMutation());
 export const useCancelTurn = () => useMutation(cancelTurnMutation(useQueryClient()));
 export const useStopAgent = () => useMutation(stopAgentMutation(useQueryClient()));
 export const useDeleteAgent = () => useMutation(deleteAgentMutation(useQueryClient()));

@@ -1,12 +1,15 @@
-// Lasting check "Config options round-trip", the desktop half (T6): the composer footer shows the options the agent
-// uses, as the log says, never a value it picked locally. Against the built app and the fake agent (app-fixtures.ts),
-// which offers a select "Model" (Fake small, Refuse large) and a boolean "Fast mode", and refuses "Refuse large".
-// What this check relies on in the page (roles and names, not looks; interface-S2 "T6: composer footer"):
+// Lasting check "Config options round-trip", the desktop half (T6, through S2c's settings dialog, T14-7): the composer
+// footer shows the options the agent uses, as the log says, never a value it picked locally. Against the built app and
+// the fake agent (app-fixtures.ts), which offers a select "Model" (Fake small, Refuse large; category model), a boolean
+// "Fast mode", a select "Effort" (category thought_level) and a select "Mode" (category mode), and refuses
+// "Refuse large".
+// What this check relies on in the page (roles and names, not looks; interface-S2c "Default settings"):
 // - the footer sits in the agent's chat (the editor group with its tab, agent-views.ts `groupWithTab`);
-// - a select option is a `combobox` named by the option's `name`, showing the current value's name; its values are
-//   `option`s (in a popup, anywhere on the page) named by their names;
-// - a boolean option is a `switch` named by the option's `name`, checked when on.
-import type { Page } from "@playwright/test";
+// - the settings button is a `button` whose name has the current model's and effort's names; it opens a `dialog`;
+// - in the dialog, a select's values are listed by name, a click on one sets it, and the current one carries
+//   aria-checked, aria-selected or aria-current "true"; a boolean is a `switch` named by the option's `name`;
+// - the dialog stays open after a pick.
+import type { Locator } from "@playwright/test";
 
 import { FAKE_CONFIG, fakeConfigOptions } from "../../service/test/fake-agent.ts";
 import { click, expect, openAgent, REPO, startAgent, test, waitForConnection, waitUntil, WAIT_MS, type Sandbox } from "./app-fixtures.ts";
@@ -34,10 +37,11 @@ const setFromElsewhere = async (sandbox: Sandbox, agentId: string, configId: str
   expect(response.status, `set ${configId}=${String(value)} through the api`).toBe(204);
 };
 
-const pick = async (page: Page, combobox: ReturnType<Page["getByRole"]>, name: string): Promise<void> => {
-  await click(combobox);
-  await click(page.getByRole("option", { name, exact: true }));
-};
+/** The element marking a select's current value in the dialog, holding `name`. */
+const current = (dialog: Locator, name: string): Locator =>
+  dialog.locator('[aria-checked="true"], [aria-selected="true"], [aria-current="true"]').filter({ hasText: name });
+
+const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 test.describe("composer footer", () => {
   test("footer: a change made in the footer reaches the agent, one made elsewhere shows in it, and a refused one never sticks", async ({ sandbox }) => {
@@ -50,26 +54,33 @@ test.describe("composer footer", () => {
     await openAgent(launched, agentId, 1);
     const chat = groupWithTab(page, REPO);
 
-    const model = chat.getByRole("combobox", { name: MODEL?.name ?? "", exact: true });
-    const fast = chat.getByRole("switch", { name: FAST?.name ?? "", exact: true });
-    await expect(model, "the session's model").toContainText(optionName(FAKE_CONFIG.model.initial), { timeout: WAIT_MS });
+    const initial = optionName(FAKE_CONFIG.model.initial);
+    const settings = chat.getByRole("button", { name: new RegExp(escape(initial)) });
+    await expect(settings, "the session's model on the settings button").toBeVisible({ timeout: WAIT_MS });
+    await click(settings);
+    const dialog = page.getByRole("dialog");
+    const fast = dialog.getByRole("switch", { name: FAST?.name ?? "", exact: true });
+    await expect(current(dialog, initial), "the session's model, marked").toHaveCount(1, { timeout: WAIT_MS });
     await expect(fast, "the session's fast mode").not.toBeChecked();
 
-    // From the footer to the agent: the log holds the agent's answer.
+    // From the dialog to the agent: the log holds the agent's answer.
     await click(fast);
     await waitUntil("the agent's answer with fast mode on, in the log", WAIT_MS, async () => ((await loggedConfig(sandbox, agentId))[FAST?.id ?? ""] === true ? true : undefined));
     await expect(fast).toBeChecked({ timeout: WAIT_MS });
 
-    // From elsewhere to the footer: what it shows is the log's, not what it last sent.
+    // From elsewhere to the dialog: what it shows is the log's, not what it last sent.
     await setFromElsewhere(sandbox, agentId, FAST?.id ?? "", false);
     await expect(fast, "a change made through the api").not.toBeChecked({ timeout: WAIT_MS });
 
-    // A value the agent refuses: once a later set has gone through, the footer still shows the model in use.
-    await pick(page, model, optionName(REFUSED));
+    // A value the agent refuses: once a later set has gone through, the dialog and the button still show the model in use.
+    await click(dialog.getByText(optionName(REFUSED), { exact: true }));
     await setFromElsewhere(sandbox, agentId, FAST?.id ?? "", true);
     await expect(fast, "the later set").toBeChecked({ timeout: WAIT_MS });
     expect((await loggedConfig(sandbox, agentId))[MODEL?.id ?? ""], "the agent's model").toBe(FAKE_CONFIG.model.initial);
-    await expect(model, "the model the agent still uses").toContainText(optionName(FAKE_CONFIG.model.initial), { timeout: WAIT_MS });
-    await expect(model).not.toContainText(optionName(REFUSED));
+    await expect(current(dialog, initial), "the model the agent still uses, marked").toHaveCount(1, { timeout: WAIT_MS });
+    await expect(current(dialog, optionName(REFUSED)), "the refused model, not marked").toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(settings, "the button shows the model in use").toContainText(initial, { timeout: WAIT_MS });
+    await expect(settings).not.toContainText(optionName(REFUSED));
   });
 });

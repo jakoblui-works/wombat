@@ -1,4 +1,4 @@
-import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { memo, type ReactNode, useEffect, useState, useLayoutEffect, useMemo, useRef } from "react";
 
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { type ChatItem, type ChatModel } from "../../../data/chat-model.ts";
@@ -15,6 +15,7 @@ import { type LiveState, liveState } from "../approvals/live-state.ts";
 import { sameBlock } from "./same-item.ts";
 import { useChatModel } from "../approvals/use-chat-model.ts";
 import { ChatHeader } from "./ChatHeader/ChatHeader.tsx";
+import { ContextDialogHost } from "./ContextDialogHost/ContextDialogHost.tsx";
 import { Composer } from "./Composer/Composer.tsx";
 import { ComposerFooter } from "./Composer/ComposerFooter/ComposerFooter.tsx";
 import { LogError } from "../approvals/LogError/LogError.tsx";
@@ -136,6 +137,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const setConfig = useSetConfig();
   const blocks = useMemo(() => (model === undefined ? [] : chatBlocks(model.items)), [model]);
   const edits = useMemo(() => (model === undefined ? new Map<string, EditRequest>() : editRequests(model, blocks)), [model, blocks]);
+  const [contextOpen, setContextOpen] = useState(false);
   const workbench = useWorkbench();
   const openSideBySide = (requestId: string) => workbench.openBeside(DIFF_VIEW, { agentId, requestId }, { viewId: CHAT_VIEW, params: { agentId } });
   const live = useMemo(() => (model === undefined ? undefined : liveState(model, agent)), [model, agent]);
@@ -219,15 +221,23 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
       )}
       {/* The summary says whether the agent works, the log what it does; both must agree before the line shows. */}
       {agent?.state === "working" ? <WorkingLine activity={model?.activity ?? null} /> : null}
-      <Composer agentId={agentId} turnActive={live?.turnActive ?? false} connected={connected && model !== undefined} />
+      <Composer
+        agentId={agentId}
+        turnActive={live?.turnActive ?? false}
+        connected={connected && model !== undefined}
+        features={harnesses.data?.find(({ id }) => id === agent?.harness)?.features ?? []}
+        onOpenContext={() => setContextOpen(true)}
+      />
       {agent === undefined ? null : (
         <ComposerFooter
+          agent={agent}
           toolName={harnesses.data?.find(({ id }) => id === agent.harness)?.name ?? agent.harness}
           options={model?.config}
           usage={model?.usage}
           onSet={(configId, value) => setConfig.mutateAsync({ agentId, configId, value })}
         />
       )}
+      {agent === undefined ? null : <ContextDialogHost agent={agent} open={contextOpen} onOpenChange={setContextOpen} />}
     </div>
   );
 };

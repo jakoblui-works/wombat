@@ -36,3 +36,7 @@ export const canSend = (state: ComposerState, { turnActive, connected }: { turnA
 /** What a key in the message box does: Enter sends; Shift+Enter (and Enter while an IME composes) is a new line. */
 export const keyAction = ({ key, shiftKey, isComposing }: { key: string; shiftKey: boolean; isComposing: boolean }): "send" | "type" =>
   key === "Enter" && !shiftKey && !isComposing ? "send" : "type";
+
+/** Whether the text is an app command rather than a message: the whole text `/context`, for a harness that offers it. */
+export const appCommand = (text: string, features: readonly string[]): "context" | undefined =>
+  text.trim() === "/context" && features.includes("context") ? "context" : undefined;
