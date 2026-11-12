@@ -10,6 +10,7 @@ export const SCENARIOS = [
   "reply",
   "permission",
   "permissions-three",
+  "permission-left-open",
   "image",
   "auth",
   "crash",
@@ -257,6 +258,24 @@ const run = (scenario: FakeScenario) => {
           const turnCancelled = cancelled.has(sessionId) || outcomes.some(({ outcome }) => outcome.outcome === "cancelled");
           cancelled.delete(sessionId);
           return { stopReason: turnCancelled ? "cancelled" : "end_turn" };
+        }
+        case "permission-left-open": {
+          // Asks for a permission and ends its turn normally without waiting for the answer: the request is still
+          // open when the prompt's answer (end_turn) arrives. Sent in that order on the one stream, so the service
+          // sees the request before the turn's end. The answer (the service's cancel) is ignored.
+          const toolCallId = randomUUID();
+          await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId, title: "Edit notes.txt", kind: "edit", status: "pending" });
+          void client
+            .request("session/request_permission", {
+              sessionId,
+              toolCall: { toolCallId },
+              options: [
+                { optionId: "allow", name: "Allow", kind: "allow_once" },
+                { optionId: "reject", name: "Reject", kind: "reject_once" },
+              ],
+            })
+            .catch(() => undefined);
+          return { stopReason: "end_turn" };
         }
         case "image":
           await send(client, sessionId, {

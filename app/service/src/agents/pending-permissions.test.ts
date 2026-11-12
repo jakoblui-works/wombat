@@ -24,7 +24,7 @@ const announced = (t: Setup) => {
     list.push(t.agent(event.agentId)?.pendingPermissions ?? []);
     seen.set(event.agentId, list);
   });
-  return { last: (agentId: string) => seen.get(agentId)?.at(-1) };
+  return { last: (agentId: string) => seen.get(agentId)?.at(-1), all: (agentId: string) => seen.get(agentId) ?? [] };
 };
 
 /** Starts the permission scenario and waits until its request is open. */
@@ -120,6 +120,35 @@ describe("pending permissions", () => {
 
       expect(t.agent(id)?.pendingPermissions).toEqual([]);
       expect(alerts.last(id)).toEqual([]);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // Lasting check "A permission left open at a normal turn end": the agent ends its prompt (end_turn) while its
+  // request is still open. Only the manager's own cancel at the turn's end clears it; no answer, cancel or exit does.
+  test(
+    "a request still open when the agent ends its turn normally leaves pendingPermissions as the turn ends, and an agent_changed alert says so",
+    async () => {
+      const t = setup();
+      const alerts = announced(t);
+      const { id } = await t.manager.start("fake-permission-left-open", REPO);
+      await t.manager.send(id, { text: "Edit the notes" });
+      const ended = await t.turnEnded(id);
+
+      // Control: the request was asked, and announced as open, before the turn ended.
+      const requested = t.entries(id).find((entry): entry is Requested => entry.type === "permission_requested");
+      expect(requested, "the fake asked for a permission").toBeDefined();
+      expect(requested && requested.seq < ended.seq, "the request came before the turn's end").toBe(true);
+      expect(
+        alerts.all(id).some((list) => list.some((row) => row.requestId === requested?.requestId)),
+        "an agent_changed alert announced the open request",
+      ).toBe(true);
+      expect(ended.stopReason).toBe("end_turn");
+
+      // The turn's end and its summary are written together: as soon as turn_ended is in the log, the row is clear.
+      expect(t.agent(id)?.state).toBe("done");
+      expect(t.agent(id)?.pendingPermissions, "once the turn ended").toEqual([]);
+      expect(alerts.last(id), "an agent_changed alert announced the cleared list").toEqual([]);
     },
     TEST_TIMEOUT_MS,
   );
