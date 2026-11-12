@@ -1,7 +1,6 @@
 import type { AgentSummary } from "@wombat/shared/api";
 import { expect, test } from "vitest";
 
-import { AGENT_STATES } from "../../../lib/agent-state.ts";
 import { groupAgents } from "./group-agents.ts";
 
 const agent = (id: string, state: AgentSummary["state"], lastActivityAt: string): AgentSummary => ({
@@ -17,12 +16,10 @@ const agent = (id: string, state: AgentSummary["state"], lastActivityAt: string)
   hasProcess: false,
 });
 
-// The list's order is the states' rank (what needs me first); stopped agents are finished, so they sit in Done.
-const byRank = (Object.keys(AGENT_STATES) as AgentSummary["state"][])
-  .filter((state) => state !== "stopped")
-  .sort((a, b) => AGENT_STATES[a].rank - AGENT_STATES[b].rank);
+// The order the user sees: what needs me first. Stopped agents are finished, so they sit in Done.
+const LIST_ORDER: AgentSummary["state"][] = ["waiting", "working", "done", "error"];
 
-test("one group per state in rank order, stopped agents in Done, newest first within a group, empty groups left out", () => {
+test("one group per state, waiting, working, done, error, stopped agents in Done, newest first within a group, empty groups left out", () => {
   const every = groupAgents([
     agent("e", "error", "2026-03-10T11:00:00.000Z"),
     agent("d1", "done", "2026-03-10T11:00:00.000Z"),
@@ -32,8 +29,8 @@ test("one group per state in rank order, stopped agents in Done, newest first wi
     agent("wt", "waiting", "2026-03-10T11:00:00.000Z"),
   ]);
   const members: Record<string, string[]> = { waiting: ["wt"], working: ["wk"], done: ["s", "d2", "d1"], error: ["e"] };
-  expect(every.map(({ state, agents }) => [state, agents.map(({ id }) => id)])).toEqual(byRank.map((state) => [state, members[state]]));
+  expect(every.map(({ state, agents }) => [state, agents.map(({ id }) => id)])).toEqual(LIST_ORDER.map((state) => [state, members[state]]));
 
   const some = groupAgents([agent("a", "done", "2026-03-10T11:00:00.000Z"), agent("b", "waiting", "2026-03-10T11:00:00.000Z")]);
-  expect(some.map(({ state }) => state)).toEqual(byRank.filter((state) => state === "waiting" || state === "done"));
+  expect(some.map(({ state }) => state)).toEqual(LIST_ORDER.filter((state) => state === "waiting" || state === "done"));
 });

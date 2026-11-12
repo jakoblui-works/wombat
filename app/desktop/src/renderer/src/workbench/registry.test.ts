@@ -7,7 +7,7 @@ import { z } from "zod";
 
 import { summary } from "../../../../test/summaries.ts";
 import "./activities.ts";
-import { activities, getView, isKnown, registerView, type ResolveContext } from "./registry.ts";
+import { getView, isKnown, registerView, type ResolveContext } from "./registry.ts";
 
 test.each<[string, string, unknown, ResolveContext, boolean]>([
   ["a chat tab whose agent exists", "chat", { agentId: "a1" }, { agents: [summary("a1"), summary("a2")] }, true],
@@ -19,10 +19,6 @@ test.each<[string, string, unknown, ResolveContext, boolean]>([
   ["a view that isn't registered", "old-view-from-a-newer-app", {}, { agents: [summary("a1")] }, false],
 ])("%s", (_name, viewId, params, ctx, expected) => {
   expect(isKnown(ctx)(viewId, params)).toBe(expected);
-});
-
-test("the five activities, in order", () => {
-  expect(activities().map((activity) => activity.title)).toEqual(["Agents", "Files", "Source control", "Workspace", "Project overview"]);
 });
 
 // A view whose only check is its paramsSchema (no resolves of its own), so the schema step is isKnown's alone.

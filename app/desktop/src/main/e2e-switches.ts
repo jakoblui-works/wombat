@@ -1,5 +1,6 @@
 // The only reader of the WOMBAT_E2E* variables: the e2e checks drive the app through them. Without WOMBAT_E2E=1
 // every switch is off, so the built app behaves as the real one whatever else is in its env.
+import { SWITCH } from "../shared/e2e-switch-names.ts";
 
 export type RestartAnswer = "restart" | "cancel";
 export type QuitAnswer = "stop" | "leave" | "cancel";
@@ -35,14 +36,15 @@ export const recordE2eNotification = (notification: { title: string; body: strin
 
 /** The switches, or undefined (the real app: show windows and dialogs) unless WOMBAT_E2E=1. */
 export const readE2eSwitches = (env: NodeJS.ProcessEnv): E2eSwitches | undefined => {
-  if (env["WOMBAT_E2E"] !== "1") return undefined;
+  if (env[SWITCH.e2e] !== "1") return undefined;
   const nonEmpty = (value: string | undefined) => (value === undefined || value === "" ? undefined : value);
+  const quitAnswer = env[SWITCH.quitAnswer] ?? "";
   return {
-    workspace: nonEmpty(env["WOMBAT_E2E_WORKSPACE"]),
-    serviceEntry: nonEmpty(env["WOMBAT_E2E_SERVICE_ENTRY"]),
-    restartAnswer: env["WOMBAT_E2E_RESTART_ANSWER"] === "restart" ? "restart" : "cancel",
-    quitAnswer: QUIT_ANSWERS.includes(env["WOMBAT_E2E_QUIT_ANSWER"] ?? "") ? (env["WOMBAT_E2E_QUIT_ANSWER"] as QuitAnswer) : "cancel",
-    quitDontAsk: env["WOMBAT_E2E_QUIT_DONT_ASK"] === "1",
-    stopAnswer: env["WOMBAT_E2E_STOP_ANSWER"] === "stop" ? "stop" : "cancel",
+    workspace: nonEmpty(env[SWITCH.workspace]),
+    serviceEntry: nonEmpty(env[SWITCH.serviceEntry]),
+    restartAnswer: env[SWITCH.restartAnswer] === "restart" ? "restart" : "cancel",
+    quitAnswer: QUIT_ANSWERS.includes(quitAnswer) ? (quitAnswer as QuitAnswer) : "cancel",
+    quitDontAsk: env[SWITCH.quitDontAsk] === "1",
+    stopAnswer: env[SWITCH.stopAnswer] === "stop" ? "stop" : "cancel",
   };
 };

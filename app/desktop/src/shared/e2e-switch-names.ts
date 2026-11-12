@@ -1,6 +1,5 @@
-// The names the e2e checks drive the app by (interface-S3's E2E switches), in a file with no imports so the desktop
-// unit tests can check them against the app's one reader (src/main/e2e-switches-names.test.ts): a typo on either
-// side fails there, not as an e2e that silently runs without its switch.
+// The names the e2e checks drive the app by: the app's one reader (src/main/e2e-switches.ts) and the checks both
+// take them from here. No imports, as src/shared/ stays free of Node and Electron.
 
 /** The app's e2e switches, read only under WOMBAT_E2E=1. */
 export const SWITCH = {
@@ -19,6 +18,3 @@ export const SWITCH = {
   /** The answer to the menu's "Stop the service and its agents?": stop | cancel. */
   stopAnswer: "WOMBAT_E2E_STOP_ANSWER",
 } as const;
-
-/** The main-process global (an array) where the app records its notifications under WOMBAT_E2E=1 instead of showing them. */
-export const RECORDED_NOTIFICATIONS = "wombatE2eNotifications";

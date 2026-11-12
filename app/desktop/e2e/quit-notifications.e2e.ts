@@ -1,11 +1,11 @@
 // T7: what quitting does to the service and its agents, and what a notification may say. Every launch runs in its
 // own sandbox (app-fixtures.ts); the quit question's answer comes from WOMBAT_E2E_QUIT_ANSWER, and notifications are
-// recorded in main (RECORDED_NOTIFICATIONS), never shown.
+// recorded in main (E2E_NOTIFICATIONS), never shown.
 import {
   agentSummary,
+  E2E_NOTIFICATIONS,
   expect,
   isAlive,
-  RECORDED_NOTIFICATIONS,
   REPO,
   startWaitingAgent,
   SWITCH,
@@ -70,7 +70,7 @@ test.describe("T7: quitting with an agent waiting", () => {
 test("the notification for a waiting agent holds none of the agent's strings", async ({ sandbox }) => {
   const { launched, running } = await appWithWaitingAgent(sandbox, {});
   const recorded = await waitUntil("a recorded notification", WAIT_MS, async () => {
-    const notes = await launched.app.evaluate((_electron, key) => (globalThis as Record<string, unknown>)[key], RECORDED_NOTIFICATIONS);
+    const notes = await launched.app.evaluate((_electron, key) => (globalThis as Record<string, unknown>)[key], E2E_NOTIFICATIONS);
     return Array.isArray(notes) && notes.length > 0 ? notes : undefined;
   });
 

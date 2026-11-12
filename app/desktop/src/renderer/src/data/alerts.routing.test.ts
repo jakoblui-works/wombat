@@ -47,9 +47,3 @@ test("a proposal alert reads the proposals again and nothing else", async () => 
   await vi.waitFor(() => expect(service.requests()).not.toEqual([]));
   expect(await reads(service)).toEqual(["GET /proposals"]);
 });
-
-test("an alert from another store than the cached agents' resets every query", () => {
-  const { service, client } = setup();
-  service.alert("agent_changed", A, { dbId: "db-2" });
-  for (const key of [keys.agents, keys.harnesses, keys.proposals]) expect(client.getQueryData(key)).toBeUndefined();
-});

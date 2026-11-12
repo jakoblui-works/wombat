@@ -22,9 +22,10 @@ import { _electron as electron, test as base, expect, type ElectronApplication, 
 import { APP_ORIGIN } from "@wombat/shared";
 import { fakeSystemd, type Call, type FakeSystemd, type FakeSystemdOptions } from "../../service/test/fake-systemd.ts";
 import { CHANNELS } from "../src/shared/bridge.ts";
-import { RECORDED_NOTIFICATIONS, SWITCH } from "./switch-names.ts";
+import { E2E_NOTIFICATIONS } from "../src/main/e2e-switches.ts";
+import { SWITCH } from "../src/shared/e2e-switch-names.ts";
 
-export { RECORDED_NOTIFICATIONS, SWITCH };
+export { E2E_NOTIFICATIONS, SWITCH };
 
 /** The slice the real service uses; nothing under test may ever name it. */
 const REAL_SLICE = "wombat-agents.slice";

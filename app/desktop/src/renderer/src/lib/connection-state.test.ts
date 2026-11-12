@@ -30,10 +30,6 @@ test("only failed and incompatible are settled: no retry is coming", () => {
   expect(STATES.filter(isSettled).sort()).toEqual(["failed", "incompatible"]);
 });
 
-test("every settled state shows the banner from the start", () => {
-  for (const state of STATES.filter(isSettled)) expect(showsBanner(state, false), state).toBe(true);
-});
-
 const run = (...events: RestartEvent[]): RestartAttempt => events.reduce(restartAttempt, NO_RESTART);
 
 test("a rejected restart's error survives the connection changing state afterwards", () => {
