@@ -11,7 +11,7 @@ export type MenuModel = { label: string; entries: readonly MenuEntry[] };
 export const MENUS: readonly MenuModel[] = [
   {
     label: "File",
-    entries: [{ id: WORKBENCH_COMMAND.newAgent }, { id: "workspace.switch" }, { id: "service.stop" }, "separator", { id: "app.quit" }],
+    entries: [{ id: WORKBENCH_COMMAND.newAgent }, { id: "workspace.switch" }, { id: "service.stop" }, { id: WORKBENCH_COMMAND.restartService }, "separator", { id: "app.quit" }],
   },
   {
     label: "Edit",

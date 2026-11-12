@@ -38,7 +38,7 @@ test("an entry for an unregistered id fails loudly, naming the menu and the id",
 
 test("the real menus resolve once the workbench's commands are registered, and Edit shows each command's keys", () => {
   // The workbench's own commands register while it is mounted; here they stand in.
-  for (const id of [WORKBENCH_COMMAND.newAgent, WORKBENCH_COMMAND.toggleRightSidebar]) registerCommand({ id, title: id, run: noop });
+  for (const id of [WORKBENCH_COMMAND.newAgent, WORKBENCH_COMMAND.toggleRightSidebar, WORKBENCH_COMMAND.restartService]) registerCommand({ id, title: id, run: noop });
   const mainIds = new Set<string>(MAIN_COMMAND_IDS);
   for (const menu of MENUS) {
     const items = menuItems(menu);

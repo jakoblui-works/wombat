@@ -1,24 +1,17 @@
-import type { ReactNode } from "react";
-
 import { cn } from "@/lib/utils";
 import type { ActivityDescriptor } from "../registry.ts";
 
-/**
- * The activities, then whatever sits at the foot (the connection indicator). While `blocked` the activities are dimmed
- * and inert; the foot stays live.
- */
+/** The activities. While `blocked` they are dimmed and inert. */
 export const ActivityBar = ({
   activities,
   active,
   blocked,
   onSelect,
-  children,
 }: {
   activities: readonly ActivityDescriptor[];
   active: string | undefined;
   blocked: boolean;
   onSelect: (id: string) => void;
-  children: ReactNode;
 }) => (
   <nav aria-label="Activities" className="flex w-activity-bar shrink-0 flex-col items-center border-r border-line bg-surface-0 py-2">
     <div inert={blocked} className={cn("flex flex-col items-center gap-1 transition-opacity", blocked && "dimmed")}>
@@ -40,6 +33,5 @@ export const ActivityBar = ({
         </button>
       ))}
     </div>
-    <div className="mt-auto">{children}</div>
   </nav>
 );

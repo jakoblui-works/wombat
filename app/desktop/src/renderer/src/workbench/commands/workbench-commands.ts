@@ -17,10 +17,12 @@ export type WorkbenchCommandDeps = {
   rightSidebarTitle?: string;
   /** Whether the connection banner has made the views inert: no key may change them then. */
   blocked: () => boolean;
+  /** What Restart Service does (default: the bridge's restart); the page passes the one that tracks the attempt. */
+  restartService?: () => void;
 };
 
 /** The ids of the workbench's commands the page's controls and menus name. */
-export const WORKBENCH_COMMAND = { newAgent: "agent.new", closeTab: "view.closeTab", toggleRightSidebar: "view.toggleRightSidebar" } as const;
+export const WORKBENCH_COMMAND = { newAgent: "agent.new", closeTab: "view.closeTab", toggleRightSidebar: "view.toggleRightSidebar", restartService: "service.restart" } as const;
 
 /** The id of the command that shows activity `id`. */
 export const activityCommandId = (id: string): string => `view.activity.${id}`;
@@ -37,7 +39,7 @@ export const splitCommandId = (direction: SplitDirection): string => `view.split
 export const commandTitle = (id: string): string => commands().find((command) => command.id === id)?.title ?? id;
 
 /** Registers the workbench's commands; returns their unregistration. */
-export const registerWorkbenchCommands = ({ api, activities, showActivity, toggleRightSidebar, rightSidebarTitle = "Right Sidebar", blocked }: WorkbenchCommandDeps): (() => void) => {
+export const registerWorkbenchCommands = ({ api, activities, showActivity, toggleRightSidebar, rightSidebarTitle = "Right Sidebar", blocked, restartService }: WorkbenchCommandDeps): (() => void) => {
   const unblocked = () => !blocked();
   const unregister = [
     registerCommand({
@@ -83,6 +85,15 @@ export const registerWorkbenchCommands = ({ api, activities, showActivity, toggl
     ),
     // VS Code's toggle for its secondary side bar.
     registerCommand({ id: WORKBENCH_COMMAND.toggleRightSidebar, title: `Toggle ${rightSidebarTitle}`, keys: ["ctrl+alt+b"], when: unblocked, run: toggleRightSidebar }),
+    // Restart works whatever the connection's state (it is the way out of a failed one), so it has no `when`.
+    registerCommand({
+      id: WORKBENCH_COMMAND.restartService,
+      title: "Restart Service",
+      run: () => {
+        if (restartService !== undefined) restartService();
+        else return window.wombat.service.restart();
+      },
+    }),
     ...activities.map(({ id, title }) => registerCommand({ id: activityCommandId(id), title: `Show ${title}`, when: unblocked, run: () => showActivity(id) })),
   ];
   return () => {

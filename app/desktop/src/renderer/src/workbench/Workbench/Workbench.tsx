@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import type { ListAgentsResponse } from "@wombat/shared/api";
 import type { ConnectionState } from "../../../../shared/bridge.ts";
 import { isSettled, NO_RESTART, restartAttempt, showsBanner } from "@/lib/connection-state";
+import { showsLaunchNotice } from "@/lib/launch-notice";
 import { cn } from "@/lib/utils";
 import { useAgents, useConnection } from "../../data/hooks.ts";
 import { keys } from "../../data/keys.ts";
@@ -19,7 +20,8 @@ import { ActivityBar } from "../ActivityBar/ActivityBar.tsx";
 import { commandForKey, runLogged } from "../commands/registry.ts";
 import { activityCommandId, registerWorkbenchCommands, WORKBENCH_COMMAND } from "../commands/workbench-commands.ts";
 import { ConnectionBanner } from "../ConnectionBanner/ConnectionBanner.tsx";
-import { ConnectionIndicator } from "../ConnectionIndicator/ConnectionIndicator.tsx";
+import { LiveLaunchNotice } from "../LaunchNotice/LaunchNotice.tsx";
+import { LiveStatusBar } from "../StatusBar/StatusBar.tsx";
 import { EmptyGroup } from "../EmptyGroup/EmptyGroup.tsx";
 import { SplitButton } from "../TabBar/SplitButton.tsx";
 import { Tab } from "../TabBar/Tab.tsx";
@@ -84,7 +86,8 @@ const agentsAnswered = (state: QueryState<ListAgentsResponse> | undefined, conne
 export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const queryClient = useQueryClient();
   const agents = useAgents();
-  const { state: connection, message: connectionMessage } = useConnection();
+  const connectionState = useConnection();
+  const { state: connection, message: connectionMessage } = connectionState;
   const [api, setApi] = useState<DockviewApi>();
   const [saved, setSaved] = useState<SavedRead>();
   const [chrome, setChrome] = useState<Chrome>(() => {
@@ -231,6 +234,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
           changeChromeRef.current((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } })),
         ...(rightView === undefined ? {} : { rightSidebarTitle: rightView.title }),
         blocked: () => blockedRef.current,
+        restartService: () => restartRef.current(),
       }),
     [api, showActivity, rightView?.title],
   );
@@ -255,12 +259,14 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   if (connection === "connected" && !connectedBefore) setConnectedBefore(true);
   const blocked = showsBanner(connection, connectedBefore);
   const blockedRef = useRef(blocked);
+  const restartRef = useRef<() => void>(() => undefined);
   blockedRef.current = blocked;
 
   // Kept here, not in the banner, which unmounts when the state moves (a first connecting) while a restart runs.
   const [attempt, dispatchAttempt] = useReducer(restartAttempt, NO_RESTART);
   useEffect(() => dispatchAttempt({ type: "connection", state: connection }), [connection]);
   const restart = () => {
+    setNoticeShown(false);
     dispatchAttempt({ type: "start" });
     window.wombat.service.restart().then(
       () => dispatchAttempt({ type: "settled" }),
@@ -271,6 +277,21 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         }),
     );
   };
+
+  restartRef.current = restart;
+
+  // The launch notice: decided once, on the first connection whose service info has arrived. The page's own load time
+  // stands for the app's launch (the page loads with the window, at launch; a workspace switch reloads it, and a
+  // service the switch started is newer than that load anyway).
+  const [noticeDecided, setNoticeDecided] = useState(false);
+  const [noticeShown, setNoticeShown] = useState(false);
+  const service = connection === "connected" ? connectionState.service : undefined;
+  if (service !== undefined && !noticeDecided) {
+    setNoticeDecided(true);
+    setNoticeShown(showsLaunchNotice({ startedAt: service.startedAt, launchedAt: performance.timeOrigin, shown: false }));
+  }
+  // Undefined until the list is read (or when the read failed), so the bar never says "no agents" unread.
+  const agentNames = agentList?.filter((agent) => agent.hasProcess).map((agent) => agent.title ?? agent.repo);
 
   return (
     <WorkbenchContext value={actions}>
@@ -285,15 +306,21 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                 onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
               />
               {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
+              {noticeShown && !blocked && service?.startedAt !== undefined ? (
+                <LiveLaunchNotice
+                  startedAt={service.startedAt}
+                  stale={service.stale}
+                  onRestart={restart}
+                  onDismiss={() => setNoticeShown(false)}
+                />
+              ) : null}
               <div className="flex min-h-0 flex-1">
                 <ActivityBar
                   activities={activities()}
                   active={activity?.id}
                   blocked={blocked}
                   onSelect={(id) => runLogged(activityCommandId(id))}
-                >
-                  <ConnectionIndicator connection={connection} />
-                </ActivityBar>
+                />
                 {/* Always here, so the views never remount: while blocked it is inert and the scrim over it shows. */}
                 <div inert={blocked} className="relative flex min-w-0 flex-1">
                   <aside aria-label={activity?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.left }}>
@@ -326,6 +353,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   />
                 </div>
               </div>
+              <LiveStatusBar connection={connectionState} agents={agentNames} />
               <ZoomToast />
               <span className="sr-only">
                 Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
