@@ -93,5 +93,22 @@ test.describe("title bar menus", () => {
       await dismiss(page);
       await expectFocus(page, "the Edit trigger", "after the mixed opens, a keyboard-dismissed Edit sent focus to the field");
     });
+
+    await test.step("with a menu open, moving the mouse onto another trigger switches to its menu and keeps it open", async () => {
+      await click(composer);
+      await click(trigger(page, "File"));
+      await expect(openMenu(page)).toBeVisible({ timeout: WAIT_MS });
+      for (const name of ["Edit", "View", "Window", "File"]) {
+        const box = await trigger(page, name).boundingBox();
+        if (box === null) throw new Error(`the ${name} trigger has no box`);
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 5 });
+        await expect(trigger(page, name), `hovering ${name} didn't open its menu`).toHaveAttribute("aria-expanded", "true", { timeout: WAIT_MS });
+        // Held open, not just opened on the way past: a menu closed by focus moving away would be gone by now.
+        await page.waitForTimeout(300);
+        await expect(openMenu(page), `the ${name} menu closed after hovering its trigger`).toBeVisible();
+      }
+      await dismiss(page);
+      await expectFocus(page, "the composer", "after switching menus with the mouse, Escape didn't give focus back to the composer");
+    });
   });
 });

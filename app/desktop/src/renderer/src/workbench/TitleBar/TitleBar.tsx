@@ -60,6 +60,9 @@ export const TitleBar = ({
   const focusBefore = useRef<HTMLElement | null>(null);
   // Per menu, for the open that is under way: whether the pointer opened it; each open overwrites the last.
   const openedByPointer = useRef(new Map<string, boolean>());
+  // The menus open now. Moving the mouse onto another trigger opens its menu and closes this one; focus must stay in
+  // the bar then, or the menu just opened closes as focus leaves.
+  const openMenus = useRef(new Set<string>());
   const chosen = useRef<string | undefined>(undefined);
   const inBar = (target: EventTarget | null) => target instanceof Node && menubar.current?.contains(target) === true;
   const inPopup = (target: EventTarget | null) => target instanceof Element && target.closest("[data-slot=menubar-content]") !== null;
@@ -69,7 +72,11 @@ export const TitleBar = ({
     focusBefore.current = event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null;
   };
   const opened = (label: string, isOpen: boolean, { event }: { event: Event }) => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      openMenus.current.delete(label);
+      return;
+    }
+    openMenus.current.add(label);
     // A click with no pointer behind it (detail 0) is the keyboard's Enter or Space on the trigger.
     const pointer = event.type.startsWith("pointer") || event.type.startsWith("mouse") || (event.type === "click" && (event as MouseEvent).detail > 0);
     openedByPointer.current.set(label, pointer);
@@ -99,6 +106,7 @@ export const TitleBar = ({
     const byPointer = openedByPointer.current.get(label) === true;
     const id = chosen.current;
     chosen.current = undefined;
+    if (id === undefined && [...openMenus.current].some((open) => open !== label)) return false;
     const before = focusBefore.current?.isConnected === true ? focusBefore.current : null;
     const target = (byPointer || id !== undefined) && before !== null ? before : null;
     if (id !== undefined) runWhenFocusBack(id, target);
