@@ -1,6 +1,6 @@
-// The app's zoom level: an Electron zoom level (0 is 100%, each step scales by 1.2), one for every window.
+// The app's zoom level: an Electron zoom level (0 is no zoom; zoomFactor in src/shared says how much a level scales), one for every window.
 
-/** The bounds keep the window usable: about 40% to 250%. */
+/** The bounds keep the window usable: neither too small to read nor too large to fit. */
 export const ZOOM_MIN = -5;
 export const ZOOM_MAX = 5;
 /** One zoom in or out, a whole level as in VS Code. */

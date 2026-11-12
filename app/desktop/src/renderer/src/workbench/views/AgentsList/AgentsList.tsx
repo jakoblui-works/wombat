@@ -6,7 +6,8 @@ import { AGENT_STATES } from "../../../lib/agent-state";
 import { useNow } from "../../../lib/ago";
 import { useAgents, useRepos } from "../../../data/hooks.ts";
 import { useNewAgentDialog } from "../../commands/new-agent-dialog.ts";
-import { runCommand } from "../../commands/registry.ts";
+import { runLogged } from "../../commands/registry.ts";
+import { WORKBENCH_COMMAND } from "../../commands/workbench-commands.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useActiveTab, useWorkbench } from "../../workbench-context.ts";
 import { CHAT_VIEW, ChatParams } from "../Chat/chat-params.ts";
@@ -32,9 +33,7 @@ export const AgentsList = () => {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <SidebarHeader title="Agents" {...(list === undefined ? {} : { count: list.length })}>
-        <Button variant="secondary" size="sm" onClick={() => {
-            runCommand("agent.new").catch((error: unknown) => console.error('The command "agent.new" failed:', error));
-          }}>
+        <Button variant="secondary" size="sm" onClick={() => runLogged(WORKBENCH_COMMAND.newAgent)}>
           <Plus />
           New agent
         </Button>

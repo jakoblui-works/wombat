@@ -1,9 +1,9 @@
-// Zoom, against the built app (interface-S1 T1; contracts "Main commands over the bridge" and "Zoom level in
-// settings"). The zoom keys are the page's (the registry's keydown listener); each press runs one main command, main
-// applies the level to the window, tells the page through onZoom and saves it as settings.json's top-level
-// zoomLevel at once; the next start applies the saved level when the page loads. Every launch runs in its own
-// sandbox (app-fixtures.ts). Levels are compared with each other and with what one zoom.in over the bridge does, never
-// with a step size, so the zoom steps and bounds can change without touching this file.
+// Zoom, against the built app (contracts "Main commands over the bridge" and "Zoom level in settings"). The zoom keys
+// are the page's (the registry's keydown listener); each press runs one main command, main applies the level to the
+// window, tells the page through onZoom and saves it as settings.json's top-level zoomLevel at once; the next start
+// applies the saved level when the page loads. Every launch runs in its own sandbox (app-fixtures.ts). Levels are
+// compared with each other and with what one zoom.in over the bridge does, never with a step size, so the zoom steps
+// and bounds can change without touching this file.
 import type { Page } from "@playwright/test";
 import {
   bridgeCommand,

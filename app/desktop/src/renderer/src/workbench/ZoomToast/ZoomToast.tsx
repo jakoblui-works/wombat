@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 
+import { zoomFactor } from "../../../../shared/zoom-factor.ts";
+
 const SHOWN_MS = 1500;
 
-/** An Electron zoom level as a percentage: each level scales by 1.2. */
-const percent = (level: number): number => Math.round(100 * 1.2 ** level);
+/** An Electron zoom level as a percentage. */
+const percent = (level: number): number => Math.round(100 * zoomFactor(level));
 
 /** "Zoom 120%" for a moment after each zoom change, so a key press that zoomed says by how much. */
 export const ZoomToast = () => {

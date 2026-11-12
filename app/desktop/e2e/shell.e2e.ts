@@ -215,3 +215,40 @@ test.describe("workbench shell", () => {
     expect(await widthOf(rightSidebar(second.page)), "the right sidebar's width").toBe(rightAfter);
   });
 });
+
+// The integrated title bar: the page's `banner` landmark is the window's title bar. The strip drags
+// the window and every control in it is no-drag, or the window manager takes its clicks. Headless, app-region changes
+// nothing a click test can see, so the computed styles are what's checked: each control's nearest element with an
+// app-region of its own (itself or an ancestor inside the bar) must say no-drag, and some part of the bar says drag.
+test.describe("title bar", () => {
+  test("the title bar drags the window, and every control in it is no-drag", async ({ sandbox }) => {
+    const launched = await sandbox.launch();
+    const bar = launched.page.getByRole("banner");
+    await expect(bar).toBeVisible({ timeout: WAIT_MS });
+    await expect(rightToggle(launched.page)).toBeVisible({ timeout: WAIT_MS });
+    const regions = await bar.evaluate((header) => {
+      const region = (element: Element): string => {
+        const style = getComputedStyle(element);
+        return (style.getPropertyValue("app-region") || style.getPropertyValue("-webkit-app-region") || "none").trim();
+      };
+      const nameOf = (element: Element): string =>
+        (element.getAttribute("aria-label") ?? element.textContent ?? element.tagName).trim().slice(0, 40) || element.tagName;
+      const controls = [
+        ...header.querySelectorAll('button, a[href], input, select, textarea, [role="button"], [role="menuitem"], [role="tab"], [tabindex]:not([tabindex="-1"])'),
+      ];
+      const draggable = controls.flatMap((control) => {
+        for (let at: Element | null = control; at !== null; at = at === header ? null : at.parentElement) {
+          const value = region(at);
+          if (value === "no-drag") return [];
+          if (value === "drag") return [nameOf(control)];
+        }
+        return [];
+      });
+      const drags = [header, ...header.querySelectorAll("*")].some((element) => region(element) === "drag");
+      return { controls: controls.length, draggable, drags };
+    });
+    expect(regions.controls, "the title bar holds no controls; the check isn't looking").toBeGreaterThan(0);
+    expect(regions.drags, "no part of the title bar drags the window").toBe(true);
+    expect(regions.draggable, "these controls sit in the drag region, so the window manager takes their clicks").toEqual([]);
+  });
+});

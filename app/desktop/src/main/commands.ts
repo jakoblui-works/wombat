@@ -3,6 +3,7 @@
 // would run a command twice.
 import { BrowserWindow, Menu } from "electron";
 import { CHANNELS, isMainCommandId, type MainCommandId } from "../shared/bridge.ts";
+import { type TitleBarOverlay } from "./title-bar.ts";
 import { clampZoom, ZOOM_STEP } from "./zoom.ts";
 
 export type MainCommandDeps = {
@@ -14,6 +15,8 @@ export type MainCommandDeps = {
   quit: () => void;
   /** The saved zoom level, read once to start from, and its save (settings.json's zoomLevel). */
   zoom: { level: () => number; save: (level: number) => void };
+  /** The window controls' overlay for a zoom level, kept in step with the zoom; undefined when windows have none. */
+  titleBarOverlay?: ((level: number) => TitleBarOverlay) | undefined;
   log?: (line: string) => void;
 };
 
@@ -25,19 +28,24 @@ export type MainCommands = {
   runMainCommand: (id: MainCommandId, win: BrowserWindow | undefined) => Promise<void>;
   /** The bridge's command(): `id` is the page's, so anything outside MAIN_COMMAND_IDS is refused and nothing runs. */
   fromPage: (id: unknown, win: BrowserWindow | undefined) => Promise<void>;
+  /** The zoom level the windows show. */
+  zoomLevel: () => number;
   /** Applies the app's zoom level to `win` on every load: Chromium resets it when the page loads again. */
   watchWindow: (win: BrowserWindow) => void;
   /** The application menu, or null for none. */
   applicationMenu: () => Menu | null;
 };
 
-export const mainCommands = ({ switchWorkspace, stopService, quit, zoom, log = console.error }: MainCommandDeps): MainCommands => {
+export const mainCommands = ({ switchWorkspace, stopService, quit, zoom, titleBarOverlay, log = console.error }: MainCommandDeps): MainCommands => {
   // The level the windows show; the saved one is only for the next start, so a failed save doesn't hold it back.
   let level = zoom.level();
   const setZoom = (to: number): void => {
     const next = clampZoom(to);
     level = next;
-    for (const window of BrowserWindow.getAllWindows()) window.webContents.setZoomLevel(next);
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.setZoomLevel(next);
+      if (titleBarOverlay !== undefined) window.setTitleBarOverlay(titleBarOverlay(next));
+    }
     try {
       zoom.save(next);
     } catch (error) {
@@ -93,9 +101,11 @@ export const mainCommands = ({ switchWorkspace, stopService, quit, zoom, log = c
       }
       return runMainCommand(id, win);
     },
+    zoomLevel: () => level,
     watchWindow: (win) => {
       win.webContents.on("did-finish-load", () => {
         win.webContents.setZoomLevel(level);
+        if (titleBarOverlay !== undefined) win.setTitleBarOverlay(titleBarOverlay(level));
       });
     },
     // macOS gives text fields their clipboard keys only through the menu's edit roles. Elsewhere no menu at all:

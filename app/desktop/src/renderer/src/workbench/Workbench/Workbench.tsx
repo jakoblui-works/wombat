@@ -16,11 +16,13 @@ import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
 import { activities, activityOrDefault, getView, isKnown, isRestorable, viewsFor, viewTitle } from "../registry.ts";
 import { ActivityBar } from "../ActivityBar/ActivityBar.tsx";
-import { commandForKey, runCommand } from "../commands/registry.ts";
-import { activityCommandId, registerWorkbenchCommands } from "../commands/workbench-commands.ts";
+import { commandForKey, runLogged } from "../commands/registry.ts";
+import { activityCommandId, registerWorkbenchCommands, WORKBENCH_COMMAND } from "../commands/workbench-commands.ts";
 import { ConnectionBanner } from "../ConnectionBanner/ConnectionBanner.tsx";
 import { ConnectionIndicator } from "../ConnectionIndicator/ConnectionIndicator.tsx";
 import { EmptyGroup } from "../EmptyGroup/EmptyGroup.tsx";
+import { SplitButton } from "../TabBar/SplitButton.tsx";
+import { Tab } from "../TabBar/Tab.tsx";
 import { ResizeHandle } from "../ResizeHandle/ResizeHandle.tsx";
 import {
   pruneTabs,
@@ -216,6 +218,8 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     });
   }, [ready, agentsKnown, openAgents, actions]);
 
+  const rightViews = viewsFor("right");
+  const rightView = rightViews[0] === undefined ? undefined : { title: viewTitle(rightViews[0], {}, { agents: undefined }), icon: rightViews[0].icon };
   // The workbench's commands, and the page's one key listener: every key binding runs through the registry.
   useEffect(
     () =>
@@ -225,29 +229,24 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         showActivity,
         toggleRightSidebar: () =>
           changeChromeRef.current((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } })),
+        ...(rightView === undefined ? {} : { rightSidebarTitle: rightView.title }),
         blocked: () => blockedRef.current,
       }),
-    [api, showActivity],
+    [api, showActivity, rightView?.title],
   );
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const command = commandForKey(event);
       if (command === undefined) return;
       event.preventDefault();
-      runCommand(command.id).catch((error: unknown) => console.error(`The command "${command.id}" failed:`, error));
+      runLogged(command.id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  /** Runs a command from a button; a failure is logged, as for a key. */
-  const run = (id: string) => {
-    runCommand(id).catch((error: unknown) => console.error(`The command "${id}" failed:`, error));
-  };
 
   const activity = activityOrDefault(chrome.activity);
   const Sidebar = activity === undefined ? undefined : getView(activity.sidebarView)?.component;
-  const rightViews = viewsFor("right");
-  const rightView = rightViews[0] === undefined ? undefined : { title: viewTitle(rightViews[0], {}, { agents: undefined }), icon: rightViews[0].icon };
   const resize = (side: "left" | "right", dx: number) =>
     changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, [side]: clampWidth(current.sidebars[side] + dx) } }));
 
@@ -283,7 +282,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                 right={rightView}
                 count={agentList === undefined ? 0 : needsMe(agentList).length}
                 rightOpen={!chrome.sidebars.rightCollapsed}
-                onToggleRight={() => run("view.toggleRightSidebar")}
+                onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
               />
               {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
               <div className="flex min-h-0 flex-1">
@@ -291,7 +290,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   activities={activities()}
                   active={activity?.id}
                   blocked={blocked}
-                  onSelect={(id) => run(activityCommandId(id))}
+                  onSelect={(id) => runLogged(activityCommandId(id))}
                 >
                   <ConnectionIndicator connection={connection} />
                 </ActivityBar>
@@ -305,6 +304,8 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                     <DockviewReact
                       className="dockview-theme-wombat"
                       components={COMPONENTS}
+                      defaultTabComponent={Tab}
+                      rightHeaderActionsComponent={SplitButton}
                       watermarkComponent={EmptyGroup}
                       onReady={(event: DockviewReadyEvent) => setApi(event.api)}
                     />

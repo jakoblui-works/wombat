@@ -1,8 +1,8 @@
-// The command registry's key dispatch and its main commands (interface-S1, T1). commandForKey is the one place every
-// key goes through: a key string matches its exact chord, `when` decides whether a command takes its key, and typing
-// in an editable element reaches a command only through ctrl+/alt+ chords. Every main command is a registry command
-// that sends its own id to main. The commands here are the test's own (ids "test.*", chords no default uses), so the
-// app's default keys can change without touching this file.
+// The command registry's key dispatch and its main commands. commandForKey is the one place every key goes through:
+// a key string matches its exact chord, `when` decides whether a command takes its key, and typing in an editable
+// element reaches a command only through ctrl+/alt+ chords. Every main command is a registry command that sends its own
+// id to main. The commands here are the test's own (ids "test.*", chords no default uses), so the app's default keys
+// can change without touching this file.
 import { afterEach, expect, test, vi } from "vitest";
 
 import { MAIN_COMMAND_IDS } from "../../../../shared/bridge.ts";

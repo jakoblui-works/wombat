@@ -12,6 +12,7 @@ import { decideQuit, restartService, stopIfConfirmed, type QuitChoice } from "./
 import { listAgents } from "./service-client.ts";
 import { serviceConnection } from "./service-connection.ts";
 import { ofThisApp } from "./service-start.ts";
+import { titleBarOverlayAt } from "./title-bar.ts";
 import { settingsPath } from "./settings.ts";
 import { waitingNotices } from "./waiting-notice.ts";
 import { workspaceControl } from "./workspace.ts";
@@ -115,11 +116,17 @@ const denyPermissions = (): void => {
   session.defaultSession.setPermissionCheckHandler(() => false);
 };
 
+// The window controls' overlay, or none: Chromium's headless platform (the e2e window) crashes the app at launch when
+// a window has one. The one place that decides; main's commands re-apply it as the zoom changes.
+const overlayAt = e2e === undefined ? titleBarOverlayAt : undefined;
+
 const createWindow = async (): Promise<void> => {
   const window = new BrowserWindow({
     width: 1200,
     height: 800,
     show: false,
+    titleBarStyle: "hidden",
+    ...(overlayAt === undefined ? {} : { titleBarOverlay: overlayAt(commands.zoomLevel()) }),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -325,6 +332,7 @@ const commands = mainCommands({
       (error: unknown) => reportError("Wombat couldn't stop the service", error),
     ),
   quit: () => app.quit(),
+  titleBarOverlay: overlayAt,
   zoom: {
     level: () => workspace.settings().zoomLevel,
     save: (zoomLevel) => workspace.updateSettings((current) => ({ ...current, zoomLevel })),

@@ -10,12 +10,15 @@ export type CommandTarget = { groupId?: string; panelId?: string };
  * An action the user can take. `keys` are written like VS Code's keybindings (`"ctrl+shift+w"`, `"ctrl+="`,
  * `"ctrl+numpad0"`) and bind by physical key, so every key in it runs the command; none may be a plain key, or typing
  * would run it. `when` decides, at each key, whether the command takes its key; `run` gets the target the entry point
- * passed (none for keys and menus: the command acts on the active group or tab).
+ * passed (none for keys and menus: the command acts on the active group or tab). `shownKeys` are shown in menus
+ * without being bound: for a command the page's own elements already handle on those keys (the edit commands, which
+ * a text field runs itself), where a binding would run it twice.
  */
 export type Command = {
   id: string;
   title: string;
   keys?: readonly string[];
+  shownKeys?: readonly string[];
   when?: () => boolean;
   run: (target: CommandTarget) => void | Promise<void>;
 };
@@ -110,9 +113,9 @@ const chordLabel = ({ ctrl, shift, alt, meta, code }: KeyChord): string => {
   return [ctrl && "Ctrl", shift && "Shift", alt && "Alt", meta && "Meta", key].filter(Boolean).join("+");
 };
 
-/** The command's first key as a menu shows it; undefined when it has none. */
-export const formatKeys = (command: Pick<Command, "keys">): string | undefined => {
-  const first = command.keys?.[0];
+/** The command's first key (else its first shown key) as a menu shows it; undefined when it has none. */
+export const formatKeys = (command: Pick<Command, "keys" | "shownKeys">): string | undefined => {
+  const first = command.keys?.[0] ?? command.shownKeys?.[0];
   return first === undefined ? undefined : chordLabel(parseKeys(first));
 };
 
@@ -141,6 +144,11 @@ export const runCommand = async (id: string, target: CommandTarget = {}): Promis
   const entry = registered.get(id);
   if (entry === undefined) throw new Error(`There's no command "${id}"; check the id against the registered commands.`);
   await entry.command.run(target);
+};
+
+/** Runs command `id` from a click; a failure (an unknown id too) is logged, as for a key, since a click has nowhere to reject to. */
+export const runLogged = (id: string, target?: CommandTarget): void => {
+  runCommand(id, target).catch((error: unknown) => console.error(`The command "${id}" failed:`, error));
 };
 
 /** The structural shape of an event target commandForKey reads: no DOM classes, so it runs in node too. */
@@ -186,8 +194,7 @@ const MAIN_COMMAND_TITLES: Record<MainCommandId, string> = {
   "app.quit": "Quit",
 };
 
-// VS Code's Linux defaults. The edit commands have none: text fields handle those keys themselves, and a command on
-// the same key would run the edit twice.
+// VS Code's Linux defaults. The edit commands have none (see MAIN_COMMAND_SHOWN_KEYS).
 const MAIN_COMMAND_KEYS: Partial<Record<MainCommandId, readonly string[]>> = {
   "zoom.in": ["ctrl+=", "ctrl+shift+=", "ctrl+numpad_add"],
   "zoom.out": ["ctrl+-", "ctrl+numpad_subtract"],
@@ -196,7 +203,18 @@ const MAIN_COMMAND_KEYS: Partial<Record<MainCommandId, readonly string[]>> = {
   "app.quit": ["ctrl+q"],
 };
 
+// What VS Code's Edit menu shows on Linux.
+const MAIN_COMMAND_SHOWN_KEYS: Partial<Record<MainCommandId, readonly string[]>> = {
+  "edit.undo": ["ctrl+z"],
+  "edit.redo": ["ctrl+shift+z"],
+  "edit.cut": ["ctrl+x"],
+  "edit.copy": ["ctrl+c"],
+  "edit.paste": ["ctrl+v"],
+  "edit.selectAll": ["ctrl+a"],
+};
+
 for (const id of MAIN_COMMAND_IDS) {
   const keys = MAIN_COMMAND_KEYS[id];
-  registerCommand({ id, title: MAIN_COMMAND_TITLES[id], ...(keys === undefined ? {} : { keys }), run: () => window.wombat.command(id) });
+  const shownKeys = MAIN_COMMAND_SHOWN_KEYS[id];
+  registerCommand({ id, title: MAIN_COMMAND_TITLES[id], ...(keys === undefined ? {} : { keys }), ...(shownKeys === undefined ? {} : { shownKeys }), run: () => window.wombat.command(id) });
 }
