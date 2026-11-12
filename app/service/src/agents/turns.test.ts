@@ -6,6 +6,10 @@ import { describe, expect, test } from "vitest";
 import { EARLY_TITLE } from "../../test/fake-agent.ts";
 import { chunkTexts, isAlive, REPO, setup, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
 
+/** The entries besides the session's config options, which every fake scenario offers and the manager stores first. */
+const withoutConfig = (entries: LogEntry[]) =>
+  entries.filter((entry) => !(entry.type === "session_update" && entry.update.sessionUpdate === "config_option_update"));
+
 const isZ = (timestamp: string) => timestamp.endsWith("Z") && new Date(timestamp).toISOString() === timestamp;
 
 describe("turns", () => {
@@ -31,7 +35,7 @@ describe("turns", () => {
 
       const entries = t.entries(started.id);
       for (const entry of entries) expect(LogEntry.parse(entry)).toEqual(entry);
-      expect(entries[0]).toMatchObject({ type: "user_message", text: "Say hello", commandId: "cmd_1", seq });
+      expect(withoutConfig(entries)[0]).toMatchObject({ type: "user_message", text: "Say hello", commandId: "cmd_1", seq });
       expect(chunkTexts(entries).length).toBeGreaterThan(0);
       expect(chunkTexts(entries).every((text) => text !== "")).toBe(true);
       expect(entries.at(-1)?.type).toBe("turn_ended");
@@ -113,7 +117,7 @@ describe("turns", () => {
       await t.manager.send(id, { text: "Plan it first" });
       expect((await t.turnEnded(id)).stopReason).toBe("end_turn");
 
-      const updates = t.entries(id).flatMap((entry) => (entry.type === "session_update" ? [entry.update] : []));
+      const updates = withoutConfig(t.entries(id)).flatMap((entry) => (entry.type === "session_update" ? [entry.update] : []));
       expect(updates).toEqual([
         { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Weighing where the footer link lives." } },
         {
@@ -150,9 +154,9 @@ describe("turns", () => {
         if (type === "agent_added") added.push(seq);
       });
       const { id } = await t.manager.start("fake-early-update", REPO);
-      await waitFor("the early updates", () => t.entries(id).length === 2);
+      await waitFor("the early updates", () => withoutConfig(t.entries(id)).length === 2);
 
-      const entries = t.entries(id);
+      const entries = withoutConfig(t.entries(id));
       expect(entries.map((entry) => entry.type === "session_update" && entry.update.sessionUpdate)).toEqual([
         "available_commands_update",
         "session_info_update",

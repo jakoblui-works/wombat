@@ -9,18 +9,21 @@ import type { LogEntry } from "@wombat/shared/api";
 import {
   type Body,
   chunk,
+  configUpdate,
   diffContent,
   entries,
   inSession,
   permissionAnswered,
   permissionRequested,
   plan,
+  sampleConfig,
   textContent,
   thought,
   toolCall,
   toolUpdate,
   turnEnded,
   UNSHOWN,
+  usage,
   user,
 } from "../../../../../shared/test/log-entries.ts";
 import { chatModel } from "./chat-model.ts";
@@ -28,6 +31,8 @@ import { chatModel } from "./chat-model.ts";
 // Realistic logs: turns of user messages, chunk runs (with and without a messageId, from the main session or a
 // sub-agent's), tool calls with updates that may land later (or one before its call), orphan updates, permission
 // requests answered later, never, or after a cancel, plan updates, thoughts, and entries the chat doesn't show.
+// Config options and usage come in more than one value, so a model that kept the first one, not the latest by seq,
+// differs from the one read at once.
 
 const text = fc.constantFrom("Hel", "lo", " ", "the opening hours", "\n", "Juniper Lane", "");
 const messageId = fc.constantFrom<string | null | undefined>(undefined, null, "msg-1", "msg-2");
@@ -54,6 +59,8 @@ type Event =
   | { k: "permission"; onTool: boolean; title: string | undefined; answer: { kind: (typeof OPTION_KINDS)[number]; delay: number } | null }
   | { k: "plan"; contents: string[] }
   | { k: "unshown"; index: number }
+  | { k: "config"; model: "fast-model" | "deep-model"; fast: boolean; session: string | undefined }
+  | { k: "usage"; used: number }
   | { k: "end"; reason: string };
 
 const event: fc.Arbitrary<Event> = fc.oneof(
@@ -90,6 +97,16 @@ const event: fc.Arbitrary<Event> = fc.oneof(
   },
   { weight: 1, arbitrary: fc.record({ k: fc.constant("plan" as const), contents: fc.array(fc.constantFrom("Read", "Edit", "Test"), { maxLength: 3 }) }) },
   { weight: 1, arbitrary: fc.record({ k: fc.constant("unshown" as const), index: fc.nat({ max: UNSHOWN.length - 1 }) }) },
+  {
+    weight: 1,
+    arbitrary: fc.record({
+      k: fc.constant("config" as const),
+      model: fc.constantFrom("fast-model" as const, "deep-model" as const),
+      fast: fc.boolean(),
+      session: fc.constantFrom(undefined, "session-main", "session-sub"),
+    }),
+  },
+  { weight: 1, arbitrary: fc.record({ k: fc.constant("usage" as const), used: fc.constantFrom(1200, 18_250, 90_000) }) },
   { weight: 2, arbitrary: fc.record({ k: fc.constant("end" as const), reason: fc.constantFrom("end_turn", "cancelled") }) },
 );
 
@@ -133,6 +150,14 @@ const toLog = (events: Event[]): LogEntry[] => {
         break;
       case "unshown":
         put(i, UNSHOWN[ev.index] as Body);
+        break;
+      case "config": {
+        const body = configUpdate(sampleConfig(ev.model, ev.fast));
+        put(i, ev.session === undefined ? body : inSession(body, ev.session));
+        break;
+      }
+      case "usage":
+        put(i, usage(ev.used, 200_000));
         break;
       case "end":
         put(i, turnEnded(ev.reason));

@@ -16,6 +16,7 @@ import {
   ListStructuresResponse as ListStructuresSchema,
   SendMessageRequest,
   ServerErrorCode,
+  SetConfigRequest,
   StartAgentRequest,
   type ErrorBody,
   type GetItemResponse,
@@ -209,6 +210,13 @@ export const startServer = async ({
     return c.body(null, 204);
   });
 
+  // 204 once the agent's new options are stored: a read of the log right after holds them.
+  app.post("/agents/:id/config", async (c) => {
+    const { configId, value } = await readBody(c, SetConfigRequest);
+    await manager.setConfig(c.req.param("id"), configId, value);
+    return c.body(null, 204);
+  });
+
   app.post("/agents/:id/cancel", async (c) => {
     await manager.cancel(c.req.param("id"));
     return c.body(null, 202);
@@ -334,7 +342,10 @@ export const startServer = async ({
     if (error instanceof InvalidRequest) return errorResponse(c, SERVER_STATUS.invalid_request, ServerErrorCode.enum.invalid_request, error.message);
     if (error instanceof ProposalError) return errorResponse(c, ITEMS_STATUS[error.code satisfies ProposalErrorCode], error.code, error.message);
     if (error instanceof RepoError) return errorResponse(c, AGENT_STATUS[error.code], error.code, error.message);
-    if (error instanceof AgentError) return errorResponse(c, AGENT_STATUS[error.code], error.code, error.message, error.hint);
+    if (error instanceof AgentError) {
+      const status = error.code === ServerErrorCode.enum.invalid_request ? SERVER_STATUS.invalid_request : AGENT_STATUS[error.code];
+      return errorResponse(c, status, error.code, error.message, error.hint);
+    }
     // The details stay in the service: an error's message may quote agent content or paths.
     log("request_failed", { method: c.req.method, route: c.req.routePath, error: error.name });
     return errorResponse(

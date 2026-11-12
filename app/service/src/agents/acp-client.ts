@@ -33,9 +33,15 @@ export type SessionExtra = {
 /** The client side of ACP for one agent process, over its stdio. */
 export type AcpAgent = {
   initialize: () => Promise<InitializeResponse>;
-  newSession: (cwd: string, extra?: SessionExtra) => Promise<string>;
+  /** The session's id, and its config options unparsed (`[]` when the agent sends none). */
+  newSession: (cwd: string, extra?: SessionExtra) => Promise<{ sessionId: string; configOptions: unknown[] }>;
   prompt: (sessionId: string, text: string) => Promise<PromptResponse>;
   cancel: (sessionId: string) => Promise<void>;
+  /**
+   * Sets one config option (ACP v1: a boolean goes as `{ type: "boolean", value }`, a select's value id bare). Resolves
+   * to the agent's whole new list of options, unparsed; rejects with the agent's JSON-RPC error when it refuses.
+   */
+  setConfigOption: (sessionId: string, configId: string, value: string | boolean) => Promise<unknown[]>;
   /** True once the connection closed (the agent's stdout ended, or `close` was called). */
   isClosed: () => boolean;
   close: () => void;
@@ -72,10 +78,19 @@ export const connectAgent = (child: ChildProcessWithoutNullStreams, handlers: Ag
         clientCapabilities: {},
         clientInfo: { name: "wombat-service", version: "0.0.0" },
       }),
-    newSession: async (cwd, { mcpServers = [], _meta, params = {} } = {}) =>
-      (await agent.request("session/new", { ...params, cwd, mcpServers, ...(_meta === undefined ? {} : { _meta }) })).sessionId,
+    newSession: async (cwd, { mcpServers = [], _meta, params = {} } = {}) => {
+      const { sessionId, configOptions } = await agent.request("session/new", { ...params, cwd, mcpServers, ...(_meta === undefined ? {} : { _meta }) });
+      return { sessionId, configOptions: configOptions ?? [] };
+    },
     prompt: (sessionId, text) => agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text }] }),
     cancel: (sessionId) => agent.notify("session/cancel", { sessionId }),
+    setConfigOption: async (sessionId, configId, value) =>
+      (
+        await agent.request(
+          "session/set_config_option",
+          typeof value === "boolean" ? { sessionId, configId, type: "boolean", value } : { sessionId, configId, value },
+        )
+      ).configOptions,
     isClosed: () => connection.signal.aborted,
     close: () => connection.close(),
   };

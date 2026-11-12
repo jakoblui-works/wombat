@@ -15,6 +15,7 @@ export const APP_ROUTES: readonly AppRoute[] = [
   { method: "GET", pattern: "/agents/:id/log", query: true },
   { method: "POST", pattern: "/agents/:id/messages" },
   { method: "POST", pattern: "/agents/:id/permissions/:requestId" },
+  { method: "POST", pattern: "/agents/:id/config" },
   { method: "POST", pattern: "/agents/:id/cancel" },
   { method: "POST", pattern: "/agents/:id/stop" },
   { method: "DELETE", pattern: "/agents/:id" },

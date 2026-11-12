@@ -48,6 +48,10 @@ export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 export const AnswerPermissionRequest = z.strictObject({ kind: PermissionKind });
 export type AnswerPermissionRequest = z.infer<typeof AnswerPermissionRequest>;
 
+/** `POST /agents/:id/config`: a select's value id, or a boolean's value. Idempotent, so it carries no commandId. */
+export const SetConfigRequest = z.strictObject({ configId: z.string().min(1), value: z.union([z.string(), z.boolean()]) });
+export type SetConfigRequest = z.infer<typeof SetConfigRequest>;
+
 /** A whole number from `min` to `max`, from a query-string value (digits only) or a number; `""`, `" "` and repeated keys fail with `message`. */
 const queryInt = (message: string, min: number, max = Number.MAX_SAFE_INTEGER) =>
   z
@@ -138,6 +142,8 @@ export type RepoErrorCode = z.infer<typeof RepoErrorCode>;
  * - `auth_required`: `POST /agents` when the harness needs a login. The app tells the user to log in.
  * - `agent_failed`: `POST /agents` when the agent didn't start; as a summary's `error.code`, a turn that failed
  *   or a process that ended unexpectedly. The app shows the message and offers a new agent.
+ * - `agent_error`: the agent refused a request (today only `POST /agents/:id/config`). The message ends with the
+ *   agent's own; the app shows it, and the agent keeps running as it was.
  */
 export const AgentErrorCode = z.enum([
   "not_found",
@@ -148,6 +154,7 @@ export const AgentErrorCode = z.enum([
   "unknown_harness",
   ...RepoErrorCode.options,
   "agent_failed",
+  "agent_error",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 
@@ -239,6 +246,10 @@ const ToolKind = z
  */
 const PendingPermission = z.object({ requestId: z.string(), at: Timestamp, title: z.string(), kind: ToolKind });
 
+/** What an agent is doing in its turn; `title` is the running tool's, left out when it has none. See `activityOf`. */
+export const Activity = z.object({ kind: z.enum(["thinking", "writing", "tool"]), title: z.string().exactOptional() });
+export type Activity = z.infer<typeof Activity>;
+
 const AgentSummaryFields = z.object({
   id: z.string(),
   harness: z.string(),
@@ -263,6 +274,11 @@ const AgentSummaryFields = z.object({
   lastText: z.string().exactOptional(),
   /** When the service last accepted a message or a permission answer from the app; never cleared. */
   lastUserAt: Timestamp.exactOptional(),
+  /**
+   * What the agent is doing while its state is `working` (by `activityOf` over its stored log), else null. A kind
+   * this app doesn't know reads as null; absent in summaries from before the field.
+   */
+  activity: Activity.nullable().catch(null).exactOptional(),
   /**
    * The agent's open permission requests, oldest first. A row appears when the agent asks and leaves when the request
    * is answered, the turn is cancelled or ends, or the agent stops or exits; a service restart clears them all.
@@ -386,6 +402,44 @@ const PlanEntry = z.object({
   status: z.enum(["pending", "in_progress", "completed"]).catch("pending"),
 });
 
+/** Reads ACP's null optional fields (`keys`) as absent. */
+const nullsAbsent = <T extends z.ZodType>(keys: readonly string[], schema: T) =>
+  z.preprocess((value: unknown): unknown => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+    const copy: Record<string, unknown> = { ...value };
+    for (const key of keys) if (copy[key] === null) delete copy[key];
+    return copy;
+  }, schema);
+
+const SelectOption = nullsAbsent(["description"], z.object({ value: z.string(), name: z.string(), description: z.string().exactOptional() }));
+const SelectGroup = z.object({ group: z.string(), name: z.string(), options: z.array(SelectOption) });
+
+const configOptionFields = { id: z.string(), name: z.string(), description: z.string().exactOptional(), category: z.string().exactOptional() };
+const KNOWN_CONFIG_TYPES = new Set<unknown>(["select", "boolean"]);
+
+/**
+ * One of the agent's settings (ACP v1 `SessionConfigOption`): a select (flat values or groups), a boolean, or a type
+ * newer than this app, kept with its id, name and value so the app can show it read-only.
+ */
+export const ConfigOption = nullsAbsent(
+  ["description", "category"],
+  z.union([
+    z.object({
+      ...configOptionFields,
+      type: z.literal("select"),
+      currentValue: z.string(),
+      options: z.union([z.array(SelectOption), z.array(SelectGroup)]),
+    }),
+    z.object({ ...configOptionFields, type: z.literal("boolean"), currentValue: z.boolean() }),
+    z.object({
+      ...configOptionFields,
+      type: z.string().refine((type) => !KNOWN_CONFIG_TYPES.has(type)),
+      currentValue: z.unknown().exactOptional(),
+    }),
+  ]),
+);
+export type ConfigOption = z.infer<typeof ConfigOption>;
+
 export const SessionUpdate = z.discriminatedUnion("sessionUpdate", [
   z.object({ sessionUpdate: z.literal("agent_message_chunk"), ...contentChunkFields }),
   /** The agent's reasoning, shaped as a message chunk. */
@@ -425,6 +479,8 @@ export const SessionUpdate = z.discriminatedUnion("sessionUpdate", [
       }),
     ),
   }),
+  /** The agent's whole current list of settings: each one replaces the last. */
+  z.object({ sessionUpdate: z.literal("config_option_update"), configOptions: z.array(ConfigOption) }),
 ]);
 export type SessionUpdate = z.infer<typeof SessionUpdate>;
 
@@ -500,6 +556,7 @@ const updateKinds: Record<SessionUpdate["sessionUpdate"], true> = {
   session_info_update: true,
   usage_update: true,
   available_commands_update: true,
+  config_option_update: true,
 };
 
 /** An entry of a type, or carrying a session update kind, that this app doesn't know (newer service). */

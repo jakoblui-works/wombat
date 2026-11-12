@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
+import { CONFIG_REFUSAL_MESSAGE, FAKE_CONFIG } from "../../test/fake-agent.ts";
 import { killedUnits, sliceStops } from "../../test/fake-systemd.ts";
 import { chunkTexts, REPO, setup, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
 
@@ -93,6 +94,28 @@ describe("no agent content in logs", () => {
         for (const value of Object.values(line.fields)) expect(["string", "number", "boolean"]).toContain(typeof value);
       }
       const leaks = lines.flatMap((line) => content.filter((text) => line.includes(text)).map((text) => ({ line, text })));
+      expect(leaks).toEqual([]);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // An agent's JSON-RPC error message is agent text: it goes back to the app in the error, never to a log line.
+  test(
+    "when the agent refuses a config option, its error message reaches the caller but no log line",
+    async () => {
+      const t = setup();
+      const { id } = await t.manager.start("fake-reply", REPO);
+      const refused = FAKE_CONFIG.model.values.find((value) => value.startsWith("refuse")) ?? "";
+      const error = await t.manager.setConfig(id, FAKE_CONFIG.model.id, refused).then(
+        () => undefined,
+        (reason: unknown) => reason,
+      );
+      // Control: the refusal happened, and the message did come back, so the check below isn't vacuous.
+      expect(error).toMatchObject({ code: "agent_error" });
+      expect((error as Error).message).toContain(CONFIG_REFUSAL_MESSAGE);
+      expect(t.logs.map((line) => JSON.stringify(line)).some((line) => line.includes(id))).toBe(true);
+
+      const leaks = t.logs.map((line) => JSON.stringify(line)).filter((line) => line.includes(CONFIG_REFUSAL_MESSAGE));
       expect(leaks).toEqual([]);
     },
     TEST_TIMEOUT_MS,

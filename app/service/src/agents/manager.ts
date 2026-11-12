@@ -5,6 +5,7 @@ import type { McpServer, RequestPermissionRequest, RequestPermissionResponse } f
 import {
   AgentErrorCode,
   AnswerPermissionRequest,
+  ConfigOption,
   LogEntry,
   parseLogEntry,
   PROPOSAL_ALERT,
@@ -13,8 +14,20 @@ import {
   type Alert,
   type ErrorBody,
   type SendMessageRequest,
+  type ServerErrorCode,
 } from "@wombat/shared/api";
-import { emptyFold, foldEntry, lastMainMessage, permissionOf, UNKNOWN_PERMISSION, type FoldState } from "@wombat/shared/log-fold";
+import {
+  activityOf,
+  configOf,
+  emptyFold,
+  foldEntry,
+  lastMainMessage,
+  permissionOf,
+  sameActivity,
+  UNKNOWN_PERMISSION,
+  type FoldState,
+} from "@wombat/shared/log-fold";
+import { z } from "zod";
 
 import { MCP_SERVER_NAME, startAgentProcess, type AgentScope, type Harness } from "../harness/harness.ts";
 import { defaultHarnesses, findHarness } from "../harness/registry.ts";
@@ -26,12 +39,15 @@ import { readBranch } from "./branch.ts";
 import { excerpt, keepForExcerpt } from "./excerpt.ts";
 import { createScopes, DEFAULT_SLICE } from "./scope.ts";
 
+/** A manager call's error codes: the agent ones, and `invalid_request` for a config value the option doesn't take. */
+export type AgentErrorCodes = AgentErrorCode | typeof ServerErrorCode.enum.invalid_request;
+
 /** A failed manager call; the server maps `code` to its HTTP status. */
 export class AgentError extends Error {
-  readonly code: AgentErrorCode;
+  readonly code: AgentErrorCodes;
   readonly hint: string | undefined;
 
-  constructor(code: AgentErrorCode, message: string, hint?: string) {
+  constructor(code: AgentErrorCodes, message: string, hint?: string) {
     super(message);
     this.name = "AgentError";
     this.code = code;
@@ -103,6 +119,8 @@ type Proc = {
    * the session id is known (the main session must be the real one), anew at each user message.
    */
   fold: FoldState | undefined;
+  /** The latest stored main-session config options (`configOf`, kept across the fold's restarts); what a set is checked against. */
+  config: ConfigOption[] | undefined;
   skipped: number;
 };
 
@@ -129,6 +147,14 @@ const killGroup = (pid: number | undefined, signal: NodeJS.Signals) => {
   }
 };
 
+const ConfigOptions = z.array(ConfigOption);
+
+/** A JSON-RPC error's message: the agent's own text, so it goes back to the app and never to a log line. */
+const rpcMessage = (error: unknown) =>
+  typeof error === "object" && error !== null && typeof (error as { message?: unknown }).message === "string"
+    ? (error as { message: string }).message
+    : undefined;
+
 const rpcCode = (error: unknown) =>
   typeof error === "object" && error !== null && typeof (error as { code?: unknown }).code === "number"
     ? (error as { code: number }).code
@@ -147,6 +173,18 @@ const withTimeout = <T>(promise: Promise<T>, ms: number, error: () => Error): Pr
     timer = setTimeout(() => reject(error()), ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+};
+
+/** Throws `invalid_request` unless `value` is one the option takes: a boolean for a boolean, one of a select's values for a select. */
+const checkConfigValue = (option: ConfigOption, value: string | boolean) => {
+  const fail = (what: string) => new AgentError("invalid_request", `The config option "${option.id}" ${what}. Send one it takes.`);
+  if (option.type === "boolean") {
+    if (typeof value !== "boolean") throw fail("takes true or false");
+    return;
+  }
+  if (option.type !== "select" || !("options" in option)) throw fail("is of a type the service can't set");
+  const values = option.options.flatMap((entry) => ("group" in entry ? entry.options : [entry])).map((entry) => entry.value);
+  if (typeof value !== "string" || !values.includes(value)) throw fail(`takes one of: ${values.join(", ")}`);
 };
 
 export const notFound = (agentId: string) =>
@@ -233,6 +271,7 @@ export const createManager = ({
       foldEntry(fold, { ...entry, seq: seqs[index] ?? 0, agentId }, { keepText: keepForExcerpt });
     }
     proc.fold = fold;
+    proc.config = configOf(fold) ?? proc.config;
     const last = seqs.at(-1);
     if (last !== undefined) emit({ seq: last, agentId, type: "log" });
     return seqs;
@@ -248,10 +287,39 @@ export const createManager = ({
       return { requestId, at, title, kind };
     });
 
+  /** The summary's activity: what the turn's fold says while the agent works, else none. */
+  const activityNow = (proc: Proc, state: AgentSummary["state"]) => (state === "working" && proc.fold ? activityOf(proc.fold) : null);
+
   /**
-   * Writes the agent's state with its pendingPermissions derived anew and lastText from its fold, so every change to
-   * the open requests is followed by one of these. With no main-session message in the fold (a new turn), the stored
-   * lastText stays.
+   * `current` with what the turn's fold says now: the activity for `state`, and lastText. With no main-session message
+   * in the fold (a new turn), the stored lastText stays.
+   */
+  const fromFold = (proc: Proc, current: AgentSummary, state: AgentSummary["state"]): AgentSummary => {
+    const next: AgentSummary = { ...current, activity: activityNow(proc, state) };
+    const message = proc.fold && lastMainMessage(proc.fold);
+    if (message !== undefined) {
+      const text = excerpt(message);
+      delete next.lastText;
+      if (text !== "") next.lastText = text;
+    }
+    return next;
+  };
+
+  /**
+   * After a stored update: writes the summary when its activity changed (by `sameActivity`), taking the fold's lastText
+   * along. A change to lastText alone writes nothing; it is current at least at each turn's end.
+   */
+  const refreshFromFold = (proc: Proc) => {
+    const current = summaries.get(proc.agentId);
+    if (!current) return;
+    const next = fromFold(proc, current, current.state);
+    if (sameActivity(next.activity ?? null, current.activity ?? null)) return;
+    putSummary(next, "agent_changed");
+  };
+
+  /**
+   * Writes the agent's state with its pendingPermissions derived anew and its activity and lastText from its fold
+   * (`fromFold`), so every change to the open requests is followed by one of these.
    */
   const setState = (
     proc: Proc,
@@ -262,7 +330,7 @@ export const createManager = ({
     const current = summaries.get(agentId);
     if (!current) return;
     const next: AgentSummary = {
-      ...current,
+      ...fromFold(proc, current, state),
       state,
       lastActivityAt: now(),
       pendingPermissions: pendingPermissions(proc),
@@ -270,12 +338,6 @@ export const createManager = ({
     delete next.error;
     if (error) next.error = error;
     if (lastUserAt !== undefined) next.lastUserAt = lastUserAt;
-    const message = proc.fold && lastMainMessage(proc.fold);
-    if (message !== undefined) {
-      const text = excerpt(message);
-      delete next.lastText;
-      if (text !== "") next.lastText = text;
-    }
     putSummary(next, "agent_changed");
     log("agent_state", { agentId, state });
   };
@@ -357,7 +419,19 @@ export const createManager = ({
         const current = summaries.get(agentId);
         if (current) putSummary({ ...current, title: parsed.title, lastActivityAt: now() }, "agent_changed");
       }
+      refreshFromFold(proc);
     });
+  };
+
+  /** Stores the agent's main-session options as a config_option_update; false when they don't parse. */
+  const appendConfig = (proc: Proc, options: unknown[]) => {
+    const parsed = ConfigOptions.safeParse(options);
+    if (!parsed.success) {
+      log("config_invalid", { agentId: proc.agentId });
+      return false;
+    }
+    appendLog(proc, [{ type: "session_update", sessionId: proc.sessionId, update: { sessionUpdate: "config_option_update", configOptions: parsed.data } }]);
+    return true;
   };
 
   const requestPermission = (proc: Proc, request: RequestPermissionRequest) => {
@@ -460,6 +534,7 @@ export const createManager = ({
       turn: false,
       pending: new Map(),
       fold: undefined,
+      config: undefined,
       skipped: 0,
     };
 
@@ -571,7 +646,7 @@ export const createManager = ({
     const live = agent.state === "working" || agent.state === "waiting" || agent.state === "done";
     if (live || agent.pendingPermissions.length > 0 || agent.hasProcess) {
       const state = live ? "stopped" : agent.state;
-      putSummary({ ...agent, state, pendingPermissions: pendingPermissions(procs.get(agent.id)) }, "agent_changed");
+      putSummary({ ...agent, state, pendingPermissions: pendingPermissions(procs.get(agent.id)), activity: null }, "agent_changed");
     }
     if (live) {
       log("agent_state", { agentId: agent.id, state: "stopped" });
@@ -616,7 +691,7 @@ export const createManager = ({
         ...(harness.sessionMeta === undefined ? {} : { _meta: harness.sessionMeta }),
         ...(instructions === undefined || harness.sessionParams === undefined ? {} : { params: harness.sessionParams(instructions) }),
       };
-      const sessionId = await withTimeout(proc.acp.newSession(cwd, session), Math.max(0, deadline - Date.now()), tooSlow);
+      const { sessionId, configOptions } = await withTimeout(proc.acp.newSession(cwd, session), Math.max(0, deadline - Date.now()), tooSlow);
       const branch = await branchOf(agentId, cwd);
       // procs no longer holding it means the process ended before its summary could be stored.
       if (shuttingDown || proc.ending || procs.get(agentId) !== proc) throw notRunning();
@@ -638,6 +713,9 @@ export const createManager = ({
       const added = putSummary(summary, "agent_added");
       proc.recorded = true;
       log("agent_started", { agentId, harness: harness.id });
+      if (configOptions.length > 0) safely(agentId, "config_option_update", () => {
+          appendConfig(proc, configOptions);
+        });
       for (const { sessionId: from, update } of proc.held.splice(0)) handleUpdate(proc, from, update);
       return summaries.get(agentId) ?? added;
     } catch (error) {
@@ -708,6 +786,48 @@ export const createManager = ({
     safely(agentId, "permission_answered", () => setState(proc, state, { lastUserAt: at }));
     log("permission_answered", { agentId, requestId, kind });
     pending.respond({ outcome: { outcome: "selected", optionId } });
+  };
+
+  /**
+   * Sets one of the agent's config options, checked against its latest stored options; returns once the agent's new
+   * options are stored. A value the agent refuses fails with `agent_error`, its message carrying the agent's own.
+   */
+  const setConfig = async (agentId: string, configId: string, value: string | boolean) => {
+    assertOpen();
+    if (!summaries.has(agentId)) throw notFound(agentId);
+    const proc = procs.get(agentId);
+    if (!proc?.recorded || proc.ending) throw notRunning();
+    const option = proc.config?.find(({ id }) => id === configId);
+    if (option === undefined) {
+      const ids = (proc.config ?? []).map(({ id }) => id);
+      throw new AgentError(
+        "invalid_request",
+        `The agent has no config option "${configId}". ${ids.length === 0 ? "It offers none." : `Set one of: ${ids.join(", ")}.`}`,
+      );
+    }
+    checkConfigValue(option, value);
+    let options: unknown[];
+    try {
+      options = await proc.acp.setConfigOption(proc.sessionId, configId, value);
+    } catch (error) {
+      if (proc.acp.isClosed() || proc.ending) throw notRunning();
+      const code = rpcCode(error);
+      log("config_refused", { agentId, configId: safeName(configId), code: code ?? -1 });
+      const said = rpcMessage(error);
+      throw new AgentError(
+        AgentErrorCode.enum.agent_error,
+        `The agent refused to set "${configId}"${code === undefined ? "" : ` (ACP error ${code})`}; it keeps its current settings. ` +
+          `Pick another value, or try again.${said === undefined || said === "" ? "" : ` The agent said: ${said}`}`,
+      );
+    }
+    if (proc.ending === "remove" || !summaries.has(agentId)) throw notFound(agentId);
+    if (!appendConfig(proc, options)) {
+      throw new AgentError(
+        AgentErrorCode.enum.agent_error,
+        `The agent set "${configId}" but answered with options the service can't read. Check that the agent is up to date, then try again.`,
+      );
+    }
+    log("config_set", { agentId, configId: safeName(configId) });
   };
 
   const cancel = async (agentId: string) => {
@@ -791,6 +911,7 @@ export const createManager = ({
     start,
     send,
     answer,
+    setConfig,
     cancel,
     stop,
     delete: remove,

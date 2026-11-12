@@ -1,10 +1,19 @@
 // A scripted ACP v1 agent for tests, run as `node fake-agent.ts <scenario>`. Stdout carries ACP only.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { writeFileSync, writeSync } from "node:fs";
+import { existsSync, writeFileSync, writeSync } from "node:fs";
 import { Readable, Transform, Writable } from "node:stream";
 
-import { agent, ndJsonStream, RequestError, type AgentContext, type PermissionOption, type RequestPermissionResponse, type SessionUpdate } from "@agentclientprotocol/sdk";
+import {
+  agent,
+  ndJsonStream,
+  RequestError,
+  type AgentContext,
+  type PermissionOption,
+  type RequestPermissionResponse,
+  type SessionConfigOption,
+  type SessionUpdate,
+} from "@agentclientprotocol/sdk";
 
 export const SCENARIOS = [
   "reply",
@@ -42,13 +51,50 @@ type SdkToolCall = Extract<SessionUpdate, { sessionUpdate: "tool_call" }>;
 /**
  * One step of the replay scenario, whose prompt is a JSON array of them (one turn): `send` sends a session update,
  * `ask` asks for a permission without waiting for the answer, `awaitAnswers` waits until every request asked so far is
- * answered. `sub` sends in the sub-agent session `<sessionId>` + REPLAY_SUB_SUFFIX instead of the main one. Requests
+ * answered, `awaitFile` holds the turn (the agent stays working, nothing asked of the user) until a file exists at that
+ * path. `sub` sends in the sub-agent session `<sessionId>` + REPLAY_SUB_SUFFIX instead of the main one. Requests
  * still open when the steps run out stay open; the turn ends with end_turn either way.
  */
 export type ReplayStep =
   | { send: SessionUpdate; sub?: boolean }
   | { ask: { toolCallId: string; title?: string; kind?: SdkToolCall["kind"] }; sub?: boolean }
-  | { awaitAnswers: true };
+  | { awaitAnswers: true }
+  | { awaitFile: string };
+
+/** How often an `awaitFile` step looks for its file. */
+const AWAIT_FILE_POLL_MS = 10;
+
+/**
+ * The config options every scenario offers (ACP v1 `SessionConfigOption`): a select `model` and a boolean `fast`.
+ * A model value starting with `refuse` is offered but refused when set, so a test can see the agent say no to a value
+ * the service accepts.
+ */
+export const FAKE_CONFIG = {
+  model: { id: "model", values: ["fake-small", "refuse-large"] as const, initial: "fake-small" },
+  fast: { id: "fast", initial: false },
+} as const;
+
+/** The agent's JSON-RPC error message when it refuses a set; tests check it never reaches the service's logs. */
+export const CONFIG_REFUSAL_MESSAGE = "config-refusal-must-not-be-logged";
+
+export type FakeConfig = { model: string; fast: boolean };
+
+/** The options as the fake sends them for the given values, in the agent's order (model, then fast). */
+export const fakeConfigOptions = ({ model, fast }: FakeConfig): SessionConfigOption[] => [
+  {
+    type: "select",
+    id: FAKE_CONFIG.model.id,
+    name: "Model",
+    description: "Which model the fake agent pretends to run",
+    category: "model",
+    currentValue: model,
+    options: [
+      { value: "fake-small", name: "Fake small" },
+      { value: "refuse-large", name: "Refuse large", description: "Offered, but the agent refuses it" },
+    ],
+  },
+  { type: "boolean", id: FAKE_CONFIG.fast.id, name: "Fast mode", currentValue: fast },
+];
 
 /** Appended to the main session's id to make the replay scenario's sub-agent session. */
 export const REPLAY_SUB_SUFFIX = ":sub";
@@ -162,6 +208,10 @@ const run = (scenario: FakeScenario) => {
   // The last session/new's params as they came over the wire, before the SDK's schema drops fields it doesn't
   // know (the stable v1 schema has no `systemPrompt`), for the mcp-config scenario.
   let sessionNew: unknown = undefined;
+  // The last session/set_config_option's params as they came over the wire (the SDK's union may read a shape the
+  // real agent would refuse), and each session's current config values.
+  let lastSet: Record<string, unknown> | undefined = undefined;
+  const configs = new Map<string, FakeConfig>();
   let pending = "";
   const recorder = new Transform({
     transform(chunk: Buffer, _encoding, done) {
@@ -172,6 +222,7 @@ const run = (scenario: FakeScenario) => {
         try {
           const message = JSON.parse(line) as { method?: unknown; params?: unknown };
           if (message.method === "session/new") sessionNew = message.params;
+          if (message.method === "session/set_config_option") lastSet = message.params as Record<string, unknown>;
         } catch {
           // Not JSON: the SDK reports it.
         }
@@ -200,7 +251,27 @@ const run = (scenario: FakeScenario) => {
         await send(client, sessionId, { sessionUpdate: "available_commands_update", availableCommands: [{ name: "review", description: "Review the diff" }] });
         await send(client, sessionId, { sessionUpdate: "session_info_update", title: EARLY_TITLE });
       }
-      return { sessionId };
+      configs.set(sessionId, { model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial });
+      return { sessionId, configOptions: fakeConfigOptions({ model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial }) };
+    })
+    .onRequest("session/set_config_option", ({ params }) => {
+      const config = configs.get(params.sessionId);
+      if (config === undefined) throw RequestError.invalidParams(undefined, "unknown session");
+      const raw = lastSet ?? {};
+      if (params.configId === FAKE_CONFIG.model.id) {
+        // ACP v1: a select's value is sent bare, without a type.
+        if ("type" in raw || typeof raw.value !== "string") throw RequestError.invalidParams(undefined, "model takes a bare string value");
+        if (!(FAKE_CONFIG.model.values as readonly string[]).includes(raw.value)) throw RequestError.invalidParams(undefined, "unknown model");
+        if (raw.value.startsWith("refuse")) throw RequestError.internalError(undefined, CONFIG_REFUSAL_MESSAGE);
+        config.model = raw.value;
+      } else if (params.configId === FAKE_CONFIG.fast.id) {
+        // ACP v1: a boolean is sent as { type: "boolean", value }.
+        if (raw.type !== "boolean" || typeof raw.value !== "boolean") throw RequestError.invalidParams(undefined, "fast takes { type: \"boolean\", value }");
+        config.fast = raw.value;
+      } else {
+        throw RequestError.invalidParams(undefined, "unknown config option");
+      }
+      return { configOptions: fakeConfigOptions(config) };
     })
     .onNotification("session/cancel", ({ params }) => {
       cancelled.add(params.sessionId);
@@ -471,6 +542,10 @@ const run = (scenario: FakeScenario) => {
             if ("awaitAnswers" in step) {
               await Promise.all(open);
               open = [];
+              continue;
+            }
+            if ("awaitFile" in step) {
+              while (!existsSync(step.awaitFile)) await new Promise((resolve) => setTimeout(resolve, AWAIT_FILE_POLL_MS));
               continue;
             }
             const session = step.sub === true ? `${sessionId}${REPLAY_SUB_SUFFIX}` : sessionId;

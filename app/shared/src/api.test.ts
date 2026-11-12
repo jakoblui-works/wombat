@@ -116,6 +116,38 @@ const availableCommandsUpdate = {
   ],
 };
 
+// As claude-agent-acp sends them: a permission mode select with flat values, a model select with grouped values,
+// and a boolean.
+const configOptionUpdate = {
+  sessionUpdate: "config_option_update",
+  configOptions: [
+    {
+      type: "select",
+      id: "mode",
+      name: "Mode",
+      category: "mode",
+      currentValue: "default",
+      options: [
+        { value: "default", name: "Default", description: "Ask before edits and commands" },
+        { value: "acceptEdits", name: "Accept edits" },
+      ],
+    },
+    {
+      type: "select",
+      id: "model",
+      name: "Model",
+      description: "The model the agent runs on",
+      category: "model",
+      currentValue: "sonnet",
+      options: [
+        { group: "current", name: "Current", options: [{ value: "sonnet", name: "Sonnet" }, { value: "opus", name: "Opus" }] },
+        { group: "older", name: "Older", options: [{ value: "haiku", name: "Haiku" }] },
+      ],
+    },
+    { type: "boolean", id: "thinking", name: "Extended thinking", category: "thought_level", currentValue: true },
+  ],
+};
+
 const renderedUpdates = [
   agentMessageChunk,
   agentThoughtChunk,
@@ -126,6 +158,7 @@ const renderedUpdates = [
   sessionInfoUpdate,
   usageUpdate,
   availableCommandsUpdate,
+  configOptionUpdate,
 ];
 
 /** An entry as the log route sends it: `seq`, `type`, `agentId`, `at`, plus the type's fields. */
@@ -445,6 +478,49 @@ describe("LogEntry (lenient)", () => {
       const kept = parsed?.type === "session_update" ? parsed.update : undefined;
       expect(kept && "content" in kept ? kept.content : undefined, update.sessionUpdate).toEqual([diffContent]);
     }
+  });
+
+  // Contract "Config options in the log" (lenient): the options come from the agent, so a newer ACP's option type must
+  // not make the entry unreadable (the footer would go empty); it's kept, shown read-only, beside the others.
+  test("a config option of a type this app doesn't know is kept with its id, name and value, and so are its neighbours", () => {
+    const [mode, model, thinking] = configOptionUpdate.configOptions;
+    const newer = { type: "multi_select", id: "tools", name: "Allowed tools", currentValue: ["Read", "Edit"], options: [{ value: "Read", name: "Read" }] };
+    const parsed = parseLogEntry(logEntry(44, "session_update", { update: { sessionUpdate: "config_option_update", configOptions: [mode, newer, model, thinking] } }));
+    expect(parsed).toMatchObject({
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [mode, { type: "multi_select", id: "tools", name: "Allowed tools", currentValue: ["Read", "Edit"] }, model, thinking],
+      },
+    });
+    const options = parsed?.type === "session_update" && parsed.update.sessionUpdate === "config_option_update" ? parsed.update.configOptions : [];
+    expect(options).toHaveLength(4);
+  });
+
+  test("ACP nulls in config options read as absent", () => {
+    const update = {
+      sessionUpdate: "config_option_update",
+      configOptions: [
+        {
+          type: "select",
+          id: "model",
+          name: "Model",
+          description: null,
+          category: null,
+          currentValue: "sonnet",
+          options: [{ value: "sonnet", name: "Sonnet", description: null }],
+        },
+        { type: "boolean", id: "fast", name: "Fast mode", description: null, category: null, currentValue: false },
+      ],
+    };
+    const parsed = parseLogEntry(logEntry(45, "session_update", { update }));
+    const options = parsed?.type === "session_update" && parsed.update.sessionUpdate === "config_option_update" ? parsed.update.configOptions : undefined;
+    expect(options).toHaveLength(2);
+    for (const option of options ?? []) {
+      expect(option, option.id).not.toHaveProperty("description");
+      expect(option, option.id).not.toHaveProperty("category");
+    }
+    const [select] = options ?? [];
+    expect(select && "options" in select ? select.options : undefined).toEqual([{ value: "sonnet", name: "Sonnet" }]);
   });
 
   test("parseLogEntry ignores unknown fields on known entries and updates", () => {
@@ -788,16 +864,21 @@ describe("ACP-derived values (tolerated)", () => {
 
 describe("session updates", () => {
   // Type-level: `pnpm typecheck` fails if what we keep from ACP stops being assignable to the SDK's types.
-  // The `unsupported` placeholder is ours, not ACP's, so it is removed (at any depth) before comparing.
+  // Our own lenient branches aren't ACP's, so they are removed (at any depth) before comparing: the `unsupported`
+  // placeholder, and a config option of a type we don't know (its `type` is any string, not a literal).
   type Ours<K extends SessionUpdate["sessionUpdate"]> = Extract<SessionUpdate, { sessionUpdate: K }>;
   type Acp<K extends SessionUpdate["sessionUpdate"]> = Extract<AcpSessionUpdate, { sessionUpdate: K }>;
   type FromAcp<T> = T extends { type: "unsupported" }
     ? never
-    : T extends readonly (infer Element)[]
-      ? FromAcp<Element>[]
-      : T extends object
-        ? { [K in keyof T]: FromAcp<T[K]> }
-        : T;
+    : T extends { type: infer Type extends string }
+      ? string extends Type
+        ? never
+        : { [K in keyof T]: FromAcp<T[K]> }
+      : T extends readonly (infer Element)[]
+        ? FromAcp<Element>[]
+        : T extends object
+          ? { [K in keyof T]: FromAcp<T[K]> }
+          : T;
 
   test("each rendered update kind, minus our placeholder, is assignable to the ACP SDK's SessionUpdate", () => {
     expectTypeOf<FromAcp<Ours<"agent_message_chunk">>>().toExtend<Acp<"agent_message_chunk">>();
@@ -808,6 +889,7 @@ describe("session updates", () => {
     expectTypeOf<FromAcp<Ours<"session_info_update">>>().toExtend<Acp<"session_info_update">>();
     expectTypeOf<FromAcp<Ours<"usage_update">>>().toExtend<Acp<"usage_update">>();
     expectTypeOf<FromAcp<Ours<"available_commands_update">>>().toExtend<Acp<"available_commands_update">>();
+    expectTypeOf<FromAcp<Ours<"config_option_update">>>().toExtend<Acp<"config_option_update">>();
     expectTypeOf<FromAcp<SessionUpdate>>().toExtend<AcpSessionUpdate>();
   });
 

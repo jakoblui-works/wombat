@@ -41,6 +41,29 @@ export const toolCall = (toolCallId: string, title: string, fields: Partial<Omit
 export const toolUpdate = (toolCallId: string, fields: Partial<Omit<ToolCallUpdate, "sessionUpdate" | "toolCallId">> = {}): Body =>
   update({ sessionUpdate: "tool_call_update", toolCallId, ...fields });
 
+type ConfigOptionUpdate = Extract<Update, { sessionUpdate: "config_option_update" }>;
+type UsageUpdate = Extract<Update, { sessionUpdate: "usage_update" }>;
+
+export const configUpdate = (configOptions: ConfigOptionUpdate["configOptions"]): Body => update({ sessionUpdate: "config_option_update", configOptions });
+
+export const usage = (used: number, size: number, cost?: UsageUpdate["cost"]): Body =>
+  update({ sessionUpdate: "usage_update", used, size, ...(cost === undefined ? {} : { cost }) });
+
+/** A select and a boolean, as an agent offers them; `model` and `fast` pick their current values. */
+export const sampleConfig = (model: "fast-model" | "deep-model", fast: boolean): ConfigOptionUpdate["configOptions"] => [
+  {
+    type: "select",
+    id: "model",
+    name: "Model",
+    currentValue: model,
+    options: [
+      { value: "fast-model", name: "Fast model" },
+      { value: "deep-model", name: "Deep model" },
+    ],
+  },
+  { type: "boolean", id: "fast", name: "Fast mode", currentValue: fast },
+];
+
 export const textContent = (text: string) => ({ type: "content" as const, content: { type: "text" as const, text } });
 export const diffContent = (path: string, oldText: string | null, newText: string) => ({ type: "diff" as const, path, oldText, newText });
 
@@ -74,6 +97,7 @@ const UNSHOWN_UPDATES: Record<SessionUpdate["sessionUpdate"], Body | "shown"> = 
   tool_call: "shown",
   tool_call_update: "shown",
   usage_update: update({ sessionUpdate: "usage_update", used: 1200, size: 200_000 }),
+  config_option_update: update({ sessionUpdate: "config_option_update", configOptions: sampleConfig("fast-model", false) }),
   session_info_update: update({ sessionUpdate: "session_info_update", title: "Opening hours" }),
   available_commands_update: update({
     sessionUpdate: "available_commands_update",

@@ -18,7 +18,7 @@ export { APP_ORIGIN };
 
 /**
  * Every route of the app's contract, on a real agent and request id, plus a path no route has: the port rules
- * apply to each, and an agent token opens none of them.
+ * apply to each, and an agent token opens none of them. app-routes.test.ts checks it covers every APP_ROUTES entry.
  */
 export const appRoutes = (agentId: string): { method: string; path: string; body?: unknown }[] => [
   { method: "GET", path: "/version" },
@@ -29,6 +29,7 @@ export const appRoutes = (agentId: string): { method: string; path: string; body
   { method: "GET", path: `/agents/${agentId}/log` },
   { method: "POST", path: `/agents/${agentId}/messages`, body: { text: "Refused prompt" } },
   { method: "POST", path: `/agents/${agentId}/permissions/req_1`, body: { kind: "allow_once" } },
+  { method: "POST", path: `/agents/${agentId}/config`, body: { configId: "model", value: "fake-small" } },
   { method: "POST", path: `/agents/${agentId}/cancel` },
   { method: "POST", path: `/agents/${agentId}/stop` },
   { method: "DELETE", path: `/agents/${agentId}` },

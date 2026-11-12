@@ -9,11 +9,11 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { ErrorBody } from "@wombat/shared/api";
-import { APP_ROUTES, MAX_BODY_BYTES } from "@wombat/shared/routes";
+import { APP_ROUTES, appRoute, MAX_BODY_BYTES } from "@wombat/shared/routes";
 import { expect, test } from "vitest";
 
 import { REPO, TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
-import { expectError, serve } from "../../test/server-fixtures.ts";
+import { appRoutes, expectError, serve } from "../../test/server-fixtures.ts";
 
 const SERVER_DIR = import.meta.dirname;
 // Served for agents (/mcp) or called by main itself (/shutdown, /events); never in the page's allow-list.
@@ -46,6 +46,23 @@ test("APP_ROUTES and the server's app routes are the same set", () => {
   expect(listed.filter((route) => !registered.includes(route)), "APP_ROUTES entries the server doesn't register").toEqual([]);
   expect(forThePage.filter((route) => !listed.includes(route)), "server routes missing from APP_ROUTES").toEqual([]);
   expect(new Set(listed).size, "APP_ROUTES lists a route twice").toBe(listed.length);
+});
+
+// The port rules (port-rules.test.ts) and the agent-token check (agent-tokens.test.ts) walk the fixture's route list,
+// not APP_ROUTES: a route missing from it would get neither check. Some routes change what an agent may do (a config
+// option can be the agent's permission mode), so an agent's own token must be refused on each.
+test("the port-rules and agent-token fixture lists exactly the APP_ROUTES entries, besides the routes the page never calls", () => {
+  const fixture = appRoutes("3f2b9c1e-7a4d-4e1b-9c55-0d6e2a8f4b71");
+  const forThePage = fixture.filter(({ path }) => !NOT_FOR_THE_PAGE.includes(path) && path !== "/no-such-route");
+  const covered = new Set(forThePage.map(({ method, path }) => appRoute(method, path)));
+  expect(
+    APP_ROUTES.filter((route) => !covered.has(route)).map(({ method, pattern }) => `${method} ${pattern}`),
+    "APP_ROUTES entries the fixture's route list leaves out",
+  ).toEqual([]);
+  expect(
+    forThePage.filter(({ method, path }) => appRoute(method, path) === undefined).map(({ method, path }) => `${method} ${path}`),
+    "fixture routes that aren't in APP_ROUTES",
+  ).toEqual([]);
 });
 
 test(
