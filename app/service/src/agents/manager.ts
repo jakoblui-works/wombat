@@ -7,15 +7,14 @@ import {
   AnswerPermissionRequest,
   LogEntry,
   parseLogEntry,
-  permissionTitle,
   PROPOSAL_ALERT,
   SERVICE_STOP_REASON,
   type AgentSummary,
   type Alert,
   type ErrorBody,
   type SendMessageRequest,
-  type SessionUpdate,
 } from "@wombat/shared/api";
+import { emptyFold, foldEntry, lastMainMessage, permissionOf, type FoldState } from "@wombat/shared/log-fold";
 
 import { MCP_SERVER_NAME, startAgentProcess, type AgentScope, type Harness } from "../harness/harness.ts";
 import { defaultHarnesses, findHarness } from "../harness/registry.ts";
@@ -62,7 +61,7 @@ type PermissionKind = AnswerPermissionRequest["kind"];
 type ErrorDetail = ErrorBody["error"];
 type PendingPermission = AgentSummary["pendingPermissions"][number];
 
-type Pending = Omit<PendingPermission, "requestId"> & {
+type Pending = Pick<PendingPermission, "at"> & {
   /** Option kind → the agent's optionId, for the kinds it offered. */
   offered: Map<PermissionKind, string>;
   /** The ACP session that asked; its answer is recorded under the same one. */
@@ -99,18 +98,12 @@ type Proc = {
   turn: boolean;
   /** Open permission requests by requestId, oldest first; the summary's pendingPermissions mirror it. */
   pending: Map<string, Pending>;
-  /** The latest title and kind each tool call of the current turn was stored with, by toolCallId. */
-  toolCalls: Map<string, { title?: string; kind?: PendingPermission["kind"] }>;
+  /**
+   * The current turn's entries folded as stored, for the summary's lastText and request titles and kinds; made once
+   * the session id is known (the main session must be the real one), anew at each user message.
+   */
+  fold: FoldState | undefined;
   skipped: number;
-};
-
-/** The agent's latest message, as far as its summary's lastText needs it. */
-type LastMessage = {
-  messageId: string | null;
-  /** What `keepForExcerpt` kept of the message's text. */
-  kept: string;
-  /** False once anything but a chunk of it came: the next chunk starts a new message. */
-  open: boolean;
 };
 
 const START_TIMEOUT_MS = 60_000;
@@ -181,7 +174,6 @@ export const createManager = ({
   const listeners = new Set<(event: Committed) => void>();
   const summaries = new Map(store.listAgents().map((agent) => [agent.id, agent]));
   const procs = new Map<string, Proc>();
-  const lastMessages = new Map<string, LastMessage>();
   // commandId → seq of its user_message, per agent; loaded from the store on first use.
   const commandIds = new Map<string, Map<string, number>>();
   let shuttingDown: Promise<void> | undefined;
@@ -229,40 +221,57 @@ export const createManager = ({
     return summary;
   };
 
-  const appendLog = (agentId: string, entries: NewLogEntry[]) => {
-    const seqs = store.append(agentId, entries);
+  /** Stores the entries and folds each one as stored; every entry of the agent's log is written through here. */
+  const appendLog = (proc: Proc, entries: NewLogEntry[]) => {
+    const { agentId } = proc;
+    if (!proc.fold) throw new Error(`Can't log for agent ${agentId} before its session started.`);
+    const stored = entries.map((entry) => ({ ...entry, at: entry.at ?? now() }));
+    const seqs = store.append(agentId, stored);
+    stored.forEach((entry, index) => {
+      if (entry.type === "user_message") proc.fold = emptyFold(proc.sessionId);
+      const logged = { ...entry, seq: seqs[index] ?? 0, agentId };
+      if (proc.fold) foldEntry(proc.fold, logged, { keepText: keepForExcerpt });
+    });
     const last = seqs.at(-1);
     if (last !== undefined) emit({ seq: last, agentId, type: "log" });
     return seqs;
   };
 
-  /** The summary rows of the agent's open permission requests: the only source of `pendingPermissions`. */
-  const pendingPermissions = (agentId: string): PendingPermission[] =>
-    [...(procs.get(agentId)?.pending ?? [])].map(([requestId, { at, title, kind }]) => ({ requestId, at, title, kind }));
+  /**
+   * The summary rows of the agent's open permission requests: the only source of `pendingPermissions`. Title and kind
+   * are the fold's; a request whose entry couldn't be stored has none to read and gets `""` and `"other"`.
+   */
+  const pendingPermissions = (proc: Proc | undefined): PendingPermission[] =>
+    [...(proc?.pending ?? [])].map(([requestId, { at }]) => {
+      const { title, kind } = (proc?.fold && permissionOf(proc.fold, requestId)) ?? { title: "", kind: "other" as const };
+      return { requestId, at, title, kind };
+    });
 
   /**
-   * Writes the agent's state with its pendingPermissions derived anew and its latest message's lastText, so every
-   * change to the open requests is followed by one of these.
+   * Writes the agent's state with its pendingPermissions derived anew and lastText from its fold, so every change to
+   * the open requests is followed by one of these. With no main-session message in the fold (a new turn), the stored
+   * lastText stays.
    */
   const setState = (
-    agentId: string,
+    proc: Proc,
     state: AgentSummary["state"],
     { error, lastUserAt }: { error?: ErrorDetail; lastUserAt?: string } = {},
   ) => {
+    const { agentId } = proc;
     const current = summaries.get(agentId);
     if (!current) return;
     const next: AgentSummary = {
       ...current,
       state,
       lastActivityAt: now(),
-      pendingPermissions: pendingPermissions(agentId),
+      pendingPermissions: pendingPermissions(proc),
     };
     delete next.error;
     if (error) next.error = error;
     if (lastUserAt !== undefined) next.lastUserAt = lastUserAt;
-    const message = lastMessages.get(agentId);
-    if (message) {
-      const text = excerpt(message.kept);
+    const message = proc.fold && lastMainMessage(proc.fold);
+    if (message !== undefined) {
+      const text = excerpt(message);
       delete next.lastText;
       if (text !== "") next.lastText = text;
     }
@@ -289,28 +298,6 @@ export const createManager = ({
     delete next.branch;
     if (branch !== undefined) next.branch = branch;
     safely(agentId, "branch", () => putSummary(next, "agent_changed"));
-  };
-
-  /** Follows the agent's messages for lastText: chunks of one message join, anything else ends the message. */
-  const trackMessage = (agentId: string, update: SessionUpdate) => {
-    const last = lastMessages.get(agentId);
-    if (update.sessionUpdate !== "agent_message_chunk") {
-      if (last) last.open = false;
-      return;
-    }
-    const messageId = update.messageId ?? null;
-    const text = update.content.type === "text" ? update.content.text : "";
-    if (last?.open && last.messageId === messageId) last.kept = keepForExcerpt(last.kept, text);
-    else lastMessages.set(agentId, { messageId, kept: keepForExcerpt("", text), open: true });
-  };
-
-  /** Remembers a stored tool call's title and kind, for permission requests that name it by id only. */
-  const trackToolCall = (proc: Proc, update: SessionUpdate) => {
-    if (update.sessionUpdate !== "tool_call" && update.sessionUpdate !== "tool_call_update") return;
-    const known = proc.toolCalls.get(update.toolCallId) ?? {};
-    if (typeof update.title === "string") known.title = update.title;
-    if (typeof update.kind === "string") known.kind = update.kind;
-    proc.toolCalls.set(update.toolCallId, known);
   };
 
   /** For writes driven by the agent rather than a caller: a failure is logged, not thrown into the ACP layer. */
@@ -364,9 +351,7 @@ export const createManager = ({
     }
     const parsed = entry.update;
     safely(agentId, "session_update", () => {
-      appendLog(agentId, [{ type: "session_update", sessionId, update: parsed }]);
-      trackMessage(agentId, parsed);
-      trackToolCall(proc, parsed);
+      appendLog(proc, [{ type: "session_update", sessionId, update: parsed }]);
       if (parsed.sessionUpdate === "session_info_update" && typeof parsed.title === "string") {
         const current = summaries.get(agentId);
         if (current) putSummary({ ...current, title: parsed.title, lastActivityAt: now() }, "agent_changed");
@@ -398,14 +383,11 @@ export const createManager = ({
       return Promise.resolve<RequestPermissionResponse>({ outcome: { outcome: "cancelled" } });
     }
     const { toolCall, options, at } = parsed.data;
-    const stored = proc.toolCalls.get(toolCall.toolCallId);
-    const title = permissionTitle(toolCall.title, stored?.title);
-    const kind = toolCall.kind ?? stored?.kind ?? "other";
     return new Promise<RequestPermissionResponse>((respond) => {
-      proc.pending.set(requestId, { offered, sessionId, respond, at, title, kind });
+      proc.pending.set(requestId, { offered, sessionId, respond, at });
       safely(agentId, "permission_requested", () => {
-        appendLog(agentId, [{ type: "permission_requested", at, sessionId, requestId, toolCall, options }]);
-        setState(agentId, "waiting");
+        appendLog(proc, [{ type: "permission_requested", at, sessionId, requestId, toolCall, options }]);
+        setState(proc, "waiting");
       });
       log("permission_requested", { agentId, requestId, options: offered.size });
     });
@@ -426,8 +408,8 @@ export const createManager = ({
       proc.turn = false;
       cancelPending(proc);
       safely(agentId, "turn_ended", () => {
-        appendLog(agentId, [{ type: "turn_ended", stopReason }]);
-        setState(agentId, "done");
+        appendLog(proc, [{ type: "turn_ended", stopReason }]);
+        setState(proc, "done");
       });
       log("turn_ended", { agentId, stopReason: safeName(stopReason) });
       await refreshBranch(agentId, proc.cwd);
@@ -439,8 +421,8 @@ export const createManager = ({
       proc.turn = false;
       const code = rpcCode(error);
       safely(agentId, "turn_failed", () => {
-        appendLog(agentId, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.error }]);
-        setState(agentId, "error", {
+        appendLog(proc, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.error }]);
+        setState(proc, "error", {
           error: {
             code: AgentErrorCode.enum.agent_failed,
             message:
@@ -476,7 +458,7 @@ export const createManager = ({
       ending: undefined,
       turn: false,
       pending: new Map(),
-      toolCalls: new Map(),
+      fold: undefined,
       skipped: 0,
     };
 
@@ -491,14 +473,14 @@ export const createManager = ({
       // A turn the process ended under gets its end in the log too; a removed agent has no log left.
       if (proc.recorded && proc.turn && proc.ending !== "remove") {
         proc.turn = false;
-        safely(agentId, "turn_stopped", () => appendLog(agentId, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.stopped }]));
+        safely(agentId, "turn_stopped", () => appendLog(proc, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.stopped }]));
       }
       if (proc.recorded && proc.ending === "stop") {
-        safely(agentId, "stopped", () => setState(agentId, "stopped"));
+        safely(agentId, "stopped", () => setState(proc, "stopped"));
       } else if (proc.recorded && proc.ending === undefined) {
         const how = code === null ? `was killed (${signal ?? "unknown signal"})` : `exited with code ${code}`;
         safely(agentId, "exited", () =>
-          setState(agentId, "error", {
+          setState(proc, "error", {
             error: {
               code: AgentErrorCode.enum.agent_failed,
               message: `The agent process ${how} unexpectedly. Start a new agent to continue; this one's history is kept.`,
@@ -588,7 +570,7 @@ export const createManager = ({
     const live = agent.state === "working" || agent.state === "waiting" || agent.state === "done";
     if (live || agent.pendingPermissions.length > 0 || agent.hasProcess) {
       const state = live ? "stopped" : agent.state;
-      putSummary({ ...agent, state, pendingPermissions: pendingPermissions(agent.id) }, "agent_changed");
+      putSummary({ ...agent, state, pendingPermissions: pendingPermissions(procs.get(agent.id)) }, "agent_changed");
     }
     if (live) {
       log("agent_state", { agentId: agent.id, state: "stopped" });
@@ -638,6 +620,7 @@ export const createManager = ({
       // procs no longer holding it means the process ended before its summary could be stored.
       if (shuttingDown || proc.ending || procs.get(agentId) !== proc) throw notRunning();
       proc.sessionId = sessionId;
+      proc.fold = emptyFold(sessionId);
       const startedAt = now();
       const summary: Omit<AgentSummary, "hasProcess"> = {
         id: agentId,
@@ -649,7 +632,7 @@ export const createManager = ({
         startedAt,
         lastActivityAt: startedAt,
         ...(branch === undefined ? {} : { branch }),
-        pendingPermissions: pendingPermissions(agentId),
+        pendingPermissions: pendingPermissions(proc),
       };
       const added = putSummary(summary, "agent_added");
       proc.recorded = true;
@@ -682,15 +665,12 @@ export const createManager = ({
       throw new AgentError(AgentErrorCode.enum.busy, "The agent is still working on the last message. Wait for it to finish, or cancel it.");
     }
     const at = now();
-    const [seq = 0] = appendLog(agentId, [
+    const [seq = 0] = appendLog(proc, [
       { type: "user_message", at, text, ...(commandId === undefined ? {} : { commandId }) },
     ]);
     if (commandId !== undefined) knownCommands(agentId).set(commandId, seq);
-    const last = lastMessages.get(agentId);
-    if (last) last.open = false;
-    proc.toolCalls.clear();
     // The message is stored, so it is sent even if the state can't be: its turn ending clears `busy`.
-    safely(agentId, "turn_started", () => setState(agentId, "working", { lastUserAt: at }));
+    safely(agentId, "turn_started", () => setState(proc, "working", { lastUserAt: at }));
     proc.turn = true;
     log("turn_started", { agentId, seq });
     void runTurn(proc, text);
@@ -721,10 +701,10 @@ export const createManager = ({
     }
     // Stored first: if that fails the request stays open, and the caller can answer it again.
     const at = now();
-    appendLog(agentId, [{ type: "permission_answered", at, sessionId: pending.sessionId, requestId, kind }]);
+    appendLog(proc, [{ type: "permission_answered", at, sessionId: pending.sessionId, requestId, kind }]);
     proc.pending.delete(requestId);
     const state = proc.pending.size === 0 ? "working" : "waiting";
-    safely(agentId, "permission_answered", () => setState(agentId, state, { lastUserAt: at }));
+    safely(agentId, "permission_answered", () => setState(proc, state, { lastUserAt: at }));
     log("permission_answered", { agentId, requestId, kind });
     pending.respond({ outcome: { outcome: "selected", optionId } });
   };
@@ -742,7 +722,7 @@ export const createManager = ({
     // ACP: after session/cancel, the client answers the turn's open permission requests with `cancelled`.
     const cancelled = cancelPending(proc);
     const state = proc.turn ? "working" : summaries.get(agentId)?.state;
-    if (cancelled > 0 && state) safely(agentId, "cancel", () => setState(agentId, state));
+    if (cancelled > 0 && state) safely(agentId, "cancel", () => setState(proc, state));
     log("turn_cancel_sent", { agentId, permissionsCancelled: cancelled });
   };
 
@@ -769,7 +749,6 @@ export const createManager = ({
     const seq = store.deleteAgent(agentId);
     summaries.delete(agentId);
     commandIds.delete(agentId);
-    lastMessages.delete(agentId);
     if (seq !== undefined) emit({ seq, agentId, type: "agent_removed" });
     log("agent_deleted", { agentId });
   };

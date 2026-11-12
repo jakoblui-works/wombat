@@ -29,12 +29,29 @@ export const SCENARIOS = [
   "hostile",
   "prompt-error",
   "stop-error",
+  "replay",
 ] as const;
 
 export type FakeScenario = (typeof SCENARIOS)[number];
 
 const isScenario = (name: string | undefined): name is FakeScenario =>
   (SCENARIOS as readonly (string | undefined)[]).includes(name);
+
+type SdkToolCall = Extract<SessionUpdate, { sessionUpdate: "tool_call" }>;
+
+/**
+ * One step of the replay scenario, whose prompt is a JSON array of them (one turn): `send` sends a session update,
+ * `ask` asks for a permission without waiting for the answer, `awaitAnswers` waits until every request asked so far is
+ * answered. `sub` sends in the sub-agent session `<sessionId>` + REPLAY_SUB_SUFFIX instead of the main one. Requests
+ * still open when the steps run out stay open; the turn ends with end_turn either way.
+ */
+export type ReplayStep =
+  | { send: SessionUpdate; sub?: boolean }
+  | { ask: { toolCallId: string; title?: string; kind?: SdkToolCall["kind"] }; sub?: boolean }
+  | { awaitAnswers: true };
+
+/** Appended to the main session's id to make the replay scenario's sub-agent session. */
+export const REPLAY_SUB_SUFFIX = ":sub";
 
 // Tests look for these markers in the service's logs, which must never contain them.
 const NOISY_STDERR_MARKER = "stderr-content-must-not-be-logged";
@@ -457,6 +474,36 @@ const run = (scenario: FakeScenario) => {
           await send(client, sessionId, text("Working on it."));
           await told;
           throw RequestError.internalError(undefined, "the fake agent was told to end mid-turn");
+        }
+        case "replay": {
+          const [block] = prompt;
+          const steps = JSON.parse(block?.type === "text" ? block.text : "[]") as ReplayStep[];
+          let open: Promise<unknown>[] = [];
+          for (const step of steps) {
+            if ("awaitAnswers" in step) {
+              await Promise.all(open);
+              open = [];
+              continue;
+            }
+            const session = step.sub === true ? `${sessionId}${REPLAY_SUB_SUFFIX}` : sessionId;
+            if ("send" in step) {
+              await send(client, session, step.send);
+            } else {
+              open.push(
+                client
+                  .request("session/request_permission", {
+                    sessionId: session,
+                    toolCall: step.ask,
+                    options: [
+                      { optionId: "allow", name: "Allow", kind: "allow_once" },
+                      { optionId: "reject", name: "Reject", kind: "reject_once" },
+                    ],
+                  })
+                  .catch(() => undefined),
+              );
+            }
+          }
+          return { stopReason: "end_turn" };
         }
         case "auth":
           break;
