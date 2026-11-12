@@ -27,6 +27,7 @@ Wombat is an agentic development environment (ADE) for multi-repo projects. It s
 - The agent service owns the agents and keeps them running when the desktop app closes. The desktop app talks only to the agent service, over one port, so it doesn't change when the service moves from the host into the VM.
 - The service runs git through simple-git (the real `git` CLI).
 - The desktop app: Electron + React, Monaco with Shiki for code. Context isolation on, no Node in the renderer; everything goes through the service.
+- Tool-specific behaviour lives in the service's harness. A tool's desktop UI lives in `app/desktop/src/renderer/src/harnesses/<id>/`, registered once from `workbench/activities.ts` and reached only through the footer slots (`footerSlot`); views never import it.
 - Docs and tasks: markdown in git is the source of truth; the app edits the files, never a copy beside them.
 
 ## Releases and docs
