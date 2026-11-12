@@ -7,6 +7,11 @@ export type WorkbenchActions = {
    * reaches the tab's view as its `reveal` prop; it isn't part of the tab's identity.
    */
   openTab: (viewId: string, params: unknown, reveal?: string) => void;
+  /**
+   * Opens (or focuses) the tab for this view and params beside the tab `beside`: in the group to the right of that
+   * tab's group, or a new group there (the diff tab beside its chat).
+   */
+  openBeside: (viewId: string, params: unknown, beside: ActiveTab) => void;
   /** Closes the tab for this view and params, if it's open. */
   closeTab: (viewId: string, params: unknown) => void;
 };

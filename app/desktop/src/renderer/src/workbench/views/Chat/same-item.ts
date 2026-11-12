@@ -26,7 +26,7 @@ export const sameItem = (a: ChatItem, b: ChatItem): boolean => {
   return keys.length === Object.keys(b).length && keys.every((key) => sameValue(a[key as keyof ChatItem], b[key as keyof ChatItem]));
 };
 
-/** Whether a block (a tool list or one item) shows the same as before. */
+/** Whether a block (a tool list or one item) shows the same as before; a permission block is live, never the same. */
 export const sameBlock = (a: ChatBlock, b: ChatBlock): boolean => {
   if (a.kind === "tools" && b.kind === "tools")
     return a.items.length === b.items.length && a.items.every((item, index) => {

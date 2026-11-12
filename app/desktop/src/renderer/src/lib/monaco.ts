@@ -18,4 +18,25 @@ setCspNonce(cspNonce());
 // 'self' allows it). Highlighting is Monarch on the main thread, so no language worker is needed.
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 
+/**
+ * The theme every editor uses: Monaco's dark one for syntax colours, with its surfaces, line numbers and diff lines
+ * mapped onto Wombat's tokens by styles/monaco-theme.css (under the `monaco-wombat` class on the editor's host).
+ */
+export const MONACO_THEME = "vs-dark";
+export const MONACO_HOST_CLASS = "monaco-wombat";
+
+const LANGUAGES: Readonly<Record<string, string>> = {
+  ts: "typescript",
+  tsx: "typescript",
+  mts: "typescript",
+  cts: "typescript",
+  js: "javascript",
+  jsx: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+};
+
+/** The highlighting a file gets, by its extension: one of the languages registered above, else plain text. */
+export const languageOf = (path: string): string => LANGUAGES[/\.([^./\\]+)$/.exec(path)?.[1]?.toLowerCase() ?? ""] ?? "plaintext";
+
 export * as monaco from "monaco-editor/editor";

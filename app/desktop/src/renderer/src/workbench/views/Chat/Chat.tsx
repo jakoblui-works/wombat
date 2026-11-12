@@ -4,6 +4,8 @@ import { ScrollArea } from "../../../components/ui/scroll-area";
 import { type ChatItem, type ChatModel, chatModel } from "../../../data/chat-model.ts";
 import { useAgentLog, useAgents, useConnection } from "../../../data/hooks.ts";
 import type { Reveal, ViewProps } from "../../registry.ts";
+import { useWorkbench } from "../../workbench-context.ts";
+import { type EditRequest, editRequest } from "../Diff/edit-request.ts";
 import { useAnswer } from "./answer.ts";
 import { type ChatBlock, chatBlocks } from "./chat-blocks.ts";
 import { ChatParams } from "./chat-params.ts";
@@ -26,12 +28,15 @@ const atBottom = (element: HTMLElement): boolean => element.scrollHeight - eleme
 const centreOffset = (viewport: DOMRect, target: DOMRect): number =>
   target.top - viewport.top - Math.max(0, (viewport.height - target.height) / 2);
 
-/**
- * Whether a permission asks to apply an edit: its tool call holds a diff. (T14's `editRequest` owns the edit's data;
- * this only names the card.)
- */
-const editToolCalls = (model: ChatModel): Set<string> =>
-  new Set(model.items.flatMap((item) => (item.kind === "tool" && item.content.some(({ type }) => type === "diff") ? [item.toolCallId] : [])));
+/** The edit requests among the chat's permissions, by request id (`editRequest`: the one rule for what's an edit). */
+const editRequests = (model: ChatModel, blocks: readonly ChatBlock[]): Map<string, EditRequest> => {
+  const edits = new Map<string, EditRequest>();
+  for (const block of blocks) {
+    const edit = block.kind === "permission" ? editRequest(model, block.item.requestId) : undefined;
+    if (edit !== undefined) edits.set(edit.requestId, edit);
+  }
+  return edits;
+};
 
 const STOP_REASONS: Readonly<Record<string, string>> = {
   cancelled: "Cancelled.",
@@ -48,7 +53,7 @@ const SubAgent = ({ children }: { children: ReactNode }) => (
   </div>
 );
 
-type StaticItem = Exclude<Extract<ChatBlock, { kind: "item" }>["item"], { kind: "permission" }>;
+type StaticItem = Extract<ChatBlock, { kind: "item" }>["item"];
 
 /** An item that shows only what the log says (everything but a permission, whose state is live). */
 const StaticItemView = ({ item }: { item: StaticItem }): ReactNode => {
@@ -74,7 +79,7 @@ const StaticItemView = ({ item }: { item: StaticItem }): ReactNode => {
 
 /** A block from the log alone, rendered again only when what it shows changed (`sameBlock`). */
 const StaticBlock = memo(
-  ({ block }: { block: ChatBlock }) => (block.kind === "tools" ? <ToolCalls items={block.items} /> : block.item.kind === "permission" ? null : <StaticItemView item={block.item} />),
+  ({ block }: { block: Exclude<ChatBlock, { kind: "permission" }> }) => (block.kind === "tools" ? <ToolCalls items={block.items} /> : <StaticItemView item={block.item} />),
   (before, after) => sameBlock(before.block, after.block),
 );
 StaticBlock.displayName = "StaticBlock";
@@ -82,22 +87,26 @@ StaticBlock.displayName = "StaticBlock";
 type BlockProps = {
   block: ChatBlock;
   live: LiveState;
-  edits: Set<string>;
+  edits: Map<string, EditRequest>;
   connected: boolean;
+  onOpenSideBySide: (requestId: string) => void;
   answers: ReturnType<typeof useAnswer>;
   cards: Map<string, HTMLElement>;
 };
 
-const Block = ({ block, live, edits, connected, answers, cards }: BlockProps) => {
+const Block = ({ block, live, edits, connected, answers, cards, onOpenSideBySide }: BlockProps) => {
   let shown: ReactNode;
-  if (block.kind === "item" && block.item.kind === "permission") {
+  if (block.kind === "permission") {
     const item = block.item;
     const { pending, error } = answers.stateOf(item.requestId);
+    const edit = edits.get(item.requestId);
     shown = (
       <Permission
         item={item}
         answer={live.answerOf(item)}
-        edit={edits.has(item.toolCallId)}
+        edit={edit ?? false}
+        tool={block.tool}
+        onOpenSideBySide={edit === undefined ? undefined : () => onOpenSideBySide(item.requestId)}
         disabled={!connected || pending || !live.canAnswer(item)}
         error={error}
         onAnswer={(kind) => answers.answer(item.requestId, kind)}
@@ -126,7 +135,9 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
     [entries, mainSessionId],
   );
   const blocks = useMemo(() => (model === undefined ? [] : chatBlocks(model.items)), [model]);
-  const edits = useMemo(() => (model === undefined ? new Set<string>() : editToolCalls(model)), [model]);
+  const edits = useMemo(() => (model === undefined ? new Map<string, EditRequest>() : editRequests(model, blocks)), [model, blocks]);
+  const workbench = useWorkbench();
+  const openSideBySide = (requestId: string) => workbench.openBeside("diff", { agentId, requestId }, { viewId: "chat", params: { agentId } });
   const live = useMemo(() => (model === undefined ? undefined : liveState(model, agent)), [model, agent]);
 
   const viewport = useRef<HTMLDivElement>(null);
@@ -194,7 +205,16 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
           <div ref={content} className="mx-auto flex max-w-chat flex-col gap-3 px-5 pt-2 pb-4">
             {log.data?.truncated ? <p className="text-sm text-fg-tertiary">Earlier history wasn't kept.</p> : null}
             {blocks.map((block) => (
-              <Block key={block.key} block={block} live={live ?? liveState(model, agent)} edits={edits} connected={connected} answers={answers} cards={cards.current} />
+              <Block
+                key={block.key}
+                block={block}
+                live={live ?? liveState(model, agent)}
+                edits={edits}
+                connected={connected}
+                answers={answers}
+                cards={cards.current}
+                onOpenSideBySide={openSideBySide}
+              />
             ))}
           </div>
         </ScrollArea>

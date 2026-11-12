@@ -1,15 +1,9 @@
 import { type ReactNode, useSyncExternalStore } from "react";
 
-import { Chat } from "../Chat/Chat.tsx";
 import { NeedsMe } from "../NeedsMe/NeedsMe.tsx";
 
 /** The S7 views on their own, until S7 builds them into the workbench. */
 const SCREENS: Record<string, () => ReactNode> = {
-  chat: () => (
-    <div className="flex h-screen bg-surface-1">
-      <Chat />
-    </div>
-  ),
   "needs-me": () => (
     <div className="flex h-screen w-80 flex-col bg-surface-0">
       <NeedsMe />

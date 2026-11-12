@@ -17,7 +17,15 @@ export type KnownContext = { agents: AgentSummary[] };
  */
 export type Reveal = { target: string };
 
-export type ViewProps = { params: unknown; reveal?: Reveal | undefined };
+export type ViewProps = {
+  params: unknown;
+  reveal?: Reveal | undefined;
+  /**
+   * For a view whose tab title needs more than the agents list (the diff tab's file name, from the log): the title it
+   * reports takes the place of its `title` for this tab until the tab closes.
+   */
+  setTitle?: ((title: string) => void) | undefined;
+};
 
 export type ViewDescriptor = {
   id: string;
@@ -28,6 +36,8 @@ export type ViewDescriptor = {
   component: ComponentType<ViewProps>;
   paramsSchema?: ZodType;
   resolves?: (params: unknown, ctx: KnownContext) => boolean;
+  /** Whether a saved tab comes back at the next start, on top of `resolves` (checked only by the restore). */
+  restores?: (params: unknown, ctx: KnownContext) => boolean;
 };
 
 export type ActivityDescriptor = {
@@ -74,4 +84,16 @@ export const isKnown =
     const view = views.get(viewId);
     if (view === undefined || !paramsFit(view, params)) return false;
     return agents === undefined || view.resolves === undefined || view.resolves(params, { agents });
+  };
+
+/**
+ * Whether a saved tab comes back at the next start: `isKnown`, plus, once the agents list is known, its view's
+ * `restores` (a diff tab of an answered request isn't restored).
+ */
+export const isRestorable =
+  (ctx: ResolveContext): IsKnown =>
+  (viewId, params) => {
+    if (!isKnown(ctx)(viewId, params)) return false;
+    const restores = views.get(viewId)?.restores;
+    return ctx.agents === undefined || restores === undefined || restores(params, { agents: ctx.agents });
   };

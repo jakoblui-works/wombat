@@ -1,11 +1,13 @@
 // Importing this module registers the activities and their views, in the activity bar's order (Agents first).
-import { Bot, Files, Inbox, FolderCog, GitBranch, LayoutDashboard, List, MessageSquare, type LucideIcon } from "lucide-react";
+import { Bot, Columns2, Files, Inbox, FolderCog, GitBranch, LayoutDashboard, List, MessageSquare, type LucideIcon } from "lucide-react";
 import { createElement } from "react";
 
 import { type ActivityDescriptor, registerActivity, registerView } from "./registry.ts";
 import { AgentsList } from "./views/AgentsList/AgentsList.tsx";
 import { Chat } from "./views/Chat/Chat.tsx";
 import { ChatParams, chatResolves, chatTitle } from "./views/Chat/chat-params.ts";
+import { Diff } from "./views/Diff/Diff.tsx";
+import { DIFF_TITLE, DiffParams, diffResolves, diffRestores } from "./views/Diff/diff-params.ts";
 import { NeedsMe } from "./views/NeedsMe/NeedsMe.tsx";
 import { EmptyActivity } from "./views/EmptyActivity/EmptyActivity.tsx";
 
@@ -30,6 +32,19 @@ const register = (): void => {
     component: Chat,
     paramsSchema: ChatParams,
     resolves: chatResolves,
+  });
+
+  registerView({
+    id: "diff",
+    // The view reports "<file name> (diff)" once it has read the request (the agents list doesn't name the file).
+    title: DIFF_TITLE,
+    icon: Columns2,
+    locations: ["editor"],
+    activity: AGENTS_ACTIVITY,
+    component: Diff,
+    paramsSchema: DiffParams,
+    resolves: diffResolves,
+    restores: diffRestores,
   });
 
   registerView({ id: "needs-me", title: "Needs me", icon: Inbox, locations: ["right"], component: NeedsMe });

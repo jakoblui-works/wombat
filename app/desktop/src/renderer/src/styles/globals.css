@@ -5,6 +5,8 @@
 @import "dockview-react/dist/styles/dockview.css";
 /* Wombat's dockview theme, from the tokens. */
 @import "./dockview-theme.css";
+/* Monaco's colours, from the tokens (the editor itself loads with the diff tab). */
+@import "./monaco-theme.css";
 
 /* Proof pages are gitignored, which Tailwind's source detection skips. */
 @source "../**/*.proof.tsx";

@@ -21,12 +21,13 @@ import { useState } from "react";
 
 import type { ChatItem, ToolCallContent, ToolCallStatus, ToolKind } from "../../../../data/chat-model.ts";
 import { cn } from "../../../../lib/utils";
+import { EditDiff } from "../EditDiff/EditDiff.tsx";
 import { Markdown } from "../Markdown/Markdown.tsx";
 import { Omitted, useClipped } from "../Omitted/Omitted.tsx";
 
 export type ToolItem = Extract<ChatItem, { kind: "tool" }>;
 
-const KIND_ICONS: Readonly<Record<ToolKind, LucideIcon>> = {
+export const KIND_ICONS: Readonly<Record<ToolKind, LucideIcon>> = {
   read: FileText,
   edit: FilePen,
   delete: Trash2,
@@ -62,15 +63,30 @@ const Detail = ({ label, text }: { label: string; text: string }) => {
   );
 };
 
-/** One piece of the tool call's content: text as Markdown (which clips it); a diff and a terminal by name only. */
+/** One piece of the tool call's content: text as Markdown (which clips it), a diff inline; a terminal by name only. */
 const Content = ({ content }: { content: ToolCallContent }) => {
   if (content.type === "content") {
     if (content.content.type !== "text") return <p className="text-xs text-fg-tertiary">({content.content.type} content isn't shown)</p>;
     return <Markdown text={content.content.text} className="text-sm text-fg-secondary" />;
   }
-  if (content.type === "diff") return <p className="font-mono text-xs text-fg-secondary">Changes {content.path}</p>;
+  if (content.type === "diff") return <EditDiff path={content.path} oldText={content.oldText} newText={content.newText} />;
   return <p className="text-xs text-fg-tertiary">Terminal output isn't shown yet.</p>;
 };
+
+/** Whether a tool call has more to show than its row: input, output or content. */
+export const hasDetails = (item: ToolItem): boolean => item.input !== undefined || item.output !== undefined || item.content.length > 0;
+
+/** A tool call's input, output and content, as its expanded row (and an answered permission's) shows them. */
+export const ToolDetails = ({ item }: { item: ToolItem }) => (
+  <dl className="flex flex-col gap-1 border-t border-line-subtle px-2.5 pt-1.5 pb-2 pl-8">
+    {item.input === undefined ? null : <Detail label="Input" text={asText(item.input)} />}
+    {item.output === undefined ? null : <Detail label="Output" text={asText(item.output)} />}
+    {item.content.map((content, index) => (
+      <Content key={index} content={content} />
+    ))}
+    {hasDetails(item) ? null : <p className="text-xs text-fg-tertiary">Nothing more to show.</p>}
+  </dl>
+);
 
 /** One tool call: a one-line row (tool, target, status); expanded, its input, output and content below. */
 const ToolRow = ({ item }: { item: ToolItem }) => {
@@ -99,18 +115,7 @@ const ToolRow = ({ item }: { item: ToolItem }) => {
           </span>
         )}
       </button>
-      {expanded ? (
-        <dl className="flex flex-col gap-1 border-t border-line-subtle px-2.5 pt-1.5 pb-2 pl-8">
-          {item.input === undefined ? null : <Detail label="Input" text={asText(item.input)} />}
-          {item.output === undefined ? null : <Detail label="Output" text={asText(item.output)} />}
-          {item.content.map((content, index) => (
-            <Content key={index} content={content} />
-          ))}
-          {item.input === undefined && item.output === undefined && item.content.length === 0 ? (
-            <p className="text-xs text-fg-tertiary">Nothing more to show.</p>
-          ) : null}
-        </dl>
-      ) : null}
+      {expanded ? <ToolDetails item={item} /> : null}
     </li>
   );
 };
