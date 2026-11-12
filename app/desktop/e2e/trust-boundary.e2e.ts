@@ -11,14 +11,14 @@ import { bridgeRequest, expect, isAlive, REPO, test, waitForConnection, type San
 // The globals the preload adds to the page (beyond what a blank page of the same engine has).
 const ALLOWED_BRIDGE_GLOBALS = ["wombat"];
 // Globals the page's own libraries set on window (not the preload: they reach nothing in the host). Each is named,
-// with its library, and may only hold data, never a function. zod (T8's data layer) keeps its config and, once a
+// with its library, and may only hold data, never a function. zod (the renderer's data layer) keeps its config and, once a
 // schema is registered, its registry there.
 const PAGE_LIBRARY_GLOBALS: Record<string, string> = {
   __zod_globalConfig: "zod",
   __zod_globalRegistry: "zod",
 };
 // The names on `window.wombat`.
-// (interface-S3, T6: the bridge's shape is `WombatBridge` in desktop/src/shared/bridge.ts.)
+// (The bridge's shape is `WombatBridge` in desktop/src/shared/bridge.ts.)
 const ALLOWED_BRIDGE_NAMES = ["apiVersion", "service", "workspace", "settings", "onOpenAgent"];
 // The paths under `window.wombat` whose values are functions (e.g. "service.connect").
 const ALLOWED_BRIDGE_FUNCTIONS: string[] = [
@@ -468,7 +468,7 @@ test("permission requests and checks from the renderer are denied", async () => 
   });
 });
 
-// T6 (D1): the token lives in main only. Searched everywhere the page can read: the globals the page adds, the bridge
+// The token lives in main only. Searched everywhere the page can read: the globals the page adds, the bridge
 // itself, everything the bridge answers or sends (settings, workspace, service answers, a refusal's message,
 // connection states), storage, cookies and the document. The port and the discovery file's path count too: the
 // page never needs them.
@@ -561,7 +561,7 @@ test("the page holds no token, service address or discovery path: not in its glo
   expect(seen.length, "the search found nothing at all; it isn't looking").toBeGreaterThan(10);
 });
 
-// T6: request() is limited to APP_ROUTES (@wombat/shared/routes), checked in main before any network call. A refusal
+// request() is limited to APP_ROUTES (@wombat/shared/routes), checked in main before any network call. A refusal
 // rejects the call (it never comes back as a service answer). The /shutdown variants show that nothing reached the
 // service: one that did would end it.
 test("the bridge refuses, in main, every method and path outside the app's routes, and none reaches the service", async ({ sandbox }) => {

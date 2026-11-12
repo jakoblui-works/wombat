@@ -27,13 +27,14 @@ const selectActivity = async (page: Page, title: string): Promise<void> => {
 };
 
 test.describe("check: a page unload stops layout saves", () => {
-  test("after beforeunload, a change the user makes is never saved", async ({ sandbox }) => {
+  test("after beforeunload, a change the user makes isn't saved within several times a save's latency", async ({ sandbox }) => {
     test.setTimeout(60_000);
     const launched = await sandbox.launch();
     const { page } = launched;
     await waitForConnection(page, "connected");
 
     // Control: saving works, and how long a user change takes to reach settings.json.
+    // shell.e2e.ts's saved-sidebars test relies on this control to check that an activity change saves on its own.
     const startedAt = Date.now();
     await selectActivity(page, "Files");
     await waitUntil("the Files activity in the saved layout", WAIT_MS, () => (savedActivity(sandbox) === "files" ? true : undefined));

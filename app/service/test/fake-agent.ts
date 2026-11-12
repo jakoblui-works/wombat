@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync, writeSync } from "node:fs";
 import { Readable, Transform, Writable } from "node:stream";
 
-import { agent, ndJsonStream, RequestError, type AgentContext, type RequestPermissionResponse, type SessionUpdate } from "@agentclientprotocol/sdk";
+import { agent, ndJsonStream, RequestError, type AgentContext, type PermissionOption, type RequestPermissionResponse, type SessionUpdate } from "@agentclientprotocol/sdk";
 
 export const SCENARIOS = [
   "reply",
@@ -131,6 +131,12 @@ const writeAllSync = (fd: number, data: Buffer) => {
   }
 };
 
+// The options every permission request offers; the scenarios and their tests answer by these ids.
+const ALLOW_REJECT: PermissionOption[] = [
+  { optionId: "allow", name: "Allow", kind: "allow_once" },
+  { optionId: "reject", name: "Reject", kind: "reject_once" },
+];
+
 // A 1x1 transparent PNG.
 const PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -220,10 +226,7 @@ const run = (scenario: FakeScenario) => {
           const { outcome } = await client.request("session/request_permission", {
             sessionId,
             toolCall: { toolCallId },
-            options: [
-              { optionId: "allow", name: "Allow", kind: "allow_once" },
-              { optionId: "reject", name: "Reject", kind: "reject_once" },
-            ],
+            options: ALLOW_REJECT,
           });
           // ACP v1: a turn cancelled while the request was open ends as cancelled, whatever the client answered.
           const turnCancelled = outcome.outcome === "cancelled" || cancelled.has(sessionId);
@@ -249,26 +252,17 @@ const run = (scenario: FakeScenario) => {
             client.request("session/request_permission", {
               sessionId,
               toolCall: { toolCallId: stored },
-              options: [
-                { optionId: "allow", name: "Allow", kind: "allow_once" },
-                { optionId: "reject", name: "Reject", kind: "reject_once" },
-              ],
+              options: ALLOW_REJECT,
             }),
             client.request("session/request_permission", {
               sessionId,
               toolCall: { toolCallId: named, title: "Run the test suite", kind: "execute" },
-              options: [
-                { optionId: "allow", name: "Allow", kind: "allow_once" },
-                { optionId: "reject", name: "Reject", kind: "reject_once" },
-              ],
+              options: ALLOW_REJECT,
             }),
             client.request("session/request_permission", {
               sessionId,
               toolCall: { toolCallId: bare },
-              options: [
-                { optionId: "allow", name: "Allow", kind: "allow_once" },
-                { optionId: "reject", name: "Reject", kind: "reject_once" },
-              ],
+              options: ALLOW_REJECT,
             }),
           ];
           const outcomes = await Promise.all(asked);
@@ -278,18 +272,16 @@ const run = (scenario: FakeScenario) => {
         }
         case "permission-left-open": {
           // Asks for a permission and ends its turn normally without waiting for the answer: the request is still
-          // open when the prompt's answer (end_turn) arrives. Sent in that order on the one stream, so the service
-          // sees the request before the turn's end. The answer (the service's cancel) is ignored.
+          // open when the prompt's answer (end_turn) arrives. Sent in that order on the one stream; that the service
+          // then sees the request before the turn's end is the SDK's current receive order, not a guarantee, and
+          // pending-permissions.test.ts's seq control checks it. The answer (the service's cancel) is ignored.
           const toolCallId = randomUUID();
           await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId, title: "Edit notes.txt", kind: "edit", status: "pending" });
           void client
             .request("session/request_permission", {
               sessionId,
               toolCall: { toolCallId },
-              options: [
-                { optionId: "allow", name: "Allow", kind: "allow_once" },
-                { optionId: "reject", name: "Reject", kind: "reject_once" },
-              ],
+              options: ALLOW_REJECT,
             })
             .catch(() => undefined);
           return { stopReason: "end_turn" };
@@ -448,13 +440,9 @@ const run = (scenario: FakeScenario) => {
             content: [{ type: "diff", path: edit.path, oldText: edit.oldText, newText: edit.newText }],
           });
           cancelled.delete(sessionId);
-          const options = [
-            { optionId: "allow", name: "Allow", kind: "allow_once" as const },
-            { optionId: "reject", name: "Reject", kind: "reject_once" as const },
-          ];
           const asked = [
-            client.request<RequestPermissionResponse>("session/request_permission", { sessionId, toolCall: { toolCallId }, options }),
-            client.request<RequestPermissionResponse>("session/request_permission", { sessionId, toolCall: { toolCallId: editId }, options }),
+            client.request<RequestPermissionResponse>("session/request_permission", { sessionId, toolCall: { toolCallId }, options: ALLOW_REJECT }),
+            client.request<RequestPermissionResponse>("session/request_permission", { sessionId, toolCall: { toolCallId: editId }, options: ALLOW_REJECT }),
           ];
           const outcomes = await Promise.all(asked);
           const turnCancelled = cancelled.has(sessionId) || outcomes.some(({ outcome }) => outcome.outcome === "cancelled");
@@ -494,10 +482,7 @@ const run = (scenario: FakeScenario) => {
                   .request("session/request_permission", {
                     sessionId: session,
                     toolCall: step.ask,
-                    options: [
-                      { optionId: "allow", name: "Allow", kind: "allow_once" },
-                      { optionId: "reject", name: "Reject", kind: "reject_once" },
-                    ],
+                    options: ALLOW_REJECT,
                   })
                   .catch(() => undefined),
               );

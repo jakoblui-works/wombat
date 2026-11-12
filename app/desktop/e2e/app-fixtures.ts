@@ -1,5 +1,5 @@
-// The one way an e2e check launches the app (interface-S3, "Safety for every test in this slice"). The checks run
-// on a machine where the real service and agents may be running, so every launch gets a sandbox of its own:
+// The one way an e2e check launches the app. The checks run on a machine where the real service and agents may be
+// running, so every launch gets a sandbox of its own:
 // - temp HOME, XDG_RUNTIME_DIR, XDG_STATE_HOME, XDG_CONFIG_HOME (the profile), XDG_DATA_HOME and XDG_CACHE_HOME;
 // - a temp workspace with one repo;
 // - PATH holding only recording fakes of systemd-run and systemctl, `node` and `sleep`, so no real systemd is
@@ -439,15 +439,26 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
     for (const pid of pidsIn(agentPidDir)) killGroupAndPid(pid);
     const touched = sliceCalls(systemd.calls());
     systemd.remove();
-    // Retried until it stays gone: a helper may still be writing its last file.
+    // Retried until it stays gone: a helper may still be writing its last file. A failed removal is kept, not thrown,
+    // so the remaining tries and the checks below still run.
+    let removeError: unknown;
     for (let tries = 0; tries < 20; tries++) {
-      rmSync(root, { recursive: true, force: true, maxRetries: 3 });
+      try {
+        rmSync(root, { recursive: true, force: true, maxRetries: 3 });
+      } catch (error) {
+        removeError = error;
+      }
       await new Promise((resolve) => setTimeout(resolve, 100));
       if (!existsSync(root)) break;
     }
     if (touched.length > 0) throw new Error(`SAFETY: something under test asked systemd about the real slice: ${JSON.stringify(touched)}`);
     // A sandbox left behind holds a test's HOME and workspace; it fails the test rather than piling up in the temp dir.
-    if (existsSync(root)) throw new Error(`The e2e sandbox ${root} is still there after teardown: something kept writing into it. Find what still runs from it, stop it and remove the folder.`);
+    if (existsSync(root)) {
+      throw new Error(
+        `The e2e sandbox ${root} is still there after teardown: something kept writing into it. Find what still runs from it, stop it and remove the folder.`,
+        removeError === undefined ? undefined : { cause: removeError },
+      );
+    }
   };
 
   return { sandbox, teardown };
@@ -485,7 +496,9 @@ export const waitUntil = until;
  * Clicks `locator` with the mouse, as the user would. The hidden e2e window draws about one frame a second, and
  * Playwright's `click()` waits two frames for the element to hold still, so each took 2 s. This one keeps every other
  * check that `click()` makes: it waits until the element is visible and enabled, scrolls it into view, waits until the
- * element (or something inside it) is what the mouse hits at its centre, and then clicks there.
+ * element (or something inside it) is what the mouse hits at its centre, and then clicks there. Unlike Playwright,
+ * which hit-tests as it dispatches the click, this hit-tests just before clicking, not as the click lands; that is
+ * enough because nothing in the renderer animates into place.
  */
 export const click = async (locator: Locator): Promise<void> => {
   await expect(locator).toBeVisible({ timeout: WAIT_MS });
@@ -514,7 +527,7 @@ export const watchBridge = async (page: Page): Promise<void> => {
     const w = window as unknown as ConnectionWindow;
     const service = w.wombat?.service;
     if (typeof service?.onConnection !== "function" || typeof service.onAlert !== "function") {
-      throw new Error("window.wombat.service.onConnection / onAlert are missing (T6's bridge)");
+      throw new Error("window.wombat.service.onConnection / onAlert are missing: the preload bridge (src/preload/index.ts) doesn't expose them");
     }
     if (w.__e2eConnection) return;
     w.__e2eConnection = [];
@@ -551,7 +564,7 @@ export const bridgeRequest = (
     async ([m, p, b]) => {
       type Request = (method: string, path: string, body?: unknown) => Promise<{ status: number; body: unknown }>;
       const request = (window as unknown as { wombat?: { service?: { request?: Request } } }).wombat?.service?.request;
-      if (typeof request !== "function") throw new Error("window.wombat.service.request is missing (T6's bridge)");
+      if (typeof request !== "function") throw new Error("window.wombat.service.request is missing: the preload bridge (src/preload/index.ts) doesn't expose it");
       try {
         const answer = b === undefined ? await request(m, p) : await request(m, p, b);
         return { ok: true as const, status: answer.status, body: answer.body };

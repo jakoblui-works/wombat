@@ -1,14 +1,13 @@
 // An agent's log folded into items: the one reading of the log that the chat and the agent list share, so a row's
 // message and request titles can't differ from what the chat shows.
-import { permissionTitle, type LogEntry } from "./api.ts";
+import { permissionTitle, type LogEntry, type SessionUpdate } from "./api.ts";
 
-type Update = Extract<LogEntry, { type: "session_update" }>["update"];
-type ToolCall = Extract<Update, { sessionUpdate: "tool_call" }>;
-type ToolCallUpdate = Extract<Update, { sessionUpdate: "tool_call_update" }>;
+type ToolCall = Extract<SessionUpdate, { sessionUpdate: "tool_call" }>;
+type ToolCallUpdate = Extract<SessionUpdate, { sessionUpdate: "tool_call_update" }>;
 type PermissionRequest = Extract<LogEntry, { type: "permission_requested" }>;
 type PermissionKind = Extract<LogEntry, { type: "permission_answered" }>["kind"];
 
-export type PlanEntry = Extract<Update, { sessionUpdate: "plan" }>["entries"][number];
+export type PlanEntry = Extract<SessionUpdate, { sessionUpdate: "plan" }>["entries"][number];
 export type ToolKind = NonNullable<ToolCall["kind"]>;
 export type ToolCallStatus = NonNullable<ToolCall["status"]>;
 export type ToolCallContent = NonNullable<ToolCall["content"]>[number];

@@ -1,20 +1,10 @@
 import type { AgentSummary } from "@wombat/shared/api";
 import { expect, test } from "vitest";
 
+import { summary } from "../../../../../../test/summaries.ts";
 import { groupAgents } from "./group-agents.ts";
 
-const agent = (id: string, state: AgentSummary["state"], lastActivityAt: string): AgentSummary => ({
-  id,
-  harness: "fake",
-  repo: ".",
-  state,
-  sessionId: "s",
-  capabilities: { loadSession: false },
-  startedAt: "2026-03-10T10:00:00.000Z",
-  lastActivityAt,
-  pendingPermissions: [],
-  hasProcess: false,
-});
+const agent = (id: string, state: AgentSummary["state"], lastActivityAt: string): AgentSummary => summary(id, { state, lastActivityAt });
 
 // The order the user sees: what needs me first. Stopped agents are finished, so they sit in Done.
 const LIST_ORDER: AgentSummary["state"][] = ["waiting", "working", "done", "error"];

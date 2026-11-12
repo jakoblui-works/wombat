@@ -1,6 +1,6 @@
-// S7 T12: the Agents sidebar and New agent, against the built app and the fake agents (app-fixtures.ts).
+// The Agents sidebar and New agent, against the built app and the fake agents (app-fixtures.ts).
 // What this check relies on in the page (roles and names, not looks; the approved design's structure):
-// - the left sidebar `complementary` "Agents" (S6) holds a button "New agent";
+// - the left sidebar `complementary` "Agents" holds a button "New agent";
 // - New agent opens a `dialog` with a folder pick (a `combobox` named "Folder" whose `option`s are the folders by
 //   name), one `textbox` for the first message, and a button "Start";
 // - the agent list groups rows in `region`s named by the group's label (AGENT_STATES' labels: "Done", …); a row's
@@ -61,6 +61,7 @@ test.describe("Agents sidebar and New agent", () => {
     await expect(page.locator(".dv-groupview").getByText("Hello from the fake agent.")).toBeVisible({ timeout: WAIT_MS });
 
     // Open its chat from the row (after closing it): the one tab, named after the agent.
+    // Forced: an inactive tab's close mark is hidden until the tab is hovered or focused.
     while ((await page.locator(".dv-tab").count()) > 0) await page.locator(".dv-tab .dv-default-tab-action").first().click({ force: true });
     await expect(page.locator(".dv-tab")).toHaveCount(0);
     await click(row);

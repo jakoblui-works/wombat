@@ -1,4 +1,4 @@
-// S7 T13: the chat, against the built app and the fake agents (app-fixtures.ts).
+// The chat, against the built app and the fake agents (app-fixtures.ts).
 // What these checks rely on in the page (roles and names, not looks; the approved design's structure):
 // - a chat tab's content is the active panel of its editor group (agent-views.ts `groupWithTab`);
 // - collapsed parts (reasoning, a tool call) are buttons with `aria-expanded="false"`; expanding shows their text (a

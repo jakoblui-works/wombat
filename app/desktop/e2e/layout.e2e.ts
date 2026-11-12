@@ -79,7 +79,7 @@ const waitForTabs = async (page: Page, count: number, what: string): Promise<voi
   });
 };
 
-// S4 fix round: the open tabs follow the agents list (one rule, the registry's isKnown, for the restore and live).
+// The open tabs follow the agents list (one rule, the registry's isKnown, for the restore and live).
 test.describe("chat tabs follow the agents list", () => {
   test("a chat tab closes when its agent is deleted, and doesn't come back on restart", async ({ sandbox }) => {
     test.setTimeout(90_000);

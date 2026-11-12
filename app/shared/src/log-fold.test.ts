@@ -1,8 +1,7 @@
 // The log fold (contract "The log fold"): what a text item keeps, and which item is the row's message.
 import { describe, expect, test } from "vitest";
 
-import type { LogEntry } from "./api.ts";
-import { emptyFold, foldEntry, foldLog, keepAll, lastMainMessage } from "./log-fold.ts";
+import { emptyFold, foldEntry, foldLog, keepAll, lastMainMessage, permissionOf } from "./log-fold.ts";
 import {
   atFor,
   type Body,
@@ -18,25 +17,13 @@ import {
   thought as reasoning,
   toolCall as call,
   toolUpdate,
+  turnEnded,
   UNSHOWN,
+  user,
 } from "../test/log-entries.ts";
 
 const MAIN = "session-main";
 const SUB = "session-sub";
-
-type Update = Extract<LogEntry, { type: "session_update" }>["update"];
-
-/** A session update in the main session, in `sessionId` when one is passed, or with none when undefined is passed. */
-const session = (update: Update, ...given: [sessionId?: string]): Body => {
-  const sessionId = given.length > 0 ? given[0] : MAIN;
-  return sessionId === undefined ? { type: "session_update", update } : { type: "session_update", sessionId, update };
-};
-const chunk = (text: string, { messageId, sessionId }: { messageId?: string; sessionId?: string } = {}): Body =>
-  session({ sessionUpdate: "agent_message_chunk", ...(messageId === undefined ? {} : { messageId }), content: { type: "text", text } }, sessionId);
-const thought = (text: string, sessionId?: string): Body => session({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text } }, sessionId);
-const toolCall = (toolCallId: string, title: string): Body => session({ sessionUpdate: "tool_call", toolCallId, title });
-const user = (text: string): Body => ({ type: "user_message", text });
-const turnEnded = (): Body => ({ type: "turn_ended", stopReason: "end_turn" });
 
 /**
  * Folds the bodies, numbered from seq 1, into a fresh state for the main session; for `mainSessionId` when one is
@@ -60,14 +47,14 @@ describe("keepText", () => {
   test("a text item holds keepText applied chunk by chunk, from its first chunk on, for messages and reasoning in any session", () => {
     const state = fold(
       [
-        chunk("Opening hours ", { messageId: "msg-1" }),
-        chunk("are 9-17", { messageId: "msg-1" }),
-        thought("Che"),
-        thought("ck the file"),
-        chunk("Menu", { sessionId: SUB }),
-        chunk(" is fine", { sessionId: SUB }),
+        message("Opening hours ", "msg-1"),
+        message("are 9-17", "msg-1"),
+        reasoning("Che"),
+        reasoning("ck the file"),
+        inSession(message("Menu"), SUB),
+        inSession(message(" is fine"), SUB),
         // One chunk alone: kept through keepText too, not only when a second chunk joins it.
-        chunk("Done, all good."),
+        message("Done, all good."),
       ],
       firstFive,
     );
@@ -84,13 +71,13 @@ describe("keepText", () => {
 // the chat agree" calls this function on both sides, so only this test sees it pick the wrong item.
 test.each<[string, Body[], string | undefined]>([
   ["none in an empty log", [], undefined],
-  ["none when only a sub-agent spoke", [user("Check the menu"), chunk("Menu is fine", { sessionId: SUB })], undefined],
-  ["none when there is only reasoning, a tool and a turn end", [user("Fix"), thought("Hm"), toolCall("t1", "Read hours.md"), turnEnded()], undefined],
-  ["the main message, not a sub-agent's after it", [chunk("Asking a helper."), chunk("Menu is fine", { sessionId: SUB })], "Asking a helper."],
-  ["the latest main message of several", [chunk("First."), toolCall("t1", "Read hours.md"), chunk("Second.")], "Second."],
-  ["the latest main message, not reasoning or a tool after it", [chunk("Done."), thought("Checking"), toolCall("t2", "Run tests"), turnEnded()], "Done."],
-  ["the latest main message, not a user message after it", [chunk("Done."), user("Thanks")], "Done."],
-  ["the main message whatever its text, an empty one included", [chunk("First."), toolCall("t1", "Read"), chunk("")], ""],
+  ["none when only a sub-agent spoke", [user("Check the menu"), inSession(message("Menu is fine"), SUB)], undefined],
+  ["none when there is only reasoning, a tool and a turn end", [user("Fix"), reasoning("Hm"), inSession(call("t1", "Read hours.md"), MAIN), turnEnded()], undefined],
+  ["the main message, not a sub-agent's after it", [message("Asking a helper."), inSession(message("Menu is fine"), SUB)], "Asking a helper."],
+  ["the latest main message of several", [message("First."), inSession(call("t1", "Read hours.md"), MAIN), message("Second.")], "Second."],
+  ["the latest main message, not reasoning or a tool after it", [message("Done."), reasoning("Checking"), inSession(call("t2", "Run tests"), MAIN), turnEnded()], "Done."],
+  ["the latest main message, not a user message after it", [message("Done."), user("Thanks")], "Done."],
+  ["the main message whatever its text, an empty one included", [message("First."), inSession(call("t1", "Read"), MAIN), message("")], ""],
 ])("lastMainMessage: %s", (_name, bodies, expected) => {
   expect(lastMainMessage(fold(bodies))).toBe(expected);
 });
@@ -263,4 +250,18 @@ test("with mainSessionId given, a sub-agent that speaks first is still the one m
     ["agent", SUB],
     ["agent", undefined],
   ]);
+});
+
+// The chat and the row's pending requests both read a request's title and kind through `permissionOf`, so only this
+// test sees it pick the wrong source.
+test.each<[string, Body[], { title: string; kind: string }]>([
+  [
+    "the request's own title and kind, over its tool item's",
+    [call("t1", "Run tests", { kind: "execute" }), permissionRequested("r1", { toolCallId: "t1", title: "Edit notes.txt", kind: "edit" })],
+    { title: "Edit notes.txt", kind: "edit" },
+  ],
+  ["its tool item's title and kind when it has none", [call("t1", "Run tests", { kind: "execute" }), permissionRequested("r1", { toolCallId: "t1" })], { title: "Run tests", kind: "execute" }],
+  ["an empty title and kind other when it has none and no tool item", [permissionRequested("r1", { toolCallId: "t9" })], { title: "", kind: "other" }],
+])("permissionOf: %s", (_name, bodies, expected) => {
+  expect(permissionOf(foldLog(entries(bodies)), "r1")).toEqual(expected);
 });

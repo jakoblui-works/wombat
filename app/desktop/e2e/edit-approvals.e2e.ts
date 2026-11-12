@@ -1,4 +1,4 @@
-// S7 T14: edit approvals, against the built app and the fake-permission agent (an edit of notes.txt, one line
+// Edit approvals, against the built app and the fake-permission agent (an edit of notes.txt, one line
 // changed). What this check relies on in the page (roles and names, not looks; the approved design's structure):
 // - an edit request in the chat is a `region` "Edit approval" with the file's name, its +/− counts, a button
 //   "Open side by side", and while open the buttons "Approve" and "Reject";

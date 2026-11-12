@@ -1,5 +1,5 @@
-// S7 T15: Needs me, against the built app and the fake-permission agent (asks "Edit notes.txt" and waits).
-// What this check relies on in the page (roles and names; S6's selector contract plus T15's rows):
+// Needs me, against the built app and the fake-permission agent (asks "Edit notes.txt" and waits).
+// What this check relies on in the page (roles and names, plus the dockview selectors agent-views.ts uses):
 // - the toggle: a `button` whose name starts with "Needs me", followed by the count while it's above 0;
 // - the right sidebar `complementary` "Needs me" lists one `button` per row, naming what the agent asks; empty, it
 //   says "Nothing needs you";
