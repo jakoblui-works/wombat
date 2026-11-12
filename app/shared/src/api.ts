@@ -275,6 +275,12 @@ export type AgentSummary = z.infer<typeof AgentSummary>;
 /** Whether the agent waits on the user: the one rule for the app's "needs me" list and its waiting notifications. */
 export const isWaiting = (agent: Pick<AgentSummary, "state"> | undefined): boolean => agent?.state === "waiting";
 
+/**
+ * Whether the agent has a running process (working, or waiting on the user): the one rule for what Stop applies to,
+ * which agents the quit and stop questions count, and when a chat's turn and requests can still be live.
+ */
+export const isRunning = (agent: Pick<AgentSummary, "state"> | undefined): boolean => agent?.state === "working" || agent?.state === "waiting";
+
 export const ListAgentsResponse = z.object({ dbId: DbId, seq: Seq, agents: z.array(AgentSummary) });
 export type ListAgentsResponse = z.infer<typeof ListAgentsResponse>;
 

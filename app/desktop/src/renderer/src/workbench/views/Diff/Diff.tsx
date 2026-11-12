@@ -1,14 +1,15 @@
 import { FilePen } from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
 import { Button } from "../../../components/ui/button";
-import { chatModel } from "../../../data/chat-model.ts";
-import { useAgentLog, useAgents, useConnection } from "../../../data/hooks.ts";
+import { useConnection } from "../../../data/hooks.ts";
 import type { ViewProps } from "../../registry.ts";
 import { useAnswer } from "../Chat/answer.ts";
 import { liveState } from "../Chat/live-state.ts";
+import { useChatModel } from "../Chat/use-chat-model.ts";
 import { CHANGE_GONE } from "../Chat/EditDiff/EditDiff.tsx";
-import { AnswerButtons, Outcome, Waiting } from "../Chat/Permission/Permission.tsx";
+import { LogError } from "../Chat/LogError/LogError.tsx";
+import { AnswerButtons, AnswerError, EditTarget, Outcome, Waiting } from "../Chat/Permission/Permission.tsx";
 import { DiffParams, diffTitle } from "./diff-params.ts";
 import { editRequest } from "./edit-request.ts";
 
@@ -23,17 +24,9 @@ const Note = ({ children }: { children: string }) => <p className="p-5 text-sm t
  * same; an answered request shows its outcome until the tab is closed.
  */
 const EditDiff = ({ agentId, requestId, setTitle }: DiffParams & { setTitle: ViewProps["setTitle"] }) => {
-  const log = useAgentLog(agentId);
-  const agents = useAgents();
+  const { model, agent, log } = useChatModel(agentId);
   const connected = useConnection().state === "connected";
   const answers = useAnswer(agentId);
-  const agent = agents.data?.agents.find(({ id }) => id === agentId);
-  const mainSessionId = agent?.sessionId;
-  const entries = log.data?.entries;
-  const model = useMemo(
-    () => (entries === undefined ? undefined : chatModel(entries, mainSessionId === undefined ? {} : { mainSessionId })),
-    [entries, mainSessionId],
-  );
   const request = model === undefined ? undefined : editRequest(model, requestId);
   const path = request?.path;
   const [picked, setPicked] = useState(0);
@@ -41,15 +34,7 @@ const EditDiff = ({ agentId, requestId, setTitle }: DiffParams & { setTitle: Vie
     if (path !== undefined) setTitle?.(diffTitle(path));
   }, [path, setTitle]);
 
-  if (model === undefined) {
-    return log.error ? (
-      <p role="alert" className="p-5 text-sm text-danger">
-        Couldn't read this agent's log: {log.error.message}
-      </p>
-    ) : (
-      <Note>Loading…</Note>
-    );
-  }
+  if (model === undefined) return log.error ? <LogError error={log.error} /> : <Note>Loading…</Note>;
   if (request === undefined) return <Note>This edit request isn't in the agent's log; close this tab.</Note>;
 
   // The first change by default; a pick past the end (the diffs were replaced) falls back to the first.
@@ -62,8 +47,7 @@ const EditDiff = ({ agentId, requestId, setTitle }: DiffParams & { setTitle: Vie
     <section aria-label="Edit approval" className="flex h-full min-h-0 flex-col bg-surface-1">
       <header className="flex h-10 items-center gap-2 border-b border-line pr-1.5 pl-3">
         <FilePen className="size-3.5 shrink-0 text-fg-secondary" />
-        <span className="shrink-0 text-sm font-medium text-fg-primary">Edit</span>
-        <code className="min-w-0 truncate font-mono text-xs text-fg-secondary">{request.path}</code>
+        <EditTarget path={request.path} />
         {answer === undefined ? (
           <>
             <span className="ml-3 flex min-w-0 flex-1 items-center gap-2">
@@ -71,7 +55,7 @@ const EditDiff = ({ agentId, requestId, setTitle }: DiffParams & { setTitle: Vie
             </span>
             <AnswerButtons
               options={request.options}
-              disabled={!connected || pending || !live.canAnswer(request)}
+              disabled={!live.answerable(request, { connected, pending })}
               onAnswer={(kind) => answers.answer(requestId, kind)}
             />
           </>
@@ -79,11 +63,7 @@ const EditDiff = ({ agentId, requestId, setTitle }: DiffParams & { setTitle: Vie
           <Outcome answer={answer} />
         )}
       </header>
-      {error === undefined ? null : (
-        <p role="alert" className="border-b border-line px-3 py-1.5 text-sm text-danger">
-          Couldn't send the answer: {error.message}
-        </p>
-      )}
+      <AnswerError error={error} className="border-b" />
       {shownDiff === undefined ? (
         <Note>{CHANGE_GONE}</Note>
       ) : (

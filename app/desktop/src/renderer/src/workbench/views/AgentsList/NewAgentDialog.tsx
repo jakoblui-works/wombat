@@ -5,7 +5,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { startAgentVars, useStartAgent } from "../../../data/commands.ts";
 import { useHarnesses, useRepos } from "../../../data/hooks.ts";
+import { asError } from "../../../lib/errors.ts";
 import { useWorkbench } from "../../workbench-context.ts";
+import { CHAT_VIEW } from "../Chat/chat-params.ts";
+import { handOverUnsent } from "../Chat/Composer/unsent.ts";
 
 /** The folder the pick starts on: the one used last if it's still listed, else the workspace root. */
 const defaultFolder = (paths: readonly string[], last: string | undefined): string | undefined =>
@@ -40,16 +43,21 @@ const NewAgentForm = ({ onDone }: { onDone: () => void }) => {
   const submit = async () => {
     if (folder === undefined || harness === undefined) return;
     setFailure(undefined);
-    try {
-      const agent = await start.mutateAsync(startAgentVars({ harness, repo: folder, text: text.trim() }));
-      // The dialog's job is done once the agent runs; remembering the folder must not hold up opening its chat.
-      await window.wombat.settings.set({ lastAgentFolder: folder }).catch(() => undefined);
-      onDone();
-      openTab("chat", { agentId: agent.id });
-    } catch (error) {
-      // Shown below; the dialog stays so the text isn't lost.
-      setFailure(error instanceof Error ? error : new Error(String(error)));
-    }
+    const first = text.trim();
+    const started = await start.mutateAsync(startAgentVars({ harness, repo: folder, text: first })).catch((error: unknown) => {
+      // The agent didn't start: shown below; the dialog stays so the text isn't lost.
+      setFailure(asError(error));
+      return undefined;
+    });
+    if (started === undefined) return;
+    const { agent, sendError } = started;
+    // The agent exists now, so Start mustn't run again: a first message that wasn't sent goes to the agent's message
+    // box with its error, to be sent from the chat.
+    if (sendError !== undefined) handOverUnsent(agent.id, first, sendError);
+    // The dialog's job is done once the agent runs; remembering the folder must not hold up opening its chat.
+    await window.wombat.settings.set({ lastAgentFolder: folder }).catch(() => undefined);
+    onDone();
+    openTab(CHAT_VIEW, { agentId: agent.id });
   };
 
   const error = failure ?? repos.error ?? harnesses.error;

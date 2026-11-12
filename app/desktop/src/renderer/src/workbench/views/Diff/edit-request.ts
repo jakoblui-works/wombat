@@ -29,6 +29,3 @@ export const editRequest = (model: ChatModel, requestId: string): EditRequest | 
   if (path === undefined) return undefined;
   return { ...request, path, diffs: diffs.map(({ oldText, newText }) => ({ oldText, newText })) };
 };
-
-/** A file's name from its path (the diff tab's title and the card's file). */
-export const fileName = (path: string): string => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;

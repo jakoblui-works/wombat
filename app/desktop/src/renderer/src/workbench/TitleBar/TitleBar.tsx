@@ -1,12 +1,9 @@
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { lastPathPart } from "@/lib/path";
 import { cn } from "@/lib/utils";
 import { WombatSymbol } from "../views/EmptyState/WombatSymbol.tsx";
-
-/** The last folder of a path, either separator. */
-const folderName = (root: string): string =>
-  root.split(/[\\/]/).filter(Boolean).pop() ?? root;
 
 /** The window's title area: the symbol and workspace on the left, the right sidebar's toggle (named after its view) on the right. */
 export const TitleBar = ({
@@ -25,7 +22,7 @@ export const TitleBar = ({
   useEffect(() => {
     let live = true;
     window.wombat.workspace.get().then(
-      ({ root }) => live && setWorkspace(folderName(root)),
+      ({ root }) => live && setWorkspace(lastPathPart(root)),
       () => undefined,
     );
     return () => {

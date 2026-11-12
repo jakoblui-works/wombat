@@ -3,16 +3,17 @@ import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
 import type { AgentSummary } from "@wombat/shared/api";
 
-import { AGENTS_ACTIVITY } from "./activities.ts";
+import { AGENTS_ACTIVITY } from "./activity-ids.ts";
 import type { IsKnown } from "./layout.ts";
 import { getView, paramsFit, type ResolveContext, type Reveal, viewTitle } from "./registry.ts";
-import type { WorkbenchActions } from "./workbench-context.ts";
+import { CHAT_VIEW } from "./views/Chat/chat-params.ts";
+import type { TabRef, WorkbenchActions } from "./workbench-context.ts";
 
 /** The dockview component every tab renders through; it looks the view up from the panel's params. */
 export const TAB_COMPONENT = "view";
 
 /** What a tab's dockview panel holds as its params. */
-export type TabParams = { viewId: string; params: unknown };
+export type TabParams = TabRef;
 
 /** The part of dockview's api the tabs use. */
 export type TabHost = Pick<DockviewApi, "getPanel" | "addPanel" | "removePanel" | "panels" | "activeGroup" | "groups" | "adjacentGroupInDirection">;
@@ -184,7 +185,7 @@ export const workbenchActions = (
     openAgentChat: (agentId, requestId) => {
       showActivity(AGENTS_ACTIVITY);
       const agent = ctx().agents?.find(({ id }) => id === agentId);
-      actions.openTab("chat", { agentId }, requestId ?? oldestPending(agent));
+      actions.openTab(CHAT_VIEW, { agentId }, requestId ?? oldestPending(agent));
     },
   };
   return actions;

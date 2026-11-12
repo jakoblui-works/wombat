@@ -1,6 +1,9 @@
 // What views may ask of the workbench they're shown in.
 import { createContext, useContext } from "react";
 
+/** A tab: the view it shows and its params (its identity, with `tabKey`). */
+export type TabRef = { viewId: string; params: unknown };
+
 export type WorkbenchActions = {
   /**
    * Opens (or focuses) the tab for this view and params in the editor area. `reveal` (a permission request's id)
@@ -11,7 +14,7 @@ export type WorkbenchActions = {
    * Opens (or focuses) the tab for this view and params beside the tab `beside`: in the group to the right of that
    * tab's group, or a new group there (the diff tab beside its chat).
    */
-  openBeside: (viewId: string, params: unknown, beside: ActiveTab) => void;
+  openBeside: (viewId: string, params: unknown, beside: TabRef) => void;
   /** Closes the tab for this view and params, if it's open. */
   closeTab: (viewId: string, params: unknown) => void;
   /**
@@ -29,8 +32,8 @@ export const useWorkbench = (): WorkbenchActions => {
   return actions;
 };
 
-/** The tab that's active in the editor area (a view and its params); undefined while no tab is open. */
-export type ActiveTab = { viewId: string; params: unknown };
+/** The tab that's active in the editor area; undefined while no tab is open. */
+export type ActiveTab = TabRef;
 
 export const ActiveTabContext = createContext<ActiveTab | undefined>(undefined);
 

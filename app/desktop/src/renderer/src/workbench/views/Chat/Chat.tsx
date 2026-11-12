@@ -1,18 +1,21 @@
 import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { ScrollArea } from "../../../components/ui/scroll-area";
-import { type ChatItem, type ChatModel, chatModel } from "../../../data/chat-model.ts";
-import { useAgentLog, useAgents, useConnection } from "../../../data/hooks.ts";
+import { type ChatItem, type ChatModel } from "../../../data/chat-model.ts";
+import { useConnection } from "../../../data/hooks.ts";
 import type { Reveal, ViewProps } from "../../registry.ts";
 import { useWorkbench } from "../../workbench-context.ts";
+import { DIFF_VIEW } from "../Diff/diff-params.ts";
 import { type EditRequest, editRequest } from "../Diff/edit-request.ts";
 import { useAnswer } from "./answer.ts";
 import { type ChatBlock, chatBlocks } from "./chat-blocks.ts";
-import { ChatParams } from "./chat-params.ts";
+import { CHAT_VIEW, ChatParams } from "./chat-params.ts";
 import { type LiveState, liveState } from "./live-state.ts";
 import { sameBlock } from "./same-item.ts";
+import { useChatModel } from "./use-chat-model.ts";
 import { ChatHeader } from "./ChatHeader/ChatHeader.tsx";
 import { Composer } from "./Composer/Composer.tsx";
+import { LogError } from "./LogError/LogError.tsx";
 import { Markdown } from "./Markdown/Markdown.tsx";
 import { Permission } from "./Permission/Permission.tsx";
 import { Plan } from "./Plan/Plan.tsx";
@@ -107,7 +110,7 @@ const Block = ({ block, live, edits, connected, answers, cards, onOpenSideBySide
         edit={edit ?? false}
         tool={block.tool}
         onOpenSideBySide={edit === undefined ? undefined : () => onOpenSideBySide(item.requestId)}
-        disabled={!connected || pending || !live.canAnswer(item)}
+        disabled={!live.answerable(item, { connected, pending })}
         error={error}
         onAnswer={(kind) => answers.answer(item.requestId, kind)}
         cardRef={(element) => {
@@ -123,21 +126,13 @@ const Block = ({ block, live, edits, connected, answers, cards, onOpenSideBySide
 
 /** One agent's chat: the plan pinned on top, the conversation, the message box at the bottom. */
 const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | undefined }) => {
-  const log = useAgentLog(agentId);
-  const agents = useAgents();
+  const { model, agent, log } = useChatModel(agentId);
   const connected = useConnection().state === "connected";
   const answers = useAnswer(agentId);
-  const agent = agents.data?.agents.find(({ id }) => id === agentId);
-  const mainSessionId = agent?.sessionId;
-  const entries = log.data?.entries;
-  const model = useMemo(
-    () => (entries === undefined ? undefined : chatModel(entries, mainSessionId === undefined ? {} : { mainSessionId })),
-    [entries, mainSessionId],
-  );
   const blocks = useMemo(() => (model === undefined ? [] : chatBlocks(model.items)), [model]);
   const edits = useMemo(() => (model === undefined ? new Map<string, EditRequest>() : editRequests(model, blocks)), [model, blocks]);
   const workbench = useWorkbench();
-  const openSideBySide = (requestId: string) => workbench.openBeside("diff", { agentId, requestId }, { viewId: "chat", params: { agentId } });
+  const openSideBySide = (requestId: string) => workbench.openBeside(DIFF_VIEW, { agentId, requestId }, { viewId: CHAT_VIEW, params: { agentId } });
   const live = useMemo(() => (model === undefined ? undefined : liveState(model, agent)), [model, agent]);
 
   const viewport = useRef<HTMLDivElement>(null);
@@ -195,9 +190,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
       <ChatHeader agentId={agentId} agent={agent} connected={connected} />
       {model?.plan === undefined || model.plan.length === 0 ? null : <Plan entries={model.plan} />}
       {log.error && model === undefined ? (
-        <p role="alert" className="p-5 text-sm text-danger">
-          Couldn't read this agent's log: {log.error.message}
-        </p>
+        <LogError error={log.error} />
       ) : model === undefined ? (
         <p className="p-5 text-sm text-fg-tertiary">Loading…</p>
       ) : (

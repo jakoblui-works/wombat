@@ -6,13 +6,11 @@ import { findRunningService } from "@wombat/shared/discovery";
 import { expect, onTestFinished, test } from "vitest";
 
 import { FAKE_SERVICE_ENTRY, serviceSandbox, type ServiceSandbox } from "../../test/service-sandbox.ts";
-import { decideQuit, isRunningAgent, restartService, stopIfConfirmed, type QuitChoice, type QuitDeps } from "./quit.ts";
+import { decideQuit, restartService, stopIfConfirmed, type QuitChoice, type QuitDeps } from "./quit.ts";
 import { serviceConnection } from "./service-connection.ts";
 import { isRunning, startService } from "./service-start.ts";
 import { loadSettings, saveSettings } from "./settings.ts";
 import { workspaceControl } from "./workspace.ts";
-
-const agent = (state: AgentSummary["state"]): Pick<AgentSummary, "state"> => ({ state });
 
 const control = (sandbox: ServiceSandbox) =>
   workspaceControl({
@@ -46,14 +44,6 @@ const quit = (sandbox: ServiceSandbox, choice: QuitChoice, deps: Partial<QuitDep
   });
   return { decided, seen };
 };
-
-test("working and waiting agents count as running; done, error and stopped ones don't", () => {
-  expect(isRunningAgent(agent("working"))).toBe(true);
-  expect(isRunningAgent(agent("waiting"))).toBe(true);
-  expect(isRunningAgent(agent("done"))).toBe(false);
-  expect(isRunningAgent(agent("error"))).toBe(false);
-  expect(isRunningAgent(agent("stopped"))).toBe(false);
-});
 
 test("Cancel keeps the app running: nothing stopped, the settings as they were", async () => {
   const sandbox = serviceSandbox();

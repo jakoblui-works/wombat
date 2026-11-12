@@ -4,6 +4,7 @@ import { mutationOptions, type QueryClient, useMutation, useQueryClient } from "
 import { z } from "zod";
 
 import { AgentSummary, type AnswerPermissionRequest, type SendMessageRequest, type StartAgentRequest } from "@wombat/shared/api";
+import { asError } from "../lib/errors.ts";
 import { call } from "./client.ts";
 import { keys } from "./keys.ts";
 import { forgetAgent } from "./query-client.ts";
@@ -39,11 +40,21 @@ export const sendMessageFn = async ({ agentId, text, commandId }: SendMessageVar
   await call("POST", `${agentPath(agentId)}/messages`, Ignored, { text, commandId } satisfies SendMessageRequest);
 };
 
-/** Starts the agent, then sends it the first message. */
-export const startAgentFn = async ({ harness, repo, text, commandId }: StartAgentVars): Promise<AgentSummary> => {
+/** A start's two steps: the agent, which exists from here on, and why its first message wasn't sent, if it wasn't. */
+export type StartedAgent = { agent: AgentSummary; sendError: Error | undefined };
+
+/**
+ * Starts the agent, then sends it the first message. Rejects only when the agent didn't start: once it exists, a
+ * failed send comes back as `sendError`, so the message is sent again to this agent rather than starting another.
+ */
+export const startAgentFn = async ({ harness, repo, text, commandId }: StartAgentVars): Promise<StartedAgent> => {
   const agent = await call("POST", "/agents", AgentSummary, { harness, repo } satisfies StartAgentRequest);
-  await sendMessageFn({ agentId: agent.id, text, commandId });
-  return agent;
+  try {
+    await sendMessageFn({ agentId: agent.id, text, commandId });
+    return { agent, sendError: undefined };
+  } catch (error) {
+    return { agent, sendError: asError(error) };
+  }
 };
 
 export const answerPermissionFn = async ({ agentId, requestId, kind }: AnswerPermissionVars): Promise<void> => {

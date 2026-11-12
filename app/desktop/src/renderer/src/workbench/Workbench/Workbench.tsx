@@ -8,6 +8,8 @@ import { isSettled, NO_RESTART, restartAttempt, showsBanner } from "@/lib/connec
 import { cn } from "@/lib/utils";
 import { useAgents, useConnection } from "../../data/hooks.ts";
 import { keys } from "../../data/keys.ts";
+// Registers the activities and their views, which the workbench reads from the registry.
+import "../activities.ts";
 import { needsMe } from "../../data/needs-me.ts";
 import { defaultLayout, restoreLayout, type SavedLayout } from "../layout.ts";
 import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";

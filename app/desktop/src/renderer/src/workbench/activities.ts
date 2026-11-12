@@ -2,16 +2,18 @@
 import { Bot, Columns2, Files, Inbox, FolderCog, GitBranch, LayoutDashboard, List, MessageSquare, type LucideIcon } from "lucide-react";
 import { createElement } from "react";
 
+import { AGENTS_ACTIVITY } from "./activity-ids.ts";
 import { type ActivityDescriptor, registerActivity, registerView } from "./registry.ts";
 import { AgentsList } from "./views/AgentsList/AgentsList.tsx";
 import { Chat } from "./views/Chat/Chat.tsx";
-import { ChatParams, chatResolves, chatTitle } from "./views/Chat/chat-params.ts";
+import { CHAT_VIEW, ChatParams, chatResolves, chatTitle } from "./views/Chat/chat-params.ts";
 import { Diff } from "./views/Diff/Diff.tsx";
-import { DIFF_TITLE, DiffParams, diffResolves, diffRestores } from "./views/Diff/diff-params.ts";
+import { DIFF_TITLE, DIFF_VIEW, DiffParams, diffResolves, diffRestores } from "./views/Diff/diff-params.ts";
 import { NeedsMe } from "./views/NeedsMe/NeedsMe.tsx";
 import { EmptyActivity } from "./views/EmptyActivity/EmptyActivity.tsx";
 
-export const AGENTS_ACTIVITY = "agents";
+// Its owner is activity-ids.ts; it's named from here too by code that imports this module for its registrations.
+export { AGENTS_ACTIVITY };
 
 /** An activity that isn't built yet: its sidebar view shows its empty state. */
 const unbuilt = (id: string, title: string, icon: LucideIcon, emptyState: NonNullable<ActivityDescriptor["emptyState"]>): void => {
@@ -24,7 +26,7 @@ const register = (): void => {
   registerActivity({ id: AGENTS_ACTIVITY, title: "Agents", icon: Bot, sidebarView: "agents-list" });
   registerView({ id: "agents-list", title: "Agents", icon: List, locations: ["left"], activity: AGENTS_ACTIVITY, component: AgentsList });
   registerView({
-    id: "chat",
+    id: CHAT_VIEW,
     title: chatTitle,
     icon: MessageSquare,
     locations: ["editor"],
@@ -35,7 +37,7 @@ const register = (): void => {
   });
 
   registerView({
-    id: "diff",
+    id: DIFF_VIEW,
     // The view reports "<file name> (diff)" once it has read the request (the agents list doesn't name the file).
     title: DIFF_TITLE,
     icon: Columns2,

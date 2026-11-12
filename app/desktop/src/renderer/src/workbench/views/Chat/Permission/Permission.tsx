@@ -86,21 +86,22 @@ export const Waiting = ({ children = "The agent waits for your answer", wrap = f
   );
 };
 
-const AnswerError = ({ error }: { error: Error | undefined }) =>
+/** Why the last answer failed, as a strip along the card (`className` gives the side its border is on). */
+export const AnswerError = ({ error, className = "border-t" }: { error: Error | undefined; className?: string }) =>
   error === undefined ? null : (
-    <p role="alert" className="border-t border-line px-3 py-1.5 text-sm text-danger">
+    <p role="alert" className={cn("border-line px-3 py-1.5 text-sm text-danger", className)}>
       Couldn't send the answer: {error.message}
     </p>
   );
 
 const NO_DIFFS: EditDiffData["diffs"] = [];
 
-/** An edit's file and its +/− counts, as the card's header shows them. */
-const EditTarget = ({ path, diff }: { path: string; diff: InlineDiff }) => (
+/** An edit's file and, given its inline diff, its +/− counts: the card's header and the diff tab's. */
+export const EditTarget = ({ path, diff }: { path: string; diff?: InlineDiff | undefined }) => (
   <>
     <span className="shrink-0 text-sm font-medium text-fg-primary">Edit</span>
     <code className="min-w-0 truncate font-mono text-xs text-fg-secondary">{path}</code>
-    {diff.kind === "shown" && diff.parts.length > 0 ? <DiffCounts diff={diff} /> : null}
+    {diff?.kind === "shown" && diff.parts.length > 0 ? <DiffCounts diff={diff} /> : null}
   </>
 );
 

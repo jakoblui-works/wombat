@@ -1,30 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "../../../components/ui/button";
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { AGENT_STATES } from "../../../lib/agent-state";
-import { useAgents } from "../../../data/hooks.ts";
-import { reposQuery } from "../../../data/query-client.ts";
+import { useNow } from "../../../lib/ago";
+import { useAgents, useRepos } from "../../../data/hooks.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useActiveTab, useWorkbench } from "../../workbench-context.ts";
-import { ChatParams } from "../Chat/chat-params.ts";
+import { CHAT_VIEW, ChatParams } from "../Chat/chat-params.ts";
 import { AgentRow } from "./AgentRow.tsx";
 import { groupAgents } from "./group-agents.ts";
 import { NewAgentDialog } from "./NewAgentDialog.tsx";
-
-/** How often the times ("4m") are worked out again. */
-const TICK_MS = 60_000;
-
-const useNow = (): number => {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), TICK_MS);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
-};
 
 /** The Agents sidebar: every agent, grouped by state with what needs me first. */
 export const AgentsList = () => {
@@ -34,10 +21,10 @@ export const AgentsList = () => {
   const now = useNow();
   const [creating, setCreating] = useState(false);
   // The workspace folder's name comes from the service's folder list (its first entry, ".").
-  const repos = useQuery(reposQuery());
+  const repos = useRepos();
   const workspaceName = repos.data?.repos.find(({ path }) => path === ".")?.name ?? ".";
 
-  const activeAgentId = active?.viewId === "chat" ? ChatParams.safeParse(active.params).data?.agentId : undefined;
+  const activeAgentId = active?.viewId === CHAT_VIEW ? ChatParams.safeParse(active.params).data?.agentId : undefined;
   const list = agents.data?.agents;
 
   return (
@@ -80,7 +67,7 @@ export const AgentsList = () => {
                     workspaceName={workspaceName}
                     now={now}
                     selected={agent.id === activeAgentId}
-                    onOpen={() => openTab("chat", { agentId: agent.id })}
+                    onOpen={() => openTab(CHAT_VIEW, { agentId: agent.id })}
                   />
                 ))}
               </section>

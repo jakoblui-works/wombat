@@ -3,13 +3,16 @@ import { useEffect, useReducer } from "react";
 
 import { Button } from "../../../../components/ui/button";
 import { sendMessageVars, useCancelTurn, useSendMessage } from "../../../../data/commands.ts";
-import { canSend, composerReducer, EMPTY_COMPOSER, keyAction } from "./composer-state.ts";
+import { canSend, composerReducer, keyAction } from "./composer-state.ts";
+import { forgetUnsent, openingComposer } from "./unsent.ts";
 
 type Props = { agentId: string; turnActive: boolean; connected: boolean };
 
 /** The message box: Send, and Cancel while a turn runs. */
 export const Composer = ({ agentId, turnActive, connected }: Props) => {
-  const [state, dispatch] = useReducer(composerReducer, EMPTY_COMPOSER);
+  // A message handed over (the first one, when it wasn't sent) shows as a failed send, its text in the box.
+  const [state, dispatch] = useReducer(composerReducer, agentId, openingComposer);
+  useEffect(() => forgetUnsent(agentId), [agentId]);
   const sending = useSendMessage();
   const cancelling = useCancelTurn();
   const sendable = canSend(state, { turnActive, connected });

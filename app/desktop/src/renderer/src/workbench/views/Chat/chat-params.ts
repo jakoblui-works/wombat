@@ -5,6 +5,9 @@ import type { KnownContext, ResolveContext } from "../../registry.ts";
 
 export const ChatParams = z.object({ agentId: z.string() });
 
+/** The chat view's id: its registration and every tab opened on it. */
+export const CHAT_VIEW = "chat";
+
 /** How much of an agent id a title shows when there's nothing better. */
 const SHORT_ID_LENGTH = 8;
 

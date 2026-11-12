@@ -13,6 +13,7 @@ import {
   SessionUpdate,
   StartAgentRequest,
   VersionResponse,
+  isRunning,
   isWaiting,
   parseAlert,
   parseLogEntry,
@@ -339,6 +340,14 @@ describe("responses (lenient)", () => {
     const states = AgentSummary.shape.state.options;
     expect(states.filter((state) => isWaiting({ state }))).toEqual(["waiting"]);
     expect(isWaiting(undefined)).toBe(false);
+  });
+
+  test("working and waiting agents count as running; done, error and stopped ones don't", () => {
+    expect(isRunning({ state: "working" })).toBe(true);
+    expect(isRunning({ state: "waiting" })).toBe(true);
+    expect(isRunning({ state: "done" })).toBe(false);
+    expect(isRunning({ state: "error" })).toBe(false);
+    expect(isRunning({ state: "stopped" })).toBe(false);
   });
 
   test("ErrorBody accepts errors with and without a hint and ignores unknown fields", () => {

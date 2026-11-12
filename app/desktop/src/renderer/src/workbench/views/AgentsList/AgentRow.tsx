@@ -3,8 +3,8 @@ import { Ellipsis, GitBranch } from "lucide-react";
 import { useState } from "react";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../../components/ui/dropdown-menu";
-import { AGENT_STATES } from "../../../lib/agent-state";
 import { ago } from "../../../lib/ago";
+import { StateMark } from "../../../lib/state-mark";
 import { cn } from "../../../lib/utils";
 import { agentTitle } from "../Chat/chat-params.ts";
 import { useActionError } from "../Chat/DeleteAgentDialog/action-error.ts";
@@ -22,7 +22,6 @@ type Props = {
 
 /** One agent: the row opens its chat; the menu beside it stops or deletes the agent. */
 export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props) => {
-  const state = AGENT_STATES[agent.state];
   const title = agentTitle(agent.id, agent);
   const actions = useAgentActions(agent.id);
   const [confirming, setConfirming] = useState(false);
@@ -40,7 +39,7 @@ export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props)
         )}
       >
         <span className="flex w-full items-center gap-2">
-          <state.icon aria-label={state.label} className={cn("size-3.5 shrink-0", state.colour)} />
+          <StateMark state={agent.state} />
           <span className="min-w-0 flex-1 truncate text-base font-medium text-fg-primary">{title}</span>
           <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{ago(agent.lastUserAt ?? agent.startedAt, now)}</span>
         </span>

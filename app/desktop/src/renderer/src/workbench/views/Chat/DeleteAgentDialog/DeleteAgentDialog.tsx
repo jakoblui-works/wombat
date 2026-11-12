@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "../../../../components/ui/alert-dialog";
 import { Button } from "../../../../components/ui/button";
+import { asError } from "../../../../lib/errors";
 import type { useAgentActions } from "../../AgentsList/agent-actions.ts";
 
 type Props = {
@@ -20,7 +21,7 @@ export const DeleteAgentDialog = ({ title, open, onOpenChange, actions }: Props)
     setError(undefined);
     actions.remove().then(
       () => onOpenChange(false),
-      (failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)),
+      (failure: unknown) => setError(asError(failure).message),
     );
   };
 
