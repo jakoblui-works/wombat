@@ -728,7 +728,7 @@ export const keepNotifications = async (sandbox: Sandbox, app: ElectronApplicati
 };
 
 /** The latest connection state the page has seen through the bridge, whole (the service's info included). */
-export type SeenConnection = { state: string; message?: string; service?: { startedAt?: string; stale?: unknown } };
+export type SeenConnection = { state: string; message?: string; service?: { startedAt?: string; stale?: unknown; foundAtLaunch?: unknown } };
 
 /** Every connection state the page has seen, whole and in order (watchBridge first). */
 export const connectionsSeen = (page: Page): Promise<SeenConnection[]> =>

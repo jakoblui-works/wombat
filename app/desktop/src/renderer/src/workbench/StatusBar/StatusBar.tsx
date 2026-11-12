@@ -8,68 +8,24 @@ import {
   PopoverTrigger,
 } from "../../components/ui/popover";
 import { useNow } from "../../lib/ago";
+import type { AgentSummary } from "@wombat/shared/api";
 import { CONNECTION_STATES } from "../../lib/connection-state";
+import { serviceView, type ServiceTone } from "../../lib/service-view";
 import { cn } from "../../lib/utils";
-import { startedClock, uptimeLabel } from "../../lib/uptime";
 import type { ConnectionState } from "../../../../shared/bridge.ts";
 import { runLogged } from "../commands/registry.ts";
 
-type Tone = "ok" | "stale" | "pending" | "down";
-
-/** What the service item says and how it looks for the connection `connection`; `agents` counts those with a process. */
-const itemLook = (
-  connection: ConnectionState,
-  agents: number | undefined,
-  now: number,
-): { tone: Tone; text: string } => {
-  switch (connection.state) {
-    case "connecting":
-    case "reconnecting":
-      return { tone: "pending", text: "Service · connecting…" };
-    case "failed":
-    case "incompatible":
-      return { tone: "down", text: "Service · not running" };
-    case "connected": {
-      const { service } = connection;
-      const age =
-        service?.startedAt === undefined
-          ? "age unknown"
-          : uptimeLabel(service.startedAt, now);
-      if (service?.stale === true)
-        return {
-          tone: "stale",
-          text: `Service · running ${age === "age unknown" ? "" : `${age} `}· older than the app`,
-        };
-      if (service?.startedAt === undefined)
-        return { tone: "ok", text: "Service · running · age unknown" };
-      // Never "no agents" unless the list was read.
-      const count =
-        agents === undefined
-          ? ""
-          : ` · ${agents === 0 ? "no agents" : `${String(agents)} ${agents === 1 ? "agent" : "agents"}`}`;
-      return { tone: "ok", text: `Service · running ${age}${count}` };
-    }
-  }
-};
-
-const TONE_CLASS: Record<Tone, string> = {
+const TONE_CLASS: Record<ServiceTone, string> = {
   ok: "text-fg-secondary",
-  stale: "text-state-waiting",
+  warn: "text-state-waiting",
   pending: "text-fg-tertiary",
   down: "text-danger",
 };
 
-const STATE_LINE: Record<ConnectionState["state"], string> = {
-  connected: "Running",
-  connecting: "Connecting…",
-  reconnecting: "Reconnecting…",
-  failed: "Not running: the app can't connect to it.",
-  incompatible: "Running, but it doesn't match this app's version. Restart it.",
-};
-
 /**
  * The row along the bottom of the app. Its service item shows the agent service (so nobody has one in the background
- * unknowingly), and opens a panel with Stop and Restart. `agents` are the names of the agents with a process.
+ * unknowingly), and opens a panel with Stop and Restart. What they say is serviceView's; `agents` is the agents list,
+ * undefined until read.
  */
 export const StatusBar = ({
   connection,
@@ -79,19 +35,14 @@ export const StatusBar = ({
   onRestart,
 }: {
   connection: ConnectionState;
-  agents: readonly string[] | undefined;
+  agents: readonly AgentSummary[] | undefined;
   now: number;
   onStop: () => void;
   onRestart: () => void;
 }) => {
   const [open, setOpen] = useState(false);
-  const { tone, text } = itemLook(connection, agents?.length, now);
-  const stale =
-    connection.state === "connected" && connection.service?.stale === true;
-  const startedAt =
-    connection.state === "connected"
-      ? connection.service?.startedAt
-      : undefined;
+  const { item, announcement, panel } = serviceView({ connection, agents, now });
+  const { tone, text } = item;
   return (
     <footer
       aria-label="Status"
@@ -111,7 +62,7 @@ export const StatusBar = ({
               TONE_CLASS[tone],
             )}
           >
-            {tone === "stale" ? (
+            {tone === "warn" ? (
               <TriangleAlert
                 aria-hidden
                 className="size-3 fill-current"
@@ -132,38 +83,17 @@ export const StatusBar = ({
           </PopoverTrigger>
           <PopoverContent className="flex flex-col gap-2">
             <p className="font-medium text-fg-primary">Agent service</p>
-            <p className="text-fg-secondary">{STATE_LINE[connection.state]}</p>
-            {startedAt !== undefined ? (
-              <p className="text-fg-secondary">
-                Started {startedClock(startedAt)} ({uptimeLabel(startedAt, now)}{" "}
-                ago)
+            {panel.lines.map((line) => (
+              <p key={line} className="text-fg-secondary">
+                {line}
               </p>
-            ) : connection.state === "connected" ? (
-              <p className="text-fg-secondary">
-                Started: unknown (this service doesn't report it)
-              </p>
-            ) : null}
-            <div className="text-fg-secondary">
-              {agents === undefined ? (
-                "Couldn't read the agents yet."
-              ) : agents.length === 0 ? (
-                "No agents with a process."
-              ) : (
-                <>
-                  Agents with a process:
-                  <ul className="mt-1 list-disc pl-5">
-                    {agents.map((name, index) => (
-                      <li key={index}>{name}</li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </div>
-            {stale ? (
-              <p className="text-state-waiting">
-                This service runs older code than the app. Restart it to use
-                what's new; agents with a process stop.
-              </p>
+            ))}
+            {panel.agents !== undefined && panel.agents.length > 0 ? (
+              <ul className="list-disc pl-5 text-fg-secondary">
+                {panel.agents.map((agent) => (
+                  <li key={agent.id}>{agent.title ?? agent.repo}</li>
+                ))}
+              </ul>
             ) : null}
             <div className="mt-1 flex justify-end gap-2">
               <Button
@@ -177,7 +107,7 @@ export const StatusBar = ({
                 Stop service
               </Button>
               <Button
-                variant={stale ? "default" : "secondary"}
+                variant={tone === "warn" ? "default" : "secondary"}
                 size="sm"
                 onClick={() => {
                   setOpen(false);
@@ -190,6 +120,10 @@ export const StatusBar = ({
           </PopoverContent>
         </Popover>
       </div>
+      {/* Announces each change of the item (not its uptime), which a screen reader wouldn't notice on the button. */}
+      <span role="status" className="sr-only">
+        {announcement}
+      </span>
     </footer>
   );
 };
@@ -200,7 +134,7 @@ export const LiveStatusBar = ({
   agents,
 }: {
   connection: ConnectionState;
-  agents: readonly string[] | undefined;
+  agents: readonly AgentSummary[] | undefined;
 }) => (
   <StatusBar
     connection={connection}

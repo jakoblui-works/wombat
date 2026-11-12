@@ -46,6 +46,11 @@ export type ConnectionDeps = {
    * on disk may change at any time. Without it the service's info is never read and `service` stays absent.
    */
   codeIdOnDisk?: () => string;
+  /**
+   * Whether `file` is the service this app launch found already running (workspace.open's `found`), for the service's
+   * `foundAtLaunch`; main always passes it. Without it the field is left out.
+   */
+  foundAtLaunch?: (file: DiscoveryFile) => boolean;
   timing?: Partial<ConnectionTiming>;
   log?: (line: string) => void;
 };
@@ -78,9 +83,9 @@ type Probe = { found: DiscoveryFile } | { incompatible: string } | { missing: tr
 type Retry = { since: number; wait: number };
 
 const sameService = (a: ConnectionState["service"], b: ConnectionState["service"]): boolean =>
-  a?.stale === b?.stale && a?.startedAt === b?.startedAt;
+  a?.stale === b?.stale && a?.startedAt === b?.startedAt && a?.foundAtLaunch === b?.foundAtLaunch;
 
-export const serviceConnection = ({ discoveryFile, onState, onAlert, codeIdOnDisk, timing = {}, log = console.warn }: ConnectionDeps): ServiceConnection => {
+export const serviceConnection = ({ discoveryFile, onState, onAlert, codeIdOnDisk, foundAtLaunch, timing = {}, log = console.warn }: ConnectionDeps): ServiceConnection => {
   const { firstRetryMs, maxRetryMs, failAfterMs, stallMs, healthyMs, staleCheckMs } = { ...DEFAULT_TIMING, ...timing };
   let update: ConnectionUpdate = { seq: 0, state: { state: "connecting" } };
   let connected: DiscoveryFile | undefined;
@@ -134,7 +139,11 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, codeIdOnDis
         throw new Error(`HTTP ${String(response.status)}`);
       }
       const version = VersionResponse.parse(await response.json());
-      return { ...(version.startedAt === undefined ? {} : { startedAt: version.startedAt }), stale: isStale(version, onDisk) };
+      return {
+        ...(version.startedAt === undefined ? {} : { startedAt: version.startedAt }),
+        stale: isStale(version, onDisk),
+        ...(foundAtLaunch === undefined ? {} : { foundAtLaunch: foundAtLaunch(file) }),
+      };
     } catch (error) {
       // Connected all the same: the page shows the service's age and code as unknown.
       log(`Wombat couldn't read which code the service runs: ${error instanceof Error ? error.message : String(error)}`);

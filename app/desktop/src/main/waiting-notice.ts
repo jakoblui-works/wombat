@@ -1,9 +1,10 @@
 // A desktop notification when an agent starts waiting on the user. The desktop shows it outside the app (and may
 // keep it in a history), so it says nothing of the agent: fixed text only, and the agent's id stays in main.
 import { type AgentSummary, type Alert, isWaiting } from "@wombat/shared/api";
+import { NOTICE_TITLE } from "./notice-sink.ts";
 
 /** The notification's whole text; notice-sink.test.ts checks it is all that reaches Electron's Notification. */
-export const WAITING_NOTICE = { title: "Wombat", body: "An agent is waiting for you" } as const;
+export const WAITING_NOTICE = { title: NOTICE_TITLE, body: "An agent is waiting for you" } as const;
 
 /** A notification on screen; `close` takes it away. */
 export type ShownNotice = { close: () => void };

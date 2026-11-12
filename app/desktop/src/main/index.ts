@@ -1,7 +1,8 @@
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { codeIdOf } from "@wombat/shared/code-id";
-import { discoveryPath } from "@wombat/shared/discovery";
+import { agentCountLabel } from "@wombat/shared/api";
+import { discoveryPath, type DiscoveryFile } from "@wombat/shared/discovery";
 import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent, Menu, Notification, protocol, session, shell, type WebContents } from "electron";
 import { CHANNELS, type ConnectionState, type WorkspaceInfo } from "../shared/bridge.ts";
 import { APP_INDEX_URL, APP_SCHEME, contentType, isAppUrl, isBridgeSender, resolveAppFile } from "./app-protocol.ts";
@@ -190,9 +191,6 @@ const messageBox = (options: Electron.MessageBoxOptions): Promise<Electron.Messa
   return window === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(window, options);
 };
 
-/** "3 running agents", "1 running agent". */
-const runningAgents = (running: number): string => `${String(running)} running ${running === 1 ? "agent" : "agents"}`;
-
 const confirmRestart = async (workspace: string, running: number | undefined): Promise<boolean> => {
   if (e2e !== undefined) return e2e.restartAnswer === "restart";
   const { response } = await messageBox({
@@ -201,7 +199,7 @@ const confirmRestart = async (workspace: string, running: number | undefined): P
     defaultId: 1,
     cancelId: 1,
     message: `Restart the service for ${workspace}?`,
-    detail: running === undefined ? "Its agents stop." : `Its agents stop (${runningAgents(running)}).`,
+    detail: running === undefined ? "Its agents stop." : `Its agents stop (${agentCountLabel(running)} with a process).`,
   });
   return response === 0;
 };
@@ -249,11 +247,16 @@ const notices = waitingNotices({ agents: () => connection.agents(), show: showNo
 
 let previousState: ConnectionState["state"] | undefined;
 
+/** The service this launch found already running (workspace.open's `found`), set once at launch; undefined if it started one. */
+let foundAtLaunch: DiscoveryFile | undefined;
+
 // The page's way to the service: main holds the token, the page sees the states and alerts.
 const connection = serviceConnection({
   discoveryFile: () => discoveryPath(process.env),
   // Hashed on each connect and each stale check: the code on disk may change while the app runs.
   codeIdOnDisk: () => codeIdOf(serviceAppRoot),
+  // The token is new with every start, so a service started since (a Restart, a switch) is never taken for it.
+  foundAtLaunch: (file) => file.token === foundAtLaunch?.token && file.pid === foundAtLaunch.pid,
   ...(e2e?.staleCheckMs === undefined ? {} : { timing: { staleCheckMs: e2e.staleCheckMs } }),
   onState: (update) => {
     broadcast(CHANNELS.connection, update);
@@ -317,19 +320,26 @@ const confirmStop = async (running: number | undefined): Promise<boolean> => {
     buttons: ["Stop", "Cancel"],
     defaultId: 1,
     cancelId: 1,
-    message: running === undefined ? "Stop the service and its agents?" : `Stop the service and its ${runningAgents(running)}?`,
+    message: running === undefined ? "Stop the service and its agents?" : `Stop the service and its ${agentCountLabel(running)} with a process?`,
     detail: "Agents stop mid-task. Restart starts the service again, without them.",
   });
   return response === 0;
 };
 
+// A failed Restart is reported here, in any state, as the menu's Stop is: the page may show anything by then. It still
+// rejects, so the page's Restart settles as failed.
 handleBridge(CHANNELS.restart, async () => {
-  await restartService({
-    agents: serviceAgents,
-    confirm: confirmStop,
-    stop: stopServiceAndAgents,
-    start: () => connection.reconnect(() => workspace.restart()),
-  });
+  try {
+    await restartService({
+      agents: serviceAgents,
+      confirm: confirmStop,
+      stop: stopServiceAndAgents,
+      start: () => connection.reconnect(() => workspace.restart()),
+    });
+  } catch (error) {
+    reportError("Wombat couldn't restart the service", error);
+    throw error;
+  }
 });
 handleBridge(CHANNELS.workspaceSwitch, switchWorkspace);
 handleBridge(CHANNELS.settingsGet, () => workspace.pageSettings());
@@ -426,6 +436,7 @@ const openWorkspace = async (): Promise<boolean> => {
   try {
     const opened = await workspace.open();
     if (opened === undefined) return false;
+    foundAtLaunch = opened.found;
     // A start that fails shows as the `failed` state, and a service from before this app as `incompatible`; both with Restart.
     void connection.reconnect(() => opened.service.then(ofThisApp));
     return true;

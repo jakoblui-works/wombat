@@ -6,6 +6,9 @@ import type { ShownNotice } from "./waiting-notice.ts";
 
 export type Notice = { readonly title: string; readonly body: string };
 
+/** Every notice's title: the app's name, as the desktop lists it. */
+export const NOTICE_TITLE = "Wombat";
+
 /** The part of Electron's Notification the sink uses. */
 type NotificationLike = { on(event: "click" | "show" | "failed", listener: () => void): unknown; show(): void; close(): void };
 

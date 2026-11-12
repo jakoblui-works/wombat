@@ -1,10 +1,10 @@
 // One workspace at a time: the settings name it, and the one service (per runtime dir) runs for it. The app starts
 // the service when none runs; what a quit does to it is decideQuit's (quit.ts). Every start, switch and restart runs
 // through one queue, so two of them never race to start services for different workspaces.
-import { discoveryPath, findRunningService, type DiscoveryFile } from "@wombat/shared/discovery";
+import { discoveryPath, type DiscoveryFile } from "@wombat/shared/discovery";
 import { runningCount } from "./quit.ts";
 import { listAgents } from "./service-client.ts";
-import { otherWorkspaceFailure, runningService, ServiceStartFailed, startService, stopService } from "./service-start.ts";
+import { answeringService, otherWorkspaceFailure, runningService, ServiceStartFailed, startService, stopService } from "./service-start.ts";
 import type { RendererSettings } from "../shared/bridge.ts";
 import { loadSettings, rendererSettings, savePageSettings, saveSettings, type Settings } from "./settings.ts";
 
@@ -27,6 +27,8 @@ export type OpenedWorkspace = {
   workspace: string;
   /** Settles once the workspace's service runs; rejects with a ServiceStartFailed saying what to do. */
   service: Promise<DiscoveryFile>;
+  /** The service the open found running and kept, if it did (rather than starting one). */
+  found?: DiscoveryFile;
 };
 
 export type WorkspaceControl = {
@@ -42,7 +44,10 @@ export type WorkspaceControl = {
    * doesn't ask: confirmSwitch does, before it.
    */
   switchWorkspace: (workspace: string) => Promise<DiscoveryFile>;
-  /** Starts the service for the saved workspace again if none runs (after it stopped or crashed). */
+  /**
+   * Starts the service for the saved workspace again if none runs (after it stopped or crashed). Rejects, naming its
+   * pid, when ours runs but doesn't answer (answeringService).
+   */
   restart: () => Promise<DiscoveryFile>;
   /**
    * Stops the running service (runningService) and its agents (POST /shutdown, then its exit), whichever workspace
@@ -80,7 +85,8 @@ export const workspaceControl = ({
     settings = next;
   };
   const save = (patch: Partial<Settings>) => updateSettings((current) => ({ ...current, ...patch }));
-  const findRunning = () => findRunningService(discoveryPath(env));
+  // Rejects when ours runs but doesn't answer: nothing then starts a second service next to it.
+  const findRunning = () => answeringService(discoveryPath(env));
   const startFor = (workspace: string) =>
     startService({ env, entry: serviceEntry, workspace, itemsRoot: settings.workspaces[workspace]?.itemsRoot });
 
@@ -153,15 +159,22 @@ export const workspaceControl = ({
       if (workspace === undefined) return undefined;
       save({ workspace });
     }
-    const running = await findRunning();
+    let running: DiscoveryFile | undefined;
+    try {
+      running = await findRunning();
+    } catch (error) {
+      // Shown as the connection's `failed` state, with its message, as a start that fails is.
+      return { workspace, service: Promise.reject(error instanceof Error ? error : new Error(String(error))) };
+    }
     if (running === undefined) return { workspace, service: ensure(workspace) };
-    if (running.workspace === workspace) return { workspace, service: Promise.resolve(running) };
+    const found = { service: Promise.resolve(running), found: running };
+    if (running.workspace === workspace) return { workspace, ...found };
     if (await askRestart(running, workspace)) return { workspace, service: switchWorkspace(workspace) };
     // Kept: the running service and its agents. A service that doesn't name its workspace leaves the settings as they are;
     // it predates this app, so the connection then shows it as incompatible (ofThisApp).
-    if (running.workspace === undefined) return { workspace, service: Promise.resolve(running) };
+    if (running.workspace === undefined) return { workspace, ...found };
     save({ workspace: running.workspace });
-    return { workspace: running.workspace, service: Promise.resolve(running) };
+    return { workspace: running.workspace, ...found };
   };
 
   return {

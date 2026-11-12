@@ -8,10 +8,12 @@ export type ConnectionState = {
   message?: string;
   /**
    * Set only while `connected`, once the service's GET /version has answered: when it started (absent from a service
-   * from before it was reported) and whether it runs other code than the app would start (`stale`). Absent while
-   * unknown (not yet read, or /version failed).
+   * from before it was reported), whether it runs other code than the app would start (`stale`), and whether it is the
+   * service this app launch found already running rather than one the app started (`foundAtLaunch`; per launch, so a
+   * page reload doesn't change it; main always sets it, absent reads as false). Absent while unknown (not yet read, or
+   * /version failed).
    */
-  service?: { startedAt?: string; stale: boolean };
+  service?: { startedAt?: string; stale: boolean; foundAtLaunch?: boolean };
 };
 
 /** The service's answer: its status, and its body parsed as JSON (undefined when empty). */

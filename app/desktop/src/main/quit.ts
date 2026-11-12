@@ -3,18 +3,18 @@
 // them, or applies the answer remembered with "Don't ask again"; a quit with none stops the service with the app, so
 // nothing is left running unseen, and a service kept running is announced. Stopping the service stops every agent, so
 // the menu's Stop always asks first, and Restart asks when an agent has a process.
-import type { AgentSummary } from "@wombat/shared/api";
+import { agentsWithProcess, type AgentSummary } from "@wombat/shared/api";
 import type { QuitAnswer } from "./e2e-switches.ts";
 import type { Settings } from "./settings.ts";
 
 /**
- * How many of the service's agents have a process (`hasProcess`, done ones too): 0 when no service runs (`agents`
+ * How many of the service's agents have a process (agentsWithProcess): 0 when no service runs (`agents`
  * gives undefined), undefined when they couldn't be read (so the user is asked rather than told nothing runs).
  */
 export const runningCount = async (agents: () => Promise<AgentSummary[] | undefined>, log: (line: string) => void): Promise<number | undefined> => {
   try {
     const list = await agents();
-    return list === undefined ? 0 : list.filter((agent) => agent.hasProcess).length;
+    return list === undefined ? 0 : agentsWithProcess(list).length;
   } catch (error) {
     log(`Wombat couldn't read the service's agents: ${error instanceof Error ? error.message : String(error)}`);
     return undefined;

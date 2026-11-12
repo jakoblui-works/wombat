@@ -318,6 +318,15 @@ export const isWaiting = (agent: Pick<AgentSummary, "state"> | undefined): boole
 export const isRunning = (agent: Pick<AgentSummary, "state"> | undefined): boolean => agent?.state === "working" || agent?.state === "waiting";
 
 /**
+ * The agents whose process runs (`hasProcess`, done ones too): the ones a stop or a quit ends. The one rule for the
+ * quit, stop and restart questions, the "still running" notification and the status bar.
+ */
+export const agentsWithProcess = <T extends Pick<AgentSummary, "hasProcess">>(agents: readonly T[]): T[] => agents.filter((agent) => agent.hasProcess);
+
+/** "1 agent", "2 agents": how many agents, wherever the app counts them. */
+export const agentCountLabel = (count: number): string => `${String(count)} ${count === 1 ? "agent" : "agents"}`;
+
+/**
  * A permission request's title: its own tool call's, else its tool's (the latest tool call with its id), else `""`.
  * An empty own title counts as none. The one rule for the agent list's open requests and the chat's request cards.
  */

@@ -3,7 +3,7 @@
 // their node_modules and the workspace's linked to the real ones. A service started from it (Sandbox.startService
 // with `entry`, or an app launched with SWITCH.serviceEntry set to `entry`) hashes this copy's source, as the app does
 // when its service entry lies in it. Removed with the sandbox.
-import { appendFileSync, cpSync, mkdirSync, symlinkSync } from "node:fs";
+import { appendFileSync, cpSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { test, type Sandbox } from "./app-fixtures.ts";
 
@@ -14,6 +14,11 @@ export type AppCopy = {
   entry: string;
   /** Changes one of the service's source files in the copy (a comment appended), as an edit or a pull would. */
   changeServiceCode: () => void;
+  /**
+   * Makes the copy's service answer GET /version with its API version alone, as a service from before startedAt and
+   * codeId were reported does.
+   */
+  answerVersionAsBefore: () => void;
 };
 
 const realAppRoot = (): string => {
@@ -36,5 +41,12 @@ export const appCopy = (sandbox: Sandbox, name = "app-copy"): AppCopy => {
     root,
     entry: path.join(root, "service", "test", "app-e2e-entry.ts"),
     changeServiceCode: () => appendFileSync(path.join(root, "service", "src", "main.ts"), "\n// Changed after this service started (e2e).\n"),
+    answerVersionAsBefore: () => {
+      const server = path.join(root, "service", "src", "server", "server.ts");
+      const source = readFileSync(server, "utf8");
+      const route = /app\.get\(\s*"\/version"[\s\S]*?\);\n/;
+      if (!route.test(source)) throw new Error(`app-copy: no GET /version route found in ${server}; update answerVersionAsBefore to the server's code.`);
+      writeFileSync(server, source.replace(route, 'app.get("/version", (c) => c.json({ apiVersion: API_VERSION }));\n'));
+    },
   };
 };
