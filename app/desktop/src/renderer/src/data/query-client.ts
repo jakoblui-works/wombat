@@ -8,17 +8,15 @@ import {
   ListLogResponse,
   ListProposalsResponse,
   ListReposResponse,
-  type LogEntry,
   parseLogEntry,
 } from "@wombat/shared/api";
+import type { FoldEntry } from "@wombat/shared/log-fold";
 import { bySeq } from "./by-seq.ts";
 import { call } from "./client.ts";
 import { keys, logAgentId } from "./keys.ts";
 
-/** A stored entry of a known type that fails its schema: kept in its place, without its content. */
-export type UnreadableEntry = { type: "unreadable"; seq: number; at: string };
-
-export type AgentLogEntry = LogEntry | UnreadableEntry;
+/** A parsed entry, or an unreadable one kept in its place (the log fold's entry). */
+export type AgentLogEntry = FoldEntry;
 
 /** What `keys.log(agentId)` holds: the agent's entries sorted by seq, unique by seq. */
 export type AgentLog = { dbId: string; entries: AgentLogEntry[]; truncated: boolean };

@@ -8,6 +8,7 @@
     "./discovery": "./src/discovery.ts",
     "./errno": "./src/errno.ts",
     "./items": "./src/items.ts",
+    "./log-fold": "./src/log-fold.ts",
     "./private-file": "./src/private-file.ts",
     "./process-stat": "./src/process-stat.ts",
     "./routes": "./src/routes.ts",
