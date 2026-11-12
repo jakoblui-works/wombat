@@ -1,10 +1,10 @@
 // One workspace at a time: the settings name it, and the one service (per runtime dir) runs for it. The app starts
-// the service when none runs and leaves it running when it quits. Every start, switch and restart runs through one
-// queue, so two of them never race to start services for different workspaces.
+// the service when none runs; what a quit does to it is decideQuit's (quit.ts). Every start, switch and restart runs
+// through one queue, so two of them never race to start services for different workspaces.
 import { discoveryPath, findRunningService, type DiscoveryFile } from "@wombat/shared/discovery";
 import { runningCount } from "./quit.ts";
 import { listAgents } from "./service-client.ts";
-import { otherWorkspaceFailure, ServiceStartFailed, startService, stopService } from "./service-start.ts";
+import { otherWorkspaceFailure, runningService, ServiceStartFailed, startService, stopService } from "./service-start.ts";
 import type { RendererSettings } from "../shared/bridge.ts";
 import { loadSettings, rendererSettings, savePageSettings, saveSettings, type Settings } from "./settings.ts";
 
@@ -44,7 +44,11 @@ export type WorkspaceControl = {
   switchWorkspace: (workspace: string) => Promise<DiscoveryFile>;
   /** Starts the service for the saved workspace again if none runs (after it stopped or crashed). */
   restart: () => Promise<DiscoveryFile>;
-  /** Stops the running service and its agents (POST /shutdown, then its exit), whichever workspace it's for. */
+  /**
+   * Stops the running service (runningService) and its agents (POST /shutdown, then its exit), whichever workspace
+   * it's for; nothing to do when none runs. Rejects with a ServiceStartFailed, naming its pid and how to stop it, when
+   * the service's process runs but doesn't stop: a quit must not leave it behind as if stopped.
+   */
   shutdown: () => Promise<void>;
   /** Settles once every start, switch, restart and shutdown asked for so far has. */
   idle: () => Promise<void>;
@@ -138,8 +142,8 @@ export const workspaceControl = ({
 
   const shutdown = (): Promise<void> =>
     enqueue(async () => {
-      const file = await findRunning();
-      if (file !== undefined) await stopService(file);
+      const running = runningService(discoveryPath(env));
+      if (running !== undefined) await stopService(running.file);
     });
 
   const open = async (): Promise<OpenedWorkspace | undefined> => {

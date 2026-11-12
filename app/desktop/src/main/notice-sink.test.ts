@@ -70,3 +70,46 @@ test("where notifications aren't supported nothing is created, and the handle's 
   expect(created).toEqual([]);
   expect(() => handle.close()).not.toThrow();
 });
+
+/** A sink over a fake that keeps its listeners by event; its notices are fixed texts (the quit's keptNotice). */
+const sinkByEvent = ({ e2e = false, supported = true } = {}) => {
+  const listeners = new Map<string, (() => void)[]>();
+  const logged: string[] = [];
+  const show = noticeSink({
+    e2e,
+    record: () => undefined,
+    isSupported: () => supported,
+    create: () => ({
+      on: (event, listener) => listeners.set(event, [...(listeners.get(event) ?? []), listener]),
+      show: () => undefined,
+      close: () => undefined,
+    }),
+    log: (line) => logged.push(line),
+  });
+  return { show, fire: (event: string) => listeners.get(event)?.forEach((listener) => listener()), logged };
+};
+
+const NOTICE = { title: "Wombat", body: "The agent service is still running with 1 agent. Open Wombat to stop it." };
+
+/** Whether `promise` has settled by the time the microtasks queued now have run. */
+const settled = async (promise: Promise<void>): Promise<boolean> => {
+  let done = false;
+  void promise.then(() => (done = true));
+  await new Promise((resolve) => setImmediate(resolve));
+  return done;
+};
+
+test.each(["show", "failed"])("`shown` settles once the desktop reports the notification's %s, not before", async (event) => {
+  const { show, fire } = sinkByEvent();
+  const sent = show(NOTICE);
+  expect(await settled(sent.shown)).toBe(false);
+  fire(event);
+  expect(await settled(sent.shown)).toBe(true);
+});
+
+test("under e2e `shown` settles at once; where notifications aren't supported it does too, and the log says so", async () => {
+  expect(await settled(sinkByEvent({ e2e: true }).show(NOTICE).shown)).toBe(true);
+  const unsupported = sinkByEvent({ supported: false });
+  expect(await settled(unsupported.show(NOTICE).shown)).toBe(true);
+  expect(unsupported.logged).toEqual([`This desktop can't show notifications, so Wombat couldn't show "${NOTICE.body}".`]);
+});

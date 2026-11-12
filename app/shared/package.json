@@ -5,6 +5,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./api": "./src/api.ts",
+    "./code-id": "./src/code-id.ts",
     "./discovery": "./src/discovery.ts",
     "./errno": "./src/errno.ts",
     "./items": "./src/items.ts",

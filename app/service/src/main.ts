@@ -1,7 +1,10 @@
 import { createServer } from "node:net";
+import { join } from "node:path";
 
 import { API_VERSION } from "@wombat/shared";
+import { codeIdOf } from "@wombat/shared/code-id";
 import { errorCode } from "@wombat/shared/errno";
+import { startTimeOf } from "@wombat/shared/process-stat";
 
 import { createManager, type Manager } from "./agents/manager.ts";
 import { readConfig } from "./config.ts";
@@ -24,6 +27,9 @@ export type MainOptions = {
   /** Default the service's own slice. */
   slice?: string;
 };
+
+/** The `app/` folder this service's code was loaded from (src/main.ts is two levels below it), whatever the cwd. */
+const APP_ROOT = join(import.meta.dirname, "..", "..");
 
 /** A start-up failure the user can fix from its message alone, so it's printed without a stack trace. */
 class StartRefused extends Error {}
@@ -81,6 +87,8 @@ const probePort = (port: number) =>
 /** Runs the service: config, single-instance check, store, manager, server, discovery file, signals. */
 export const main = async (options: MainOptions = {}): Promise<void> => {
   const env = options.env ?? process.env;
+  // Once, at start: /version reports when this service started and which code it runs, however long it has run since.
+  const startedAt = new Date().toISOString();
   const harnesses = options.harnesses ?? defaultHarnesses;
   const log = logToStderr;
 
@@ -124,6 +132,15 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   let instructions: Instructions | undefined;
   const token = newToken();
   try {
+    let codeId: string;
+    try {
+      codeId = codeIdOf(APP_ROOT);
+    } catch (error) {
+      throw new StartRefused(
+        `The service couldn't hash its source to report which code it runs: ${(error as Error).message}. Check that the file is readable and start the service again.`,
+      );
+    }
+    const identity = { startedAt, codeId };
     store = openStore({ path: config.storePath });
     const slice = options.slice === undefined ? {} : { slice: options.slice };
     manager = createManager({
@@ -155,6 +172,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
         token,
         port: config.port,
         log,
+        identity,
         // Only called from a request, and none is handled before `stop` below is defined.
         onShutdown: () => stop("POST /shutdown"),
         // The file goes first, while the agents still stop: a start that finds it would take this service for a
@@ -177,6 +195,8 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
         apiVersion: API_VERSION,
         port: server.port,
         pid: process.pid,
+        // The start lock has already read it (and refuses to run without it).
+        processStart: startTimeOf(process.pid),
         token,
         workspace: config.workspaceRoot,
       });

@@ -23,10 +23,14 @@ const control = (sandbox: ServiceSandbox) =>
     log: () => undefined,
   });
 
-/** A quit with one waiting agent, answering `choice`; counts the questions and stops. */
+/**
+ * A quit with one waiting agent, answering `choice`; counts the questions and stops, and records each "still running"
+ * notification's agent count in `kept`.
+ */
 const quit = (sandbox: ServiceSandbox, choice: QuitChoice, deps: Partial<QuitDeps> = {}) => {
   const workspace = control(sandbox);
   const seen = { asked: 0, stopped: 0 };
+  const kept: (number | undefined)[] = [];
   const decided = decideQuit({
     settings: workspace.settings,
     updateSettings: workspace.updateSettings,
@@ -40,10 +44,13 @@ const quit = (sandbox: ServiceSandbox, choice: QuitChoice, deps: Partial<QuitDep
       seen.stopped += 1;
       return Promise.resolve();
     },
+    notifyKept: (running: number | undefined) => {
+      kept.push(running);
+    },
     log: () => undefined,
     ...deps,
   });
-  return { decided, seen };
+  return { decided, seen, kept };
 };
 
 test("Cancel keeps the app running: nothing stopped, the settings as they were", async () => {
@@ -66,6 +73,28 @@ test("\"Don't ask again\" saves askOnQuit false, and the next quit asks nothing 
   expect(second.seen).toEqual({ asked: 0, stopped: 0 });
 });
 
+// "Don't ask again" remembers the answer itself, Stop as much as Keep; turning the question back on (askOnQuit,
+// the page's setting) asks again. Each quit below is a fresh control, so the answer goes through the settings file.
+test("a remembered Stop stops the next quit's agents without asking, until the question is turned back on", async () => {
+  const sandbox = serviceSandbox();
+  const first = quit(sandbox, { answer: "stop", dontAsk: true });
+  expect(await first.decided).toBe(true);
+  expect(first.seen).toEqual({ asked: 1, stopped: 1 });
+  expect(first.kept, "a stopped service was announced as still running").toEqual([]);
+
+  // Would keep the agents running if it were asked.
+  const second = quit(sandbox, { answer: "leave", dontAsk: false });
+  expect(await second.decided).toBe(true);
+  expect(second.seen, "the remembered Stop wasn't applied").toEqual({ asked: 0, stopped: 1 });
+  expect(second.kept, "a stopped service was announced as still running").toEqual([]);
+
+  control(sandbox).updateSettings((current) => ({ ...current, askOnQuit: true }));
+  const third = quit(sandbox, { answer: "leave", dontAsk: false });
+  expect(await third.decided).toBe(true);
+  expect(third.seen, "with the question on again, the quit didn't ask").toEqual({ asked: 1, stopped: 0 });
+  expect(third.kept, "Keep didn't announce the service still running, with its one agent").toEqual([1]);
+});
+
 test("a quit during a workspace switch waits for the switch to finish before it looks at the agents", async () => {
   const sandbox = serviceSandbox();
   sandbox.env["FAKE_START_DELAY_MS"] = "300";
@@ -84,7 +113,9 @@ test("a quit during a workspace switch waits for the switch to finish before it 
       return [];
     },
     ask: () => Promise.reject(new Error("the question wasn't expected")),
-    stop: () => Promise.reject(new Error("no stop was expected")),
+    // No agent has a process, so the quit stops the service: nothing is left running unseen behind the app.
+    stop: () => Promise.resolve(),
+    notifyKept: () => undefined,
     log: () => undefined,
   });
 
@@ -186,6 +217,7 @@ test("a switch asked for while the quit question is open finishes before the ans
     stop: async () => {
       runningWhenStopped = (await findRunningService(sandbox.discoveryPath))?.workspace;
     },
+    notifyKept: () => undefined,
     log: () => undefined,
   });
 

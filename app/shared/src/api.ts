@@ -224,7 +224,11 @@ export const ErrorCode = z.union([
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 
-export const VersionResponse = z.object({ apiVersion: z.int() });
+/**
+ * `startedAt` (when the service started) and `codeId` (codeIdOf the checkout it runs) are optional: a service from
+ * before they were added answers without them.
+ */
+export const VersionResponse = z.object({ apiVersion: z.int(), startedAt: Timestamp.exactOptional(), codeId: z.string().exactOptional() });
 export type VersionResponse = z.infer<typeof VersionResponse>;
 
 export const ListHarnessesResponse = z.array(z.object({ id: z.string(), name: z.string() }));

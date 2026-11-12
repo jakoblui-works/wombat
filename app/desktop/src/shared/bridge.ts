@@ -6,6 +6,12 @@ import type { Alert } from "@wombat/shared/api";
 export type ConnectionState = {
   state: "connecting" | "connected" | "reconnecting" | "incompatible" | "failed";
   message?: string;
+  /**
+   * Set only while `connected`, once the service's GET /version has answered: when it started (absent from a service
+   * from before it was reported) and whether it runs other code than the app would start (`stale`). Absent while
+   * unknown (not yet read, or /version failed).
+   */
+  service?: { startedAt?: string; stale: boolean };
 };
 
 /** The service's answer: its status, and its body parsed as JSON (undefined when empty). */
@@ -61,12 +67,9 @@ export type WombatBridge = {
     /** Calls `cb` with the current state at once, then with every change. */
     onConnection: (cb: (state: ConnectionState) => void) => Unsubscribe;
     /**
-     * By the connection's state:
-     * - `failed`, `connecting`, `reconnecting`, `connected`: starts the service for the workspace if none runs (a
-     *   running one for it is kept, with its agents), then connects again. A running service for another workspace
-     *   is never taken: the state turns `failed`, saying to switch.
-     * - `incompatible`: asks "Stop the service and its N agents?" first; Stop stops the running service and its
-     *   agents and starts this app's own, Cancel leaves everything as it is.
+     * Whatever the connection's state: when agents have a process, asks "Stop the service and its N agents?" first (Cancel leaves
+     * everything as it is); then stops the running service, if any, and starts one from the code on disk for the
+     * workspace (a running service for another workspace is stopped too), then connects to it.
      * Settles once the service is connected, incompatible or failed (or the question was cancelled).
      */
     restart: () => Promise<void>;

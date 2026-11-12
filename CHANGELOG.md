@@ -50,7 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Code in the chat is highlighted in TypeScript, TSX, JavaScript, JSON, shell (`bash`, `sh`), Python, YAML, Markdown, diff, Nix, CSS, HTML and SQL; the diff tab highlights JSON, Python, shell, YAML, Markdown and CSS files besides TypeScript and JavaScript.
 - A service from before this app (one that doesn't say which workspace it runs for) shows as incompatible, saying it predates the app and how to stop it before Restart starts the app's own service.
 - The Wombat logo: a mark and a symbol, in colour and in one colour, in `app/desktop/assets/brand/`; the mark heads the README.
+- The agent service reports when it started and which code it runs: `GET /version` answers `startedAt` and `codeId` (a hash of its source).
+- The app knows when the running service is older than the code on disk: it checks on each connect and every minute while connected, so a service that goes stale while the app runs shows it too.
 
 ### Changed
 
 - The app needs Node 26 or newer (was 24).
+- Quitting with no agent process stops the agent service with the app, without asking. With agents that have a process, the question names how many and offers Keep running, Stop agents and quit, or Cancel; "Don't ask again" remembers the answer (an earlier "Don't ask again" stays Keep). A service kept running at quit is announced by a desktop notification ("The agent service is still running with N agents. Open Wombat to stop it.").
+- Restart Service works in every connection state: it asks first only when agents have a process, then stops the service and starts it from the code on disk.

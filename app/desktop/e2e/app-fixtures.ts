@@ -103,8 +103,11 @@ export type Sandbox = {
   /** settings.json parsed, or undefined while it's missing or not JSON. */
   readSettings: (profile?: string) => Record<string, unknown> | undefined;
   launch: (options?: LaunchOptions) => Promise<LaunchedApp>;
-  /** Starts a service directly (as one left running from before), for `workspace`; resolves once it's found. */
-  startService: (workspace: string, env?: Record<string, string>) => Promise<Discovery>;
+  /**
+   * Starts a service directly (as one left running from before), for `workspace`; resolves once it's found. `entry`
+   * (default the sandbox's service entry) runs it from another checkout (see app-copy.ts).
+   */
+  startService: (workspace: string, env?: Record<string, string>, entry?: string) => Promise<Discovery>;
   /** The discovery file's content, raw (so fields the shared schema doesn't know yet are kept); undefined when absent. */
   discovery: () => Discovery | undefined;
   /** Waits for a discovery file whose service is alive and answers /version with its token, and that passes `check`. */
@@ -362,9 +365,9 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
     return launched;
   };
 
-  const startService: Sandbox["startService"] = async (forWorkspace, extra = {}) => {
+  const startService: Sandbox["startService"] = async (forWorkspace, extra = {}, entry = serviceEntry()) => {
     const log = openSync(path.join(root, `direct-service-${String(directServices.length)}.log`), "a", 0o600);
-    const child = spawn(process.execPath, [serviceEntry()], {
+    const child = spawn(process.execPath, [entry], {
       env: env({ WOMBAT_WORKSPACE: forWorkspace, ...extra }),
       detached: true,
       stdio: ["ignore", log, log],
@@ -676,3 +679,70 @@ export const watchZoom = async (page: Page): Promise<void> => {
 
 /** The zoom levels the page has heard through onZoom, in order. */
 export const zoomsHeard = (page: Page): Promise<number[]> => page.evaluate(() => [...((window as unknown as CommandWindow).__e2eZooms ?? [])]);
+
+export type RecordedNotification = { title: string; body: string };
+
+/**
+ * From now on, also writes every notification main records (E2E_NOTIFICATIONS) to a file in the sandbox, so a check
+ * can read the ones raised as the app quits, after its process is gone. It wraps the recorded list, whether main
+ * pushes onto it or replaces it. Returns a reader of what was recorded since.
+ */
+export const keepNotifications = async (sandbox: Sandbox, app: ElectronApplication): Promise<() => RecordedNotification[]> => {
+  const file = path.join(sandbox.base, `notifications-${String(Date.now())}-${String(Math.floor(Math.random() * 1e6))}.jsonl`);
+  writeFileSync(file, "", { mode: 0o600 });
+  await app.evaluate(
+    (_electron, [key, at]) => {
+      const fs = process.getBuiltinModule("node:fs");
+      const write = (items: unknown[]): void => {
+        for (const item of items) fs.appendFileSync(at, `${JSON.stringify(item)}\n`);
+      };
+      class Kept extends Array<unknown> {
+        override push(...items: unknown[]): number {
+          write(items);
+          return super.push(...items);
+        }
+      }
+      const global = globalThis as Record<string, unknown>;
+      const existing = global[key];
+      let current: unknown = Kept.from(Array.isArray(existing) ? (existing as unknown[]) : []);
+      Object.defineProperty(global, key, {
+        configurable: true,
+        get: () => current,
+        set: (value: unknown) => {
+          if (Array.isArray(value)) {
+            write(value.slice(Array.isArray(current) ? current.length : 0));
+            current = Kept.from(value as unknown[]);
+          } else {
+            current = value;
+          }
+        },
+      });
+    },
+    [E2E_NOTIFICATIONS, file] as const,
+  );
+  return () =>
+    readFileSync(file, "utf8")
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => JSON.parse(line) as RecordedNotification);
+};
+
+/** The latest connection state the page has seen through the bridge, whole (the service's info included). */
+export type SeenConnection = { state: string; message?: string; service?: { startedAt?: string; stale?: unknown } };
+
+/** Every connection state the page has seen, whole and in order (watchBridge first). */
+export const connectionsSeen = (page: Page): Promise<SeenConnection[]> =>
+  page.evaluate(() => [...(((window as unknown as { __e2eConnection?: unknown[] }).__e2eConnection ?? []) as SeenConnection[])]);
+
+/**
+ * Waits until a connection state after the first `after` is `connected` with the service's info, and returns it.
+ * Subscribes the page first.
+ */
+export const connectedService = async (page: Page, { after = 0, timeoutMs = WAIT_MS } = {}): Promise<SeenConnection & { service: NonNullable<SeenConnection["service"]> }> => {
+  await watchBridge(page);
+  return until(`a connected state with the service's info (after ${String(after)} states)`, timeoutMs, async () => {
+    const seen = (await connectionsSeen(page)).slice(after);
+    const last = seen.at(-1);
+    return last?.state === "connected" && last.service !== undefined ? { ...last, service: last.service } : undefined;
+  });
+};

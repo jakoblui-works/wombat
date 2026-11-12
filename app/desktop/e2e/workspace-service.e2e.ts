@@ -31,8 +31,11 @@ test.describe("first start", () => {
   });
 
   test("a second start reuses the running service instead of starting another", async ({ sandbox }) => {
-    const first = await sandbox.launch({ workspaceAnswer: sandbox.workspace });
+    // A quit stops a service without agent processes (nothing left running unseen); one agent and the answer Keep
+    // leave it running.
+    const first = await sandbox.launch({ workspaceAnswer: sandbox.workspace, env: { [SWITCH.quitAnswer]: "leave" } });
     const file = await sandbox.waitForService();
+    await startAgent(sandbox, "fake-reply");
     await first.quit();
     await first.exited();
     expect(isAlive(file.pid), "closing the app stopped the service").toBe(true);

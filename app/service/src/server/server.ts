@@ -76,6 +76,8 @@ export type ServerOptions = {
   onShutdown?: () => void;
   /** Called when POST /shutdown begins, before any agent is stopped; main removes the discovery file there. */
   onShutdownStart?: () => void;
+  /** When the service started and which code it runs (codeIdOf its checkout), for `GET /version`; main sets both once. */
+  identity?: { startedAt: string; codeId: string };
 };
 
 /** Shorter tokens are guessable by a local process that can try requests in a loop. */
@@ -130,6 +132,7 @@ export const startServer = async ({
   writer,
   onShutdown,
   onShutdownStart,
+  identity,
 }: ServerOptions): Promise<{ port: number; close: () => Promise<void> }> => {
   if (token.length < MIN_TOKEN_LENGTH) {
     throw new Error(
@@ -166,7 +169,7 @@ export const startServer = async ({
     }),
   );
 
-  app.get("/version", (c) => c.json({ apiVersion: API_VERSION } satisfies VersionResponse));
+  app.get("/version", (c) => c.json({ apiVersion: API_VERSION, ...identity } satisfies VersionResponse));
 
   app.get("/harnesses", (c) =>
     c.json(harnesses.map(({ id, name }) => ({ id, name })) satisfies ListHarnessesResponse),

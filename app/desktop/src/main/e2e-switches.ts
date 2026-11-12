@@ -19,6 +19,8 @@ export type E2eSwitches = {
   quitDontAsk: boolean;
   /** The answer to "Stop the service and its agents?" (the menu's Stop Service and Agents); unset is Cancel. */
   stopAnswer: StopAnswer;
+  /** How often main checks the connected service against the code on disk, in ms; unset (or not a positive number) keeps the default. */
+  staleCheckMs: number | undefined;
 };
 
 const QUIT_ANSWERS: readonly string[] = ["stop", "leave", "cancel"] satisfies QuitAnswer[];
@@ -37,6 +39,12 @@ export const recordE2eNotification = (notification: { title: string; body: strin
   global[E2E_NOTIFICATIONS] = recorded;
 };
 
+/** A positive number of ms, or undefined. */
+const positiveMs = (value: string | undefined): number | undefined => {
+  const ms = Number(value);
+  return value !== undefined && value !== "" && Number.isFinite(ms) && ms > 0 ? ms : undefined;
+};
+
 /** The switches, or undefined (the real app: show windows and dialogs) unless WOMBAT_E2E=1. */
 export const readE2eSwitches = (env: NodeJS.ProcessEnv): E2eSwitches | undefined => {
   if (env[SWITCH.e2e] !== "1") return undefined;
@@ -49,5 +57,6 @@ export const readE2eSwitches = (env: NodeJS.ProcessEnv): E2eSwitches | undefined
     quitAnswer: QUIT_ANSWERS.includes(quitAnswer) ? (quitAnswer as QuitAnswer) : "cancel",
     quitDontAsk: env[SWITCH.quitDontAsk] === "1",
     stopAnswer: env[SWITCH.stopAnswer] === "stop" ? "stop" : "cancel",
+    staleCheckMs: positiveMs(env[SWITCH.staleCheckMs]),
   };
 };

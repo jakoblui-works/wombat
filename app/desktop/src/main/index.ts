@@ -1,17 +1,19 @@
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
-import { discoveryPath, readDiscovery } from "@wombat/shared/discovery";
+import { codeIdOf } from "@wombat/shared/code-id";
+import { discoveryPath } from "@wombat/shared/discovery";
 import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent, Menu, Notification, protocol, session, shell, type WebContents } from "electron";
-import { CHANNELS, type WorkspaceInfo } from "../shared/bridge.ts";
+import { CHANNELS, type ConnectionState, type WorkspaceInfo } from "../shared/bridge.ts";
 import { APP_INDEX_URL, APP_SCHEME, contentType, isAppUrl, isBridgeSender, resolveAppFile } from "./app-protocol.ts";
 import { mainCommands } from "./commands.ts";
 import { readE2eSwitches, recordE2eNotification } from "./e2e-switches.ts";
 import { noticeSink } from "./notice-sink.ts";
 import { NONCE_PLACEHOLDER, newNonce, pageCsp, withNonce } from "./page-csp.ts";
 import { decideQuit, restartService, stopIfConfirmed, type QuitChoice } from "./quit.ts";
+import { keptNotice, quitChoice, quitQuestion } from "./quit-question.ts";
 import { listAgents } from "./service-client.ts";
 import { serviceConnection } from "./service-connection.ts";
-import { ofThisApp } from "./service-start.ts";
+import { ofThisApp, runningService } from "./service-start.ts";
 import { titleBarOverlayAt } from "./title-bar.ts";
 import { settingsPath } from "./settings.ts";
 import { waitingNotices } from "./waiting-notice.ts";
@@ -26,6 +28,11 @@ const rendererRoot = path.join(import.meta.dirname, "../renderer");
 const serviceEntry = path.join(import.meta.dirname, "../../../service/src/main.ts");
 
 const e2e = readE2eSwitches(process.env);
+
+/** The entry the app starts the service from: the checkout whose code a service it starts runs. */
+const serviceEntryInUse = e2e?.serviceEntry ?? serviceEntry;
+/** That checkout's `app/` folder: the entry is `app/<package>/<folder>/<file>`. */
+const serviceAppRoot = path.join(serviceEntryInUse, "..", "..", "..");
 
 // Before anything reads userData (Chromium takes its profile from it at startup): `<appData>/Wombat`, whatever the
 // package is called.
@@ -209,7 +216,7 @@ const reportError = (title: string, error: unknown): void => {
 const workspace = workspaceControl({
   env: process.env,
   settingsFile: settingsPath(app.getPath("userData")),
-  serviceEntry: e2e?.serviceEntry ?? serviceEntry,
+  serviceEntry: serviceEntryInUse,
   chooseFolder,
   confirmRestart,
 });
@@ -240,12 +247,19 @@ const appFocused = (): boolean => e2e === undefined && BrowserWindow.getFocusedW
 
 const notices = waitingNotices({ agents: () => connection.agents(), show: showNotice, openAgent, focused: appFocused });
 
+let previousState: ConnectionState["state"] | undefined;
+
 // The page's way to the service: main holds the token, the page sees the states and alerts.
 const connection = serviceConnection({
   discoveryFile: () => discoveryPath(process.env),
+  // Hashed on each connect and each stale check: the code on disk may change while the app runs.
+  codeIdOnDisk: () => codeIdOf(serviceAppRoot),
+  ...(e2e?.staleCheckMs === undefined ? {} : { timing: { staleCheckMs: e2e.staleCheckMs } }),
   onState: (update) => {
     broadcast(CHANNELS.connection, update);
-    if (update.state.state === "connected") notices.onConnected();
+    // Only on the way into connected: the service's info arrives in a later `connected` update of the same connection.
+    if (update.state.state === "connected" && previousState !== "connected") notices.onConnected();
+    previousState = update.state.state;
   },
   onAlert: (alert) => {
     broadcast(CHANNELS.alert, alert);
@@ -288,12 +302,12 @@ const switchWorkspace = async (): Promise<void> => {
 const stopServiceAndAgents = (): Promise<void> => connection.shutdown(() => workspace.shutdown());
 
 /**
- * The running service's agents, for the quit and stop questions: undefined when there's no discovery file; rejects
- * when there is one but its service doesn't answer, so the question is still asked.
+ * The running service's agents, for the quit, stop and restart questions: undefined when no service runs
+ * (runningService); rejects when its process runs but doesn't answer, so the question is still asked.
  */
 const serviceAgents = async () => {
-  const file = readDiscovery(discoveryPath(process.env));
-  return file === undefined ? undefined : listAgents(file);
+  const running = runningService(discoveryPath(process.env));
+  return running === undefined ? undefined : listAgents(running.file);
 };
 
 const confirmStop = async (running: number | undefined): Promise<boolean> => {
@@ -311,7 +325,6 @@ const confirmStop = async (running: number | undefined): Promise<boolean> => {
 
 handleBridge(CHANNELS.restart, async () => {
   await restartService({
-    incompatible: () => connection.current().state.state === "incompatible",
     agents: serviceAgents,
     confirm: confirmStop,
     stop: stopServiceAndAgents,
@@ -342,17 +355,17 @@ handleBridge(CHANNELS.command, (event, id) => commands.fromPage(id, BrowserWindo
 
 const askOnQuit = async (running: number | undefined): Promise<QuitChoice> => {
   if (e2e !== undefined) return { answer: e2e.quitAnswer, dontAsk: e2e.quitDontAsk };
-  const answers = ["stop", "leave", "cancel"] as const;
-  const { response, checkboxChecked } = await messageBox({
-    type: "question",
-    buttons: ["Stop agents", "Leave running", "Cancel"],
-    defaultId: 1,
-    cancelId: 2,
-    message: running === undefined ? "Agents may still be running." : `${String(running)} ${running === 1 ? "agent is" : "agents are"} still running.`,
-    detail: "Stop them before Wombat quits, or leave them running in the service: they keep working, and Wombat shows them again when it opens.",
-    checkboxLabel: "Don't ask again",
-  });
-  return { answer: answers[response] ?? "cancel", dontAsk: checkboxChecked };
+  const { response, checkboxChecked } = await messageBox(quitQuestion(running));
+  return quitChoice(response, checkboxChecked);
+};
+
+/** How long a quit waits for the desktop to take the "still running" notification. */
+const KEPT_NOTICE_WAIT_MS = 1_000;
+
+/** Settles when `promise` does or after `ms`, whichever is first. */
+const untilOrAfter = (promise: Promise<void>, ms: number): Promise<void> => {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([promise, new Promise<void>((resolve) => (timer = setTimeout(resolve, ms)))]).finally(() => clearTimeout(timer));
 };
 
 // Set once the quit is decided; the next before-quit then lets it through.
@@ -389,6 +402,9 @@ app.on("before-quit", (event) => {
     agents: serviceAgents,
     ask: askOnQuit,
     stop: stopServiceAndAgents,
+    // No click action: the app has quit by the time it could be clicked. The quit waits (a little) until the desktop
+    // has the notification, as the process exiting right after could otherwise drop it.
+    notifyKept: (running) => untilOrAfter(showNotice(keptNotice(running)).shown, KEPT_NOTICE_WAIT_MS),
   })
     .then(
       (quit) => {

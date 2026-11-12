@@ -5,9 +5,9 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync } from "node:fs";
 import path from "node:path";
 import { SERVICE_ENV } from "@wombat/shared";
-import { discoveryPath, findRunningService, HOLDER_WAIT_MS, type DiscoveryFile } from "@wombat/shared/discovery";
+import { discoveryPath, findRunningService, HOLDER_WAIT_MS, readDiscovery, type DiscoveryFile } from "@wombat/shared/discovery";
 import { ensurePrivateFile } from "@wombat/shared/private-file";
-import { isAlive } from "@wombat/shared/process-stat";
+import { isAlive, startTimeOf } from "@wombat/shared/process-stat";
 import { stateDir } from "@wombat/shared/state-dir";
 import { callService } from "./service-client.ts";
 
@@ -20,6 +20,23 @@ const SHUTDOWN_TIMEOUT_MS = 120_000;
 const EXIT_TIMEOUT_MS = 30_000;
 
 /** A start or stop that failed; the message says what to do and names the service's log. */
+/** The app's service as its discovery file names it, with the process that is it. */
+export type RunningService = { file: DiscoveryFile; pid: number };
+
+/**
+ * The service the discovery file at `path` names, when its process still runs: the pid alive and started when the file
+ * says (`processStart`), so a pid reused by another process after a crash isn't taken for it. A file without
+ * `processStart`, from an older service, is taken at its pid alone. Undefined when there's no file or its process is
+ * gone; a leftover file is ignored (a start replaces it). The one place that decides whether the app's service runs.
+ */
+export const runningService = (path: string): RunningService | undefined => {
+  const file = readDiscovery(path);
+  if (file === undefined) return undefined;
+  const start = startTimeOf(file.pid);
+  if (start === undefined || (file.processStart !== undefined && start !== file.processStart)) return undefined;
+  return { file, pid: file.pid };
+};
+
 export class ServiceStartFailed extends Error {
   /** Paths in the message that lie outside the workspace, which the page never sees (see pageMessage). */
   readonly privatePaths: readonly string[];

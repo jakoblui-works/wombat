@@ -21,7 +21,10 @@ export const Settings = z.object({
   workspace: AbsolutePath.optional(),
   /** Per workspace root. */
   workspaces: z.record(z.string(), WorkspaceSettings).default({}),
+  /** False: a quit with agent processes applies `quitAnswer` without asking (decideQuit). */
   askOnQuit: z.boolean().default(true),
+  /** The quit answer remembered with "Don't ask again"; unset with askOnQuit false (an older file) reads as "leave". */
+  quitAnswer: z.enum(["stop", "leave"]).optional(),
   lastAgentFolder: z.string().optional(),
   /** Main's alone: the page changes it only through the zoom commands. */
   zoomLevel: z.number().transform(clampZoom).default(0),

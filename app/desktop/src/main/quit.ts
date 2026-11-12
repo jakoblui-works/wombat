@@ -1,7 +1,8 @@
-// What quitting the app, stopping the service from the menu, or replacing an incompatible service does to the agents.
-// The service keeps them running after the app quits, so a quit while any are running asks whether to stop them;
-// leaving them running is what happens when the question is off. Stopping the service stops every agent, so it
-// always asks first.
+// What quitting the app, stopping the service from the menu, or restarting the service does to the agents.
+// The service keeps the agents running after the app quits, so a quit while any has a process asks whether to stop
+// them, or applies the answer remembered with "Don't ask again"; a quit with none stops the service with the app, so
+// nothing is left running unseen, and a service kept running is announced. Stopping the service stops every agent, so
+// the menu's Stop always asks first, and Restart asks when an agent has a process.
 import type { AgentSummary } from "@wombat/shared/api";
 import type { QuitAnswer } from "./e2e-switches.ts";
 import type { Settings } from "./settings.ts";
@@ -22,6 +23,12 @@ export const runningCount = async (agents: () => Promise<AgentSummary[] | undefi
 
 export type QuitChoice = { answer: QuitAnswer; dontAsk: boolean };
 
+/**
+ * The answer a quit applies without asking, or undefined to ask. `askOnQuit` false is "use the remembered answer";
+ * settings from before `quitAnswer` have only `askOnQuit` false, which was always a Keep.
+ */
+const rememberedAnswer = ({ askOnQuit, quitAnswer }: Settings): Settings["quitAnswer"] => (askOnQuit ? undefined : (quitAnswer ?? "leave"));
+
 export type QuitDeps = {
   settings: () => Settings;
   updateSettings: (change: (current: Settings) => Settings) => void;
@@ -33,22 +40,31 @@ export type QuitDeps = {
   ask: (running: number | undefined) => Promise<QuitChoice>;
   /** Stops the service and its agents; resolves once they're stopped. */
   stop: () => Promise<void>;
+  /**
+   * Announces that the service keeps running after the app quits, with `running` agents (undefined: unknown); the quit
+   * waits for a returned promise, so the announcement reaches the desktop before the app exits.
+   */
+  notifyKept: (running: number | undefined) => void | Promise<void>;
   log?: (line: string) => void;
 };
 
 /**
- * Whether the app may quit now, after asking and stopping as the answer says; false for Cancel. Rejects (no quit)
- * when the stop fails.
+ * Whether the app may quit now, after asking (or applying the remembered answer), stopping or announcing as the answer
+ * says; false for Cancel. Rejects (no quit) when the stop fails.
  */
-export const decideQuit = async ({ settings, updateSettings, idle, agents, ask, stop, log = console.warn }: QuitDeps): Promise<boolean> => {
+export const decideQuit = async ({ settings, updateSettings, idle, agents, ask, stop, notifyKept, log = console.warn }: QuitDeps): Promise<boolean> => {
   // A quit mid-switch would otherwise leave the old service stopped and the new one never started. Each queued
   // operation has its own time limits, so this wait ends.
   await idle();
-  if (!settings().askOnQuit) return true;
   const running = await runningCount(agents, log);
-  if (running === 0) return true;
+  if (running === 0) {
+    // Nothing would be left behind but the service itself.
+    await stop();
+    return true;
+  }
 
-  const { answer, dontAsk } = await ask(running);
+  const remembered = rememberedAnswer(settings());
+  const { answer, dontAsk } = remembered === undefined ? await ask(running) : { answer: remembered, dontAsk: false };
   if (answer === "cancel") return false;
   // A switch asked for while the question was open would otherwise be cut off, as above.
   await idle();
@@ -56,11 +72,12 @@ export const decideQuit = async ({ settings, updateSettings, idle, agents, ask, 
   // Only once the answer has been carried out: a stop that failed leaves the question on.
   if (dontAsk) {
     try {
-      updateSettings((current) => ({ ...current, askOnQuit: false }));
+      updateSettings((current) => ({ ...current, askOnQuit: false, quitAnswer: answer }));
     } catch (error) {
       log(`Wombat couldn't save "Don't ask again": ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+  if (answer === "leave") await notifyKept(running);
   return true;
 };
 
@@ -80,18 +97,21 @@ export const stopIfConfirmed = async ({ agents, confirm, stop, log = console.war
 };
 
 export type RestartDeps = StopDeps & {
-  /** True while the connected service speaks another API version than the app. */
-  incompatible: () => boolean;
-  /** Starts the service for the saved workspace if none runs, and connects to it. */
+  /** Starts the service for the saved workspace from the code on disk (none runs by then), and connects to it. */
   start: () => Promise<void>;
+  /** Not read: Restart is the same in every state. Kept so callers that still pass it compile. */
+  incompatible?: () => boolean;
 };
 
 /**
- * The page's Restart: an incompatible service is stopped first (asking as the menu's Stop does; Cancel leaves it
- * running and starts nothing), so the app can start its own; otherwise it only starts. False when cancelled.
+ * The page's Restart, in any state: asks as the menu's Stop does when an agent has a process (or the agents can't be
+ * read; Cancel leaves everything running and starts nothing), then stops the running service, if any, and starts one
+ * from the code on disk. False when cancelled.
  */
-export const restartService = async ({ incompatible, start, ...stopDeps }: RestartDeps): Promise<boolean> => {
-  if (incompatible() && !(await stopIfConfirmed(stopDeps))) return false;
+export const restartService = async ({ agents, confirm, stop, start, log = console.warn }: RestartDeps): Promise<boolean> => {
+  const running = await runningCount(agents, log);
+  if (running !== 0 && !(await confirm(running))) return false;
+  await stop();
   await start();
   return true;
 };
