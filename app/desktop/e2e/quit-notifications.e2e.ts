@@ -38,7 +38,7 @@ const expectStillRunning = async (sandbox: Sandbox, { servicePid, agentId, agent
   expect((await agentSummary(sandbox, agentId))?.state, "the agent is no longer waiting").toBe("waiting");
 };
 
-test.describe("T7: quitting with an agent waiting", () => {
+test.describe("quitting with an agent waiting", () => {
   test("answer Stop: the service and its agents are gone", async ({ sandbox }) => {
     const { launched, running } = await appWithWaitingAgent(sandbox, { [SWITCH.quitAnswer]: "stop" });
     await launched.quit();

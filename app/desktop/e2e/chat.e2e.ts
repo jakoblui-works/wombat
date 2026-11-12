@@ -10,7 +10,7 @@ import type { ElectronApplication, Page } from "@playwright/test";
 
 import { HOSTILE } from "../../service/test/fake-agent.ts";
 import { MAX_SHOWN_CHARS } from "../src/renderer/src/workbench/views/Chat/clip-text.ts";
-import { agentSummary, expect, layoutOf, openAgent, REPO, startAgent, startWaitingAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import { agentSummary, click, expect, layoutOf, openAgent, REPO, startAgent, startWaitingAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 import { answersIn, groupWithTab, logOf, prompt } from "./agent-views.ts";
 
 // Main hands https links to the host's browser through `shell.openExternal`; the check records those calls instead
@@ -32,7 +32,7 @@ const marker = (page: Page): Promise<unknown> => page.evaluate((name) => (window
 /** Expands every collapsed part of `root` (reasoning, tool calls), however deep, a bounded number of rounds. */
 const expandAll = async (root: ReturnType<typeof groupWithTab>): Promise<void> => {
   const collapsed = root.locator('[aria-expanded="false"]');
-  for (let round = 0; round < 10 && (await collapsed.count()) > 0; round += 1) await collapsed.first().click();
+  for (let round = 0; round < 10 && (await collapsed.count()) > 0; round += 1) await click(collapsed.first());
   await expect(collapsed, "parts of the chat stay collapsed").toHaveCount(0);
 };
 
@@ -67,7 +67,7 @@ const activeContent = (page: Page): Promise<string[]> =>
     return found;
   }, HOSTILE.marker);
 
-test.describe("T13: chat", () => {
+test.describe("chat", () => {
   test("agent content stays inert: HTML, scripts and non-https links in every part of the chat render as text; a huge output is clipped", async ({ sandbox }) => {
     test.setTimeout(90_000);
     expect(HOSTILE.hugeChars, "the fake's huge output must exceed what the chat shows").toBeGreaterThan(MAX_SHOWN_CHARS * 2);
@@ -97,11 +97,11 @@ test.describe("T13: chat", () => {
     // Every other place agent content shows: Needs me (the requests' titles), the Agents list (the message's
     // excerpt), and the edit's diff tab (its title from the agent's path, its texts in Monaco).
     const needsMeToggle = page.getByRole("button", { name: /^Needs me\b/ });
-    if ((await needsMeToggle.getAttribute("aria-pressed")) !== "true") await needsMeToggle.click();
+    if ((await needsMeToggle.getAttribute("aria-pressed")) !== "true") await click(needsMeToggle);
     const needsMe = page.getByRole("complementary", { name: "Needs me", exact: true });
     await expect(needsMe.getByRole("button")).toHaveCount(2, { timeout: WAIT_MS });
     const diffTab = `${HOSTILE.editFileName()} (diff)`;
-    await chat.getByRole("region", { name: "Edit approval" }).getByRole("button", { name: "Open side by side" }).click();
+    await click(chat.getByRole("region", { name: "Edit approval" }).getByRole("button", { name: "Open side by side" }));
     const diff = groupWithTab(page, diffTab);
     await expect(diff.locator(".monaco-diff-editor")).toHaveCount(1, { timeout: WAIT_MS });
     await expect(diff).toContainText("Opening hours", { timeout: WAIT_MS });
@@ -145,7 +145,7 @@ test.describe("T13: chat", () => {
 
     // Clicking what would have been links goes nowhere.
     for (const label of ["javascript link", "data link", "file link", "relative link", "app link", "reference link", "html link"]) {
-      await chat.getByText(`${label} message`).first().click();
+      await click(chat.getByText(`${label} message`).first());
     }
     await expect.poll(() => page.url()).toBe(startUrl);
     expect(app.windows()).toHaveLength(1);
@@ -154,7 +154,7 @@ test.describe("T13: chat", () => {
     expect(await openedExternally(app), "a browser was opened without a click on an https link").toEqual([]);
 
     // The safe https link opens exactly its URL, once, on its click.
-    await chat.getByRole("link", { name: "safe link message" }).click();
+    await click(chat.getByRole("link", { name: "safe link message" }));
     await expect.poll(() => openedExternally(app)).toEqual(["https://example.invalid/docs"]);
     expect(await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 200)))).toBeUndefined();
     expect(await openedExternally(app), "the click opened more than its URL once").toEqual(["https://example.invalid/docs"]);
@@ -172,7 +172,7 @@ test.describe("T13: chat", () => {
     await openAgent(launched, agentId, 1);
     const chat = groupWithTab(page, REPO);
 
-    await chat.getByRole("button", { name: "Approve", exact: true }).click();
+    await click(chat.getByRole("button", { name: "Approve", exact: true }));
 
     await waitUntil("the agent to end its turn", WAIT_MS, async () => ((await agentSummary(sandbox, agentId))?.state === "done" ? true : undefined));
     const log = await logOf(sandbox, agentId);

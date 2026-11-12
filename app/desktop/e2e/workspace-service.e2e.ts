@@ -10,7 +10,7 @@ const mode = (file: string): number => statSync(file).mode & 0o777;
 // One settings file as the app writes it, naming `workspace`.
 const settingsFor = (workspace: string) => ({ version: 1, workspace, workspaces: {}, askOnQuit: true });
 
-test.describe("T5: first start", () => {
+test.describe("first start", () => {
   test("a fresh profile starts a service for the chosen workspace and remembers it in a private settings file", async ({ sandbox }) => {
     await sandbox.launch({ workspaceAnswer: sandbox.workspace });
 
@@ -60,7 +60,7 @@ test.describe("T5: first start", () => {
   });
 });
 
-test.describe("T5: a running service for another workspace", () => {
+test.describe("a running service for another workspace", () => {
   // The old service's shutdown is held (fake `systemctl stop` waits on a gate) for longer than a new start waits for
   // the lock (HOLDER_WAIT_MS), so a switch that starts the new service before the old one is gone leaves nothing
   // running.
@@ -100,7 +100,7 @@ test.describe("T5: a running service for another workspace", () => {
 });
 
 // Switch Workspace through the bridge: the one path where the running app switches, reconnects and reloads.
-test.describe("T7: Switch Workspace", () => {
+test.describe("Switch Workspace", () => {
   test("workspace.switch() restarts the service for the chosen folder, reloads the page, and remembers the folder", async ({ sandbox }) => {
     test.setTimeout(60_000);
     const next = sandbox.newWorkspace("next");

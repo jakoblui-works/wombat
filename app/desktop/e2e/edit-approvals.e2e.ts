@@ -9,7 +9,7 @@
 // no other lasting check mounts it. While it's mounted, no CSP violation and no page error may happen.
 import type { Page } from "@playwright/test";
 
-import { expect, layoutOf, openAgent, REPO, type Sandbox, startWaitingAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import { click, expect, layoutOf, openAgent, REPO, type Sandbox, startWaitingAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 import { answersIn, groupWithTab, logOf, prompt, waitForState } from "./agent-views.ts";
 
 const DIFF_TAB = "notes.txt (diff)";
@@ -30,7 +30,7 @@ const violations = (page: Page): Promise<string[]> =>
 const savedLayoutText = (sandbox: Sandbox): string =>
   JSON.stringify((sandbox.readSettings()?.["workspaces"] as Record<string, { layout?: unknown }> | undefined)?.[sandbox.workspace]?.layout ?? null);
 
-test.describe("T14: edit approvals", () => {
+test.describe("edit approvals", () => {
   test("approve from the diff tab and the chat shows approved; reject inline and the tab shows rejected; answered diff tabs aren't restored", async ({ sandbox }) => {
     test.setTimeout(120_000);
     const env = { [SWITCH.quitAnswer]: "leave" };
@@ -53,7 +53,7 @@ test.describe("T14: edit approvals", () => {
     await expect(card).toContainText(/[−-]\s*1/);
 
     // Open side by side: the diff tab in a group to the right of the chat's.
-    await card.getByRole("button", { name: "Open side by side" }).click();
+    await click(card.getByRole("button", { name: "Open side by side" }));
     await waitUntil("the diff tab beside the chat", WAIT_MS, async () => {
       const groups = await layoutOf(page);
       return groups.length === 2 && groups[0]?.tabs.includes(REPO) && groups[1]?.tabs.includes(DIFF_TAB) ? true : undefined;
@@ -69,7 +69,7 @@ test.describe("T14: edit approvals", () => {
     expect(pageErrors, "page errors with Monaco mounted").toEqual([]);
 
     // Approve in the diff tab: the agent gets the allow; the chat and the tab both say approved; the tab stays.
-    await diff.getByRole("button", { name: "Approve", exact: true }).click();
+    await click(diff.getByRole("button", { name: "Approve", exact: true }));
     await waitForState(sandbox, agentId, "done");
     expect(answersIn(await logOf(sandbox, agentId))).toEqual(["allow_once"]);
     await expect(chat.getByText(/approved/i).first()).toBeVisible({ timeout: WAIT_MS });
@@ -80,9 +80,9 @@ test.describe("T14: edit approvals", () => {
     await prompt(sandbox, agentId, "Now the other line.");
     await waitForState(sandbox, agentId, "waiting");
     const tabsBefore = await tabCount(page);
-    await chat.getByRole("region", { name: "Edit approval" }).last().getByRole("button", { name: "Open side by side" }).click();
+    await click(chat.getByRole("region", { name: "Edit approval" }).last().getByRole("button", { name: "Open side by side" }));
     await waitUntil("the second diff tab", WAIT_MS, async () => ((await tabCount(page)) > tabsBefore ? true : undefined));
-    await chat.getByRole("button", { name: "Reject", exact: true }).click();
+    await click(chat.getByRole("button", { name: "Reject", exact: true }));
     await waitForState(sandbox, agentId, "done");
     expect(answersIn(await logOf(sandbox, agentId))).toEqual(["allow_once", "reject_once"]);
     await expect(diff.getByText(/rejected/i).first()).toBeVisible({ timeout: WAIT_MS });

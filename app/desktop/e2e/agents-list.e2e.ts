@@ -13,7 +13,7 @@ import path from "node:path";
 import type { Page } from "@playwright/test";
 
 import { AGENT_STATES } from "../src/renderer/src/lib/agent-state.ts";
-import { expect, layoutOf, REPO, type Sandbox, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import { click, expect, layoutOf, REPO, type Sandbox, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 
 const agentsSidebar = (page: Page) => page.getByRole("complementary", { name: "Agents", exact: true });
 
@@ -23,7 +23,7 @@ const agentIds = async (sandbox: Sandbox): Promise<string[]> => {
   return (listed.json as { agents: { id: string }[] }).agents.map(({ id }) => id);
 };
 
-test.describe("T12: Agents sidebar and New agent", () => {
+test.describe("Agents sidebar and New agent", () => {
   test("start an agent from New agent, see it done, open its chat, delete it (Enter on the confirmation cancels)", async ({ sandbox }) => {
     test.setTimeout(90_000);
     // REPO as a git repo, so GET /repos offers it beside the workspace root.
@@ -35,14 +35,14 @@ test.describe("T12: Agents sidebar and New agent", () => {
     const sidebar = agentsSidebar(page);
 
     // Start: the folder pick lists the root and REPO (from the service, through main's allow-list); pick REPO.
-    await sidebar.getByRole("button", { name: "New agent", exact: true }).first().click();
+    await click(sidebar.getByRole("button", { name: "New agent", exact: true }).first());
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    await dialog.getByRole("combobox", { name: "Folder" }).click();
+    await click(dialog.getByRole("combobox", { name: "Folder" }));
     await expect(page.getByRole("option", { name: path.basename(sandbox.workspace), exact: true })).toBeVisible();
-    await page.getByRole("option", { name: REPO, exact: true }).click();
+    await click(page.getByRole("option", { name: REPO, exact: true }));
     await dialog.getByRole("textbox").fill("Say hello to the bakery.");
-    await dialog.getByRole("button", { name: "Start", exact: true }).click();
+    await click(dialog.getByRole("button", { name: "Start", exact: true }));
     await expect(dialog).toBeHidden();
 
     // One agent, started in REPO with the first harness; the folder is remembered for next time.
@@ -63,14 +63,14 @@ test.describe("T12: Agents sidebar and New agent", () => {
     // Open its chat from the row (after closing it): the one tab, named after the agent.
     while ((await page.locator(".dv-tab").count()) > 0) await page.locator(".dv-tab .dv-default-tab-action").first().click({ force: true });
     await expect(page.locator(".dv-tab")).toHaveCount(0);
-    await row.click();
+    await click(row);
     await expect(page.locator(".dv-tab")).toHaveCount(1);
     expect((await layoutOf(page)).flatMap((group) => group.tabs)).toEqual([REPO]);
     await expect(page.locator(".dv-groupview").getByText("Hello from the fake agent.")).toBeVisible();
 
     // Delete: Enter on the confirmation is Cancel; the agent stays.
-    await done.getByRole("button", { name: "Agent actions" }).first().click();
-    await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+    await click(done.getByRole("button", { name: "Agent actions" }).first());
+    await click(page.getByRole("menuitem", { name: "Delete", exact: true }));
     const confirm = page.getByRole("alertdialog");
     await expect(confirm).toBeVisible();
     await expect(confirm.getByRole("button", { name: "Cancel", exact: true })).toBeFocused();
@@ -80,9 +80,9 @@ test.describe("T12: Agents sidebar and New agent", () => {
     await expect(row).toBeVisible();
 
     // Confirmed: the agent, its row and its tab go.
-    await done.getByRole("button", { name: "Agent actions" }).first().click();
-    await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
-    await page.getByRole("alertdialog").getByRole("button", { name: "Delete", exact: true }).click();
+    await click(done.getByRole("button", { name: "Agent actions" }).first());
+    await click(page.getByRole("menuitem", { name: "Delete", exact: true }));
+    await click(page.getByRole("alertdialog").getByRole("button", { name: "Delete", exact: true }));
     await waitUntil("the agent deleted in the service", WAIT_MS, async () => ((await agentIds(sandbox)).length === 0 ? true : undefined));
     await expect(sidebar.getByRole("button", { name: new RegExp(REPO) })).toHaveCount(0);
     await expect(page.locator(".dv-tab")).toHaveCount(0);

@@ -17,7 +17,7 @@ const savedGroups = (layout: unknown): unknown[] => {
 const savedLayout = (sandbox: Sandbox, workspace: string): unknown =>
   (sandbox.readSettings()?.["workspaces"] as Record<string, { layout?: unknown }> | undefined)?.[workspace]?.layout;
 
-test.describe("T9: saved layout", () => {
+test.describe("saved layout", () => {
   test("split, open two tabs, restart: the same layout returns", async ({ sandbox }) => {
     test.setTimeout(90_000);
     // Leave the agents running at quit, so the second start finds them and keeps their tabs.
@@ -80,7 +80,7 @@ const waitForTabs = async (page: Page, count: number, what: string): Promise<voi
 };
 
 // S4 fix round: the open tabs follow the agents list (one rule, the registry's isKnown, for the restore and live).
-test.describe("T9: chat tabs follow the agents list", () => {
+test.describe("chat tabs follow the agents list", () => {
   test("a chat tab closes when its agent is deleted, and doesn't come back on restart", async ({ sandbox }) => {
     test.setTimeout(90_000);
     const { agents, launched } = await appWithTwoAgents(sandbox);

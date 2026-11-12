@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync
 import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { _electron as electron, test as base, expect, type ElectronApplication, type Page } from "@playwright/test";
+import { _electron as electron, test as base, expect, type ElectronApplication, type Locator, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "@wombat/shared";
 import { fakeSystemd, type Call, type FakeSystemd, type FakeSystemdOptions } from "../../service/test/fake-systemd.ts";
 import { CHANNELS } from "../src/shared/bridge.ts";
@@ -480,6 +480,27 @@ export { expect };
 
 /** Polls `probe` until it returns something other than undefined; fails naming `what`. */
 export const waitUntil = until;
+
+/**
+ * Clicks `locator` with the mouse, as the user would. The hidden e2e window draws about one frame a second, and
+ * Playwright's `click()` waits two frames for the element to hold still, so each took 2 s. This one keeps every other
+ * check that `click()` makes: it waits until the element is visible and enabled, scrolls it into view, waits until the
+ * element (or something inside it) is what the mouse hits at its centre, and then clicks there.
+ */
+export const click = async (locator: Locator): Promise<void> => {
+  await expect(locator).toBeVisible({ timeout: WAIT_MS });
+  await expect(locator).toBeEnabled({ timeout: WAIT_MS });
+  const at = await until(`${locator.toString()} to be what a click at its centre hits`, WAIT_MS, () =>
+    locator.evaluate((element) => {
+      element.scrollIntoView({ block: "nearest", inline: "nearest" });
+      const box = element.getBoundingClientRect();
+      const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      const hit = document.elementFromPoint(point.x, point.y);
+      return hit !== null && element.contains(hit) ? point : undefined;
+    }),
+  );
+  await locator.page().mouse.click(at.x, at.y);
+};
 
 type ConnectionWindow = {
   wombat?: { service?: { onConnection?: (cb: (state: { state: string; message?: string }) => void) => unknown; onAlert?: (cb: (alert: unknown) => void) => unknown } };

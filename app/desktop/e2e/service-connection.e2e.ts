@@ -14,7 +14,7 @@ import {
   REPO,
 } from "./app-fixtures.ts";
 
-test.describe("T6: service bridge", () => {
+test.describe("service bridge", () => {
   test("the page lists the service's agents through the bridge", async ({ sandbox }) => {
     const { page } = await sandbox.launch();
     await waitForConnection(page, "connected");

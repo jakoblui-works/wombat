@@ -1,4 +1,4 @@
-// T11: the workbench shell, against the built app. Every launch runs in its own sandbox (app-fixtures.ts).
+// The workbench shell, against the built app. Every launch runs in its own sandbox (app-fixtures.ts).
 // What these checks rely on in the page (roles and names, not looks):
 // - the activity bar: `navigation` "Activities", one button per activity named by its title with `aria-pressed`, and
 //   the right sidebar's toggle (anywhere on the page, the design puts it in the title bar), a button named after what
@@ -12,6 +12,7 @@
 // node is tagged: the same node, not just the same tabs, must still be there.
 import type { Locator, Page } from "@playwright/test";
 import {
+  click,
   connectionStates,
   expect,
   isAlive,
@@ -85,7 +86,7 @@ const dragHandle = async (page: Page, name: string, dx: number): Promise<void> =
   const y = (box?.y ?? 0) + (box?.height ?? 0) / 2;
   await page.mouse.move(x, y);
   await page.mouse.down();
-  await page.mouse.move(x + dx, y, { steps: 10 });
+  await page.mouse.move(x + dx, y, { steps: 2 });
   await page.mouse.up();
 };
 
@@ -105,12 +106,12 @@ const appWithOpenChat = async (sandbox: Sandbox): Promise<{ launched: LaunchedAp
   return { launched, agentId };
 };
 
-test.describe("T11: workbench shell", () => {
+test.describe("workbench shell", () => {
   test("switching activity changes only the left sidebar: the editor's tabs stay, the same ones, and the right sidebar is untouched", async ({ sandbox }) => {
     test.setTimeout(60_000);
     const { launched } = await appWithOpenChat(sandbox);
     const { page } = launched;
-    await rightToggle(page).click();
+    await click(rightToggle(page));
     await expect(rightToggle(page)).toHaveAttribute("aria-pressed", "true");
     const rightWidth = await widthOf(rightSidebar(page));
     const editor = await layoutOf(page);
@@ -119,7 +120,7 @@ test.describe("T11: workbench shell", () => {
     expect(names.length, "the activity bar shows no activities").toBeGreaterThan(1);
     // Every other activity, then back to the first.
     for (const name of [...names.slice(1), names[0] as string]) {
-      await activityBar(page).getByRole("button", { name, exact: true }).click();
+      await click(activityBar(page).getByRole("button", { name, exact: true }));
       for (const other of names) {
         await expect(activityBar(page).getByRole("button", { name: other, exact: true }), `${other} marked while ${name} is active`).toHaveAttribute(
           "aria-pressed",
@@ -162,7 +163,7 @@ test.describe("T11: workbench shell", () => {
     expect(await layoutOf(page), "the editor changed while disconnected").toEqual(editor);
     expect(await banner(page).evaluate((element) => element.closest("[inert]") != null), "the banner is inert").toBe(false);
 
-    await banner(page).getByRole("button", { name: "Restart", exact: true }).click();
+    await click(banner(page).getByRole("button", { name: "Restart", exact: true }));
     await waitForConnection(page, "connected", { after: downAt });
     const second = await sandbox.waitForService();
     expect(second.pid, "Restart didn't start a new service").not.toBe(first.pid);
@@ -182,11 +183,11 @@ test.describe("T11: workbench shell", () => {
     const chosen = names[1];
     expect(chosen, "fewer than two activities").toBeDefined();
 
-    await rightToggle(first.page).click();
+    // The right sidebar's toggle saves on its own (no later check would see it otherwise); an activity change saving
+    // on its own is layout-unload.e2e.ts's control, and the restart below checks that both come back.
+    await click(rightToggle(first.page));
     await waitUntil("the open right sidebar in settings.json", WAIT_MS, () => (savedChrome(sandbox)?.sidebars?.rightCollapsed === false ? true : undefined));
-    const before = savedChrome(sandbox);
-    await activityBar(first.page).getByRole("button", { name: chosen as string, exact: true }).click();
-    await waitUntil("the activity in settings.json", WAIT_MS, () => (savedChrome(sandbox)?.activity !== before?.activity ? true : undefined));
+    await click(activityBar(first.page).getByRole("button", { name: chosen as string, exact: true }));
 
     // Resized last, so nothing after it saves the widths on its behalf.
     const left = await widthOf(leftSidebar(first.page, chosen as string));
