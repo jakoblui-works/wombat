@@ -23,10 +23,13 @@ export type E2eSwitches = {
 
 const QUIT_ANSWERS: readonly string[] = ["stop", "leave", "cancel"] satisfies QuitAnswer[];
 
-/** The main-process global (an array) the checks read the recorded notifications from. */
+/** The main-process global (an array) the e2e reads the recorded notifications from: a waiting agent raises one. */
 export const E2E_NOTIFICATIONS = "wombatE2eNotifications";
 
-/** Records a notification the app would have shown, for the checks to read. */
+/**
+ * Takes the place of showing a notification under the e2e checks, so the hidden e2e app never shows a real one; the
+ * e2e reads what it recorded.
+ */
 export const recordE2eNotification = (notification: { title: string; body: string }): void => {
   const global = globalThis as Record<string, unknown>;
   const recorded = Array.isArray(global[E2E_NOTIFICATIONS]) ? (global[E2E_NOTIFICATIONS] as unknown[]) : [];

@@ -446,6 +446,8 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
       if (!existsSync(root)) break;
     }
     if (touched.length > 0) throw new Error(`SAFETY: something under test asked systemd about the real slice: ${JSON.stringify(touched)}`);
+    // A sandbox left behind holds a test's HOME and workspace; it fails the test rather than piling up in the temp dir.
+    if (existsSync(root)) throw new Error(`The e2e sandbox ${root} is still there after teardown: something kept writing into it. Find what still runs from it, stop it and remove the folder.`);
   };
 
   return { sandbox, teardown };

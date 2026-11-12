@@ -2,7 +2,7 @@
 // keep it in a history), so it says nothing of the agent: fixed text only, and the agent's id stays in main.
 import { type AgentSummary, type Alert, isWaiting } from "@wombat/shared/api";
 
-/** The notification's whole text; e2e/quit-notifications.e2e.ts checks it holds none of the agent's. */
+/** The notification's whole text; notice-sink.test.ts checks it is all that reaches Electron's Notification. */
 export const WAITING_NOTICE = { title: "Wombat", body: "An agent is waiting for you" } as const;
 
 /** A notification on screen; `close` takes it away. */

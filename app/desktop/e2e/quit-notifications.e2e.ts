@@ -1,12 +1,12 @@
-// T7: what quitting does to the service and its agents, and what a notification may say. Every launch runs in its
-// own sandbox (app-fixtures.ts); the quit question's answer comes from WOMBAT_E2E_QUIT_ANSWER, and notifications are
-// recorded in main (E2E_NOTIFICATIONS), never shown.
+// What quitting does to the service and its agents, and that a waiting agent raises a notification. Every launch runs
+// in its own sandbox (app-fixtures.ts); the quit question's answer comes from WOMBAT_E2E_QUIT_ANSWER, and notifications
+// are recorded in main (E2E_NOTIFICATIONS), never shown. What reaches Electron's Notification is checked in
+// src/main/notice-sink.test.ts.
 import {
   agentSummary,
   E2E_NOTIFICATIONS,
   expect,
   isAlive,
-  REPO,
   startWaitingAgent,
   SWITCH,
   test,
@@ -16,10 +16,8 @@ import {
   type Sandbox,
 } from "./app-fixtures.ts";
 
-// Invented prompt text: agent content the desktop must never show outside the app.
+// Invented prompt text for the waiting agent.
 const PROMPT = "Tidy the opening hours on the Juniper Lane bakery page";
-// What the fake permission agent says about its tool call (service/test/fake-agent.ts, scenario "permission").
-const FAKE_PERMISSION_STRINGS = ["Edit notes.txt", "notes.txt", "/tmp/notes.txt", "old line", "new line"];
 
 type Running = { servicePid: number; agentId: string; agentPids: number[] };
 
@@ -66,27 +64,12 @@ test.describe("T7: quitting with an agent waiting", () => {
   });
 });
 
-// Lasting check "Notifications carry no agent content".
-test("the notification for a waiting agent holds none of the agent's strings", async ({ sandbox }) => {
-  const { launched, running } = await appWithWaitingAgent(sandbox, {});
+// The running app's whole path from the service's alert to the sink: the unit tests cover each part, not the wiring.
+test("an agent that starts waiting raises a notification", async ({ sandbox }) => {
+  const { launched } = await appWithWaitingAgent(sandbox, {});
   const recorded = await waitUntil("a recorded notification", WAIT_MS, async () => {
     const notes = await launched.app.evaluate((_electron, key) => (globalThis as Record<string, unknown>)[key], E2E_NOTIFICATIONS);
     return Array.isArray(notes) && notes.length > 0 ? notes : undefined;
   });
-
-  // Whatever the service knows of the agent now, plus what the fake agent and the prompt said.
-  const summary = await agentSummary(sandbox, running.agentId);
-  const agentStrings = [
-    PROMPT,
-    ...FAKE_PERMISSION_STRINGS,
-    REPO,
-    sandbox.workspace,
-    ...(summary?.title === undefined ? [] : [summary.title]),
-    ...(summary?.lastText === undefined ? [] : [summary.lastText]),
-    ...(summary?.pendingPermissions ?? []).map(({ title }) => title),
-  ].filter((text) => text.trim() !== "");
-  const texts = recorded.map((note) => JSON.stringify(note));
-  for (const text of agentStrings) {
-    expect(texts.filter((note) => note.includes(text)), `a notification carries agent content: ${text}`).toEqual([]);
-  }
+  expect(recorded).toEqual([{ title: "Wombat", body: "An agent is waiting for you" }]);
 });

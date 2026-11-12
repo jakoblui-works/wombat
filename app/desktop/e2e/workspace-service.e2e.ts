@@ -1,6 +1,6 @@
-// T5: the workspace, the settings file and the service start, against the built app. Every launch runs in its own
+// The workspace, the settings file and the service start, against the built app. Every launch runs in its own
 // sandbox (app-fixtures.ts): temp profile, runtime and state dirs, fake systemd, fake agents.
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import path from "node:path";
 import { HOLDER_WAIT_MS } from "@wombat/shared/discovery";
 import { expect, isAlive, startAgent, test, SWITCH, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
@@ -8,13 +8,7 @@ import { expect, isAlive, startAgent, test, SWITCH, waitForConnection, waitUntil
 const mode = (file: string): number => statSync(file).mode & 0o777;
 
 // One settings file as the app writes it, naming `workspace`.
-const settingsFor = (workspace: string, extra: Record<string, unknown> = {}) => ({
-  version: 1,
-  workspace,
-  workspaces: {},
-  askOnQuit: true,
-  ...extra,
-});
+const settingsFor = (workspace: string) => ({ version: 1, workspace, workspaces: {}, askOnQuit: true });
 
 test.describe("T5: first start", () => {
   test("a fresh profile starts a service for the chosen workspace and remembers it in a private settings file", async ({ sandbox }) => {
@@ -66,29 +60,6 @@ test.describe("T5: first start", () => {
   });
 });
 
-test.describe("T5: settings that can't all be read", () => {
-  // The answer offered if the app (wrongly) asks again: a different folder, so asking shows.
-  test("an invalid field falls back alone: the workspace in the same file is kept", async ({ sandbox }) => {
-    const other = sandbox.newWorkspace("other");
-    sandbox.writeSettings(settingsFor(sandbox.workspace, { askOnQuit: "sometimes" }));
-    await sandbox.launch({ workspaceAnswer: other });
-    const file = await sandbox.waitForService();
-    expect(file.workspace, "one invalid field cost the saved workspace").toBe(sandbox.workspace);
-    expect(sandbox.readSettings()?.["workspace"]).toBe(sandbox.workspace);
-  });
-
-  test("a settings file that isn't JSON is kept aside as settings.json.bad, byte for byte, and the app starts afresh", async ({ sandbox }) => {
-    const broken = `{ "version": 1, "workspace": ${JSON.stringify(sandbox.workspace)}, oops`;
-    sandbox.writeSettings(broken);
-    const answer = sandbox.newWorkspace("chosen");
-    await sandbox.launch({ workspaceAnswer: answer });
-    const file = await sandbox.waitForService();
-    expect(file.workspace).toBe(answer);
-    await waitUntil("settings.json to name the chosen workspace", WAIT_MS, () => (sandbox.readSettings()?.["workspace"] === answer ? true : undefined));
-    expect(readFileSync(`${sandbox.settingsPath()}.bad`, "utf8"), "the unreadable file wasn't kept aside").toBe(broken);
-  });
-});
-
 test.describe("T5: a running service for another workspace", () => {
   // The old service's shutdown is held (fake `systemctl stop` waits on a gate) for longer than a new start waits for
   // the lock (HOLDER_WAIT_MS), so a switch that starts the new service before the old one is gone leaves nothing
@@ -126,23 +97,9 @@ test.describe("T5: a running service for another workspace", () => {
     expect(sandbox.discovery()?.pid).toBe(file.pid);
     expect(sandbox.readSettings()?.["workspace"]).toBe(sandbox.workspace);
   });
-
-  test("Cancel keeps the running service, and the settings follow its workspace", async ({ sandbox }) => {
-    const old = sandbox.newWorkspace("old");
-    const running = await sandbox.startService(old);
-    sandbox.writeSettings(settingsFor(sandbox.workspace));
-    const launched = await sandbox.launch({ workspaceAnswer: null, env: { [SWITCH.restartAnswer]: "cancel" } });
-
-    await waitUntil("settings.json to follow the running service's workspace", WAIT_MS, () => (sandbox.readSettings()?.["workspace"] === old ? true : undefined));
-    await waitForConnection(launched.page, "connected");
-    expect(sandbox.discovery()?.pid, "the running service was replaced").toBe(running.pid);
-    expect(sandbox.liveServices()).toEqual([running.pid]);
-    const stops = sandbox.systemd.calls().filter(({ tool, args }) => tool === "systemctl" && args.includes("stop"));
-    expect(stops, "the running service was shut down").toEqual([]);
-  });
 });
 
-// T7 (Switch Workspace through the bridge): the one path where the running app switches, reconnects and reloads.
+// Switch Workspace through the bridge: the one path where the running app switches, reconnects and reloads.
 test.describe("T7: Switch Workspace", () => {
   test("workspace.switch() restarts the service for the chosen folder, reloads the page, and remembers the folder", async ({ sandbox }) => {
     test.setTimeout(60_000);

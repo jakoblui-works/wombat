@@ -5,13 +5,14 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, protocol, sess
 import { CHANNELS, type WorkspaceInfo } from "../shared/bridge.ts";
 import { APP_INDEX_URL, APP_SCHEME, contentType, isAppUrl, isBridgeSender, resolveAppFile } from "./app-protocol.ts";
 import { readE2eSwitches, recordE2eNotification } from "./e2e-switches.ts";
+import { noticeSink } from "./notice-sink.ts";
 import { NONCE_PLACEHOLDER, newNonce, pageCsp, withNonce } from "./page-csp.ts";
 import { decideQuit, restartService, stopIfConfirmed, type QuitChoice } from "./quit.ts";
 import { listAgents } from "./service-client.ts";
 import { serviceConnection } from "./service-connection.ts";
 import { ofThisApp } from "./service-start.ts";
 import { settingsPath } from "./settings.ts";
-import { waitingNotices, type ShownNotice, type WAITING_NOTICE } from "./waiting-notice.ts";
+import { waitingNotices } from "./waiting-notice.ts";
 import { workspaceControl } from "./workspace.ts";
 
 // The app's trust boundary (design doc, "App trust boundary"): a sandboxed renderer with no
@@ -208,20 +209,12 @@ const broadcast = (channel: string, value: unknown): void => {
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, value);
 };
 
-const NOTHING_SHOWN: ShownNotice = { close: () => undefined };
-
-// The notifier keeps the returned handle, and with it the Notification: one that's collected loses its click handler.
-const showNotice = (notice: typeof WAITING_NOTICE, onClick: () => void): ShownNotice => {
-  if (e2e !== undefined) {
-    recordE2eNotification(notice);
-    return NOTHING_SHOWN;
-  }
-  if (!Notification.isSupported()) return NOTHING_SHOWN;
-  const shown = new Notification({ title: notice.title, body: notice.body });
-  shown.on("click", onClick);
-  shown.show();
-  return { close: () => shown.close() };
-};
+const showNotice = noticeSink({
+  e2e: e2e !== undefined,
+  record: recordE2eNotification,
+  isSupported: () => Notification.isSupported(),
+  create: (options) => new Notification(options),
+});
 
 const openAgent = (agentId: string): void => {
   const [window] = BrowserWindow.getAllWindows();

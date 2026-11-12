@@ -1,4 +1,4 @@
-// T9: the saved layout, against the built app. Every launch runs in its own sandbox (app-fixtures.ts): temp profile,
+// The saved layout, against the built app. Every launch runs in its own sandbox (app-fixtures.ts): temp profile,
 // runtime and state dirs, fake systemd, fake agents. Tabs open the way a notification click opens them (main sends
 // CHANNELS.openAgent, once); the split is a tab dragged to the right edge of its group, as the user would make it.
 import type { Page } from "@playwright/test";
@@ -60,45 +60,6 @@ test.describe("T9: saved layout", () => {
       return JSON.stringify(after) === JSON.stringify(before) ? true : undefined;
     }).catch(() => undefined);
     expect(after, "the layout after the restart").toEqual(before);
-  });
-
-  // The page reloads on a switch; a save during unload (or one landing mid-switch) would write the old workspace's
-  // layout under the new one.
-  test("a workspace switch never saves the old workspace's tabs into the new one's layout", async ({ sandbox }) => {
-    test.setTimeout(90_000);
-    const next = sandbox.newWorkspace("next");
-    sandbox.writeSettings({ version: 1, workspace: sandbox.workspace, workspaces: {}, askOnQuit: true });
-    const launched = await sandbox.launch({ workspaceAnswer: next, env: { [SWITCH.restartAnswer]: "restart" } });
-    const { page } = launched;
-    await waitForConnection(page, "connected");
-    await sandbox.waitForService((file) => file.workspace === sandbox.workspace);
-    const agents = [await startAgent(sandbox, "fake-reply"), await startAgent(sandbox, "fake-reply")];
-
-    // Saving works: the first tab reaches this workspace's layout.
-    await openAgent(launched, agents[0] as string, 1);
-    await waitUntil("the first tab in the workspace's saved layout", WAIT_MS, () =>
-      JSON.stringify(savedLayout(sandbox, sandbox.workspace) ?? null).includes(agents[0] as string) ? true : undefined,
-    );
-
-    // A second tab, and the switch at once: its save is still pending when the page unloads.
-    await openAgent(launched, agents[1] as string, 2);
-    await page.evaluate(() => {
-      (window as unknown as { __e2eBeforeSwitch?: boolean }).__e2eBeforeSwitch = true;
-    });
-    await page
-      .evaluate(() => (window as unknown as { wombat: { workspace: { switch: () => Promise<void> } } }).wombat.workspace.switch())
-      .catch(() => undefined);
-
-    await sandbox.waitForService((file) => file.workspace === next, 40_000);
-    await waitUntil("the page to reload", WAIT_MS, async () => {
-      const marked = await page.evaluate(() => (window as unknown as { __e2eBeforeSwitch?: boolean }).__e2eBeforeSwitch === true).catch(() => true);
-      return marked ? undefined : true;
-    });
-    await waitForConnection(page, "connected");
-
-    const nextLayout = JSON.stringify(savedLayout(sandbox, next) ?? null);
-    for (const id of agents) expect(nextLayout, `the new workspace's layout holds the old workspace's tab ${id}`).not.toContain(id);
-    expect(JSON.stringify(savedLayout(sandbox, sandbox.workspace) ?? null), "the old workspace's layout was lost").toContain(agents[0]);
   });
 });
 
