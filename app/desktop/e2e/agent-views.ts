@@ -1,5 +1,5 @@
-// Helpers for S7's checks of the agent views (chat, edit approvals, Needs me), on top of app-fixtures.ts.
-// What they rely on in the page: dockview's `.dv-groupview` and `.dv-tab` (S6's selector contract); a chat tab is
+// Helpers for the e2e checks of the agent views (chat, edit approvals, Needs me), on top of app-fixtures.ts.
+// What they rely on in the page: dockview's `.dv-groupview` and `.dv-tab`; a chat tab is
 // titled after its agent (for a fake agent without a title: its repo).
 import type { Locator, Page } from "@playwright/test";
 
