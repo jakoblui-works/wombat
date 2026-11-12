@@ -55,14 +55,16 @@ test("saved settings load back the same", () => {
   expect(loadSettings(file, () => undefined)).toEqual(settings);
 });
 
-test("a settings file from a newer version is kept aside as settings.json.bad, never rewritten as this version", () => {
+test.each([
+  ["from a newer version", JSON.stringify({ version: 2, workspace: "/home/dev/bakery", panes: ["agents"] })],
+  ["that isn't JSON", `{ "version": 1, "workspace": "/home/dev/bakery", oops`],
+])("a settings file %s is kept aside as settings.json.bad, byte for byte, never rewritten as this version", (_name, content) => {
   const userData = tempUserData();
   const file = settingsPath(userData);
   mkdirSync(userData);
-  const newer = JSON.stringify({ version: 2, workspace: "/home/dev/bakery", panes: ["agents"] });
-  writeFileSync(file, newer);
+  writeFileSync(file, content);
   expect(loadSettings(file, () => undefined)).toEqual(DEFAULTS);
-  expect(readFileSync(`${file}.bad`, "utf8")).toBe(newer);
+  expect(readFileSync(`${file}.bad`, "utf8")).toBe(content);
   expect(existsSync(file)).toBe(false);
 });
 

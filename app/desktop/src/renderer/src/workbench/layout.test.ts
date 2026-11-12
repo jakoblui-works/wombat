@@ -5,6 +5,7 @@ import fc from "fast-check";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import "./activities.ts";
+import { AGENTS_ACTIVITY } from "./activity-ids.ts";
 import { defaultLayout, type IsKnown, pruneLayout, restoreLayout, SavedLayout } from "./layout.ts";
 import { activities, isKnown as registryIsKnown } from "./registry.ts";
 import { summary } from "../../../../test/summaries.ts";
@@ -240,11 +241,12 @@ describe("restoreLayout", () => {
     expect(warned.join("\n")).not.toContain(MARKER);
   });
 
+  // Agents by its id, not as the first registered activity: an activity registered before it mustn't become the default.
   test("the default layout is one empty group on the Agents activity, and valid as a saved layout", () => {
     const fallback = defaultLayout();
     expect(SavedLayout.safeParse(fallback).success).toBe(true);
     expect(Object.keys(fallback.dockview.panels)).toEqual([]);
     expect(leaves(rootOf(fallback)).map((g) => g.data.views)).toEqual([[]]);
-    expect(fallback.activity).toBe(agentsActivity());
+    expect(fallback.activity).toBe(AGENTS_ACTIVITY);
   });
 });

@@ -56,9 +56,12 @@ test("while the agents list is unknown a tab is kept without asking its view", (
   expect(isKnown({ agents: [] })("test-needs-a-list", {})).toBe(false);
 });
 
+// Another agent, with a title and a repo of its own, is listed first: the tab's title is its own agent's.
+const listedFirst = summary("9c0d1e2f-0000-4a4a-8b8b-112233445566", { title: "Fix the till", repo: "till-app" });
+
 test.each<[string, ResolveContext, (id: string, title: string) => boolean]>([
-  ["the agent's title", { agents: [summary("3f2a9c1e-77aa-4b1e-9e0d-5c3b2a1f0e9d", { title: "Opening hours" })] }, (_id, title) => title === "Opening hours"],
-  ["else its repo", { agents: [summary("3f2a9c1e-77aa-4b1e-9e0d-5c3b2a1f0e9d", { repo: "bakery-site" })] }, (_id, title) => title === "bakery-site"],
+  ["the agent's title", { agents: [listedFirst, summary("3f2a9c1e-77aa-4b1e-9e0d-5c3b2a1f0e9d", { title: "Opening hours" })] }, (_id, title) => title === "Opening hours"],
+  ["else its repo", { agents: [listedFirst, summary("3f2a9c1e-77aa-4b1e-9e0d-5c3b2a1f0e9d", { repo: "bakery-site" })] }, (_id, title) => title === "bakery-site"],
   ["else a short id", { agents: [] }, (id, title) => title.length > 0 && title.length < id.length && id.includes(title)],
   ["else a short id, while the agents load", { agents: undefined }, (id, title) => title.length > 0 && title.length < id.length && id.includes(title)],
 ])("a chat tab's title: %s", (_name, ctx, fits) => {
