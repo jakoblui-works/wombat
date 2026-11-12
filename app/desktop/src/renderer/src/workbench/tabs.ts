@@ -1,6 +1,9 @@
 // Tabs in the editor area: one dockview panel per (view, params), its id the tab's key.
 import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
+import type { AgentSummary } from "@wombat/shared/api";
+
+import { AGENTS_ACTIVITY } from "./activities.ts";
 import type { IsKnown } from "./layout.ts";
 import { getView, paramsFit, type ResolveContext, type Reveal, viewTitle } from "./registry.ts";
 import type { WorkbenchActions } from "./workbench-context.ts";
@@ -143,21 +146,46 @@ export const revealStore = (): Reveals & { set: (key: string, reveal: Reveal | u
   };
 };
 
-/** The workbench's actions on `host`; `ctx` gives the agents as the page knows them now (for titles). */
-export const workbenchActions = (host: TabHost, reveals: ReturnType<typeof revealStore>, ctx: () => ResolveContext): WorkbenchActions => ({
-  openTab: (viewId, params, reveal) => {
-    const key = tabKey(viewId, params);
-    const wasOpen = host.getPanel(key) !== undefined;
-    openTab(host, viewId, params, ctx());
-    // A new request each time, so the view reveals again; a tab opened anew starts without an old one.
-    if (reveal !== undefined) reveals.set(key, { target: reveal });
-    else if (!wasOpen) reveals.set(key, undefined);
-  },
-  openBeside: (viewId, params, beside) => {
-    openTab(host, viewId, params, ctx(), tabKey(beside.viewId, beside.params));
-  },
-  closeTab: (viewId, params) => {
-    const panel = host.getPanel(tabKey(viewId, params));
-    if (panel !== undefined) host.removePanel(panel);
-  },
-});
+/** The agent's oldest open request: the smallest `at`, the first listed of equals. */
+const oldestPending = (agent: AgentSummary | undefined): string | undefined => {
+  let oldest: AgentSummary["pendingPermissions"][number] | undefined;
+  for (const request of agent?.pendingPermissions ?? []) {
+    if (oldest === undefined || Date.parse(request.at) < Date.parse(oldest.at)) oldest = request;
+  }
+  return oldest?.requestId;
+};
+
+/**
+ * The workbench's actions on `host`; `ctx` gives the agents as the page knows them now (for titles and the oldest
+ * request); `showActivity` switches the left sidebar to an activity.
+ */
+export const workbenchActions = (
+  host: TabHost,
+  reveals: ReturnType<typeof revealStore>,
+  ctx: () => ResolveContext,
+  showActivity: (activity: string) => void,
+): WorkbenchActions => {
+  const actions: WorkbenchActions = {
+    openTab: (viewId, params, reveal) => {
+      const key = tabKey(viewId, params);
+      const wasOpen = host.getPanel(key) !== undefined;
+      openTab(host, viewId, params, ctx());
+      // A new request each time, so the view reveals again; a tab opened anew starts without an old one.
+      if (reveal !== undefined) reveals.set(key, { target: reveal });
+      else if (!wasOpen) reveals.set(key, undefined);
+    },
+    openBeside: (viewId, params, beside) => {
+      openTab(host, viewId, params, ctx(), tabKey(beside.viewId, beside.params));
+    },
+    closeTab: (viewId, params) => {
+      const panel = host.getPanel(tabKey(viewId, params));
+      if (panel !== undefined) host.removePanel(panel);
+    },
+    openAgentChat: (agentId, requestId) => {
+      showActivity(AGENTS_ACTIVITY);
+      const agent = ctx().agents?.find(({ id }) => id === agentId);
+      actions.openTab("chat", { agentId }, requestId ?? oldestPending(agent));
+    },
+  };
+  return actions;
+};

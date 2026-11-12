@@ -51,7 +51,7 @@ const fakeDock = (groupIds: string[]) => {
     adjacentGroupInDirection: (group: Group, direction: string) => (direction === "right" ? group.right : undefined),
   } as unknown as TabHost;
   host.addPanel({ id: tabKey(chat.viewId, chat.params), component: "view", params: chat, position: { referenceGroup: groups[0]?.id ?? "" } });
-  const actions = workbenchActions(host, revealStore(), () => ({ agents: undefined }));
+  const actions = workbenchActions(host, revealStore(), () => ({ agents: undefined }), () => undefined);
   const groupOf = (key: string) => panels.get(key)?.group.id;
   return { actions, focused, groupOf, groupIds: () => groups.map(({ id }) => id), count: () => panels.size };
 };

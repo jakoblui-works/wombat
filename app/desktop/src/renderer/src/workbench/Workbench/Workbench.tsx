@@ -8,7 +8,7 @@ import { isSettled, NO_RESTART, restartAttempt, showsBanner } from "@/lib/connec
 import { cn } from "@/lib/utils";
 import { useAgents, useConnection } from "../../data/hooks.ts";
 import { keys } from "../../data/keys.ts";
-import { AGENTS_ACTIVITY } from "../activities.ts";
+import { needsMe } from "../../data/needs-me.ts";
 import { defaultLayout, restoreLayout, type SavedLayout } from "../layout.ts";
 import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
@@ -38,6 +38,9 @@ const SIDEBAR_MIN = 160;
 const SIDEBAR_MAX = 800;
 
 const clampWidth = (width: number): number => Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, width));
+
+/** What the actions do before dockview is ready; typed, so a new member can't be missed. */
+const NO_ACTIONS: WorkbenchActions = { openTab: () => undefined, openBeside: () => undefined, closeTab: () => undefined, openAgentChat: () => undefined };
 
 const NO_REVEALS: Reveals = { get: () => undefined, subscribe: () => () => undefined };
 const RevealsContext = createContext<Reveals>(NO_REVEALS);
@@ -179,12 +182,16 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   }, [api]);
 
   const reveals = useMemo(revealStore, []);
+  const showActivity = useCallback((id: string) => {
+    setChrome((current) => ({ ...current, activity: id }));
+    saver.current?.schedule("user");
+  }, []);
   const actions = useMemo<WorkbenchActions>(
     () =>
       api === undefined
-        ? { openTab: () => undefined, openBeside: () => undefined, closeTab: () => undefined }
-        : workbenchActions(api, reveals, () => ({ agents: agentsRef.current })),
-    [api, reveals],
+        ? NO_ACTIONS
+        : workbenchActions(api, reveals, () => ({ agents: agentsRef.current }), showActivity),
+    [api, reveals, showActivity],
   );
 
   // Requests wait for the restore (which would replace their tabs) and for the agents list, so an id the service
@@ -198,9 +205,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         console.warn("Wombat was asked to open an agent the service doesn't list; nothing was opened.");
         return;
       }
-      setChrome((current) => ({ ...current, activity: AGENTS_ACTIVITY }));
-      saver.current?.schedule("user");
-      actions.openTab("chat", { agentId });
+      actions.openAgentChat(agentId);
     });
   }, [ready, agentsKnown, openAgents, actions]);
 
@@ -239,6 +244,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
             <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
               <TitleBar
                 right={rightView}
+                count={agentList === undefined ? 0 : needsMe(agentList).length}
                 rightOpen={!chrome.sidebars.rightCollapsed}
                 onToggleRight={() =>
                   changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } }))

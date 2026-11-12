@@ -11,10 +11,13 @@ const folderName = (root: string): string =>
 /** The window's title area: the symbol and workspace on the left, the right sidebar's toggle (named after its view) on the right. */
 export const TitleBar = ({
   right,
+  count = 0,
   rightOpen,
   onToggleRight,
 }: {
   right: { title: string; icon: LucideIcon } | undefined;
+  /** What waits on the user: shown after the toggle's name while above 0. */
+  count?: number;
   rightOpen: boolean;
   onToggleRight: () => void;
 }) => {
@@ -52,7 +55,8 @@ export const TitleBar = ({
           )}
         >
           <right.icon className="size-4" />
-          {right.title}
+          {right.title}{" "}
+          {count > 0 ? <span className="text-fg-tertiary tabular-nums">{count}</span> : null}
         </button>
       )}
     </header>

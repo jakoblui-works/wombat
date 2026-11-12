@@ -29,7 +29,7 @@ const fakeDock = () => {
 const setup = () => {
   const dock = fakeDock();
   const reveals = revealStore();
-  const actions = workbenchActions(dock.host, reveals, () => ({ agents: undefined }));
+  const actions = workbenchActions(dock.host, reveals, () => ({ agents: undefined }), () => undefined);
   return { ...dock, reveals, actions };
 };
 

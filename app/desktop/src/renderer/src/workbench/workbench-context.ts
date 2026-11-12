@@ -14,6 +14,11 @@ export type WorkbenchActions = {
   openBeside: (viewId: string, params: unknown, beside: ActiveTab) => void;
   /** Closes the tab for this view and params, if it's open. */
   closeTab: (viewId: string, params: unknown) => void;
+  /**
+   * Switches to Agents, opens or focuses the agent's chat and reveals `requestId`; without one, the agent's oldest
+   * pending permission, if any. A Needs me click and a notification click both come here.
+   */
+  openAgentChat: (agentId: string, requestId?: string) => void;
 };
 
 export const WorkbenchContext = createContext<WorkbenchActions | undefined>(undefined);

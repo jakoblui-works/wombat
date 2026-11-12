@@ -18,13 +18,6 @@ const CspProof =
     ? lazy(async () => ({ default: (await loadCspProof()).CspProof }))
     : null;
 
-// The static design screens (`#design/<screen>`) exist only in a `--mode design` build: the normal build folds this
-// to null and leaves the design code out.
-const DesignApp =
-  import.meta.env.MODE === "design" && location.hash.startsWith("#design")
-    ? lazy(async () => ({ default: (await import("./design/DesignApp/DesignApp.tsx")).DesignApp }))
-    : null;
-
 // Subscribed before the first render, so no alert, connection state or open-agent request is missed.
 const queryClient = createQueryClient();
 connectAlerts(queryClient, window.wombat);
@@ -40,10 +33,6 @@ createRoot(root).render(
       {CspProof ? (
         <Suspense>
           <CspProof />
-        </Suspense>
-      ) : DesignApp ? (
-        <Suspense>
-          <DesignApp />
         </Suspense>
       ) : (
         <App queryClient={queryClient} openAgents={agentsToOpen} />
