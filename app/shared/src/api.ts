@@ -269,6 +269,13 @@ export const AgentSummary = z.object({
    * `[]` when reading a summary from before the field existed.
    */
   pendingPermissions: z.array(PendingPermission).default([]),
+  /**
+   * Whether the agent's process runs, whatever its state (a done agent, or an error one after a failed turn, may
+   * still have one): what Stop and the quit count go by. True once the process runs and the summary is stored;
+   * false once the process ends (stopped, exited or crashed) and for every agent a restarted service loads. `false`
+   * when reading a summary from before the field existed.
+   */
+  hasProcess: z.boolean().default(false),
 });
 export type AgentSummary = z.infer<typeof AgentSummary>;
 
@@ -276,8 +283,8 @@ export type AgentSummary = z.infer<typeof AgentSummary>;
 export const isWaiting = (agent: Pick<AgentSummary, "state"> | undefined): boolean => agent?.state === "waiting";
 
 /**
- * Whether the agent has a running process (working, or waiting on the user): the one rule for what Stop applies to,
- * which agents the quit and stop questions count, and when a chat's turn and requests can still be live.
+ * Whether the agent is busy (working, or waiting on the user): the one rule for when a chat's turn and requests can
+ * still be live. Whether it has a process (what Stop and the quit count go by) is `hasProcess`.
  */
 export const isRunning = (agent: Pick<AgentSummary, "state"> | undefined): boolean => agent?.state === "working" || agent?.state === "waiting";
 

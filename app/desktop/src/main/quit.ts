@@ -2,18 +2,18 @@
 // The service keeps them running after the app quits, so a quit while any are running asks whether to stop them;
 // leaving them running is what happens when the question is off. Stopping the service stops every agent, so it
 // always asks first.
-import { type AgentSummary, isRunning } from "@wombat/shared/api";
+import type { AgentSummary } from "@wombat/shared/api";
 import type { QuitAnswer } from "./e2e-switches.ts";
 import type { Settings } from "./settings.ts";
 
 /**
- * How many of the service's agents are running: 0 when no service runs (`agents` gives undefined), undefined when
- * they couldn't be read (so the user is asked rather than told nothing runs).
+ * How many of the service's agents have a process (`hasProcess`, done ones too): 0 when no service runs (`agents`
+ * gives undefined), undefined when they couldn't be read (so the user is asked rather than told nothing runs).
  */
 export const runningCount = async (agents: () => Promise<AgentSummary[] | undefined>, log: (line: string) => void): Promise<number | undefined> => {
   try {
     const list = await agents();
-    return list === undefined ? 0 : list.filter(isRunning).length;
+    return list === undefined ? 0 : list.filter((agent) => agent.hasProcess).length;
   } catch (error) {
     log(`Wombat couldn't read the service's agents: ${error instanceof Error ? error.message : String(error)}`);
     return undefined;

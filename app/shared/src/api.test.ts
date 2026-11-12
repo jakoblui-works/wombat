@@ -337,6 +337,10 @@ describe("responses (lenient)", () => {
     expect(AgentSummary.parse(doneAgent).pendingPermissions).toEqual([]);
   });
 
+  test("an AgentSummary from before hasProcess existed reads as having no process", () => {
+    expect(AgentSummary.parse(doneAgent).hasProcess).toBe(false);
+  });
+
   test("only a waiting agent waits on the user", () => {
     const states = AgentSummary.shape.state.options;
     expect(states.filter((state) => isWaiting({ state }))).toEqual(["waiting"]);

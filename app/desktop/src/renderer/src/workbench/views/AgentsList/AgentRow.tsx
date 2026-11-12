@@ -62,7 +62,7 @@ export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props)
           <Ellipsis className="size-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          {canStop(agent.state) ? <DropdownMenuItem onClick={actions.stop}>Stop</DropdownMenuItem> : null}
+          {canStop(agent) ? <DropdownMenuItem onClick={actions.stop}>Stop</DropdownMenuItem> : null}
           <DropdownMenuItem
             variant="destructive"
             onClick={() => setConfirming(true)}

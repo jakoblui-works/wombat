@@ -13,6 +13,7 @@ const agent = (id: string, state: AgentSummary["state"], lastActivityAt: string)
   startedAt: "2026-03-10T10:00:00.000Z",
   lastActivityAt,
   pendingPermissions: [],
+  hasProcess: false,
 });
 
 test("groups follow the list's order, stopped agents sit in Done, newest first, empty groups are left out", () => {

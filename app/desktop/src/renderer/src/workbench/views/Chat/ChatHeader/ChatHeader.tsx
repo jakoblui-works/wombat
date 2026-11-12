@@ -28,7 +28,7 @@ export const ChatHeader = ({ agentId, agent, connected }: Props) => {
         </p>
       )}
       <span className="ml-auto flex shrink-0 gap-1">
-        {agent !== undefined && canStop(agent.state) ? (
+        {agent !== undefined && canStop(agent) ? (
           <Button variant="ghost" size="sm" disabled={!connected || actions.pending} onClick={actions.stop}>
             <Square />
             Stop

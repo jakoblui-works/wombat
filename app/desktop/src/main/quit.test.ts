@@ -31,7 +31,7 @@ const quit = (sandbox: ServiceSandbox, choice: QuitChoice, deps: Partial<QuitDep
     settings: workspace.settings,
     updateSettings: workspace.updateSettings,
     idle: workspace.idle,
-    agents: () => Promise.resolve([{ state: "waiting" } as AgentSummary]),
+    agents: () => Promise.resolve([{ state: "waiting", hasProcess: true } as AgentSummary]),
     ask: () => {
       seen.asked += 1;
       return Promise.resolve(choice);
@@ -137,11 +137,19 @@ test("a discovery file whose service can't be read still gets the question", asy
   expect(asked).toEqual([undefined]);
 });
 
-test("Stop Service and Agents asks with the running count; Cancel stops nothing", async () => {
+test("Stop Service and Agents asks with the count of agents with a process, done ones included; Cancel stops nothing", async () => {
   const asked: (number | undefined)[] = [];
   let stops = 0;
+  const agents = [
+    { state: "waiting", hasProcess: true },
+    { state: "working", hasProcess: true },
+    { state: "done", hasProcess: true },
+    { state: "error", hasProcess: true }, // a failed turn: the process lives on
+    { state: "error", hasProcess: false }, // the process exited
+    { state: "stopped", hasProcess: false },
+  ] as AgentSummary[];
   const stoppedIt = await stopIfConfirmed({
-    agents: () => Promise.resolve([{ state: "waiting" }, { state: "working" }, { state: "done" }] as AgentSummary[]),
+    agents: () => Promise.resolve(agents),
     confirm: (running) => {
       asked.push(running);
       return Promise.resolve(false);
@@ -154,7 +162,7 @@ test("Stop Service and Agents asks with the running count; Cancel stops nothing"
   });
 
   expect(stoppedIt).toBe(false);
-  expect(asked).toEqual([2]);
+  expect(asked).toEqual([4]);
   expect(stops).toBe(0);
 });
 
@@ -170,7 +178,7 @@ test("a switch asked for while the quit question is open finishes before the ans
     settings: workspace.settings,
     updateSettings: workspace.updateSettings,
     idle: workspace.idle,
-    agents: () => Promise.resolve([{ state: "working" } as AgentSummary]),
+    agents: () => Promise.resolve([{ state: "working", hasProcess: true } as AgentSummary]),
     ask: () => {
       switching = workspace.switchWorkspace(target);
       return Promise.resolve({ answer: "stop", dontAsk: false });
@@ -214,7 +222,7 @@ const restartFromIncompatible = async (answer: boolean) => {
   const asked: (number | undefined)[] = [];
   const restarted = await restartService({
     incompatible: () => connection.current().state.state === "incompatible",
-    agents: () => Promise.resolve([{ state: "waiting" } as AgentSummary]),
+    agents: () => Promise.resolve([{ state: "waiting", hasProcess: true } as AgentSummary]),
     confirm: (running) => {
       asked.push(running);
       return Promise.resolve(answer);

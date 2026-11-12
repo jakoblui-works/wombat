@@ -219,10 +219,13 @@ export const createManager = ({
     proc.tokenKey = undefined;
   };
 
-  const putSummary = (summary: AgentSummary, type: "agent_added" | "agent_changed") => {
+  /** Stores the summary with `hasProcess` derived from the live processes, its only source. */
+  const putSummary = (fields: Omit<AgentSummary, "hasProcess">, type: "agent_added" | "agent_changed") => {
+    const summary: AgentSummary = { ...fields, hasProcess: procs.has(fields.id) };
     const seq = store.putAgent(summary);
     summaries.set(summary.id, summary);
     emit({ seq, agentId: summary.id, type });
+    return summary;
   };
 
   const appendLog = (agentId: string, entries: NewLogEntry[]) => {
@@ -577,11 +580,12 @@ export const createManager = ({
     return new AgentError(AgentErrorCode.enum.agent_failed, `${what}. Check that ${harness.name} is installed and runs, then try again.`);
   };
 
-  // Agents stored by an earlier run have no process any more, so no open requests either.
+  // Agents stored by an earlier run have no process any more, so no open requests either; an error agent may still
+  // be stored as having one (a failed turn) by a service that died.
   let marked = 0;
   for (const agent of [...summaries.values()]) {
     const live = agent.state === "working" || agent.state === "waiting" || agent.state === "done";
-    if (live || agent.pendingPermissions.length > 0) {
+    if (live || agent.pendingPermissions.length > 0 || agent.hasProcess) {
       const state = live ? "stopped" : agent.state;
       putSummary({ ...agent, state, pendingPermissions: pendingPermissions(agent.id) }, "agent_changed");
     }
@@ -634,7 +638,7 @@ export const createManager = ({
       if (shuttingDown || proc.ending || procs.get(agentId) !== proc) throw notRunning();
       proc.sessionId = sessionId;
       const startedAt = now();
-      const summary: AgentSummary = {
+      const summary: Omit<AgentSummary, "hasProcess"> = {
         id: agentId,
         harness: harness.id,
         repo,
@@ -646,11 +650,11 @@ export const createManager = ({
         ...(branch === undefined ? {} : { branch }),
         pendingPermissions: pendingPermissions(agentId),
       };
-      putSummary(summary, "agent_added");
+      const added = putSummary(summary, "agent_added");
       proc.recorded = true;
       log("agent_started", { agentId, harness: harness.id });
       for (const { sessionId: from, update } of proc.held.splice(0)) handleUpdate(proc, from, update);
-      return summaries.get(agentId) ?? summary;
+      return summaries.get(agentId) ?? added;
     } catch (error) {
       const failure = startFailure(error, harness, proc);
       // Nothing was recorded, so the close handler writes nothing.

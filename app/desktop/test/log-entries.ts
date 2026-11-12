@@ -85,6 +85,7 @@ export const summary = (id: string, fields: Partial<AgentSummary> = {}): AgentSu
   startedAt: atFor(0),
   lastActivityAt: atFor(1),
   pendingPermissions: [],
+  hasProcess: false,
   ...fields,
 });
 
