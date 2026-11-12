@@ -8,9 +8,9 @@
 // Logs are generated (fast-check) and driven through the real manager by the fake agent's `replay` scenario: chunks
 // with and without messageIds (null too), thoughts, tool calls and updates with null titles and kinds, plans, a
 // sub-agent's session, and batches of permission requests with tool updates between them. Requests name tool calls of
-// their own turn or none (accepted limit, interface-S1 T2: the service's fold restarts per turn).
+// their own turn or none (an accepted limit: the service's fold restarts per turn).
 import fc from "fast-check";
-import { emptyFold, foldEntry, lastMainMessage, permissionOf } from "@wombat/shared/log-fold";
+import { foldLog, lastMainMessage, permissionOf } from "@wombat/shared/log-fold";
 import { expect, test } from "vitest";
 
 import type { ReplayStep } from "../../test/fake-agent.ts";
@@ -152,12 +152,8 @@ const script = (steps: Step[], turn: number): { replay: ReplayStep[]; batches: n
   return { replay, batches };
 };
 
-/** What the chat shows of the agent's stored log: the fold with plain concatenation, for the agent's own session. */
-const chatOf = (t: Setup, agentId: string, sessionId: string) => {
-  const state = emptyFold(sessionId);
-  for (const entry of t.entries(agentId)) foldEntry(state, entry, { keepText: (kept, chunk) => kept + chunk });
-  return state;
-};
+/** What the chat shows of the agent's stored log: the chat's reading of it, for the agent's own session. */
+const chatOf = (t: Setup, agentId: string, sessionId: string) => foldLog(t.entries(agentId), sessionId);
 
 /** The summary as stored agrees with the chat over the log stored so far. */
 const expectAgreement = (t: Setup, agentId: string, when: string) => {

@@ -22,7 +22,7 @@ import {
   turnEnded,
   UNSHOWN,
   user,
-} from "../../../../test/log-entries.ts";
+} from "../../../../../shared/test/log-entries.ts";
 import { chatModel } from "./chat-model.ts";
 
 // Realistic logs: turns of user messages, chunk runs (with and without a messageId, from the main session or a

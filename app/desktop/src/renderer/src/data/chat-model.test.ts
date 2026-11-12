@@ -8,31 +8,14 @@ import {
   entries,
   permissionAnswered,
   permissionRequested,
+  shape,
   toolCall,
   turnEnded,
   user,
-} from "../../../../test/log-entries.ts";
+} from "../../../../../shared/test/log-entries.ts";
 import { type ChatItem, chatModel } from "./chat-model.ts";
 
 const items = (...bodies: Body[]): ChatItem[] => chatModel(entries(bodies)).items;
-
-/** An item as [kind, its text or id], to compare item lists by what they show. */
-const shape = (item: ChatItem): [string, string] => {
-  switch (item.kind) {
-    case "user":
-    case "agent":
-    case "reasoning":
-      return [item.kind, item.text];
-    case "tool":
-      return [item.kind, item.toolCallId];
-    case "permission":
-      return [item.kind, item.requestId];
-    case "turn_end":
-      return [item.kind, item.stopReason];
-    default:
-      return [(item as { kind: string }).kind, ""];
-  }
-};
 
 test.each<[string, Body[], string | undefined]>([
   ["open while unanswered", [user("Edit"), permissionRequested("r1", { toolCallId: "t1" })], undefined],

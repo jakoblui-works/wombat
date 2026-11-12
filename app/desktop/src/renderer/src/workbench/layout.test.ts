@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import "./activities.ts";
 import { defaultLayout, type IsKnown, pruneLayout, restoreLayout, SavedLayout } from "./layout.ts";
 import { activities, isKnown as registryIsKnown } from "./registry.ts";
-import { summary } from "../../../../test/log-entries.ts";
+import { summary } from "../../../../test/summaries.ts";
 
 type Leaf = { type: "leaf"; data: { id: string; views: string[]; activeView?: string }; size: number };
 type Branch = { type: "branch"; data: (Leaf | Branch)[]; size: number };

@@ -7,7 +7,8 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import type { AgentSummary, LogEntry } from "@wombat/shared/api";
 import { fakeService, type FakeService } from "../../../../test/fake-bridge.ts";
-import { chunk, proposal, summary, toolCall, turnEnded, user } from "../../../../test/log-entries.ts";
+import { chunk, toolCall, turnEnded, user } from "../../../../../shared/test/log-entries.ts";
+import { proposal, summary } from "../../../../test/summaries.ts";
 import { connectAlerts } from "./alerts.ts";
 import { keys } from "./keys.ts";
 import { type AgentLog, agentLogQuery, agentsQuery, createQueryClient, proposalsQuery } from "./query-client.ts";

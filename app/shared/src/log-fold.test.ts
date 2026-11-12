@@ -2,12 +2,28 @@
 import { describe, expect, test } from "vitest";
 
 import type { LogEntry } from "./api.ts";
-import { emptyFold, foldEntry, lastMainMessage } from "./log-fold.ts";
+import { emptyFold, foldEntry, foldLog, keepAll, lastMainMessage } from "./log-fold.ts";
+import {
+  atFor,
+  type Body,
+  chunk as message,
+  diffContent,
+  entries,
+  inSession,
+  permissionAnswered,
+  permissionRequested,
+  plan,
+  shape,
+  textContent,
+  thought as reasoning,
+  toolCall as call,
+  toolUpdate,
+  UNSHOWN,
+} from "../test/log-entries.ts";
 
 const MAIN = "session-main";
 const SUB = "session-sub";
 
-type Body = { [K in LogEntry["type"]]: Omit<Extract<LogEntry, { type: K }>, "seq" | "agentId" | "at"> }[LogEntry["type"]];
 type Update = Extract<LogEntry, { type: "session_update" }>["update"];
 
 /** A session update in the main session, in `sessionId` when one is passed, or with none when undefined is passed. */
@@ -22,18 +38,13 @@ const toolCall = (toolCallId: string, title: string): Body => session({ sessionU
 const user = (text: string): Body => ({ type: "user_message", text });
 const turnEnded = (): Body => ({ type: "turn_ended", stopReason: "end_turn" });
 
-const concat = (kept: string, more: string): string => kept + more;
-
 /**
  * Folds the bodies, numbered from seq 1, into a fresh state for the main session; for `mainSessionId` when one is
  * passed, or with none given (found from the log) when undefined is passed.
  */
-const fold = (bodies: Body[], keepText: (kept: string, chunk: string) => string = concat, ...given: [mainSessionId?: string]) => {
+const fold = (bodies: Body[], keepText: (kept: string, chunk: string) => string = keepAll, ...given: [mainSessionId?: string]) => {
   const state = emptyFold(given.length > 0 ? given[0] : MAIN);
-  bodies.forEach((body, i) => {
-    const entry: LogEntry = { ...body, seq: i + 1, agentId: "agent-1", at: new Date(Date.UTC(2026, 10, 12, 9, 0, i)).toISOString() };
-    foldEntry(state, entry, { keepText });
-  });
+  for (const entry of entries(bodies)) foldEntry(state, entry, { keepText });
   return state;
 };
 
@@ -86,69 +97,14 @@ test.each<[string, Body[], string | undefined]>([
 
 test("lastMainMessage: entries from before sessionId was stored count as the main session's", () => {
   const legacy: Body = { type: "session_update", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "From the main session." } } };
-  expect(lastMainMessage(fold([legacy], concat, undefined))).toBe("From the main session.");
-  expect(lastMainMessage(fold([legacy], concat, MAIN))).toBe("From the main session.");
+  expect(lastMainMessage(fold([legacy], keepAll, undefined))).toBe("From the main session.");
+  expect(lastMainMessage(fold([legacy], keepAll, MAIN))).toBe("From the main session.");
 });
 
-// How entries become items. Bodies for the cases below; the ones above cover what t7 and t9 need.
-type ToolCallFields = Omit<Extract<Update, { sessionUpdate: "tool_call" }>, "sessionUpdate" | "toolCallId" | "title">;
-type ToolUpdateFields = Omit<Extract<Update, { sessionUpdate: "tool_call_update" }>, "sessionUpdate" | "toolCallId">;
-type PermissionKind = Extract<LogEntry, { type: "permission_answered" }>["kind"];
-type FoldEntryOf = Parameters<typeof foldEntry>[1];
+// How entries become items.
 
-/** Entries without a sessionId, as stored before it was (they belong to the main session). */
-const legacy = (update: Update): Body => session(update, undefined);
-const message = (text: string, messageId?: string | null): Body =>
-  legacy({ sessionUpdate: "agent_message_chunk", ...(messageId === undefined ? {} : { messageId }), content: { type: "text", text } });
-const reasoning = (text: string): Body => legacy({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text } });
-const call = (toolCallId: string, title: string, fields: ToolCallFields = {}): Body => legacy({ sessionUpdate: "tool_call", toolCallId, title, ...fields });
-const toolUpdate = (toolCallId: string, fields: ToolUpdateFields = {}): Body => legacy({ sessionUpdate: "tool_call_update", toolCallId, ...fields });
-const permissionRequested = (requestId: string, toolCall: Extract<LogEntry, { type: "permission_requested" }>["toolCall"]): Body => ({
-  type: "permission_requested",
-  requestId,
-  toolCall,
-  options: [
-    { kind: "allow_once", name: "Allow" },
-    { kind: "reject_once", name: "Reject" },
-  ],
-});
-const permissionAnswered = (requestId: string, kind: PermissionKind): Body => ({ type: "permission_answered", requestId, kind });
-const plan = (...contents: string[]): Body =>
-  legacy({ sessionUpdate: "plan", entries: contents.map((content) => ({ content, priority: "medium", status: "pending" })) });
-const turnEnd = (stopReason = "end_turn"): Body => ({ type: "turn_ended", stopReason });
-const inSession = (body: Body, sessionId: string): Body => ({ ...body, sessionId }) as Body;
-const textContent = (text: string) => ({ type: "content" as const, content: { type: "text" as const, text } });
-const diffContent = (path: string, oldText: string | null, newText: string) => ({ type: "diff" as const, path, oldText, newText });
-
-/** Entries no item is made for: session updates without one, and an entry type from a newer service. */
-const UNSHOWN: Body[] = [
-  legacy({ sessionUpdate: "usage_update", used: 1200, size: 200_000 }),
-  legacy({ sessionUpdate: "session_info_update", title: "Opening hours" }),
-  legacy({ sessionUpdate: "available_commands_update", availableCommands: [{ name: "compact", description: "Compact the chat" }] }),
-  { type: "future_entry", note: "from a newer service" } as unknown as Body,
-];
-
-/** The items of the bodies, folded with the main session found from the log. */
-const itemsOf = (...bodies: Body[]) => fold(bodies, concat, undefined).items;
-type Item = ReturnType<typeof itemsOf>[number];
-
-/** An item as [kind, its text or id], to compare item lists by what they show. */
-const shape = (item: Item): [string, string] => {
-  switch (item.kind) {
-    case "user":
-    case "agent":
-    case "reasoning":
-      return [item.kind, item.text];
-    case "tool":
-      return [item.kind, item.toolCallId];
-    case "permission":
-      return [item.kind, item.requestId];
-    case "turn_end":
-      return [item.kind, item.stopReason];
-    default:
-      return [item.kind, ""];
-  }
-};
+/** The items of the bodies as the chat reads them, with the main session found from the log. */
+const itemsOf = (...bodies: Body[]) => foldLog(entries(bodies)).items;
 
 describe("chunks", () => {
   test.each<[string, Body[], [string, string][]]>([
@@ -241,26 +197,19 @@ test("the plan is the latest plan update's; a turn is active from a user message
   const during = fold([user("Fix the hours"), plan("Read", "Edit"), message("ok"), plan("Edit", "Test")]);
   expect(during.plan?.map((entry) => entry.content)).toEqual(["Edit", "Test"]);
   expect(during.turnActive).toBe(true);
-  expect(fold([user("Fix the hours"), plan("Edit"), turnEnd()]).turnActive).toBe(false);
-  expect(fold([user("a"), turnEnd(), user("b")]).turnActive).toBe(true);
+  expect(fold([user("Fix the hours"), plan("Edit"), turnEnded()]).turnActive).toBe(false);
+  expect(fold([user("a"), turnEnded(), user("b")]).turnActive).toBe(true);
 });
 
 test("entries no item is made for are ignored, even between chunks of one message", () => {
-  const shown: Body[] = [user("Fix"), message("Hel", "m1"), message("lo", "m1"), call("t1", "Read"), turnEnd()];
+  const shown: Body[] = [user("Fix"), message("Hel", "m1"), message("lo", "m1"), call("t1", "Read"), turnEnded()];
   // Every unshown entry after every shown one; then the log without them (same seqs for the shown entries).
-  const numbered = (bodies: Body[]): FoldEntryOf[] =>
-    bodies.map((body, i) => ({ ...body, seq: i + 1, agentId: "agent-1", at: new Date(Date.UTC(2026, 10, 12, 9, 0, i)).toISOString() }));
-  const withUnshown = numbered(shown.flatMap((body) => [body, ...UNSHOWN]));
+  const withUnshown = entries(shown.flatMap((body) => [body, ...UNSHOWN]));
   const unshownKinds = new Set<string>(UNSHOWN.map((body) => ("update" in body ? body.update.sessionUpdate : body.type)));
   const without = withUnshown.filter((entry) => !unshownKinds.has(entry.type === "session_update" ? entry.update.sessionUpdate : entry.type));
   expect(without).toHaveLength(shown.length);
-  const foldAll = (entries: FoldEntryOf[]) => {
-    const state = emptyFold();
-    for (const entry of entries) foldEntry(state, entry, { keepText: concat });
-    return state;
-  };
-  expect(foldAll(withUnshown).items).toEqual(foldAll(without).items);
-  expect(foldAll(withUnshown).items.map((item) => item.kind)).toEqual(["user", "agent", "tool", "turn_end"]);
+  expect(foldLog(withUnshown).items).toEqual(foldLog(without).items);
+  expect(foldLog(withUnshown).items.map((item) => item.kind)).toEqual(["user", "agent", "tool", "turn_end"]);
 });
 
 test.each<[string, string | undefined]>([
@@ -289,7 +238,6 @@ test.each<[string, string | undefined]>([
 });
 
 test("a merged item's at is its first entry's", () => {
-  const atFor = (seq: number): string => new Date(Date.UTC(2026, 10, 12, 9, 0, seq - 1)).toISOString();
   const items = itemsOf(
     message("Hel", "m1"),
     message("lo", "m1"),
@@ -309,7 +257,7 @@ test("a merged item's at is its first entry's", () => {
 });
 
 test("with mainSessionId given, a sub-agent that speaks first is still the one marked", () => {
-  const { items } = fold([user("Check the menu"), inSession(message("Menu is fine"), SUB), inSession(message("Done."), MAIN)], concat, MAIN);
+  const { items } = fold([user("Check the menu"), inSession(message("Menu is fine"), SUB), inSession(message("Done."), MAIN)], keepAll, MAIN);
   expect(items.map((item) => [item.kind, item.sessionId])).toEqual([
     ["user", undefined],
     ["agent", SUB],

@@ -5,7 +5,7 @@ import { Circle } from "lucide-react";
 import { expect, test } from "vitest";
 import { z } from "zod";
 
-import { summary } from "../../../../test/log-entries.ts";
+import { summary } from "../../../../test/summaries.ts";
 import "./activities.ts";
 import { activities, getView, isKnown, registerView, type ResolveContext } from "./registry.ts";
 

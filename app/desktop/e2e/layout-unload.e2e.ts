@@ -1,4 +1,4 @@
-// Lasting check "A page unload stops layout saves" (S2, T5), against the built app: once the page has seen
+// Lasting check "A page unload stops layout saves", against the built app: once the page has seen
 // `beforeunload`, the Workbench's layout saver writes nothing more, whatever the user changes. A workspace switch
 // reloads the page after main has moved on, so a save from then on would write the old workspace's layout under the
 // new one. The page can't be rendered outside Electron (the desktop's unit tests run without a DOM), so this is the

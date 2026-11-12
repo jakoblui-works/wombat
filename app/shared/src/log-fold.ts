@@ -275,15 +275,34 @@ export const foldEntry = (state: FoldState, entry: FoldEntry, options: FoldOptio
   return state;
 };
 
+/** A permission's title and kind when nothing names them: neither its request nor a tool item with its id. */
+export const UNKNOWN_PERMISSION: Readonly<{ title: string; kind: ToolKind }> = { title: "", kind: "other" };
+
 /**
  * A permission request's title and kind: the title by `permissionTitle` (its own, else its tool item's); the kind its
- * own, else its tool item's, else `"other"`. Undefined for a request the fold hasn't seen.
+ * own, else its tool item's, else `UNKNOWN_PERMISSION`'s. Undefined for a request the fold hasn't seen.
  */
 export const permissionOf = (state: FoldState, requestId: string): { title: string; kind: ToolKind } | undefined => {
   const permission = state.permissions.get(requestId);
   if (permission === undefined) return undefined;
   const tool = state.tools.get(permission.item.toolCallId);
-  return { title: permissionTitle(permission.ownTitle, tool?.title), kind: permission.ownKind ?? tool?.toolKind ?? "other" };
+  return {
+    title: permissionTitle(permission.ownTitle, tool?.title ?? UNKNOWN_PERMISSION.title),
+    kind: permission.ownKind ?? tool?.toolKind ?? UNKNOWN_PERMISSION.kind,
+  };
+};
+
+/** Keeps every chunk's text: how the chat reads a log. */
+export const keepAll = (kept: string, chunk: string): string => kept + chunk;
+
+/**
+ * The chat's reading of a log: the entries folded in the order given, keeping all text, for `mainSessionId` (else the
+ * one the log names). Ordering the entries is the caller's.
+ */
+export const foldLog = (entries: Iterable<FoldEntry>, mainSessionId?: string): FoldState => {
+  const state = emptyFold(mainSessionId);
+  for (const entry of entries) foldEntry(state, entry, { keepText: keepAll });
+  return state;
 };
 
 /** The text of the last agent item from the main session: the agent list's row message. Undefined when there is none. */

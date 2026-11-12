@@ -2,7 +2,8 @@
 // waiting agent without one, newest first, ties by agent id; nothing for an agent that no longer waits.
 import { expect, test } from "vitest";
 
-import { atFor, summary } from "../../../../test/log-entries.ts";
+import { atFor } from "../../../../../shared/test/log-entries.ts";
+import { summary } from "../../../../test/summaries.ts";
 import { needsMe } from "./needs-me.ts";
 
 const pending = (requestId: string, at: string, title: string) => ({ requestId, at, title, kind: "edit" as const });

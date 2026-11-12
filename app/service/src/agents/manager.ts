@@ -14,7 +14,7 @@ import {
   type ErrorBody,
   type SendMessageRequest,
 } from "@wombat/shared/api";
-import { emptyFold, foldEntry, lastMainMessage, permissionOf, type FoldState } from "@wombat/shared/log-fold";
+import { emptyFold, foldEntry, lastMainMessage, permissionOf, UNKNOWN_PERMISSION, type FoldState } from "@wombat/shared/log-fold";
 
 import { MCP_SERVER_NAME, startAgentProcess, type AgentScope, type Harness } from "../harness/harness.ts";
 import { defaultHarnesses, findHarness } from "../harness/registry.ts";
@@ -227,11 +227,12 @@ export const createManager = ({
     if (!proc.fold) throw new Error(`Can't log for agent ${agentId} before its session started.`);
     const stored = entries.map((entry) => ({ ...entry, at: entry.at ?? now() }));
     const seqs = store.append(agentId, stored);
-    stored.forEach((entry, index) => {
-      if (entry.type === "user_message") proc.fold = emptyFold(proc.sessionId);
-      const logged = { ...entry, seq: seqs[index] ?? 0, agentId };
-      if (proc.fold) foldEntry(proc.fold, logged, { keepText: keepForExcerpt });
-    });
+    let fold = proc.fold;
+    for (const [index, entry] of stored.entries()) {
+      if (entry.type === "user_message") fold = emptyFold(proc.sessionId);
+      foldEntry(fold, { ...entry, seq: seqs[index] ?? 0, agentId }, { keepText: keepForExcerpt });
+    }
+    proc.fold = fold;
     const last = seqs.at(-1);
     if (last !== undefined) emit({ seq: last, agentId, type: "log" });
     return seqs;
@@ -239,11 +240,11 @@ export const createManager = ({
 
   /**
    * The summary rows of the agent's open permission requests: the only source of `pendingPermissions`. Title and kind
-   * are the fold's; a request whose entry couldn't be stored has none to read and gets `""` and `"other"`.
+   * are the fold's; a request whose entry couldn't be stored has none to read and gets `UNKNOWN_PERMISSION`.
    */
   const pendingPermissions = (proc: Proc | undefined): PendingPermission[] =>
     [...(proc?.pending ?? [])].map(([requestId, { at }]) => {
-      const { title, kind } = (proc?.fold && permissionOf(proc.fold, requestId)) ?? { title: "", kind: "other" as const };
+      const { title, kind } = (proc?.fold && permissionOf(proc.fold, requestId)) ?? UNKNOWN_PERMISSION;
       return { requestId, at, title, kind };
     });
 

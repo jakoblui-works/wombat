@@ -12,7 +12,8 @@
 import { type AgentSummary, type Alert, ListLogQuery, type LogEntry } from "@wombat/shared/api";
 import type { Proposal } from "@wombat/shared/items";
 import type { ConnectionState, WombatBridge } from "../src/shared/bridge.ts";
-import { atFor, type Body, summary } from "./log-entries.ts";
+import { atFor, type Body } from "../../shared/test/log-entries.ts";
+import { summary } from "./summaries.ts";
 
 export type FakeRequest = { method: string; path: string };
 

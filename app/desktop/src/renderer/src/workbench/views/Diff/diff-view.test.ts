@@ -8,7 +8,8 @@ import { expect, test } from "vitest";
 
 import type { AgentSummary } from "@wombat/shared/api";
 
-import { atFor, summary } from "../../../../../../test/log-entries.ts";
+import { atFor } from "../../../../../../../shared/test/log-entries.ts";
+import { summary } from "../../../../../../test/summaries.ts";
 import "../../activities.ts";
 import { getView, isKnown, isRestorable } from "../../registry.ts";
 

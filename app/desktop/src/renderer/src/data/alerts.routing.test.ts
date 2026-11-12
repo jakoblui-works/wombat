@@ -3,7 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { fakeService, type FakeService } from "../../../../test/fake-bridge.ts";
-import { summary } from "../../../../test/log-entries.ts";
+import { summary } from "../../../../test/summaries.ts";
 import { connectAlerts } from "./alerts.ts";
 import { keys } from "./keys.ts";
 import { createQueryClient } from "./query-client.ts";

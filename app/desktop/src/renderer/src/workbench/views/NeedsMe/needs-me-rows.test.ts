@@ -1,7 +1,8 @@
 // S7 T15 (s7-24): a waiting agent without an open request asks "Waiting for you"; one with a request shows its title and kind.
 import { expect, test } from "vitest";
 
-import { atFor, summary } from "../../../../../../test/log-entries.ts";
+import { atFor } from "../../../../../../../shared/test/log-entries.ts";
+import { summary } from "../../../../../../test/summaries.ts";
 import { needsMeRows } from "./needs-me-rows.ts";
 
 const NOW = Date.parse(atFor(60));

@@ -1,8 +1,8 @@
-// Invented log entries and agent summaries for the renderer's data tests (T8), built through the shared wire types
-// so they stay in step with `@wombat/shared/api`. A "body" is an entry without its seq, agent and time; `entries()`
-// numbers a list of bodies from seq 1 for one agent.
-import type { AgentSummary, LogEntry } from "@wombat/shared/api";
-import type { Proposal } from "@wombat/shared/items";
+// Invented log entries for the log fold's and the renderer's tests, built through the shared wire types so they stay
+// in step with `api.ts`. A "body" is an entry without its seq, agent and time; `entries()` numbers a list of bodies
+// from seq 1 for one agent.
+import type { LogEntry, SessionUpdate } from "../src/api.ts";
+import type { ChatItem } from "../src/log-fold.ts";
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -64,30 +64,31 @@ export const plan = (...contents: string[]): Body =>
 export const turnEnded = (stopReason = "end_turn"): Body => ({ type: "turn_ended", stopReason });
 
 /**
+ * Per session update kind, an entry of it that the chat doesn't show, or "shown". Keyed by every kind, so a kind added
+ * to `api.ts` fails typecheck until it is decided here.
+ */
+const UNSHOWN_UPDATES: Record<SessionUpdate["sessionUpdate"], Body | "shown"> = {
+  agent_message_chunk: "shown",
+  agent_thought_chunk: "shown",
+  plan: "shown",
+  tool_call: "shown",
+  tool_call_update: "shown",
+  usage_update: update({ sessionUpdate: "usage_update", used: 1200, size: 200_000 }),
+  session_info_update: update({ sessionUpdate: "session_info_update", title: "Opening hours" }),
+  available_commands_update: update({
+    sessionUpdate: "available_commands_update",
+    availableCommands: [{ name: "compact", description: "Compact the chat" }],
+  }),
+};
+
+/**
  * Entries the chat doesn't show: session updates it has no item for, and an entry type from a newer service (which
  * the client's parse drops, but the chat model must ignore too).
  */
 export const UNSHOWN: Body[] = [
-  update({ sessionUpdate: "usage_update", used: 1200, size: 200_000 }),
-  update({ sessionUpdate: "session_info_update", title: "Opening hours" }),
-  update({ sessionUpdate: "available_commands_update", availableCommands: [{ name: "compact", description: "Compact the chat" }] }),
+  ...Object.values(UNSHOWN_UPDATES).filter((body): body is Body => body !== "shown"),
   { type: "future_entry", note: "from a newer service" } as unknown as Body,
 ];
-
-/** An agent summary as GET /agents lists it. */
-export const summary = (id: string, fields: Partial<AgentSummary> = {}): AgentSummary => ({
-  id,
-  harness: "fake-reply",
-  repo: "bakery-site",
-  state: "done",
-  sessionId: `session-${id}`,
-  capabilities: { loadSession: false },
-  startedAt: atFor(0),
-  lastActivityAt: atFor(1),
-  pendingPermissions: [],
-  hasProcess: false,
-  ...fields,
-});
 
 /** The body as it came from an ACP session: session updates and permission entries carry their sessionId. */
 export const inSession = (body: Body, sessionId: string): Body => ({ ...body, sessionId }) as Body;
@@ -95,17 +96,20 @@ export const inSession = (body: Body, sessionId: string): Body => ({ ...body, se
 /** A known entry type that fails its schema (a user message whose text isn't a string), as a buggy service might store it. */
 export const MALFORMED: Body = { type: "user_message", text: { not: "a string" } } as unknown as Body;
 
-/** A pending proposal as GET /proposals lists it (an invented edit to an opening-hours page). */
-export const proposal = (id: string, agentId = AGENT): Proposal => ({
-  id,
-  structure: "pages",
-  kind: "update",
-  handle: "PAGE-3",
-  fields: { title: "Opening hours" },
-  file: null,
-  reason: "Saturday hours changed",
-  baseVersion: "v1",
-  status: "pending",
-  agentId,
-  at: atFor(2),
-});
+/** An item as [kind, its text or id], to compare item lists by what they show. */
+export const shape = (item: ChatItem): [string, string] => {
+  switch (item.kind) {
+    case "user":
+    case "agent":
+    case "reasoning":
+      return [item.kind, item.text];
+    case "tool":
+      return [item.kind, item.toolCallId];
+    case "permission":
+      return [item.kind, item.requestId];
+    case "turn_end":
+      return [item.kind, item.stopReason];
+    default:
+      return [item.kind, ""];
+  }
+};

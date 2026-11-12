@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { LogEntry } from "@wombat/shared/api";
 import { fakeService, type FakeService, MAX_LOG_READS } from "../../../../test/fake-bridge.ts";
-import { type Body, chunk, MALFORMED, turnEnded, UNSHOWN, user } from "../../../../test/log-entries.ts";
+import { type Body, chunk, MALFORMED, turnEnded, UNSHOWN, user } from "../../../../../shared/test/log-entries.ts";
 import { chatModel } from "./chat-model.ts";
 import { agentLogQueryFn } from "./query-client.ts";
 

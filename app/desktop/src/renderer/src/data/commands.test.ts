@@ -3,7 +3,7 @@ import { MutationObserver } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { fakeService } from "../../../../test/fake-bridge.ts";
-import { user } from "../../../../test/log-entries.ts";
+import { user } from "../../../../../shared/test/log-entries.ts";
 import { deleteAgentMutation, sendMessageFn, sendMessageVars } from "./commands.ts";
 import { keys } from "./keys.ts";
 import { type AgentLog, createQueryClient } from "./query-client.ts";

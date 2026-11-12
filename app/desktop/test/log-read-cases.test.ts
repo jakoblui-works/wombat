@@ -6,7 +6,7 @@ import { describe, expect, test } from "vitest";
 import { ErrorBody, ListLogResponse } from "@wombat/shared/api";
 import { INVALID_LOG_QUERIES, LOG_READ_CASES } from "../../shared/test/log-read-cases.ts";
 import { fakeService } from "./fake-bridge.ts";
-import { user } from "./log-entries.ts";
+import { user } from "../../shared/test/log-entries.ts";
 
 const AGENT = "agent-hours-1";
 

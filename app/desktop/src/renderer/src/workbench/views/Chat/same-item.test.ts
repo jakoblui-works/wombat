@@ -2,7 +2,7 @@
 import { expect, test } from "vitest";
 
 import { chatModel } from "../../../data/chat-model.ts";
-import { entries, permissionRequested, toolCall, user } from "../../../../../../test/log-entries.ts";
+import { entries, permissionRequested, toolCall, user } from "../../../../../../../shared/test/log-entries.ts";
 import { sameItem } from "./same-item.ts";
 
 test("items rebuilt from the same log are the same; an appended update changes only its own item", () => {

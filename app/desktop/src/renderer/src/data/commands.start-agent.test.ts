@@ -2,7 +2,7 @@
 // instead of failing the start, so the message is retried to that agent and no second one is started.
 import { afterEach, expect, test, vi } from "vitest";
 
-import { summary } from "../../../../test/log-entries.ts";
+import { summary } from "../../../../test/summaries.ts";
 import { startAgentFn, startAgentVars } from "./commands.ts";
 
 afterEach(() => {

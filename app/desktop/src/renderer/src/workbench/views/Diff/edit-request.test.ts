@@ -16,7 +16,7 @@ import {
   toolUpdate,
   turnEnded,
   user,
-} from "../../../../../../test/log-entries.ts";
+} from "../../../../../../../shared/test/log-entries.ts";
 import { chatModel } from "../../../data/chat-model.ts";
 import { editRequest } from "./edit-request.ts";
 

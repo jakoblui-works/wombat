@@ -4,7 +4,7 @@
 import type { IDockviewPanel } from "dockview-react";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { summary } from "../../../../test/log-entries.ts";
+import { summary } from "../../../../test/summaries.ts";
 import "./activities.ts";
 import { layoutSaver, pageChanges } from "./layout-saver.ts";
 import { retitleTabs, type TabHost, tabKey, tabTitles, withoutTitleChanges } from "./tabs.ts";
