@@ -11,6 +11,7 @@ type State = AgentSummary["state"];
 const notifier = (initial: Record<string, State> = {}) => {
   const states = new Map<string, State>(Object.entries(initial));
   let failing = false;
+  let inApp = false;
   const shown: { notice: typeof WAITING_NOTICE; click: () => void; closed: boolean }[] = [];
   const opened: string[] = [];
   const notices = waitingNotices({
@@ -28,6 +29,7 @@ const notifier = (initial: Record<string, State> = {}) => {
       };
     },
     openAgent: (agentId) => opened.push(agentId),
+    focused: () => inApp,
     log: () => undefined,
   });
   let seq = 0;
@@ -62,6 +64,9 @@ const notifier = (initial: Record<string, State> = {}) => {
     setState: (agentId: string, state: State) => states.set(agentId, state),
     fail: (on: boolean) => {
       failing = on;
+    },
+    focus: (on: boolean) => {
+      inApp = on;
     },
   };
 };
@@ -161,4 +166,19 @@ test("on connect, notices for agents that stopped waiting while disconnected are
   // Forgotten, so a new turn to waiting is a new notice.
   await change("agent-1", "waiting");
   expect(shown).toHaveLength(4);
+});
+
+test("no notification while the user is in the app, and none late once they leave; the next turn to waiting notifies", async () => {
+  const n = notifier({ a: "working" });
+  n.focus(true);
+  await n.change("a", "waiting");
+  expect(n.shown).toEqual([]);
+
+  n.focus(false);
+  await n.change("a", "waiting");
+  expect(n.shown).toEqual([]);
+
+  await n.change("a", "working");
+  await n.change("a", "waiting");
+  expect(n.agentsShown()).toEqual(["a"]);
 });

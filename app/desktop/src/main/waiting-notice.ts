@@ -15,6 +15,8 @@ export type WaitingNoticeDeps = {
   show: (notice: typeof WAITING_NOTICE, onClick: () => void) => ShownNotice;
   /** Brings the window forward on the agent. */
   openAgent: (agentId: string) => void;
+  /** Whether the user is in the app now: then the app itself shows the request, and no notification is raised. */
+  focused: () => boolean;
   log?: (line: string) => void;
 };
 
@@ -32,7 +34,7 @@ export type WaitingNotices = {
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-export const waitingNotices = ({ agents, show, openAgent, log = console.warn }: WaitingNoticeDeps): WaitingNotices => {
+export const waitingNotices = ({ agents, show, openAgent, focused, log = console.warn }: WaitingNoticeDeps): WaitingNotices => {
   // The agents last seen waiting: one notification per turn to waiting, however many alerts it brings.
   const waiting = new Set<string>();
   // At most one notification per agent: a newer one replaces it.
@@ -54,6 +56,9 @@ export const waitingNotices = ({ agents, show, openAgent, log = console.warn }: 
 
   const notify = (agentId: string): void => {
     shown.get(agentId)?.close();
+    shown.delete(agentId);
+    // Still counted as notified: leaving the app later doesn't raise this turn's notification late.
+    if (focused()) return;
     shown.set(
       agentId,
       show(WAITING_NOTICE, () => {

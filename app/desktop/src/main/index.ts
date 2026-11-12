@@ -233,7 +233,10 @@ const openAgent = (agentId: string): void => {
 };
 
 // It reads the agents through the connection below, only once that connection forwards an alert.
-const notices = waitingNotices({ agents: () => connection.agents(), show: showNotice, openAgent });
+// Under e2e the window's focus depends on the test machine's desktop, so every notice is recorded.
+const appFocused = (): boolean => e2e === undefined && BrowserWindow.getFocusedWindow() !== null;
+
+const notices = waitingNotices({ agents: () => connection.agents(), show: showNotice, openAgent, focused: appFocused });
 
 // The page's way to the service: main holds the token, the page sees the states and alerts.
 const connection = serviceConnection({
