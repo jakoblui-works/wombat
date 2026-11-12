@@ -3,7 +3,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 
-import { CONTEXT_LINES, MAX_DIFF_LINES } from "../EditDiff/inline-diff.ts";
+import { CONTEXT_LINES, MAX_DIFF_LINES } from "../../approvals/EditDiff/inline-diff.ts";
 import { type EditDiffData, Permission, type PermissionItem } from "./Permission.tsx";
 
 const request: PermissionItem = {

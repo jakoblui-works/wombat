@@ -4,14 +4,14 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { Button } from "../../../components/ui/button";
 import { useConnection } from "../../../data/hooks.ts";
 import type { ViewProps } from "../../registry.ts";
-import { useAnswer } from "../Chat/answer.ts";
-import { liveState } from "../Chat/live-state.ts";
-import { useChatModel } from "../Chat/use-chat-model.ts";
-import { CHANGE_GONE, NO_CHANGE } from "../Chat/EditDiff/EditDiff.tsx";
-import { LogError } from "../Chat/LogError/LogError.tsx";
-import { AnswerButtons, AnswerError, EditTarget, Outcome, Waiting } from "../Chat/Permission/Permission.tsx";
+import { useAnswer } from "../approvals/answer.ts";
+import { liveState } from "../approvals/live-state.ts";
+import { useChatModel } from "../approvals/use-chat-model.ts";
+import { CHANGE_GONE, NO_CHANGE } from "../approvals/EditDiff/EditDiff.tsx";
+import { LogError } from "../approvals/LogError/LogError.tsx";
+import { AnswerButtons, AnswerError, EditTarget, Outcome, Waiting } from "../approvals/Answer/Answer.tsx";
 import { DiffParams, diffTitle } from "./diff-params.ts";
-import { editRequest } from "./edit-request.ts";
+import { editRequest } from "../approvals/edit-request.ts";
 
 // Monaco loads with the first diff tab, not with the page.
 const MonacoDiff = lazy(() => import("./MonacoDiff/MonacoDiff.tsx").then(({ MonacoDiff: component }) => ({ default: component })));

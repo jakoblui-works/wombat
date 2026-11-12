@@ -4,7 +4,7 @@ import { StateMark } from "../../../lib/state-mark";
 import { useAgents } from "../../../data/hooks.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useWorkbench } from "../../workbench-context.ts";
-import { AgentsError } from "../Chat/LogError/LogError.tsx";
+import { AgentsError } from "../approvals/LogError/LogError.tsx";
 import { KIND_ICONS } from "../Chat/ToolCall/ToolCall.tsx";
 import { type NeedsMeRow, needsMeRows } from "./needs-me-rows.ts";
 

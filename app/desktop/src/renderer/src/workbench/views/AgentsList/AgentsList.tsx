@@ -9,7 +9,7 @@ import { useAgents, useRepos } from "../../../data/hooks.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useActiveTab, useWorkbench } from "../../workbench-context.ts";
 import { CHAT_VIEW, ChatParams } from "../Chat/chat-params.ts";
-import { AgentsError } from "../Chat/LogError/LogError.tsx";
+import { AgentsError } from "../approvals/LogError/LogError.tsx";
 import { AgentRow } from "./AgentRow.tsx";
 import { groupAgents } from "./group-agents.ts";
 import { NewAgentDialog } from "./NewAgentDialog.tsx";

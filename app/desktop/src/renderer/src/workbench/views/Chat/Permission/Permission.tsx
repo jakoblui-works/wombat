@@ -1,15 +1,14 @@
 import type { AnswerPermissionRequest } from "@wombat/shared/api";
-import { Check, ChevronDown, ChevronRight, Columns2, FilePen, type LucideIcon, ShieldQuestion, X } from "lucide-react";
-import { type ReactNode, type Ref, useState } from "react";
+import { ChevronDown, ChevronRight, Columns2, FilePen, type LucideIcon, ShieldQuestion } from "lucide-react";
+import { type Ref, useState } from "react";
 
 import { Button } from "../../../../components/ui/button";
 import type { ChatItem } from "../../../../data/chat-model.ts";
-import { AGENT_STATES } from "../../../../lib/agent-state";
 import { cn } from "../../../../lib/utils";
-import type { EditRequest } from "../../Diff/edit-request.ts";
-import { DiffCounts, DiffRows, useInlineDiff } from "../EditDiff/EditDiff.tsx";
-import type { InlineDiff } from "../EditDiff/inline-diff.ts";
-import { ANSWER_LABELS, type PermissionOption, permissionButtons } from "../permission-buttons.ts";
+import { AnswerButtons, AnswerError, EditTarget, Outcome, Waiting } from "../../approvals/Answer/Answer.tsx";
+import { DiffRows, useInlineDiff } from "../../approvals/EditDiff/EditDiff.tsx";
+import type { InlineDiff } from "../../approvals/EditDiff/inline-diff.ts";
+import type { EditRequest } from "../../approvals/edit-request.ts";
 import { hasDetails, KIND_ICONS, ToolDetails, type ToolItem } from "../ToolCall/ToolCall.tsx";
 
 export type PermissionItem = Extract<ChatItem, { kind: "permission" }>;
@@ -40,70 +39,7 @@ const Title = ({ title }: { title: string }) => (
   <span className="min-w-0 truncate text-sm text-fg-primary">{title === "" ? "The agent asks for permission" : title}</span>
 );
 
-/** How an answered or cancelled request reads in place of its buttons. */
-export const Outcome = ({ answer }: { answer: NonNullable<PermissionItem["answer"]> }) => {
-  const Mark = answer.startsWith("allow_") ? Check : X;
-  return (
-    <span className="ml-auto flex shrink-0 items-center gap-1 rounded-sm bg-surface-3 px-1.5 py-0.5 text-xs text-fg-secondary">
-      <Mark className="size-3" />
-      {ANSWER_LABELS[answer]}
-    </span>
-  );
-};
-
-/** One button per option: the rest by name, then Reject (secondary), then Approve (primary), from `permissionButtons`. */
-export const AnswerButtons = ({ options, disabled, onAnswer }: { options: readonly PermissionOption[]; disabled: boolean; onAnswer: Props["onAnswer"] }) => {
-  const { approve, reject, others } = permissionButtons(options);
-  return (
-    <span className="ml-auto flex shrink-0 flex-wrap justify-end gap-2">
-      {others.map((option, index) => (
-        <Button key={`${String(index)}:${option.kind}:${option.name}`} variant="secondary" size="sm" disabled={disabled} onClick={() => onAnswer(option.kind)}>
-          {option.name}
-        </Button>
-      ))}
-      {reject === undefined ? null : (
-        <Button variant="secondary" size="sm" disabled={disabled} onClick={() => onAnswer(reject.kind)}>
-          Reject
-        </Button>
-      )}
-      {approve === undefined ? null : (
-        <Button size="sm" disabled={disabled} onClick={() => onAnswer(approve.kind)}>
-          Approve
-        </Button>
-      )}
-    </span>
-  );
-};
-
-/** "The agent waits for your answer", in the waiting state's look. */
-export const Waiting = ({ children = "The agent waits for your answer", wrap = false }: { children?: ReactNode; wrap?: boolean }) => {
-  const waiting = AGENT_STATES.waiting;
-  return (
-    <>
-      <waiting.icon className={cn("size-3.5 shrink-0", waiting.colour)} />
-      <span className={cn("min-w-0 text-sm text-fg-secondary", wrap ? undefined : "truncate")}>{children}</span>
-    </>
-  );
-};
-
-/** Why the last answer failed, as a strip along the card (`className` gives the side its border is on). */
-export const AnswerError = ({ error, className = "border-t" }: { error: Error | undefined; className?: string }) =>
-  error === undefined ? null : (
-    <p role="alert" className={cn("border-line px-3 py-1.5 text-sm text-danger", className)}>
-      Couldn't send the answer: {error.message}
-    </p>
-  );
-
 const NO_DIFFS: EditDiffData["diffs"] = [];
-
-/** An edit's file and, given its inline diff, its +/− counts: the card's header and the diff tab's. */
-export const EditTarget = ({ path, diff }: { path: string; diff?: InlineDiff | undefined }) => (
-  <>
-    <span className="shrink-0 text-sm font-medium text-fg-primary">Edit</span>
-    <code className="min-w-0 truncate font-mono text-xs text-fg-secondary">{path}</code>
-    {diff?.kind === "shown" && diff.parts.length > 0 ? <DiffCounts diff={diff} /> : null}
-  </>
-);
 
 /** An edit's open request: the file, its compact diff, and the answer buttons; too large to show, only side by side. */
 const OpenEdit = ({ name, edit, diff, item, disabled, error, onAnswer, onOpenSideBySide, cardRef }: Props & { name: string; edit: EditDiffData; diff: InlineDiff }) => (

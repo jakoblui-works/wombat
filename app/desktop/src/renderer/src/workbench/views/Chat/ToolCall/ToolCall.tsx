@@ -21,7 +21,7 @@ import { useState } from "react";
 
 import type { ChatItem, ToolCallContent, ToolCallStatus, ToolKind } from "../../../../data/chat-model.ts";
 import { cn } from "../../../../lib/utils";
-import { EditDiff } from "../EditDiff/EditDiff.tsx";
+import { EditDiff } from "../../approvals/EditDiff/EditDiff.tsx";
 import { Markdown } from "../Markdown/Markdown.tsx";
 import { Omitted, useClipped } from "../Omitted/Omitted.tsx";
 

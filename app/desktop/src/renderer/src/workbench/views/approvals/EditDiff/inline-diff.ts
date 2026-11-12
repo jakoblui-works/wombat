@@ -1,7 +1,7 @@
 // What the chat shows of an edit, pure: each of its diffs' changed lines with a little context around them, or, past a
 // size, nothing (the diff tab shows it then).
-import type { EditDiff } from "../../Diff/edit-request.ts";
-import { type DiffLine, lineDiffWithin } from "../../Diff/line-diff.ts";
+import type { EditDiff } from "../edit-request.ts";
+import { type DiffLine, lineDiffWithin } from "../line-diff.ts";
 
 /** Unchanged lines shown before and after each run of changed lines. */
 export const CONTEXT_LINES = 3;
