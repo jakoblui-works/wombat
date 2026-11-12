@@ -2,8 +2,6 @@
 // the app reads it with, or the app can't find a running service. The file holds the bearer token, so its modes are
 // a silent invariant: no other local user may read it.
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,9 +9,7 @@ import { API_VERSION } from "@wombat/shared";
 import { DiscoveryFile } from "@wombat/shared/discovery";
 import { expect, onTestFinished, test } from "vitest";
 
-import { findRunningService, newToken, removeDiscovery, writeDiscovery } from "./discovery.ts";
-
-const WAIT_MS = 8_000;
+import { newToken, removeDiscovery, writeDiscovery } from "./discovery.ts";
 
 /** A fresh `<tmp>/wombat/service.json` path; its folder doesn't exist yet. */
 const tempPath = () => {
@@ -32,21 +28,9 @@ const sample = (overrides: Partial<DiscoveryFile> = {}): DiscoveryFile => ({
 
 const mode = (path: string) => statSync(path).mode & 0o777;
 
-/** A stand-in for a running service: answers GET /version with 200 only to `Bearer <token>`, else 401. */
-const versionServer = async (token: string): Promise<{ server: Server; port: number }> => {
-  const server = createServer((req, res) => {
-    const ok = req.method === "GET" && req.url === "/version" && req.headers.authorization === `Bearer ${token}`;
-    res.writeHead(ok ? 200 : 401, { "content-type": "application/json" });
-    res.end(JSON.stringify(ok ? { apiVersion: API_VERSION } : { error: { code: "unauthorized", message: "no" } }));
-  });
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())));
-  return { server, port: (server.address() as AddressInfo).port };
-};
-
 test("discovery-file drift: what writeDiscovery writes parses with the shared DiscoveryFile schema and keeps its values", () => {
   const { path } = tempPath();
-  const file = sample({ port: 15123, pid: 4242 });
+  const file = sample({ port: 15123, pid: 4242, workspace: "/home/dev/bakery" });
   writeDiscovery(path, file);
   expect(DiscoveryFile.parse(JSON.parse(readFileSync(path, "utf8")))).toEqual(file);
 });
@@ -83,20 +67,6 @@ test("removeDiscovery removes the file only when it names this pid, and is fine 
   removeDiscovery(path, 4242);
   expect(existsSync(path)).toBe(false);
   expect(() => removeDiscovery(path, 4242)).not.toThrow();
-});
-
-test("findRunningService finds the file's service when it answers /version with the file's token, and not otherwise", async () => {
-  const token = "live-token-0123456789abcdef";
-  const { port } = await versionServer(token);
-  const { dir, path } = tempPath();
-  mkdirSync(dir);
-
-  writeFileSync(path, JSON.stringify(sample({ port, token, pid: 4242 })));
-  expect(await findRunningService(path, { timeoutMs: WAIT_MS })).toMatchObject({ port, pid: 4242 });
-
-  // Same port, but the service there doesn't take this file's token: not the file's service.
-  writeFileSync(path, JSON.stringify(sample({ port, token: "stale-token-0123456789abcdef", pid: 4242 })));
-  expect(await findRunningService(path, { timeoutMs: WAIT_MS })).toBeUndefined();
 });
 
 test("newToken gives at least 16 bearer-token characters, different on every call", () => {

@@ -6,13 +6,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { API_VERSION } from "@wombat/shared";
+import { ServerErrorCode } from "@wombat/shared/api";
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 
 import { AccessError, SEARCH_LIMIT, type Access, type ItemInput } from "../items/access.ts";
 import { TOOL } from "../items/tools.ts";
 import type { Log } from "../log.ts";
-import { errorResponse } from "./errors.ts";
+import { errorResponse, SERVER_STATUS } from "./errors.ts";
 import { refuseForeignHost } from "./port-rules.ts";
 
 type McpEnv = { Variables: { agentId: string } };
@@ -41,8 +42,8 @@ const mcpRules =
     if (agentId === undefined) {
       return errorResponse(
         c,
-        401,
-        "unauthorized",
+        SERVER_STATUS.unauthorized,
+        ServerErrorCode.enum.unauthorized,
         "The request has no valid agent token. /mcp is for the agents the Wombat service started; call it with the " +
           "`Authorization` header from the agent's MCP configuration, while the agent runs.",
       );
@@ -50,8 +51,8 @@ const mcpRules =
     if (c.req.header("origin") !== undefined) {
       return errorResponse(
         c,
-        403,
-        "forbidden_origin",
+        SERVER_STATUS.forbidden_origin,
+        ServerErrorCode.enum.forbidden_origin,
         "Requests with an Origin header are refused on /mcp. Call it from the agent, without an Origin header.",
       );
     }
@@ -257,7 +258,7 @@ export const mcpRoutes = (options: McpOptions) => {
   // Stateless: there is no stream to open (GET) and no session to end (DELETE).
   app.all("/mcp", (c) => {
     c.header("allow", "POST");
-    return errorResponse(c, 405, "method_not_allowed", "/mcp only answers POST. Send each JSON-RPC request with POST.");
+    return errorResponse(c, SERVER_STATUS.method_not_allowed, ServerErrorCode.enum.method_not_allowed, "/mcp only answers POST. Send each JSON-RPC request with POST.");
   });
   return app;
 };

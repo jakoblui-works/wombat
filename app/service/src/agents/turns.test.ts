@@ -1,5 +1,5 @@
-// Agent manager: turns against the fake agent: replies, crashes, cancel, busy, unknown update kinds and a
-// talkative stderr.
+// Agent manager: turns against the fake agent: replies, crashes, cancel, busy, plan and reasoning updates,
+// unknown update kinds and a talkative stderr.
 import { AgentSummary, LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
@@ -99,8 +99,33 @@ describe("turns", () => {
       const entries = t.entries(id);
       for (const entry of entries) expect(LogEntry.parse(entry)).toEqual(entry);
       expect(chunkTexts(entries).length).toBeGreaterThan(0);
-      expect(JSON.stringify(entries)).not.toContain("agent_thought_chunk");
+      expect(JSON.stringify(entries)).not.toContain("compaction_summary_chunk");
       expect(t.logs.map((line) => line.event)).toContain("update_skipped");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "plan and reasoning updates are stored as entries in order, and nothing is skipped",
+    async () => {
+      const t = setup();
+      const { id } = await t.manager.start("fake-plan-thought", REPO);
+      await t.manager.send(id, { text: "Plan it first" });
+      expect((await t.turnEnded(id)).stopReason).toBe("end_turn");
+
+      const updates = t.entries(id).flatMap((entry) => (entry.type === "session_update" ? [entry.update] : []));
+      expect(updates).toEqual([
+        { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Weighing where the footer link lives." } },
+        {
+          sessionUpdate: "plan",
+          entries: [
+            { content: "Find the footer component", priority: "high", status: "completed" },
+            { content: "Rename the footer link", priority: "medium", status: "in_progress" },
+          ],
+        },
+        { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Planned the footer change." } },
+      ]);
+      expect(t.logs.map((line) => line.event)).not.toContain("update_skipped");
     },
     TEST_TIMEOUT_MS,
   );

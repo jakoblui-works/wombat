@@ -58,6 +58,7 @@ describe("port rules", () => {
       expect(s.store.currentSeq()).toBe(seq);
       expect(s.pids()).toHaveLength(pids);
       expect(s.store.listAgents().map((agent) => agent.id)).toEqual([id]);
+      expect(s.shutdownRequests(), "a refused POST /shutdown must not start a shutdown").toBe(0);
       // Control: the same agent answers with the token.
       expect((await s.api("GET", `/agents/${id}/log`)).status).toBe(200);
       // Control: the items routes exist (not configured on this server), so the refusals above came from the rules.
@@ -73,6 +74,9 @@ describe("port rules", () => {
         const response = await s.api(method, path);
         expect((response.json as { error?: { code?: string } } | undefined)?.error?.code, `${method} ${path}: ${response.text}`).not.toBe("not_found");
       }
+      // Control, last since it ends the agents: POST /shutdown exists and, with the token, does ask for a shutdown.
+      expect((await s.api("POST", "/shutdown")).status).toBe(202);
+      expect(s.shutdownRequests()).toBeGreaterThan(0);
     },
     TEST_TIMEOUT_MS,
   );
@@ -205,6 +209,7 @@ describe("port rules", () => {
         manager: t.manager,
         store: t.store,
         harnesses: ALL_SCENARIOS.map((scenario) => trackedHarness(scenario, t.pidDir)),
+        workspaceRoot: t.root,
       };
       for (const token of ["", "short-token-15c"]) {
         const outcome = await startServer({ ...options, token }).then(

@@ -1,44 +1,50 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { getRequestListener } from "@hono/node-server";
+import { getRequestListener, type HttpBindings } from "@hono/node-server";
 import { API_VERSION } from "@wombat/shared";
 import {
   AnswerPermissionRequest,
+  BODY_OVER_CAP_MESSAGE,
   GetItemResponse as GetItemSchema,
+  HEARTBEAT_MS,
+  ItemsErrorCode,
   ListItemsResponse as ListItemsSchema,
   ListLogQuery,
   ListProposalsQuery,
   ListProposalsResponse as ListProposalsSchema,
   ListStructuresResponse as ListStructuresSchema,
   SendMessageRequest,
+  ServerErrorCode,
   StartAgentRequest,
   type ErrorBody,
   type GetItemResponse,
-  type ItemsErrorCode,
   type ListAgentsResponse,
   type ListHarnessesResponse,
   type ListItemsResponse,
   type ListLogResponse,
   type ListProposalsResponse,
+  type ListReposResponse,
   type ListStructuresResponse,
+  type ProposalErrorCode,
   type VersionResponse,
 } from "@wombat/shared/api";
 import { Proposal as ProposalSchema, type Proposal } from "@wombat/shared/items";
+import { MAX_BODY_BYTES } from "@wombat/shared/routes";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { z } from "zod";
 
-import { AgentError, type AgentErrorCode, type Manager } from "../agents/manager.ts";
-import { openAccess, ProposalError, type ProposalErrorCode } from "../items/access.ts";
+import { AgentError, notFound, type Manager } from "../agents/manager.ts";
+import { openAccess, ProposalError } from "../items/access.ts";
 import { handlesById, summarize, withLinks } from "../items/api-view.ts";
 import { findByHandle, type Catalog } from "../items/catalog.ts";
 import type { Writer } from "../items/write.ts";
 import type { Harness } from "../harness/harness.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
-import { errorResponse } from "./errors.ts";
+import { listRepos, RepoError } from "../workspace.ts";
+import { AGENT_STATUS, errorResponse, ITEMS_STATUS, SERVER_STATUS } from "./errors.ts";
 import { createAlertStreams } from "./events.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { portRules } from "./port-rules.ts";
@@ -47,6 +53,8 @@ export type ServerOptions = {
   manager: Manager;
   store: Store;
   harnesses: readonly Harness[];
+  /** The workspace's root, for `GET /repos`. */
+  workspaceRoot: string;
   /** The bearer token every request must carry. */
   token: string;
   /** 0 (the default) picks a free port. */
@@ -60,37 +68,21 @@ export type ServerOptions = {
   items?: Catalog;
   /** Writes the items; with `items`, it opens the agents' write tools on /mcp. */
   writer?: Writer;
+  /**
+   * Called once POST /shutdown has stopped every agent and its response is out: the service's own stop path,
+   * which main passes. Without it the route still stops the agents, but the service keeps running.
+   */
+  onShutdown?: () => void;
+  /** Called when POST /shutdown begins, before any agent is stopped; main removes the discovery file there. */
+  onShutdownStart?: () => void;
 };
 
-const MAX_BODY_BYTES = 1024 * 1024;
 /** Shorter tokens are guessable by a local process that can try requests in a loop. */
 const MIN_TOKEN_LENGTH = 16;
 /** How long close() lets ended responses flush before it drops the connections left. */
 const CLOSE_GRACE_MS = 1_000;
 
-const STATUS: Record<AgentErrorCode, ContentfulStatusCode> = {
-  not_found: 404,
-  busy: 409,
-  not_running: 409,
-  kind_not_offered: 422,
-  unknown_harness: 422,
-  repo_not_found: 422,
-  repo_outside_workspace: 422,
-  auth_required: 502,
-  agent_failed: 502,
-};
-
-/** `items_not_writable` is what the write routes answer; no read route does. */
-const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {
-  items_not_configured: 409,
-  structure_not_found: 404,
-  item_not_found: 404,
-  items_not_writable: 500,
-  proposal_not_found: 404,
-  proposal_not_pending: 409,
-};
-
-/** Thrown by a route on a request that breaks the contract; answered with 400. */
+/** Thrown by a route on a request that breaks the contract; answered with invalid_request. */
 class InvalidRequest extends Error {}
 
 const describeIssues = (error: z.ZodError) =>
@@ -127,13 +119,16 @@ export const startServer = async ({
   manager,
   store,
   harnesses,
+  workspaceRoot,
   token,
   port = 0,
-  heartbeatMs = 15_000,
+  heartbeatMs = HEARTBEAT_MS,
   defaultLogLimit = 1000,
   log = logToStderr,
   items,
   writer,
+  onShutdown,
+  onShutdownStart,
 }: ServerOptions): Promise<{ port: number; close: () => Promise<void> }> => {
   if (token.length < MIN_TOKEN_LENGTH) {
     throw new Error(
@@ -166,7 +161,7 @@ export const startServer = async ({
     bodyLimit({
       maxSize: MAX_BODY_BYTES,
       onError: (c) =>
-        errorResponse(c, 413, "payload_too_large", "The request body is over 1 MiB. Send a shorter message."),
+        errorResponse(c, SERVER_STATUS.payload_too_large, ServerErrorCode.enum.payload_too_large, BODY_OVER_CAP_MESSAGE),
     }),
   );
 
@@ -175,6 +170,8 @@ export const startServer = async ({
   app.get("/harnesses", (c) =>
     c.json(harnesses.map(({ id, name }) => ({ id, name })) satisfies ListHarnessesResponse),
   );
+
+  app.get("/repos", (c) => c.json({ repos: listRepos(workspaceRoot) } satisfies ListReposResponse));
 
   app.get("/agents", (c) =>
     c.json({ dbId: store.dbId, seq: store.currentSeq(), agents: store.listAgents() } satisfies ListAgentsResponse),
@@ -194,7 +191,7 @@ export const startServer = async ({
     }
     const agentId = c.req.param("id");
     if (!store.listAgents().some((agent) => agent.id === agentId)) {
-      return errorResponse(c, 404, "not_found", `There's no agent ${agentId}. List the agents to see which exist.`);
+      throw notFound(agentId);
     }
     const { after, limit = defaultLogLimit } = query.data;
     const { entries, truncated } = store.readLog(agentId, after, limit);
@@ -227,11 +224,25 @@ export const startServer = async ({
     return c.body(null, 204);
   });
 
+  app.post("/shutdown", async (c) => {
+    if ((await c.req.text()) !== "") {
+      throw new InvalidRequest("POST /shutdown takes no body. Send it again without one.");
+    }
+    onShutdownStart?.();
+    // Attached before the agents are stopped, so the service stops even if the client leaves meanwhile (its
+    // close would come before anything attached later). It fires once the answer is out or the client is gone;
+    // the stop path awaits the same manager shutdown before it closes the store.
+    if (onShutdown) (c.env as HttpBindings).outgoing.once("close", onShutdown);
+    // The manager's shutdown is the stop path's own agent stop: each agent ends as POST /agents/:id/stop ends it.
+    await manager.shutdown();
+    return c.json({}, 202);
+  });
+
   const notConfigured = (c: Context) =>
     errorResponse(
       c,
       ITEMS_STATUS.items_not_configured,
-      "items_not_configured",
+      ItemsErrorCode.enum.items_not_configured,
       "The items aren't set up. Set WOMBAT_ITEMS to the absolute path of the items folder and restart the service.",
     );
 
@@ -253,7 +264,7 @@ export const startServer = async ({
       return errorResponse(
         c,
         ITEMS_STATUS.structure_not_found,
-        "structure_not_found",
+        ItemsErrorCode.enum.structure_not_found,
         `There's no structure ${id}. List the structures to see which exist.`,
       );
     }
@@ -272,7 +283,7 @@ export const startServer = async ({
       return errorResponse(
         c,
         ITEMS_STATUS.item_not_found,
-        "item_not_found",
+        ItemsErrorCode.enum.item_not_found,
         `There's no item ${handle}. List a structure's items to see their handles.`,
       );
     }
@@ -305,7 +316,7 @@ export const startServer = async ({
     // no client ever reads or cancels.
     if (c.req.method === "HEAD") {
       c.header("allow", "GET");
-      return errorResponse(c, 405, "method_not_allowed", "The alert stream only answers GET. Open it with GET /events.");
+      return errorResponse(c, SERVER_STATUS.method_not_allowed, ServerErrorCode.enum.method_not_allowed, "The alert stream only answers GET. Open it with GET /events.");
     }
     return alerts.respond();
   });
@@ -313,22 +324,23 @@ export const startServer = async ({
   app.notFound((c) =>
     errorResponse(
       c,
-      404,
-      "not_found",
+      SERVER_STATUS.not_found,
+      ServerErrorCode.enum.not_found,
       `There's no route ${c.req.method} ${c.req.path}. See the API contract for the routes.`,
     ),
   );
 
   app.onError((error, c) => {
-    if (error instanceof InvalidRequest) return errorResponse(c, 400, "invalid_request", error.message);
+    if (error instanceof InvalidRequest) return errorResponse(c, SERVER_STATUS.invalid_request, ServerErrorCode.enum.invalid_request, error.message);
     if (error instanceof ProposalError) return errorResponse(c, ITEMS_STATUS[error.code satisfies ProposalErrorCode], error.code, error.message);
-    if (error instanceof AgentError) return errorResponse(c, STATUS[error.code], error.code, error.message, error.hint);
+    if (error instanceof RepoError) return errorResponse(c, AGENT_STATUS[error.code], error.code, error.message);
+    if (error instanceof AgentError) return errorResponse(c, AGENT_STATUS[error.code], error.code, error.message, error.hint);
     // The details stay in the service: an error's message may quote agent content or paths.
     log("request_failed", { method: c.req.method, route: c.req.routePath, error: error.name });
     return errorResponse(
       c,
-      500,
-      "internal_error",
+      SERVER_STATUS.internal_error,
+      ServerErrorCode.enum.internal_error,
       "The agent service failed to handle the request. Try again; if it keeps failing, restart the service.",
     );
   });
@@ -338,11 +350,11 @@ export const startServer = async ({
     errorHandler: () => {
       const body: ErrorBody = {
         error: {
-          code: "invalid_request",
+          code: ServerErrorCode.enum.invalid_request,
           message: "The request's Host header or path is malformed. Send a well-formed request.",
         },
       };
-      return Response.json(body, { status: 400 });
+      return Response.json(body, { status: SERVER_STATUS.invalid_request });
     },
   });
   // The listener handles its own failures; the server only needs it started.

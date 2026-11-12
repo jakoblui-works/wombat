@@ -1,7 +1,9 @@
 import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 
-import { discoveryPath } from "./discovery.ts";
+import { SERVICE_ENV } from "@wombat/shared";
+import { discoveryPath } from "@wombat/shared/discovery";
+
 import { defaultStorePath } from "./store/paths.ts";
 
 /** The service's port when WOMBAT_PORT is unset. */
@@ -31,9 +33,10 @@ const readPort = (value: string | undefined): number => {
 };
 
 const readWorkspace = (value: string | undefined): string => {
-  const fix = "Set WOMBAT_WORKSPACE to the absolute path of the folder that holds the project's repos.";
-  if (value === undefined || value === "") throw new Error(`WOMBAT_WORKSPACE isn't set. ${fix}`);
-  if (!isAbsolute(value)) throw new Error(`WOMBAT_WORKSPACE is ${JSON.stringify(value)}, which isn't an absolute path. ${fix}`);
+  const name = SERVICE_ENV.workspace;
+  const fix = `Set ${name} to the absolute path of the folder that holds the project's repos.`;
+  if (value === undefined || value === "") throw new Error(`${name} isn't set. ${fix}`);
+  if (!isAbsolute(value)) throw new Error(`${name} is ${JSON.stringify(value)}, which isn't an absolute path. ${fix}`);
   let isDir: boolean;
   try {
     isDir = statSync(value).isDirectory();
@@ -42,22 +45,23 @@ const readWorkspace = (value: string | undefined): string => {
     isDir = false;
   }
   if (!isDir) {
-    throw new Error(`WOMBAT_WORKSPACE is ${JSON.stringify(value)}, which isn't an existing folder you can use. ${fix}`);
+    throw new Error(`${name} is ${JSON.stringify(value)}, which isn't an existing folder you can use. ${fix}`);
   }
   return value;
 };
 
 const readItems = (value: string | undefined): string | undefined => {
   if (value === undefined) return undefined;
-  const fix = "Set WOMBAT_ITEMS to the absolute path of the folder that holds the items' structures, or unset it to run without items.";
-  if (!isAbsolute(value)) throw new Error(`WOMBAT_ITEMS is ${JSON.stringify(value)}, which isn't an absolute path. ${fix}`);
+  const name = SERVICE_ENV.items;
+  const fix = `Set ${name} to the absolute path of the folder that holds the items' structures, or unset it to run without items.`;
+  if (!isAbsolute(value)) throw new Error(`${name} is ${JSON.stringify(value)}, which isn't an absolute path. ${fix}`);
   let isDir: boolean;
   try {
     isDir = statSync(value).isDirectory();
   } catch {
     isDir = false;
   }
-  if (!isDir) throw new Error(`WOMBAT_ITEMS is ${JSON.stringify(value)}, which isn't an existing folder you can use. ${fix}`);
+  if (!isDir) throw new Error(`${name} is ${JSON.stringify(value)}, which isn't an existing folder you can use. ${fix}`);
   return value;
 };
 
@@ -75,10 +79,10 @@ const readStore = (env: NodeJS.ProcessEnv): string => {
 
 /** The service's config from `env`; throws with a message naming the variable that's wrong and what to set. */
 export const readConfig = (env: NodeJS.ProcessEnv): Config => {
-  const itemsRoot = readItems(env.WOMBAT_ITEMS);
+  const itemsRoot = readItems(env[SERVICE_ENV.items]);
   return {
     port: readPort(env.WOMBAT_PORT),
-    workspaceRoot: readWorkspace(env.WOMBAT_WORKSPACE),
+    workspaceRoot: readWorkspace(env[SERVICE_ENV.workspace]),
     ...(itemsRoot === undefined ? {} : { itemsRoot }),
     storePath: readStore(env),
     discoveryPath: discoveryPath(env),

@@ -7,7 +7,7 @@ import { realpathSync } from "node:fs";
 import { chmod, link, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { errorCode, isMissing } from "./errno.ts";
+import { errorCode, isMissing } from "@wombat/shared/errno";
 
 /** sha256 (hex) of a file's bytes: an item's version. */
 export const versionOf = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");

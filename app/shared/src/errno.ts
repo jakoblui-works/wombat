@@ -1,4 +1,4 @@
-// Reading the errno code of a failed file operation, the one place it is done.
+// Reading the errno code of a failed file or /proc operation, the one place it is done (service and app).
 const codeOf = (error: unknown) => {
   const code = (error as { code?: unknown } | null | undefined)?.code;
   return typeof code === "string" ? code : undefined;
@@ -15,3 +15,6 @@ export const isMissingPath = (error: unknown) => ["ENOENT", "ENOTDIR"].includes(
 
 /** Whether a file that must be new already exists. */
 export const isAlreadyThere = (error: unknown) => codeOf(error) === "EEXIST";
+
+/** Whether a /proc read failed because the process is gone (or went while it was read). */
+export const isProcessGone = (error: unknown) => ["ENOENT", "ESRCH"].includes(codeOf(error) ?? "");

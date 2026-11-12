@@ -1,15 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from "node:fs";
-import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import type { AgentSummary, LogEntry } from "@wombat/shared/api";
 import type { Problem, Proposal, ProposalStatus } from "@wombat/shared/items";
+import { ensurePrivateFile, tightenPrivateFile } from "@wombat/shared/private-file";
+
 
 /** The default cap on one agent's stored entries, in bytes of their stored JSON. */
 export const LOG_BYTES_PER_AGENT = 16 * 1024 * 1024;
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -66,9 +66,6 @@ export type Store = {
   close: () => void;
 };
 
-const PRIVATE_DIR = 0o700;
-const PRIVATE_FILE = 0o600;
-
 // The seq counter lives in `meta` rather than coming from a rowid, which would reuse seqs after deletes.
 // `dropped_through` is the highest seq of the agent's entries the cap removed, which answers `truncated`.
 const SCHEMA_V1 = `
@@ -112,18 +109,19 @@ const SCHEMA_V2 = `
   CREATE INDEX proposals_by_status ON proposals (status, at);
 `;
 
+// The summary row is JSON, so new summary fields need no column; summaries written before `pendingPermissions`
+// existed get it as [] (no request outlives the service that held it).
+const SCHEMA_V3 = `
+  UPDATE agents SET summary = json_insert(summary, '$.pendingPermissions', json('[]'));
+`;
+
 /** SQLite creates these with the database's mode; ones left looser are tightened on open. */
 const sideFiles = (path: string) => [`${path}-wal`, `${path}-shm`];
 
 const makePrivate = (path: string) => {
-  const dir = dirname(path);
-  mkdirSync(dir, { recursive: true, mode: PRIVATE_DIR });
-  chmodSync(dir, PRIVATE_DIR);
   // Created before SQLite opens it, so it never exists with the umask's mode.
-  closeSync(openSync(path, "a", PRIVATE_FILE));
-  for (const file of [path, ...sideFiles(path)]) {
-    if (existsSync(file)) chmodSync(file, PRIVATE_FILE);
-  }
+  ensurePrivateFile(path);
+  for (const file of sideFiles(path)) tightenPrivateFile(file);
 };
 
 const asNumber = (value: unknown) => {
@@ -183,6 +181,7 @@ export const openStore = ({
           insertMeta.run("seq", 0);
         }
         if (version < 2) db.exec(SCHEMA_V2);
+        if (version < 3) db.exec(SCHEMA_V3);
         db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       });
     }
@@ -190,9 +189,7 @@ export const openStore = ({
     db.close();
     throw error;
   }
-  for (const file of sideFiles(path)) {
-    if (existsSync(file)) chmodSync(file, PRIVATE_FILE);
-  }
+  for (const file of sideFiles(path)) tightenPrivateFile(file);
 
   const dbId = asString(db.prepare("SELECT value FROM meta WHERE key = 'db_id'").get()?.value);
 

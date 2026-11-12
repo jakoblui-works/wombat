@@ -12,18 +12,34 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@base-ui/react": "1.9.0",
+    "@tanstack/react-query": "5.105.3",
     "@wombat/shared": "workspace:*",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "dockview-react": "8.8.3",
+    "hast-util-to-jsx-runtime": "2.3.7",
+    "lucide-react": "1.67.0",
+    "monaco-editor": "0.57.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "shiki": "4.6.0",
+    "tailwind-merge": "3.7.0",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
+    "@tailwindcss/vite": "4.3.4",
     "@types/node": "^24.0.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.2.1",
     "electron": "^45.2.1",
     "electron-vite": "^6.0.0",
+    "fast-check": "4.10.2",
+    "tailwindcss": "4.3.4",
     "vite": "^8.3.5"
   }
 }

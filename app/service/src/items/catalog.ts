@@ -6,11 +6,11 @@
 import { randomUUIDv7 } from "node:crypto";
 import { join } from "node:path";
 
+import { errorCode } from "@wombat/shared/errno";
 import type { Item, Problem, StructureSettings } from "@wombat/shared/items";
 
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
-import { errorCode } from "./errno.ts";
 import { queueWrite, readAtVersion, readVersioned, VersionChanged, writeAtomic } from "./files.ts";
 import { addKeyEdits, checkedText, parseItemFile, scalarRange, type ParsedItemFile, type TextEdit } from "./item-file.ts";
 import { folderProblem, inFolder, ownerOf, readSettings, SETTINGS_FILE, structureFiles, structureFolders } from "./structures.ts";

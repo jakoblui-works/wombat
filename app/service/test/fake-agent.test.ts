@@ -6,7 +6,7 @@ import { describe, expect, onTestFinished, test } from "vitest";
 
 import { ENV_ALLOWLIST } from "../src/harness/env.ts";
 import { runAgent, updatesOf, type AgentUnderTest } from "./acp-client.ts";
-import type { FakeScenario } from "./fake-agent.ts";
+import { type FakeScenario, HOSTILE } from "./fake-agent.ts";
 import { fakeHarness } from "./fake-harness.ts";
 
 /** Per-row timeout, in one place: each row is a process start plus a few messages. */
@@ -137,6 +137,21 @@ const rows: Row[] = [
 
       await run.agent.notify("session/cancel", { sessionId });
       expect((await prompt).stopReason).toBe("cancelled");
+    },
+  },
+  {
+    // S7: the desktop e2e's hostile content reaches a client intact, every update in the shared schema.
+    scenario: "hostile",
+    answer: "allow_once",
+    play: async (run) => {
+      const response = await run.prompt(await run.newSession(cwd), "Show me everything");
+      expect(response.stopReason).toBe("end_turn");
+      const sent = JSON.stringify(updatesOf(run));
+      expect(sent).toContain(JSON.stringify(HOSTILE.markdown("message")).slice(1, -1));
+      expect(sent).toContain(JSON.stringify(HOSTILE.html("plan entry")).slice(1, -1));
+      expect(sent.length).toBeGreaterThan(HOSTILE.hugeChars);
+      expect(run.received.filter((item) => item.type === "permission")).toHaveLength(2);
+      expect(sent).toContain(JSON.stringify(HOSTILE.edit().path).slice(1, -1));
     },
   },
 ];

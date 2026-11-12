@@ -2,9 +2,10 @@
 // wrong family (a direct write in `propose`, a proposal in `edit`), or a change touching a locked field is refused
 // with the code that says what to do (naming the tool or the field), and changes no file and stores no proposal.
 // A create may set a locked title or body (every item needs them), never a locked property.
+import type { AccessErrorCode } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
-import type { Access, AccessErrorCode } from "./access.ts";
+import type { Access } from "./access.ts";
 import { AGENT, expectRefused, openAccessRoot, snapshotFiles } from "../../test/access-fixtures.ts";
 
 type Case = { what: string; code: AccessErrorCode; names?: string; call: (access: Access, version: (handle: string) => Promise<string>) => Promise<unknown> };

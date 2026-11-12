@@ -6,19 +6,18 @@ import { randomUUIDv7 } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
+import { ItemWriteErrorCode } from "@wombat/shared/api";
+import { isAlreadyThere, isMissingPath } from "@wombat/shared/errno";
 import { ITEM_FIELDS, OWN_KEYS, type Problem, type StructureSettings } from "@wombat/shared/items";
 import { stringify } from "yaml";
 
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { findByHandle, isClash, loadItem, readRoot, type LoadedItem, type LoadedStructure, type NamedProblem, type ProblemNames, type RootRead, type ValidStructure } from "./catalog.ts";
-import { isAlreadyThere, isMissingPath } from "./errno.ts";
 import { NoHardLinks, queueWrite, readAtVersion, removeUnchanged, VersionChanged, versionOf, writeAtomic, type VersionedFile } from "./files.ts";
 import { bodyEdit, checkedText, parseItemFile, readsBackAs, setKeyEdits, titleEdit, type ParsedItemFile } from "./item-file.ts";
 import { inFolder, isIncluded, isSkippedPath, joinRootPath, SETTINGS_FILE, throughSymlink } from "./structures.ts";
 import { formatHandle, setOwn, validateProperties, type LinkLookup } from "./validate.ts";
-
-export type ItemWriteErrorCode = "stale_version" | "invalid_fields" | "item_not_found" | "structure_not_found" | "field_not_writable" | "items_not_writable";
 
 /**
  * Why a write was refused; nothing on disk changed. The message is for people and may show root-relative paths;
@@ -95,7 +94,7 @@ const yamlValue = (value: unknown) => {
   return text.includes("\n") ? JSON.stringify(value) : text;
 };
 
-const invalid = (message: string, problems: NamedProblem[]) => new ItemWriteError("invalid_fields", message, problems);
+const invalid = (message: string, problems: NamedProblem[]) => new ItemWriteError(ItemWriteErrorCode.enum.invalid_fields, message, problems);
 
 /** The problems' messages, for an error message. */
 export const listed = (problems: readonly Problem[]) => problems.map((problem) => problem.message).join("; ");
@@ -108,7 +107,7 @@ const refuseOwnKeys = (keys: string[], what: string) => {
   const own = keys.filter((key) => OWN_KEYS.has(key));
   if (own.length > 0) {
     throw new ItemWriteError(
-      "field_not_writable",
+      ItemWriteErrorCode.enum.field_not_writable,
       `${own.join(", ")}: the service sets ${own.length === 1 ? "this field" : "these fields"}, so ${what} can't; leave ${own.length === 1 ? "it" : "them"} out (a handle changes only by hand, with the old one kept in aliases).`,
     );
   }
@@ -120,7 +119,7 @@ const refuseOwnKeys = (keys: string[], what: string) => {
  */
 export class StructureProblemsError extends ItemWriteError {
   constructor(message: string, problems: NamedProblem[]) {
-    super("invalid_fields", message, problems);
+    super(ItemWriteErrorCode.enum.invalid_fields, message, problems);
     this.name = "StructureProblemsError";
   }
 }
@@ -139,7 +138,7 @@ const checkBody = (body: unknown): NamedProblem[] => (typeof body === "string" ?
 const writableStructureById = (read: RootRead, id: string) => {
   const structure = read.snapshot.structures.find((candidate): candidate is ValidStructure => candidate.id === id);
   if (structure === undefined) {
-    throw new ItemWriteError("structure_not_found", `No structure has the id ${id}; use the id from its ${SETTINGS_FILE} (a structure with broken settings has none until it's fixed).`);
+    throw new ItemWriteError(ItemWriteErrorCode.enum.structure_not_found, `No structure has the id ${id}; use the id from its ${SETTINGS_FILE} (a structure with broken settings has none until it's fixed).`);
   }
   return structure;
 };
@@ -243,7 +242,7 @@ const checkFreeFile = async (root: string, structure: ValidStructure, file: unkn
 const writableItem = async (root: string, read: RootRead, handle: string, baseVersion: string, action: "updated" | "deleted") => {
   const { items, structures } = read.snapshot;
   const item = findByHandle(items, handle);
-  if (item === undefined) throw new ItemWriteError("item_not_found", `No item has the handle ${handle}; check it, or list the structure's items to find the right one.`);
+  if (item === undefined) throw new ItemWriteError(ItemWriteErrorCode.enum.item_not_found, `No item has the handle ${handle}; check it, or list the structure's items to find the right one.`);
   const structure = structures.find((candidate): candidate is ValidStructure => candidate.id === item.structure);
   if (structure === undefined) throw new Error(`The item ${handle} was read in the structure ${item.structure}, which the same read doesn't list.`);
   // A handle other files share is refused before the version: which file the caller read can't be told, so
@@ -253,7 +252,7 @@ const writableItem = async (root: string, read: RootRead, handle: string, baseVe
     throw invalid(`${handle} names more than one file (${listed(shared)}), so it can't be ${action}; fix the handles by hand first.`, shared);
   }
   const stale = () =>
-    new ItemWriteError("stale_version", `${handle} changed since it was read (by hand or by another write), so it wasn't ${action}; read it again and redo the change on the new version.`);
+    new ItemWriteError(ItemWriteErrorCode.enum.stale_version, `${handle} changed since it was read (by hand or by another write), so it wasn't ${action}; read it again and redo the change on the new version.`);
   let current: VersionedFile;
   try {
     // Read again rather than trust the full read above: it took a while, and a hand edit may have landed since.
@@ -286,7 +285,7 @@ const staleIfChanged = async (handle: string, action: string, write: () => Promi
     await write();
   } catch (error) {
     if (!(error instanceof VersionChanged)) throw error;
-    throw new ItemWriteError("stale_version", `${handle} changed while it was being ${action} (by hand or by another program), so it wasn't; read it again and redo the change.`);
+    throw new ItemWriteError(ItemWriteErrorCode.enum.stale_version, `${handle} changed while it was being ${action} (by hand or by another program), so it wasn't; read it again and redo the change.`);
   }
 };
 
@@ -334,7 +333,7 @@ const checkUpdate = async (root: string, handle: string, fields: Record<string, 
   const { item, structure, current } = await writableItem(root, read, handle, baseVersion, "updated");
   const parsed = parseItemFile(current.text);
   // The file is at the base version and the full read saw these same bytes without a parse problem, so it parses.
-  if (!parsed.ok) throw new ItemWriteError("stale_version", `${handle} changed since it was read, so it wasn't updated; read it again and redo the change.`);
+  if (!parsed.ok) throw new ItemWriteError(ItemWriteErrorCode.enum.stale_version, `${handle} changed since it was read, so it wasn't updated; read it again and redo the change.`);
 
   const problems: NamedProblem[] = [];
   let title = parsed.title;
@@ -392,7 +391,7 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
       try {
         await writeAtomic(join(root, path), text, { create: true });
       } catch (error) {
-        if (error instanceof NoHardLinks) throw new ItemWriteError("items_not_writable", error.message);
+        if (error instanceof NoHardLinks) throw new ItemWriteError(ItemWriteErrorCode.enum.items_not_writable, error.message);
         if (!isAlreadyThere(error)) throw error;
         // The problem names the file as the structure sees it: the root-relative path would show the folders above.
         throw invalid(`${path} was created by someone else meanwhile; nothing was written, so try again${settings.naming === "free" ? " with another file" : ""}.`, [

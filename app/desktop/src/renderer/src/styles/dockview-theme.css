@@ -1,0 +1,63 @@
+/*
+ * The editor area's dockview theme: every --dv-* variable comes from tokens.css. Tab strips are chrome (surface-0),
+ * the active tab and the content sit on surface-1, and groups are told apart by a single line.
+ */
+.dockview-theme-wombat {
+  color-scheme: dark;
+  --dv-paneview-active-outline-color: var(--focus);
+  --dv-tabs-and-actions-container-font-size: var(--font-size-base);
+  --dv-tabs-and-actions-container-height: var(--size-tab-strip);
+  --dv-drag-over-background-color: var(--surface-3);
+  --dv-drag-over-border-color: transparent;
+  --dv-edge-dock-indicator-color: var(--focus);
+  --dv-tabs-container-scrollbar-color: var(--line-strong);
+  --dv-icon-hover-background-color: var(--surface-3);
+  --dv-floating-box-shadow: none;
+  --dv-floating-border: none;
+  --dv-overlay-z-index: 999;
+  --dv-tab-font-size: var(--font-size-sm);
+  --dv-border-radius: 0px;
+  --dv-tab-margin: 0;
+  --dv-sash-color: transparent;
+  --dv-active-sash-color: transparent;
+  --dv-active-sash-transition-duration: var(--duration-base);
+  --dv-active-sash-transition-delay: var(--duration-fast);
+  --dv-spacing-padding: 0px;
+  --dv-tab-border-radius: 0px;
+  --dv-sash-border-radius: 0px;
+  --dv-dropdown-border-radius: 0px;
+  --dv-tab-close-icon-size: inherit;
+  --dv-floating-group-border: none;
+  --dv-drag-over-border: none;
+  --dv-floating-group-dragging-opacity: 0.5;
+  --dv-floating-titlebar-height: var(--size-tab-strip);
+  --dv-floating-titlebar-background-color: var(--surface-0);
+  --dv-floating-titlebar-border-bottom: none;
+
+  --dv-group-view-background-color: var(--surface-1);
+  --dv-tabs-and-actions-container-background-color: var(--surface-0);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--surface-1);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--surface-0);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--surface-1);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--surface-0);
+  --dv-tab-divider-color: var(--line-subtle);
+  --dv-activegroup-visiblepanel-tab-color: var(--fg-primary);
+  --dv-activegroup-hiddenpanel-tab-color: var(--fg-tertiary);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--fg-secondary);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--fg-tertiary);
+  --dv-separator-border: var(--line);
+  --dv-paneview-header-border-color: var(--line);
+}
+
+/* The strip's lower edge, which the active tab breaks. */
+.dockview-theme-wombat .dv-tabs-and-actions-container {
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+.dockview-theme-wombat .dv-tab.dv-active-tab {
+  box-shadow: 0 1px 0 var(--surface-1);
+}
+
+/* The close mark shows on the active tab, on hover and for the keyboard. */
+.dockview-theme-wombat .dv-tab.dv-inactive-tab .dv-default-tab:focus-within .dv-default-tab-action {
+  visibility: visible;
+}

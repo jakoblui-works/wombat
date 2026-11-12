@@ -18,4 +18,9 @@ export default defineConfig(
       "func-style": ["error", "expression"],
     },
   },
+  {
+    // shadcn's generated components keep their own style, so the shadcn CLI can update them.
+    files: ["desktop/src/renderer/src/components/ui/**"],
+    rules: { "func-style": "off" },
+  },
 );

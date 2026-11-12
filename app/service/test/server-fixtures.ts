@@ -5,6 +5,7 @@
 import { randomBytes } from "node:crypto";
 import { request as httpRequest, type IncomingHttpHeaders, type IncomingMessage } from "node:http";
 
+import { APP_ORIGIN } from "@wombat/shared";
 import { ErrorBody } from "@wombat/shared/api";
 import { expect, onTestFinished } from "vitest";
 
@@ -13,7 +14,7 @@ import { openWriter } from "../src/items/write.ts";
 import { startServer } from "../src/server/server.ts";
 import { ALL_SCENARIOS, REPO, setup, trackedHarness, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
 
-export const APP_ORIGIN = "app://wombat";
+export { APP_ORIGIN };
 
 /**
  * Every route of the app's contract, on a real agent and request id, plus a path no route has: the port rules
@@ -22,6 +23,7 @@ export const APP_ORIGIN = "app://wombat";
 export const appRoutes = (agentId: string): { method: string; path: string; body?: unknown }[] => [
   { method: "GET", path: "/version" },
   { method: "GET", path: "/harnesses" },
+  { method: "GET", path: "/repos" },
   { method: "GET", path: "/agents" },
   { method: "POST", path: "/agents", body: { harness: "fake-reply", repo: REPO } },
   { method: "GET", path: `/agents/${agentId}/log` },
@@ -30,6 +32,7 @@ export const appRoutes = (agentId: string): { method: string; path: string; body
   { method: "POST", path: `/agents/${agentId}/cancel` },
   { method: "POST", path: `/agents/${agentId}/stop` },
   { method: "DELETE", path: `/agents/${agentId}` },
+  { method: "POST", path: "/shutdown" },
   { method: "GET", path: "/events" },
   { method: "GET", path: "/structures" },
   { method: "GET", path: "/structures/bugs/items" },
@@ -252,6 +255,8 @@ export type Served = Setup & {
   close: () => Promise<void>;
   /** How many of the server's onCommitted subscriptions are live (subscribed and not yet unsubscribed). */
   subscriptions: () => number;
+  /** How often the server asked to shut down: its onShutdown hook or the manager's shutdown. */
+  shutdownRequests: () => number;
 };
 
 /** A manager fixture behind a running server; everything is torn down after the test. */
@@ -262,8 +267,14 @@ export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentToke
   // The server gets the manager with onCommitted counted, so tests can see subscriptions it leaves behind, and with
   // the stub agent tokens.
   let live = 0;
+  // Counted rather than run for the hook: the real one exits the process.
+  let shutdownRequests = 0;
   const manager: Setup["manager"] = {
     ...t.manager,
+    shutdown: () => {
+      shutdownRequests += 1;
+      return t.manager.shutdown();
+    },
     agentForToken: (sent) => (Object.hasOwn(agentTokens, sent) ? agentTokens[sent] : t.manager.agentForToken(sent)),
     onCommitted: (listener) => {
       live += 1;
@@ -282,7 +293,11 @@ export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentToke
     manager,
     store: t.store,
     harnesses,
+    workspaceRoot: t.root,
     token,
+    onShutdown: () => {
+      shutdownRequests += 1;
+    },
     ...(heartbeatMs === undefined ? {} : { heartbeatMs }),
     ...(defaultLogLimit === undefined ? {} : { defaultLogLimit }),
     ...(itemsRoot === undefined
@@ -308,6 +323,7 @@ export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentToke
     port: server.port,
     token,
     subscriptions: () => live,
+    shutdownRequests: () => shutdownRequests,
     harnessIds: harnesses.map((harness) => harness.id),
     api: (method: string, path: string, body?: unknown, headers?: Record<string, string>) =>
       rawRequest(server.port, { method, path, body, headers: authorized(headers) }),

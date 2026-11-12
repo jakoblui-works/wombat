@@ -1,11 +1,13 @@
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
+import { APP_ORIGIN } from "@wombat/shared";
 
-// The built renderer is served from `app://wombat/`, a fixed origin of the app's own, instead
-// of file:// (which would put every file on the disk one navigation away).
-export const APP_SCHEME = "app";
-export const APP_HOST = "wombat";
-export const APP_INDEX_URL = `${APP_SCHEME}://${APP_HOST}/index.html`;
+// The built renderer is served from APP_ORIGIN, a fixed origin of the app's own, instead of
+// file:// (which would put every file on the disk one navigation away).
+const appOrigin = new URL(APP_ORIGIN);
+export const APP_SCHEME = appOrigin.protocol.slice(0, -1);
+export const APP_HOST = appOrigin.host;
+export const APP_INDEX_URL = `${APP_ORIGIN}/index.html`;
 
 // Node's URL gives non-special schemes an opaque origin ("null"), so compare scheme and host.
 export const isAppOrigin = (url: string): boolean => {
@@ -18,6 +20,16 @@ export const isAppOrigin = (url: string): boolean => {
     parsed.password === ""
   );
 };
+
+/** The app's own pages: APP_ORIGIN, or in development (`devUrl` set) the dev server's origin instead. */
+export const isAppUrl = (url: string, devUrl: string | undefined): boolean => {
+  if (devUrl !== undefined) return URL.parse(url)?.origin === new URL(devUrl).origin;
+  return isAppOrigin(url);
+};
+
+/** Whether a bridge call's sending frame is the app's own page; a call without a frame (it's gone) isn't. */
+export const isBridgeSender = (frameUrl: string | null | undefined, devUrl: string | undefined): boolean =>
+  typeof frameUrl === "string" && isAppUrl(frameUrl, devUrl);
 
 const isInside = (root: string, target: string): boolean => target.startsWith(root + path.sep);
 

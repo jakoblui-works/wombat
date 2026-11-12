@@ -5,5 +5,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src/main", "src/preload", "electron.vite.config.ts", "playwright.config.ts"]
+  "include": ["src/main", "src/preload", "test", "electron.vite.config.ts", "playwright.config.ts"]
 }

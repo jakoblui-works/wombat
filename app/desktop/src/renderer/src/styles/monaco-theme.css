@@ -1,0 +1,25 @@
+/*
+ * Monaco's colours from the tokens: its dark theme (lib/monaco.ts) keeps the syntax colours; the surfaces, line
+ * numbers and diff lines below come from tokens.css, like the chat's inline diff. Monaco sets its --vscode-* variables
+ * on .monaco-editor; these win inside the host class.
+ */
+.monaco-wombat .monaco-editor,
+.monaco-wombat .monaco-diff-editor {
+  --vscode-editor-background: var(--surface-1);
+  --vscode-editorGutter-background: var(--surface-1);
+  --vscode-editor-foreground: var(--fg-primary);
+  --vscode-editorLineNumber-foreground: var(--fg-tertiary);
+  --vscode-editorLineNumber-activeForeground: var(--fg-secondary);
+  --vscode-diffEditor-insertedLineBackground: var(--success-subtle);
+  --vscode-diffEditor-insertedTextBackground: var(--success-subtle);
+  --vscode-diffEditor-removedLineBackground: var(--danger-subtle);
+  --vscode-diffEditor-removedTextBackground: var(--danger-subtle);
+  --vscode-diffEditor-border: var(--line);
+  --vscode-diffEditor-diagonalFill: var(--line-subtle);
+  --vscode-diffEditor-unchangedRegionBackground: var(--surface-2);
+  --vscode-diffEditor-unchangedRegionForeground: var(--fg-secondary);
+  --vscode-diffEditor-unchangedCodeBackground: var(--surface-1);
+  --vscode-scrollbarSlider-background: var(--line);
+  --vscode-scrollbarSlider-hoverBackground: var(--line-strong);
+  --vscode-scrollbarSlider-activeBackground: var(--line-strong);
+}

@@ -4,11 +4,12 @@
 //
 // Content is stored by the service and read through the API as entries. The stream
 // (`GET /events`) sends alerts only, each after its change is committed: an alert says that
-// something changed, never what. A heartbeat comment line (`: ping`) every ~15 s keeps the
-// stream open and isn't an alert.
+// something changed, never what. A heartbeat comment line (`: ping`) every HEARTBEAT_MS keeps
+// the stream open and isn't an alert.
 import { z } from "zod";
 
 import { Item, ItemSummary, knownItems, Proposal, ProposalStatus, StructureSummary } from "./items.ts";
+import { MAX_BODY_BYTES } from "./routes.ts";
 
 const Seq = z.int().nonnegative();
 const Timestamp = z.iso.datetime({ offset: true });
@@ -91,21 +92,130 @@ const ErrorDetail = z.object({
 export const ErrorBody = z.object({ error: ErrorDetail });
 export type ErrorBody = z.infer<typeof ErrorBody>;
 
+// Error codes: `ErrorBody.code` stays a plain string on read (a newer service may add codes), but every code the
+// service sends is one of these, so the app can switch on them by name.
+
 /**
- * The items routes' error codes: `items_not_configured` when the service runs without an items root,
- * `structure_not_found` and `item_not_found` for an unknown structure id or handle, `items_not_writable` when the
- * items root's filesystem can't take the service's writes. The proposal routes add `proposal_not_found` for an
- * unknown proposal id and `proposal_not_pending` for one already decided.
+ * Any route, before it runs: `unauthorized` without the discovery file's token, or on /mcp without a live agent
+ * token; `forbidden_origin` for an Origin other than the app's; `forbidden_host` for a Host other than the bound
+ * loopback address. The app re-reads the discovery file and reconnects; it never retries with the same token.
+ * Then, per request: `payload_too_large` for a body over 1 MiB, `invalid_request` for a body or query off the
+ * contract (a bug in the app: show the message), `not_found` for an unknown route, `method_not_allowed` for
+ * /events or /mcp with the wrong method, `internal_error` when the service failed (show the message; the request
+ * may be retried).
+ */
+export const ServerErrorCode = z.enum([
+  "unauthorized",
+  "forbidden_origin",
+  "forbidden_host",
+  "payload_too_large",
+  "invalid_request",
+  "not_found",
+  "method_not_allowed",
+  "internal_error",
+]);
+export type ServerErrorCode = z.infer<typeof ServerErrorCode>;
+
+/** The message for a body over MAX_BODY_BYTES: the service's `payload_too_large`, and the app's refusal before sending. */
+export const BODY_OVER_CAP_MESSAGE = `The request body is over ${String(MAX_BODY_BYTES / 1024 / 1024)} MiB, more than the service takes. Send a shorter one.`;
+
+/**
+ * `POST /agents` when the repo path doesn't name a folder in the workspace (`repo_not_found`) or leads out of it
+ * through a symlink (`repo_outside_workspace`). The app shows the message and lets the user pick another repo.
+ */
+export const RepoErrorCode = z.enum(["repo_not_found", "repo_outside_workspace"]);
+export type RepoErrorCode = z.infer<typeof RepoErrorCode>;
+
+/**
+ * The agent routes' error codes, and an agent summary's `error.code`:
+ * - `not_found`: no agent with that id (any `/agents/:id` route), or no open permission request with that id
+ *   (`POST /agents/:id/permissions/:requestId`). The app refetches the agents or the log.
+ * - `busy`: `POST /agents/:id/messages` while a turn runs. The app waits for the turn to end, or cancels it.
+ * - `not_running`: a command to a stopped or exited agent, or to a service shutting down. The app offers a new
+ *   agent; the history stays readable.
+ * - `kind_not_offered`: a permission answer the agent didn't offer. The app answers with an offered kind.
+ * - `unknown_harness` and the RepoErrorCode codes: `POST /agents` with a harness or repo that doesn't exist.
+ * - `auth_required`: `POST /agents` when the harness needs a login. The app tells the user to log in.
+ * - `agent_failed`: `POST /agents` when the agent didn't start; as a summary's `error.code`, a turn that failed
+ *   or a process that ended unexpectedly. The app shows the message and offers a new agent.
+ */
+export const AgentErrorCode = z.enum([
+  "not_found",
+  "busy",
+  "not_running",
+  "kind_not_offered",
+  "auth_required",
+  "unknown_harness",
+  ...RepoErrorCode.options,
+  "agent_failed",
+]);
+export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
+
+/**
+ * `POST /proposals/:id/approve` and `/reject`: `proposal_not_found` for an unknown proposal id,
+ * `proposal_not_pending` for one already decided. The app refetches the proposals.
+ */
+export const ProposalErrorCode = z.enum(["proposal_not_found", "proposal_not_pending"]);
+export type ProposalErrorCode = z.infer<typeof ProposalErrorCode>;
+
+/**
+ * The items routes' error codes: `items_not_configured` when the service runs without an items root (the app hides
+ * the items views), `structure_not_found` and `item_not_found` for an unknown structure id or handle (the app
+ * refetches the structures). The proposal routes add the ProposalErrorCode codes. `items_not_writable` is reserved
+ * for a write the items root's filesystem can't take; no route sends it yet: such a failure on approve answers
+ * `internal_error`.
  */
 export const ItemsErrorCode = z.enum([
   "items_not_configured",
   "structure_not_found",
   "item_not_found",
   "items_not_writable",
-  "proposal_not_found",
-  "proposal_not_pending",
+  ...ProposalErrorCode.options,
 ]);
 export type ItemsErrorCode = z.infer<typeof ItemsErrorCode>;
+
+/**
+ * Why the item writer refused a write; nothing on disk changed. Internal to the service, never sent. On /mcp the
+ * access module turns each one but `items_not_writable` into an AccessErrorCode refusal (the agent gets its message);
+ * approving a proposal turns them into a `conflict` proposal. `items_not_writable` fails the call: /mcp answers the
+ * agent with a generic failure, approve answers `internal_error`.
+ */
+export const ItemWriteErrorCode = z.enum([
+  "stale_version",
+  "invalid_fields",
+  "item_not_found",
+  "structure_not_found",
+  "field_not_writable",
+  "items_not_writable",
+]);
+export type ItemWriteErrorCode = z.infer<typeof ItemWriteErrorCode>;
+
+/**
+ * Why /mcp refused an agent's items tool call: `not_found` (no such item or structure the agent may see),
+ * `read_only`, `use_propose` or `use_edit` (the structure's level calls for another tool), `locked` (a locked field),
+ * `stale_version` (the item changed since the agent read it), `invalid_fields` (the values don't fit the structure).
+ * The agent gets only the message, which says what to do next; the app never sees these.
+ */
+export const AccessErrorCode = z.enum([
+  "not_found",
+  "read_only",
+  "use_propose",
+  "use_edit",
+  "locked",
+  "stale_version",
+  "invalid_fields",
+]);
+export type AccessErrorCode = z.infer<typeof AccessErrorCode>;
+
+/** Every error code the service uses; `errorResponse` sends only these. */
+export const ErrorCode = z.union([
+  ServerErrorCode,
+  AgentErrorCode,
+  ItemsErrorCode,
+  ItemWriteErrorCode,
+  AccessErrorCode,
+]);
+export type ErrorCode = z.infer<typeof ErrorCode>;
 
 export const VersionResponse = z.object({ apiVersion: z.int() });
 export type VersionResponse = z.infer<typeof VersionResponse>;
@@ -113,7 +223,23 @@ export type VersionResponse = z.infer<typeof VersionResponse>;
 export const ListHarnessesResponse = z.array(z.object({ id: z.string(), name: z.string() }));
 export type ListHarnessesResponse = z.infer<typeof ListHarnessesResponse>;
 
-export const AgentSummary = z.object({
+/** The folders an agent may start in: the workspace root (`path: "."`) first, then its git repos by name. */
+export const ListReposResponse = z.object({ repos: z.array(z.object({ path: z.string(), name: z.string() })) });
+export type ListReposResponse = z.infer<typeof ListReposResponse>;
+
+// Newer ACP tool kinds read as "other".
+const ToolKind = z
+  .enum(["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other"])
+  .catch("other");
+
+/**
+ * An open permission request, as the agent list shows it. `title` and `kind` come from the request's tool call, else
+ * from the latest stored `tool_call`/`tool_call_update` with its id, else `""` and `"other"`; `at` is its
+ * `permission_requested` entry's time.
+ */
+const PendingPermission = z.object({ requestId: z.string(), at: Timestamp, title: z.string(), kind: ToolKind });
+
+const AgentSummaryFields = z.object({
   id: z.string(),
   harness: z.string(),
   repo: z.string(),
@@ -124,8 +250,59 @@ export const AgentSummary = z.object({
   startedAt: Timestamp,
   lastActivityAt: Timestamp,
   error: ErrorDetail.exactOptional(),
+  /**
+   * The agent folder's current local branch, read when the agent starts and at each turn's end. Absent outside a git
+   * repo, on a detached HEAD, or when the read failed.
+   */
+  branch: z.string().exactOptional(),
+  /**
+   * A short excerpt of the latest agent message's text (whitespace folded, trimmed). Current at least each time a
+   * turn ends; replaced, not appended, by the next message, and cleared when the latest message has no text (an
+   * image only). Absent until the agent sends text.
+   */
+  lastText: z.string().exactOptional(),
+  /** When the service last accepted a message or a permission answer from the app; never cleared. */
+  lastUserAt: Timestamp.exactOptional(),
+  /**
+   * The agent's open permission requests, oldest first. A row appears when the agent asks and leaves when the request
+   * is answered, the turn is cancelled or ends, or the agent stops or exits; a service restart clears them all.
+   * `[]` when reading a summary from before the field existed.
+   */
+  pendingPermissions: z.array(PendingPermission).default([]),
+  /**
+   * Whether the agent's process runs, whatever its state (a done agent, or an error one after a failed turn, may
+   * still have one): what Stop and the quit count go by. True once the process runs and the summary is stored;
+   * false once the process ends (stopped, exited or crashed) and for every agent a restarted service loads. When
+   * reading a summary from before the field existed, true if the agent is running (see `isRunning`), so the app
+   * still offers Stop and asks before quitting.
+   */
+  hasProcess: z.boolean(),
 });
+
+export const AgentSummary = z.preprocess(
+  (value: unknown): unknown =>
+    typeof value === "object" && value !== null && (value as { hasProcess?: unknown }).hasProcess === undefined
+      ? { ...value, hasProcess: isRunning(value as Pick<z.infer<typeof AgentSummaryFields>, "state">) }
+      : value,
+  AgentSummaryFields,
+);
 export type AgentSummary = z.infer<typeof AgentSummary>;
+
+/** Whether the agent waits on the user: the one rule for the app's "needs me" list and its waiting notifications. */
+export const isWaiting = (agent: Pick<AgentSummary, "state"> | undefined): boolean => agent?.state === "waiting";
+
+/**
+ * Whether the agent is busy (working, or waiting on the user): the one rule for when a chat's turn and requests can
+ * still be live. Whether it has a process (what Stop and the quit count go by) is `hasProcess`.
+ */
+export const isRunning = (agent: Pick<AgentSummary, "state"> | undefined): boolean => agent?.state === "working" || agent?.state === "waiting";
+
+/**
+ * A permission request's title: its own tool call's, else its tool's (the latest tool call with its id), else `""`.
+ * An empty own title counts as none. The one rule for the agent list's open requests and the chat's request cards.
+ */
+export const permissionTitle = (own: string | null | undefined, toolTitle: string | null | undefined): string =>
+  own === undefined || own === null || own === "" ? (toolTitle ?? "") : own;
 
 export const ListAgentsResponse = z.object({ dbId: DbId, seq: Seq, agents: z.array(AgentSummary) });
 export type ListAgentsResponse = z.infer<typeof ListAgentsResponse>;
@@ -151,10 +328,6 @@ const ContentBlock = z.union([
     })),
 ]);
 
-// Newer ACP tool kinds read as "other".
-const ToolKind = z
-  .enum(["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other"])
-  .catch("other");
 const ToolCallStatus = z.enum(["pending", "in_progress", "completed", "failed"]);
 
 /** Drops `status` when it isn't one we know (newer ACP), instead of failing the whole tool call. */
@@ -177,35 +350,54 @@ const ToolCallContent = z.discriminatedUnion("type", [
 
 const ToolCallLocation = z.object({ path: z.string(), line: z.number().nullable().exactOptional() });
 
-const toolCallUpdateFields = {
+/**
+ * A tool call's fields. `tool_call` requires the id and title and may leave out the rest; `tool_call_update` (and a
+ * permission request's tool call) requires only the id, and any other field may also be null.
+ */
+const toolCallFields = {
   toolCallId: z.string(),
-  title: z.string().nullable().exactOptional(),
-  kind: ToolKind.nullable().exactOptional(),
-  status: z.unknown().exactOptional(),
-  content: knownItems(ToolCallContent).nullable().exactOptional(),
-  locations: knownItems(ToolCallLocation).nullable().exactOptional(),
-  rawInput: z.unknown().exactOptional(),
-  rawOutput: z.unknown().exactOptional(),
+  title: z.string(),
+  kind: ToolKind,
+  status: z.unknown(),
+  content: knownItems(ToolCallContent),
+  locations: knownItems(ToolCallLocation),
+  rawInput: z.unknown(),
+  rawOutput: z.unknown(),
+};
+const { toolCallId, title, ...toolCallDetails } = toolCallFields;
+
+const nullable = <T extends Record<string, z.ZodType>>(fields: T) =>
+  Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.nullable()])) as {
+    [K in keyof T]: z.ZodNullable<T[K]>;
+  };
+
+const toolCallUpdateFields = {
+  toolCallId,
+  ...z.object(nullable({ title, ...toolCallDetails })).exactPartial().shape,
 };
 const ToolCallUpdateFields = z.object(toolCallUpdateFields).transform(knownStatus(ToolCallStatus.nullable()));
 
+const contentChunkFields = { messageId: z.string().nullable().exactOptional(), content: ContentBlock };
+
+/** A plan entry; newer ACP priorities read as "medium", newer statuses as "pending". */
+const PlanEntry = z.object({
+  content: z.string(),
+  priority: z.enum(["high", "medium", "low"]).catch("medium"),
+  status: z.enum(["pending", "in_progress", "completed"]).catch("pending"),
+});
+
 export const SessionUpdate = z.discriminatedUnion("sessionUpdate", [
-  z.object({
-    sessionUpdate: z.literal("agent_message_chunk"),
-    messageId: z.string().nullable().exactOptional(),
-    content: ContentBlock,
-  }),
+  z.object({ sessionUpdate: z.literal("agent_message_chunk"), ...contentChunkFields }),
+  /** The agent's reasoning, shaped as a message chunk. */
+  z.object({ sessionUpdate: z.literal("agent_thought_chunk"), ...contentChunkFields }),
+  /** The agent's whole current plan: each one replaces the last. */
+  z.object({ sessionUpdate: z.literal("plan"), entries: z.array(PlanEntry) }),
   z
     .object({
       sessionUpdate: z.literal("tool_call"),
-      toolCallId: z.string(),
-      title: z.string(),
-      kind: ToolKind.exactOptional(),
-      status: z.unknown().exactOptional(),
-      content: knownItems(ToolCallContent).exactOptional(),
-      locations: knownItems(ToolCallLocation).exactOptional(),
-      rawInput: z.unknown().exactOptional(),
-      rawOutput: z.unknown().exactOptional(),
+      toolCallId,
+      title,
+      ...z.object(toolCallDetails).exactPartial().shape,
     })
     .transform(knownStatus(ToolCallStatus)),
   z
@@ -257,6 +449,13 @@ export type ListProposalsResponse = z.infer<typeof ListProposalsResponse>;
 // Log entries (lenient): an agent's stored history, read through `GET /agents/:id/log`.
 
 const logEntryFields = { seq: Seq, agentId: z.string(), at: Timestamp };
+
+/**
+ * The stop reasons the service itself writes in `turn_ended`, besides ACP's: "error" (the turn failed) and "stopped"
+ * (the agent's process ended during the turn).
+ */
+export const SERVICE_STOP_REASON = { error: "error", stopped: "stopped" } as const;
+
 /** The ACP session an update or permission request came from; one agent may run more than one (sub-agents). */
 const SessionId = z.string().exactOptional();
 
@@ -283,6 +482,10 @@ export const LogEntry = z.discriminatedUnion("type", [
     requestId: z.string(),
     kind: PermissionKind,
   }),
+  /**
+   * Ends each turn. Besides ACP's stop reasons, the service writes those in `SERVICE_STOP_REASON`. Older logs may
+   * lack these two, leaving such a turn without an end.
+   */
   z.object({ ...logEntryFields, type: z.literal("turn_ended"), stopReason: z.string().min(1) }),
 ]);
 export type LogEntry = z.infer<typeof LogEntry>;
@@ -290,6 +493,8 @@ export type LogEntry = z.infer<typeof LogEntry>;
 const logEntryTypes = new Set<unknown>(LogEntry.options.map((option) => option.shape.type.value));
 const updateKinds: Record<SessionUpdate["sessionUpdate"], true> = {
   agent_message_chunk: true,
+  agent_thought_chunk: true,
+  plan: true,
   tool_call: true,
   tool_call_update: true,
   session_info_update: true,
@@ -328,6 +533,9 @@ export const ListLogResponse = z.object({
 export type ListLogResponse = z.infer<typeof ListLogResponse>;
 
 // Alerts (lenient), sent over `GET /events` after the change is committed.
+
+/** How often the service writes the heartbeat on every open `GET /events` stream; a client may drop a stream silent for longer. */
+export const HEARTBEAT_MS = 15_000;
 
 /** The alert type of a proposal change; the other alert types are the agent ones. */
 export const PROPOSAL_ALERT = "proposal";

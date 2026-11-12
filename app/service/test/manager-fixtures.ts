@@ -15,7 +15,7 @@ import { createManager, type Committed } from "../src/agents/manager.ts";
 import { readInstructions } from "../src/items/instructions.ts";
 import type { Harness } from "../src/harness/harness.ts";
 import { openStore, type Store, type StoreOptions } from "../src/store/store.ts";
-import type { FakeScenario } from "./fake-agent.ts";
+import { SCENARIOS, type FakeScenario } from "./fake-agent.ts";
 import { fakeHarness } from "./fake-harness.ts";
 import { fakeSystemd, type FakeSystemd, type FakeSystemdOptions } from "./fake-systemd.ts";
 
@@ -44,21 +44,7 @@ export const trackedHarness = (scenario: FakeScenario, pidDir: string): Harness 
   };
 };
 
-export const ALL_SCENARIOS: FakeScenario[] = [
-  "reply",
-  "permission",
-  "image",
-  "auth",
-  "crash",
-  "hang",
-  "noisy",
-  "spawn-child",
-  "unknown-update",
-  "detached-holder",
-  "early-update",
-  "mcp-config",
-  "call-tool",
-];
+export const ALL_SCENARIOS: readonly FakeScenario[] = SCENARIOS;
 
 export const isAlive = (pid: number) => {
   try {
@@ -260,4 +246,21 @@ export const childPidOf = (entries: LogEntry[]) => {
     }
   }
   throw new Error("the spawn-child scenario reported no childPid");
+};
+
+/** Runs git in `dir` with no user or system config, so a test doesn't depend on (or sign with) the developer's. */
+export const git = (dir: string, ...args: string[]) => {
+  const result = spawnSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", ...args], {
+    cwd: dir,
+    encoding: "utf8",
+    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_NOSYSTEM: "1" },
+  });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
+  return result.stdout.trim();
+};
+
+/** Makes `dir` a git repo on `branch` with one empty commit. */
+export const gitRepo = (dir: string, branch: string) => {
+  git(dir, "init", "--quiet", "--initial-branch", branch);
+  git(dir, "commit", "--quiet", "--allow-empty", "--message", "Start");
 };

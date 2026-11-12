@@ -50,6 +50,8 @@ export const summary = (id: string, overrides: Partial<AgentSummary> = {}): Agen
   capabilities: { loadSession: false },
   startedAt: "2026-11-09T09:00:00.000Z",
   lastActivityAt: "2026-11-09T09:05:00.000Z",
+  pendingPermissions: [],
+  hasProcess: false,
   ...overrides,
 });
 

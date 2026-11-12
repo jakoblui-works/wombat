@@ -1,0 +1,61 @@
+diff --git a/esm/vs/base/browser/domStylesheets.d.ts b/esm/vs/base/browser/domStylesheets.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..56030b899ab91ac524fcdcc37afb7dbe8394d700
+--- /dev/null
++++ b/esm/vs/base/browser/domStylesheets.d.ts
+@@ -0,0 +1,2 @@
++// wombat: types for the CSP nonce setter only (Monaco ships no types for this module).
++export declare function setCspNonce(nonce: string): void;
+diff --git a/esm/vs/base/browser/domStylesheets.js b/esm/vs/base/browser/domStylesheets.js
+index d8fd1ffcb85bc4aec1e43b8ed3c85143a1e57b47..110faa132fee2534956277a6feed5df91fbc7d59 100644
+--- a/esm/vs/base/browser/domStylesheets.js
++++ b/esm/vs/base/browser/domStylesheets.js
+@@ -33,8 +33,20 @@ class WrappedStyleElement extends Disposable {
+         this._styleSheet = undefined;
+     }
+ }
++// wombat: the page's CSP admits a <style> element only with the page's nonce. The app sets it
++// (setCspNonce) before creating an editor; every <style> Monaco creates goes through withCspNonce.
++let cspNonce;
++function setCspNonce(nonce) {
++    cspNonce = nonce;
++}
++function withCspNonce(style) {
++    if (cspNonce !== undefined) {
++        style.nonce = cspNonce;
++    }
++    return style;
++}
+ function createStyleSheet(container = mainWindow.document.head, beforeAppend, disposableStore) {
+-    const style = document.createElement('style');
++    const style = withCspNonce(document.createElement('style'));
+     style.type = 'text/css';
+     style.media = 'screen';
+     beforeAppend?.(style);
+@@ -124,4 +136,4 @@ function createStyleSheetFromObservable(css) {
+     return store;
+ }
+ 
+-export { createCSSRule, createStyleSheet, createStyleSheetFromObservable, removeCSSRulesContainingSelector };
++export { createCSSRule, createStyleSheet, createStyleSheetFromObservable, removeCSSRulesContainingSelector, setCspNonce, withCspNonce };
+diff --git a/esm/vs/base/browser/ui/contextview/contextview.js b/esm/vs/base/browser/ui/contextview/contextview.js
+index 99926b1a1f7d988326ff31e6d361b909b1dbf090..872b9bbd69d239b779d01aac4e9659040d466504 100644
+--- a/esm/vs/base/browser/ui/contextview/contextview.js
++++ b/esm/vs/base/browser/ui/contextview/contextview.js
+@@ -1,6 +1,6 @@
+ import { BrowserFeatures } from '../../canIUse.js';
+ import { $, hide, addStandardDisposableListener, clearNode, show, getWindow, getActiveWindow, getDomNodePagePosition, getTotalHeight, getTotalWidth, isHTMLElement, isAncestor, getDomNodeZoomLevel } from '../../dom.js';
+-import { createStyleSheet } from '../../domStylesheets.js';
++import { createStyleSheet, withCspNonce } from '../../domStylesheets.js';
+ import { Disposable, toDisposable, DisposableStore } from '../../../common/lifecycle.js';
+ import { layout2d } from '../../../common/layout.js';
+ import { isIOS } from '../../../common/platform.js';
+@@ -178,7 +178,7 @@ class ContextView extends Disposable {
+                 });
+                 this.container.appendChild(this.shadowRootHostElement);
+                 this.shadowRoot = this.shadowRootHostElement.attachShadow({ mode: 'open' });
+-                const style = document.createElement('style');
++                const style = withCspNonce(document.createElement('style')); // wombat: CSP nonce
+                 style.textContent = SHADOW_ROOT_CSS;
+                 this.shadowRoot.appendChild(style);
+                 this.shadowRoot.appendChild(this.view);

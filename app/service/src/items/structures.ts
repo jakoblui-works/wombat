@@ -5,10 +5,9 @@
 import { glob, lstat, readdir, readFile } from "node:fs/promises";
 import { join, matchesGlob, relative, sep } from "node:path";
 
+import { errorCode, isMissing } from "@wombat/shared/errno";
 import { StructureSettings, type Problem } from "@wombat/shared/items";
 import { isCollection, LineCounter, parseDocument, type Document } from "yaml";
-
-import { errorCode, isMissing } from "./errno.ts";
 
 export const SETTINGS_FILE = "_structure.yaml";
 

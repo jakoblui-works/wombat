@@ -4,11 +4,13 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync, writeSync } from "node:fs";
 import { Readable, Transform, Writable } from "node:stream";
 
-import { agent, ndJsonStream, RequestError, type AgentContext, type SessionUpdate } from "@agentclientprotocol/sdk";
+import { agent, ndJsonStream, RequestError, type AgentContext, type PermissionOption, type RequestPermissionResponse, type SessionUpdate } from "@agentclientprotocol/sdk";
 
-const SCENARIOS = [
+export const SCENARIOS = [
   "reply",
   "permission",
+  "permissions-three",
+  "permission-left-open",
   "image",
   "auth",
   "crash",
@@ -21,6 +23,13 @@ const SCENARIOS = [
   "early-update",
   "mcp-config",
   "call-tool",
+  "message-ids",
+  "message-runs",
+  "plan-thought",
+  "hostile",
+  "prompt-error",
+  "stop-error",
+  "replay",
 ] as const;
 
 export type FakeScenario = (typeof SCENARIOS)[number];
@@ -28,12 +37,79 @@ export type FakeScenario = (typeof SCENARIOS)[number];
 const isScenario = (name: string | undefined): name is FakeScenario =>
   (SCENARIOS as readonly (string | undefined)[]).includes(name);
 
+type SdkToolCall = Extract<SessionUpdate, { sessionUpdate: "tool_call" }>;
+
+/**
+ * One step of the replay scenario, whose prompt is a JSON array of them (one turn): `send` sends a session update,
+ * `ask` asks for a permission without waiting for the answer, `awaitAnswers` waits until every request asked so far is
+ * answered. `sub` sends in the sub-agent session `<sessionId>` + REPLAY_SUB_SUFFIX instead of the main one. Requests
+ * still open when the steps run out stay open; the turn ends with end_turn either way.
+ */
+export type ReplayStep =
+  | { send: SessionUpdate; sub?: boolean }
+  | { ask: { toolCallId: string; title?: string; kind?: SdkToolCall["kind"] }; sub?: boolean }
+  | { awaitAnswers: true };
+
+/** Appended to the main session's id to make the replay scenario's sub-agent session. */
+export const REPLAY_SUB_SUFFIX = ":sub";
+
 // Tests look for these markers in the service's logs, which must never contain them.
 const NOISY_STDERR_MARKER = "stderr-content-must-not-be-logged";
 const SKIPPED_UPDATE_MARKER = "thought-content-must-not-be-logged";
 
 /** The title the early-update scenario sends before its `session/new` answer. */
 export const EARLY_TITLE = "Title sent while the session starts";
+
+/**
+ * What the hostile scenario sends: agent content that would run in the page, navigate it or load something if the
+ * app rendered it as anything but text. Every payload that could run sets `window[HOSTILE.marker]` (to where it
+ * came from), so a check can tell whether any ran; the CSP should stop them anyway, but the app must never try.
+ */
+export const HOSTILE = {
+  marker: "__wombatHostile",
+  /** Markdown with raw HTML, scripts, non-https links of every syntax, an image and a fenced HTML block. */
+  markdown: (where: string): string =>
+    [
+      `Hostile ${where} starts.`,
+      `<script>window.__wombatHostile = "${where}: script"</script>`,
+      `<img src="x" onerror="window.__wombatHostile = '${where}: img onerror'">`,
+      `<iframe src="https://example.invalid/frame"></iframe>`,
+      `<a href="javascript:window.__wombatHostile='${where}: html link'">html link ${where}</a>`,
+      `[javascript link ${where}](javascript:window.__wombatHostile='${where}:%20javascript%20link')`,
+      `[data link ${where}](data:text/html,<script>window.__wombatHostile=1</script>)`,
+      `[file link ${where}](file:///etc/hostname)`,
+      `[relative link ${where}](../../index.html)`,
+      `[app link ${where}](app://wombat/index.html)`,
+      `[reference link ${where}][evil]`,
+      `<javascript:window.__wombatHostile='${where}: autolink'>`,
+      `www.example.invalid and http://example.invalid/plain`,
+      `![image alt ${where}](https://example.invalid/pixel.png)`,
+      `[safe link ${where}](https://example.invalid/docs)`,
+      "",
+      "```html",
+      `<script>window.__wombatHostile = "${where}: code block"</script>`,
+      "```",
+      "",
+      `[evil]: javascript:window.__wombatHostile='${where}:%20reference'`,
+    ].join("\n\n"),
+  /** Raw HTML as plain text fields carry it (a title, a plan entry, a tool's input and output). */
+  html: (where: string): string => `<img src="x" onerror="window.__wombatHostile = '${where}'"><b>${where}</b><script>window.__wombatHostile = "${where}"</script>`,
+  /** The huge tool output's length: far beyond what the chat shows of one text. */
+  hugeChars: 400_000,
+  /** The huge output's text: one recognisable line repeated (no markup). */
+  hugeText: (chars: number): string => "huge output line 0123456789\n".repeat(Math.ceil(chars / 28)).slice(0, chars),
+  /** The permission request's title (its tool call's). */
+  permissionTitle: (): string => HOSTILE.html("permission title"),
+  /** The edit's file name: hostile markup without a "/" (the last path segment is what shows, as the diff tab's title). */
+  editFileName: (): string => `<img src=x onerror="window.__wombatHostile='diff title'"><i>diff title<i>.md`,
+  /** The edit request: its title, path and both texts carry the payloads (the inline card, the diff tab and its title). */
+  edit: (): { title: string; path: string; oldText: string; newText: string } => ({
+    title: HOSTILE.html("edit title"),
+    path: `/tmp/hostile/${HOSTILE.editFileName()}`,
+    oldText: `Opening hours\n${HOSTILE.html("diff old")}\nClosed on Sundays\n`,
+    newText: `Opening hours\n${HOSTILE.html("diff new")}\nClosed on Sundays\n`,
+  }),
+} as const;
 
 // Well past a pipe buffer (~64 KiB), so an agent whose stderr isn't read blocks.
 const NOISY_STDERR_BYTES = 1024 * 1024;
@@ -55,12 +131,24 @@ const writeAllSync = (fd: number, data: Buffer) => {
   }
 };
 
+// The options every permission request offers; the scenarios and their tests answer by these ids.
+const ALLOW_REJECT: PermissionOption[] = [
+  { optionId: "allow", name: "Allow", kind: "allow_once" },
+  { optionId: "reject", name: "Reject", kind: "reject_once" },
+];
+
 // A 1x1 transparent PNG.
 const PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 const text = (value: string): SessionUpdate => ({
   sessionUpdate: "agent_message_chunk",
+  content: { type: "text", text: value },
+});
+
+const messageText = (value: string, messageId: string): SessionUpdate => ({
+  sessionUpdate: "agent_message_chunk",
+  messageId,
   content: { type: "text", text: value },
 });
 
@@ -138,10 +226,7 @@ const run = (scenario: FakeScenario) => {
           const { outcome } = await client.request("session/request_permission", {
             sessionId,
             toolCall: { toolCallId },
-            options: [
-              { optionId: "allow", name: "Allow", kind: "allow_once" },
-              { optionId: "reject", name: "Reject", kind: "reject_once" },
-            ],
+            options: ALLOW_REJECT,
           });
           // ACP v1: a turn cancelled while the request was open ends as cancelled, whatever the client answered.
           const turnCancelled = outcome.outcome === "cancelled" || cancelled.has(sessionId);
@@ -153,6 +238,53 @@ const run = (scenario: FakeScenario) => {
             status: allowed ? "completed" : "failed",
           });
           return { stopReason: turnCancelled ? "cancelled" : "end_turn" };
+        }
+        case "permissions-three": {
+          // Three requests open at once, asked in this order, each naming its tool call differently: the first only
+          // by id (its title and kind are in the earlier tool_call), the second in the request itself (over an
+          // earlier tool_call that says otherwise), the third by an id nothing else mentions.
+          const [stored, named, bare] = [randomUUID(), randomUUID(), randomUUID()];
+          await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId: stored, title: "Edit notes.txt", kind: "edit", status: "pending" });
+          await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId: named, title: "Run tests", kind: "other", status: "pending" });
+          cancelled.delete(sessionId);
+          // Sent before any is answered, so all three are open at once.
+          const asked = [
+            client.request("session/request_permission", {
+              sessionId,
+              toolCall: { toolCallId: stored },
+              options: ALLOW_REJECT,
+            }),
+            client.request("session/request_permission", {
+              sessionId,
+              toolCall: { toolCallId: named, title: "Run the test suite", kind: "execute" },
+              options: ALLOW_REJECT,
+            }),
+            client.request("session/request_permission", {
+              sessionId,
+              toolCall: { toolCallId: bare },
+              options: ALLOW_REJECT,
+            }),
+          ];
+          const outcomes = await Promise.all(asked);
+          const turnCancelled = cancelled.has(sessionId) || outcomes.some(({ outcome }) => outcome.outcome === "cancelled");
+          cancelled.delete(sessionId);
+          return { stopReason: turnCancelled ? "cancelled" : "end_turn" };
+        }
+        case "permission-left-open": {
+          // Asks for a permission and ends its turn normally without waiting for the answer: the request is still
+          // open when the prompt's answer (end_turn) arrives. Sent in that order on the one stream; that the service
+          // then sees the request before the turn's end is the SDK's current receive order, not a guarantee, and
+          // pending-permissions.test.ts's seq control checks it. The answer (the service's cancel) is ignored.
+          const toolCallId = randomUUID();
+          await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId, title: "Edit notes.txt", kind: "edit", status: "pending" });
+          void client
+            .request("session/request_permission", {
+              sessionId,
+              toolCall: { toolCallId },
+              options: ALLOW_REJECT,
+            })
+            .catch(() => undefined);
+          return { stopReason: "end_turn" };
         }
         case "image":
           await send(client, sessionId, {
@@ -193,8 +325,11 @@ const run = (scenario: FakeScenario) => {
           return { stopReason: "end_turn" };
         }
         case "unknown-update":
+          // A kind ACP has but the shared contract doesn't: the SDK drops kinds unknown to ACP itself before the
+          // service sees them, so this is the nearest a test gets to a newer agent's update.
           await send(client, sessionId, {
-            sessionUpdate: "agent_thought_chunk",
+            sessionUpdate: "compaction_summary_chunk",
+            compactionId: "compaction-1",
             content: { type: "text", text: SKIPPED_UPDATE_MARKER },
           });
           await send(client, sessionId, text("Thinking is over."));
@@ -237,6 +372,122 @@ const run = (scenario: FakeScenario) => {
           const answer = (await response.json()) as { result?: { content?: { type: string; text?: string }[] } };
           const reply = answer.result?.content?.find((content) => content.type === "text")?.text ?? JSON.stringify(answer);
           await send(client, sessionId, text(reply));
+          return { stopReason: "end_turn" };
+        }
+        case "message-ids":
+          // Two messages told apart by messageId only, each in two chunks.
+          await send(client, sessionId, messageText("The first message,", "msg-1"));
+          await send(client, sessionId, messageText(" in two chunks.", "msg-1"));
+          await send(client, sessionId, messageText("  The second   message\n\nreplaces", "msg-2"));
+          await send(client, sessionId, messageText(" the first. ", "msg-2"));
+          return { stopReason: "end_turn" };
+        case "message-runs":
+          // Chunks without a messageId, split into two runs by a tool call.
+          await send(client, sessionId, text("Before the tool call."));
+          await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId: randomUUID(), title: "Read notes.txt", kind: "read", status: "completed" });
+          await send(client, sessionId, text("After the"));
+          await send(client, sessionId, text(" tool call."));
+          return { stopReason: "end_turn" };
+        case "plan-thought":
+          await send(client, sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Weighing where the footer link lives." } });
+          await send(client, sessionId, {
+            sessionUpdate: "plan",
+            entries: [
+              { content: "Find the footer component", priority: "high", status: "completed" },
+              { content: "Rename the footer link", priority: "medium", status: "in_progress" },
+            ],
+          });
+          await send(client, sessionId, text("Planned the footer change."));
+          return { stopReason: "end_turn" };
+        case "hostile": {
+          // Hostile content in every place agent content shows, then a permission request that stays open.
+          await send(client, sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: HOSTILE.markdown("reasoning") } });
+          await send(client, sessionId, {
+            sessionUpdate: "plan",
+            entries: [{ content: HOSTILE.html("plan entry"), priority: "high", status: "in_progress" }],
+          });
+          await send(client, sessionId, text(HOSTILE.markdown("message")));
+          await send(client, sessionId, {
+            sessionUpdate: "tool_call",
+            toolCallId: randomUUID(),
+            title: HOSTILE.html("tool title"),
+            kind: "execute",
+            status: "completed",
+            rawInput: { command: HOSTILE.html("tool input") },
+            rawOutput: HOSTILE.html("tool output"),
+            content: [{ type: "content", content: { type: "text", text: HOSTILE.markdown("tool content") } }],
+          });
+          await send(client, sessionId, {
+            sessionUpdate: "tool_call",
+            toolCallId: randomUUID(),
+            title: "Read the huge log",
+            kind: "read",
+            status: "completed",
+            rawOutput: HOSTILE.hugeText(HOSTILE.hugeChars),
+          });
+          // Two requests open at once: a command, and an edit whose path and texts are hostile.
+          const toolCallId = randomUUID();
+          await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId, title: HOSTILE.permissionTitle(), kind: "execute", status: "pending" });
+          const edit = HOSTILE.edit();
+          const editId = randomUUID();
+          await send(client, sessionId, {
+            sessionUpdate: "tool_call",
+            toolCallId: editId,
+            title: edit.title,
+            kind: "edit",
+            status: "pending",
+            locations: [{ path: edit.path }],
+            content: [{ type: "diff", path: edit.path, oldText: edit.oldText, newText: edit.newText }],
+          });
+          cancelled.delete(sessionId);
+          const asked = [
+            client.request<RequestPermissionResponse>("session/request_permission", { sessionId, toolCall: { toolCallId }, options: ALLOW_REJECT }),
+            client.request<RequestPermissionResponse>("session/request_permission", { sessionId, toolCall: { toolCallId: editId }, options: ALLOW_REJECT }),
+          ];
+          const outcomes = await Promise.all(asked);
+          const turnCancelled = cancelled.has(sessionId) || outcomes.some(({ outcome }) => outcome.outcome === "cancelled");
+          cancelled.delete(sessionId);
+          return { stopReason: turnCancelled ? "cancelled" : "end_turn" };
+        }
+        case "prompt-error":
+          // A turn the agent fails while its process and the connection stay up: the prompt answers with an
+          // ACP error, every time.
+          await send(client, sessionId, text("Looking into it."));
+          throw RequestError.internalError(undefined, "the fake agent fails every turn");
+        case "stop-error": {
+          // An agent that answers its open prompt with an error when told to end (SIGTERM) and lingers: the
+          // answer reaches the service while it is still ending the process. The handler is set before
+          // the message, so a stop sent once the message arrives always meets it.
+          const told = new Promise<void>((release) => process.once("SIGTERM", () => release()));
+          await send(client, sessionId, text("Working on it."));
+          await told;
+          throw RequestError.internalError(undefined, "the fake agent was told to end mid-turn");
+        }
+        case "replay": {
+          const [block] = prompt;
+          const steps = JSON.parse(block?.type === "text" ? block.text : "[]") as ReplayStep[];
+          let open: Promise<unknown>[] = [];
+          for (const step of steps) {
+            if ("awaitAnswers" in step) {
+              await Promise.all(open);
+              open = [];
+              continue;
+            }
+            const session = step.sub === true ? `${sessionId}${REPLAY_SUB_SUFFIX}` : sessionId;
+            if ("send" in step) {
+              await send(client, session, step.send);
+            } else {
+              open.push(
+                client
+                  .request("session/request_permission", {
+                    sessionId: session,
+                    toolCall: step.ask,
+                    options: ALLOW_REJECT,
+                  })
+                  .catch(() => undefined),
+              );
+            }
+          }
           return { stopReason: "end_turn" };
         }
         case "auth":
