@@ -2,16 +2,17 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { discoveryPath, readDiscovery } from "@wombat/shared/discovery";
 import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, protocol, session, shell, type WebContents } from "electron";
-import { CHANNELS } from "../shared/bridge.ts";
+import { CHANNELS, type WorkspaceInfo } from "../shared/bridge.ts";
 import { APP_INDEX_URL, APP_SCHEME, contentType, isAppUrl, isBridgeSender, resolveAppFile } from "./app-protocol.ts";
 import { readE2eSwitches, recordE2eNotification } from "./e2e-switches.ts";
 import { NONCE_PLACEHOLDER, newNonce, pageCsp, withNonce } from "./page-csp.ts";
 import { decideQuit, restartService, stopIfConfirmed, type QuitChoice } from "./quit.ts";
 import { listAgents } from "./service-client.ts";
 import { serviceConnection } from "./service-connection.ts";
+import { ofThisApp } from "./service-start.ts";
 import { settingsPath } from "./settings.ts";
 import { waitingNotices, type ShownNotice, type WAITING_NOTICE } from "./waiting-notice.ts";
-import { workspaceControl, workspaceRepos } from "./workspace.ts";
+import { workspaceControl } from "./workspace.ts";
 
 // The app's trust boundary (design doc, "App trust boundary"): a sandboxed renderer with no
 // Node, no permissions, no new windows, and no navigation away from the app's own page.
@@ -39,7 +40,8 @@ const openExternally = (url: string): void => {
   const parsed = URL.parse(url);
   if (parsed?.protocol !== "https:") return;
   shell.openExternal(parsed.href).catch((error: unknown) => {
-    console.error(`Couldn't open ${parsed.href} in the browser:`, error);
+    // The scheme and host only: a link's path and query may carry what the page shouldn't leave in a log.
+    console.error(`Couldn't open a link to ${parsed.protocol}//${parsed.host} in the browser: ${error instanceof Error ? error.message : String(error)}`);
   });
 };
 
@@ -64,11 +66,19 @@ const lockDown = (contents: WebContents): void => {
 
 const indexFile = path.join(rendererRoot, "index.html");
 
+// Every app:// response but the page gets this fixed policy: a worker (Monaco's) runs under its own response's
+// policy, not the page's, so without one it could fetch anything.
+const OTHER_CSP = "default-src 'self'; connect-src 'none'; object-src 'none'";
+
+/** A response that isn't the page, with OTHER_CSP. */
+const otherResponse = (body: ConstructorParameters<typeof Response>[0], init: { status?: number; headers?: Record<string, string> } = {}): Response =>
+  new Response(body, { ...init, headers: { ...init.headers, "content-security-policy": OTHER_CSP } });
+
 // The page itself: a fresh nonce per response, in the CSP header and the csp-nonce meta.
 const servePage = async (file: string): Promise<Response> => {
   const html = await readFile(file, "utf8");
   if (!html.includes(NONCE_PLACEHOLDER)) {
-    return new Response(
+    return otherResponse(
       `index.html has no ${NONCE_PLACEHOLDER} placeholder for the page's CSP nonce; restore the csp-nonce meta in src/renderer/index.html and rebuild.`,
       { status: 500 },
     );
@@ -85,11 +95,11 @@ const servePage = async (file: string): Promise<Response> => {
 
 // Serves only regular files under out/renderer; everything else is a 404.
 const serveRenderer = async (request: Request): Promise<Response> => {
-  if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+  if (request.method !== "GET") return otherResponse("Method not allowed", { status: 405 });
   const file = await resolveAppFile(rendererRoot, request.url);
-  if (file === null) return new Response("Not found", { status: 404 });
+  if (file === null) return otherResponse("Not found", { status: 404 });
   if (file === (await realpath(indexFile))) return servePage(file);
-  return new Response(await readFile(file), {
+  return otherResponse(await readFile(file), {
     headers: { "content-type": contentType(file), "x-content-type-options": "nosniff" },
   });
 };
@@ -254,10 +264,7 @@ const currentWorkspace = (): string => {
 
 handleBridge(CHANNELS.request, (method, pathname, body) => connection.request(method, pathname, body));
 handleBridge(CHANNELS.connectionNow, () => connection.current());
-handleBridge(CHANNELS.workspaceGet, async () => {
-  const root = currentWorkspace();
-  return { root, repos: await workspaceRepos(root) };
-});
+handleBridge(CHANNELS.workspaceGet, (): WorkspaceInfo => ({ root: currentWorkspace() }));
 /**
  * The folder picker, then a switch of the service to the chosen folder (asking first when that stops a running
  * service). A switch that went ahead reloads the page: it holds the old workspace's settings, layout and data, and
@@ -409,8 +416,8 @@ const openWorkspace = async (): Promise<boolean> => {
   try {
     const opened = await workspace.open();
     if (opened === undefined) return false;
-    // A start that fails shows as the `failed` state, with Restart.
-    void connection.reconnect(() => opened.service);
+    // A start that fails shows as the `failed` state, and a service from before this app as `incompatible`; both with Restart.
+    void connection.reconnect(() => opened.service.then(ofThisApp));
     return true;
   } catch (error) {
     reportError("Wombat couldn't open the workspace", error);

@@ -3,12 +3,13 @@
 import { API_VERSION } from "@wombat/shared";
 import type { AgentSummary } from "@wombat/shared/api";
 import { findRunningService } from "@wombat/shared/discovery";
+import { isAlive } from "@wombat/shared/process-stat";
 import { expect, onTestFinished, test } from "vitest";
 
 import { FAKE_SERVICE_ENTRY, serviceSandbox, type ServiceSandbox } from "../../test/service-sandbox.ts";
 import { decideQuit, restartService, stopIfConfirmed, type QuitChoice, type QuitDeps } from "./quit.ts";
 import { serviceConnection } from "./service-connection.ts";
-import { isRunning, startService } from "./service-start.ts";
+import { startService } from "./service-start.ts";
 import { loadSettings, saveSettings } from "./settings.ts";
 import { workspaceControl } from "./workspace.ts";
 
@@ -230,7 +231,7 @@ test("Restart on an incompatible service asks, then stops it and its agents and 
 
   expect(restarted).toBe(true);
   expect(asked).toEqual([1]);
-  expect(isRunning(old.pid), "the incompatible service still runs").toBe(false);
+  expect(isAlive(old.pid), "the incompatible service still runs").toBe(false);
   const now = await findRunningService(sandbox.discoveryPath);
   expect(now?.apiVersion).toBe(API_VERSION);
   expect(now?.workspace).toBe(saved);
@@ -241,7 +242,7 @@ test("Cancel on Restart of an incompatible service leaves it running and starts 
 
   expect(restarted).toBe(false);
   expect(asked).toEqual([1]);
-  expect(isRunning(old.pid)).toBe(true);
+  expect(isAlive(old.pid)).toBe(true);
   expect(sandbox.starts()).toHaveLength(1);
   expect(connection.current().state.state).toBe("incompatible");
 });

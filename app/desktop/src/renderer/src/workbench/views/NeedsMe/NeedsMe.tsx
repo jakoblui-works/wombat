@@ -4,6 +4,7 @@ import { StateMark } from "../../../lib/state-mark";
 import { useAgents } from "../../../data/hooks.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useWorkbench } from "../../workbench-context.ts";
+import { AgentsError } from "../Chat/LogError/LogError.tsx";
 import { KIND_ICONS } from "../Chat/ToolCall/ToolCall.tsx";
 import { type NeedsMeRow, needsMeRows } from "./needs-me-rows.ts";
 
@@ -35,9 +36,7 @@ export const NeedsMe = () => {
     <div className="flex h-full min-h-0 flex-col">
       <SidebarHeader title="Needs me" {...(rows === undefined ? {} : { count: rows.length })} />
       {agents.error && rows === undefined ? (
-        <p role="alert" className="px-3 pt-3 text-sm text-danger">
-          Couldn't read the agents: {agents.error.message}
-        </p>
+        <AgentsError error={agents.error} />
       ) : rows === undefined ? null : rows.length === 0 ? (
         <p className="px-3 pt-3 text-sm text-fg-tertiary">Nothing needs you</p>
       ) : (

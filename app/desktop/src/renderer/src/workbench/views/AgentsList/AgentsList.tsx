@@ -9,6 +9,7 @@ import { useAgents, useRepos } from "../../../data/hooks.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useActiveTab, useWorkbench } from "../../workbench-context.ts";
 import { CHAT_VIEW, ChatParams } from "../Chat/chat-params.ts";
+import { AgentsError } from "../Chat/LogError/LogError.tsx";
 import { AgentRow } from "./AgentRow.tsx";
 import { groupAgents } from "./group-agents.ts";
 import { NewAgentDialog } from "./NewAgentDialog.tsx";
@@ -41,9 +42,7 @@ export const AgentsList = () => {
         </p>
       ) : null}
       {agents.error && list === undefined ? (
-        <p role="alert" className="p-3 text-sm text-danger">
-          Couldn't read the agents: {agents.error.message}
-        </p>
+        <AgentsError error={agents.error} />
       ) : list === undefined ? (
         <p className="p-3 text-sm text-fg-tertiary">Loading…</p>
       ) : list.length === 0 ? (

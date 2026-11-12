@@ -274,6 +274,33 @@ test("the page is served with one strict CSP header, and no CSP meta tag", async
   expect(metaPolicies, "a CSP meta tag is left in index.html").toEqual([]);
 });
 
+// Everything else app:// serves (the page's own scripts and styles, Monaco's worker, a 404) carries a fixed policy of
+// its own: a worker runs under its response's policy, not the page's, so without one it could fetch anything.
+// Read through main's net.fetch, which goes through the same app:// handler the page's loads do.
+test("every other app:// response, an asset or a 404, carries one policy: default-src 'self', connect-src and object-src 'none'", async () => {
+  const { app: main, page: shown } = opened();
+  const asset = await shown.evaluate(() => document.querySelector<HTMLScriptElement>("script[src]")?.src ?? null);
+  expect(asset, "the page loads no script file to check").not.toBeNull();
+  const missing = new URL("/assets/no-such-file.js", asset ?? "").href;
+  for (const [url, status] of [
+    [asset ?? "", 200],
+    [missing, 404],
+  ] as const) {
+    const answer = await main.evaluate(async ({ net }, href) => {
+      const response = await net.fetch(href);
+      return { status: response.status, policies: response.headers.get("content-security-policy") };
+    }, url);
+    expect(answer.status, url).toBe(status);
+    const policies = (answer.policies ?? "").split(",").map((policy) => policy.trim()).filter((policy) => policy !== "");
+    expect(policies, `${url} carries no single CSP policy`).toHaveLength(1);
+    const d = directives(policies[0] ?? "");
+    expect(
+      { default: d.get("default-src"), connect: d.get("connect-src"), object: d.get("object-src") },
+      `${url}'s policy`,
+    ).toEqual({ default: ["'self'"], connect: ["'none'"], object: ["'none'"] });
+  }
+});
+
 test("every load of the page gets a fresh nonce, 128 bits or more, which the csp-nonce meta carries", async () => {
   const { page } = opened();
   const loads: { header: string[]; meta: string | null }[] = [];

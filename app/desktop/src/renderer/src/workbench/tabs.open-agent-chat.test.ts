@@ -9,7 +9,9 @@ import { expect, test } from "vitest";
 import type { AgentSummary } from "@wombat/shared/api";
 
 import { atFor, summary } from "../../../../test/log-entries.ts";
-import { AGENTS_ACTIVITY } from "./activities.ts";
+// Registers the views (the chat tab opens through the registry).
+import "./activities.ts";
+import { AGENTS_ACTIVITY } from "./activity-ids.ts";
 import type { ResolveContext } from "./registry.ts";
 import { revealStore, type TabHost, tabKey, workbenchActions } from "./tabs.ts";
 

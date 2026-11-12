@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The desktop app has a workbench: an activity bar with five activities (Agents, and four that name the step that fills them), a sidebar, a split, tabbed editor area and a collapsible right sidebar. Agents opens each agent's chat in a tab. The layout (splits, tabs, sidebar widths) reopens per workspace; tabs of deleted agents close, and a layout that can't be restored opens the default without overwriting the saved one.
 - The desktop app shows the connection to the service at the foot of the activity bar. When it's lost (or can't be made), a banner says so with a Restart button, and the views stay as they were, dimmed and unusable, until it's back.
 - CI that lints, type-checks, tests, builds and runs the desktop end-to-end tests on every push and pull request.
+- Code in the chat is highlighted in TypeScript, TSX, JavaScript, JSON, shell (`bash`, `sh`), Python, YAML, Markdown, diff, Nix, CSS, HTML and SQL; the diff tab highlights JSON, Python, shell, YAML, Markdown and CSS files besides TypeScript and JavaScript.
+- A service from before this app (one that doesn't say which workspace it runs for) shows as incompatible, saying it predates the app and how to stop it before Restart starts the app's own service.
 - The Wombat logo: a mark and a symbol, in colour and in one colour, in `app/desktop/assets/brand/`; the mark heads the README.
 
 ### Changed

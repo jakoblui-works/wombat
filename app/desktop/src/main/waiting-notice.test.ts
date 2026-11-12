@@ -83,6 +83,14 @@ test("waiting, working, then waiting again raises a second notification, which r
   expect(shown.map(({ closed }) => closed)).toEqual([true, false]);
 });
 
+test("an agent that stops waiting has its notification closed", async () => {
+  const { change, shown } = notifier();
+  await change("agent-1", "waiting");
+  await change("agent-1", "working");
+
+  expect(shown.map(({ closed }) => closed)).toEqual([true]);
+});
+
 test("a click on the notification opens its agent", async () => {
   const { change, shown, opened } = notifier();
   await change("agent-1", "waiting");

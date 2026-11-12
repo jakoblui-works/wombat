@@ -6,7 +6,7 @@ import { HEARTBEAT_MS, parseAlert, type AgentSummary, type Alert } from "@wombat
 import { findRunningService, type DiscoveryFile } from "@wombat/shared/discovery";
 import type { ConnectionState, ConnectionUpdate, ServiceAnswer } from "../shared/bridge.ts";
 import { callService, listAgents, requestService } from "./service-client.ts";
-import { pageMessage } from "./service-start.ts";
+import { pageMessage, ServiceTooOld } from "./service-start.ts";
 
 export type ConnectionTiming = {
   /** The wait before the second try after a drop; each wait after doubles, up to `maxRetryMs`. */
@@ -42,8 +42,8 @@ export type ServiceConnection = {
   request: (method: unknown, path: unknown, body: unknown) => Promise<ServiceAnswer>;
   /**
    * Drops the current connection, runs `start` (a start, restart or switch of the service; its failure is the
-   * `failed` state, with pageMessage's message), then connects to the service the discovery file names. Settles once
-   * the newest reconnect has (connected, incompatible or failed); never rejects.
+   * `failed` state with pageMessage's message, or `incompatible` for a ServiceTooOld), then connects to the service
+   * the discovery file names. Settles once the newest reconnect has (connected, incompatible or failed); never rejects.
    */
   reconnect: (start: () => Promise<unknown>) => Promise<void>;
   /** The connected service's agents (for main's own use); rejects while not connected. */
@@ -228,7 +228,7 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, timing = {}
     } catch (error) {
       if (mine !== run) return;
       log(`The service isn't running: ${error instanceof Error ? error.message : String(error)}`);
-      set({ state: "failed", message: pageMessage(error) });
+      set({ state: error instanceof ServiceTooOld ? "incompatible" : "failed", message: pageMessage(error) });
       return;
     }
     if (mine === run) await connect(mine);

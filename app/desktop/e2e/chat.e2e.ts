@@ -6,12 +6,26 @@
 // - a clipped text says how many characters were left out, in digits (group separators allowed);
 // - an open permission has the buttons "Approve" and "Reject" (permissionButtons) and, once answered, says
 //   "approved" or "rejected" (any case) and has no answer buttons.
-import type { Page } from "@playwright/test";
+import type { ElectronApplication, Page } from "@playwright/test";
 
 import { HOSTILE } from "../../service/test/fake-agent.ts";
 import { MAX_SHOWN_CHARS } from "../src/renderer/src/workbench/views/Chat/clip-text.ts";
 import { agentSummary, expect, layoutOf, openAgent, REPO, startAgent, startWaitingAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 import { answersIn, groupWithTab, logOf, prompt } from "./agent-views.ts";
+
+// Main hands https links to the host's browser through `shell.openExternal`; the check records those calls instead
+// (as trust-boundary.e2e.ts does), so a test never opens the real browser.
+const recordOpenExternal = (app: ElectronApplication): Promise<void> =>
+  app.evaluate(({ shell }) => {
+    const opened: string[] = [];
+    (globalThis as { wombatE2eOpenedExternally?: string[] }).wombatE2eOpenedExternally = opened;
+    shell.openExternal = (url: string) => {
+      opened.push(url);
+      return Promise.resolve();
+    };
+  });
+const openedExternally = (app: ElectronApplication): Promise<string[]> =>
+  app.evaluate(() => [...((globalThis as { wombatE2eOpenedExternally?: string[] }).wombatE2eOpenedExternally ?? ["(recorder missing)"])]);
 
 const marker = (page: Page): Promise<unknown> => page.evaluate((name) => (window as unknown as Record<string, unknown>)[name], HOSTILE.marker);
 
@@ -67,6 +81,7 @@ test.describe("T13: chat", () => {
 
     const launched = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
     const { page, app } = launched;
+    await recordOpenExternal(app);
     const problems: string[] = [];
     page.on("pageerror", (error) => problems.push(`page error: ${error.message}`));
     page.on("console", (message) => {
@@ -135,6 +150,15 @@ test.describe("T13: chat", () => {
     await expect.poll(() => page.url()).toBe(startUrl);
     expect(app.windows()).toHaveLength(1);
     expect(await marker(page)).toBeUndefined();
+    // Nothing reached the browser: not on render, not from those clicks.
+    expect(await openedExternally(app), "a browser was opened without a click on an https link").toEqual([]);
+
+    // The safe https link opens exactly its URL, once, on its click.
+    await chat.getByRole("link", { name: "safe link message" }).click();
+    await expect.poll(() => openedExternally(app)).toEqual(["https://example.invalid/docs"]);
+    expect(await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 200)))).toBeUndefined();
+    expect(await openedExternally(app), "the click opened more than its URL once").toEqual(["https://example.invalid/docs"]);
+    await expect.poll(() => page.url()).toBe(startUrl);
     expect(problems).toEqual([]);
   });
 

@@ -1,5 +1,5 @@
 // The one place Monaco is set up: its ES modules (never the AMD loader), only the editor API, the
-// diff editor and TypeScript/JavaScript highlighting. Its CSS imports build into the page's CSS
+// diff editor and Monarch highlighting for the languages registered below. Its CSS imports build into the page's CSS
 // file; the <style> elements it creates at runtime take the page's nonce, set below
 // (patches/monaco-editor@*.patch), and its style="" line styles are allowed by style-src-attr
 // (VS Code's own policy: Monaco draws its lines with style attributes).
@@ -7,8 +7,13 @@ import { setCspNonce } from "monaco-editor/base/browser/domStylesheets";
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";
 import "monaco-editor/features/codicon/register";
 import "monaco-editor/features/diffEditor/register";
+import "monaco-editor/languages/definitions/css/register";
 import "monaco-editor/languages/definitions/javascript/register";
+import "monaco-editor/languages/definitions/markdown/register";
+import "monaco-editor/languages/definitions/python/register";
+import "monaco-editor/languages/definitions/shell/register";
 import "monaco-editor/languages/definitions/typescript/register";
+import "monaco-editor/languages/definitions/yaml/register";
 import { cspNonce } from "./csp-nonce.ts";
 
 // Before anything creates an editor (Monaco makes its <style> elements then, not on import).
@@ -34,6 +39,19 @@ const LANGUAGES: Readonly<Record<string, string>> = {
   jsx: "javascript",
   mjs: "javascript",
   cjs: "javascript",
+  // Monaco's JSON is a language service with a worker of its own; JavaScript's Monarch grammar colours JSON's
+  // strings, numbers and literals on the main thread.
+  json: "javascript",
+  jsonc: "javascript",
+  py: "python",
+  sh: "shell",
+  bash: "shell",
+  zsh: "shell",
+  yaml: "yaml",
+  yml: "yaml",
+  md: "markdown",
+  markdown: "markdown",
+  css: "css",
 };
 
 /** The highlighting a file gets, by its extension: one of the languages registered above, else plain text. */

@@ -12,9 +12,6 @@ import { DIFF_TITLE, DIFF_VIEW, DiffParams, diffResolves, diffRestores } from ".
 import { NeedsMe } from "./views/NeedsMe/NeedsMe.tsx";
 import { EmptyActivity } from "./views/EmptyActivity/EmptyActivity.tsx";
 
-// Its owner is activity-ids.ts; it's named from here too by code that imports this module for its registrations.
-export { AGENTS_ACTIVITY };
-
 /** An activity that isn't built yet: its sidebar view shows its empty state. */
 const unbuilt = (id: string, title: string, icon: LucideIcon, emptyState: NonNullable<ActivityDescriptor["emptyState"]>): void => {
   const sidebarView = `${id}-empty`;

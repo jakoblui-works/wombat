@@ -2,9 +2,10 @@
 // with the fake service, never the real runtime dir or service.
 import { writeFileSync } from "node:fs";
 import path from "node:path";
+import { isAlive } from "@wombat/shared/process-stat";
 import { expect, test } from "vitest";
 
-import { isRunning, ServiceStartFailed, serviceLogPath, startService, stopService } from "./service-start.ts";
+import { ServiceStartFailed, serviceLogPath, startService, stopService } from "./service-start.ts";
 import { FAKE_SERVICE_ENTRY, inProcessService, serviceSandbox } from "../../test/service-sandbox.ts";
 
 test("a start that never writes a discovery file fails after the timeout, naming the service's log", async () => {
@@ -54,7 +55,7 @@ test("stopService resolves only once the service's process has exited, not at it
   // The fake lives on after its 202, as a real service does while it closes its store.
   const env = { ...sandbox.env, FAKE_EXIT_DELAY_MS: "500" };
   const file = await startService({ env, entry: FAKE_SERVICE_ENTRY, workspace: sandbox.workspace("main") });
-  expect(isRunning(file.pid)).toBe(true);
+  expect(isAlive(file.pid)).toBe(true);
   await stopService(file);
-  expect(isRunning(file.pid), "stopService returned while the service still ran").toBe(false);
+  expect(isAlive(file.pid), "stopService returned while the service still ran").toBe(false);
 });

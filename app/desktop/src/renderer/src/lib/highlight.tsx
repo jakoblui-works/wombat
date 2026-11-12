@@ -3,13 +3,27 @@ import { Fragment, type JSX } from "react";
 import { jsx, jsxs } from "react/jsx-runtime";
 import { createHighlighterCoreSync } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+import css from "shiki/langs/css.mjs";
+import diff from "shiki/langs/diff.mjs";
+import html from "shiki/langs/html.mjs";
+import javascript from "shiki/langs/javascript.mjs";
+import json from "shiki/langs/json.mjs";
+import markdown from "shiki/langs/markdown.mjs";
+import nix from "shiki/langs/nix.mjs";
+import python from "shiki/langs/python.mjs";
+import shellscript from "shiki/langs/shellscript.mjs";
+import sql from "shiki/langs/sql.mjs";
+import tsx from "shiki/langs/tsx.mjs";
 import typescript from "shiki/langs/typescript.mjs";
+import yaml from "shiki/langs/yaml.mjs";
 import githubDarkDefault from "shiki/themes/github-dark-default.mjs";
 
-// Only the languages and theme the app uses are bundled; add a language here to highlight it.
-// The JavaScript regex engine keeps Shiki off WebAssembly, which the page's CSP doesn't allow.
-const LANGS = { typescript } as const;
-const THEME = "github-dark-default";
+// Only the languages and theme the app uses are bundled; add a language here to highlight it (its aliases, such as
+// "ts", "bash" or "sh", come with it). The JavaScript regex engine keeps Shiki off WebAssembly, which the page's CSP
+// doesn't allow.
+const LANGS = { typescript, tsx, javascript, json, shellscript, python, yaml, markdown, diff, nix, css, html, sql } as const;
+// The theme itself, not its name typed again: Shiki finds a loaded theme by the name it carries.
+const THEME = githubDarkDefault;
 
 export type CodeLang = keyof typeof LANGS;
 
@@ -17,7 +31,7 @@ export type CodeLang = keyof typeof LANGS;
 const PLAIN = "text";
 
 const highlighter = createHighlighterCoreSync({
-  themes: [githubDarkDefault],
+  themes: [THEME],
   langs: Object.values(LANGS),
   engine: createJavaScriptRegexEngine(),
 });

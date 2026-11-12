@@ -11,7 +11,7 @@ import { appendFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { API_VERSION } from "@wombat/shared";
+import { API_VERSION, SERVICE_ENV } from "@wombat/shared";
 import { discoveryPath, readDiscovery } from "@wombat/shared/discovery";
 import { writePrivateFile } from "@wombat/shared/private-file";
 
@@ -21,7 +21,7 @@ const token = randomBytes(16).toString("hex");
 const apiVersion = Number(env["FAKE_API_VERSION"] ?? String(API_VERSION));
 const record = env["FAKE_SERVICE_RECORD"];
 if (record !== undefined) {
-  appendFileSync(record, `${JSON.stringify({ pid: process.pid, workspace: env["WOMBAT_WORKSPACE"], items: env["WOMBAT_ITEMS"] ?? null })}\n`);
+  appendFileSync(record, `${JSON.stringify({ pid: process.pid, workspace: env[SERVICE_ENV.workspace], items: env[SERVICE_ENV.items] ?? null })}\n`);
 }
 // Never outlives a test that forgot it.
 setTimeout(() => process.exit(0), 60_000).unref();
@@ -42,5 +42,5 @@ const server = createServer((req, res) => {
 await new Promise((resolve) => setTimeout(resolve, Number(env["FAKE_START_DELAY_MS"] ?? "0")));
 server.listen(0, "127.0.0.1", () => {
   const { port } = server.address() as AddressInfo;
-  writePrivateFile(file, JSON.stringify({ apiVersion, port, pid: process.pid, token, workspace: env["WOMBAT_WORKSPACE"] }));
+  writePrivateFile(file, JSON.stringify({ apiVersion, port, pid: process.pid, token, workspace: env[SERVICE_ENV.workspace] }));
 });

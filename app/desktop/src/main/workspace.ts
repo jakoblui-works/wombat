@@ -1,9 +1,6 @@
 // One workspace at a time: the settings name it, and the one service (per runtime dir) runs for it. The app starts
 // the service when none runs and leaves it running when it quits. Every start, switch and restart runs through one
 // queue, so two of them never race to start services for different workspaces.
-import { existsSync } from "node:fs";
-import { readdir } from "node:fs/promises";
-import path from "node:path";
 import { discoveryPath, findRunningService, type DiscoveryFile } from "@wombat/shared/discovery";
 import { runningCount } from "./quit.ts";
 import { listAgents } from "./service-client.ts";
@@ -156,7 +153,8 @@ export const workspaceControl = ({
     if (running === undefined) return { workspace, service: ensure(workspace) };
     if (running.workspace === workspace) return { workspace, service: Promise.resolve(running) };
     if (await askRestart(running, workspace)) return { workspace, service: switchWorkspace(workspace) };
-    // Kept: the running service and its agents. A service that doesn't name its workspace leaves the settings as they are.
+    // Kept: the running service and its agents. A service that doesn't name its workspace leaves the settings as they are;
+    // it predates this app, so the connection then shows it as incompatible (ofThisApp).
     if (running.workspace === undefined) return { workspace, service: Promise.resolve(running) };
     save({ workspace: running.workspace });
     return { workspace: running.workspace, service: Promise.resolve(running) };
@@ -177,13 +175,4 @@ export const workspaceControl = ({
     },
     setPageSettings: (patch) => savePageSettings(updateSettings, patch, undefined, !layoutFrozen),
   };
-};
-
-/** The names of `root`'s immediate subfolders that are git repos (a `.git` folder, or file in a worktree), sorted. */
-export const workspaceRepos = async (root: string): Promise<string[]> => {
-  const entries = await readdir(root, { withFileTypes: true });
-  return entries
-    .filter((entry) => entry.isDirectory() && existsSync(path.join(root, entry.name, ".git")))
-    .map((entry) => entry.name)
-    .sort();
 };

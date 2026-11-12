@@ -54,15 +54,21 @@ export const DiffCounts = ({ diff }: { diff: Extract<InlineDiff, { kind: "shown"
   </span>
 );
 
-/** Said where an edit's diffs were, once the agent replaced them (the request stays an edit). */
+/** Said where an answered edit's diffs were, once the agent replaced them (the request stays an edit). */
 export const CHANGE_GONE = "The change is no longer in the agent's log.";
+
+/** Said where an open edit request's diffs would be when it carries none: nothing was taken away, there was none. */
+export const NO_CHANGE = "This request shows no change.";
 
 const Message = ({ children }: { children: string }) => <p className="bg-surface-0 px-3 py-2 text-sm text-fg-secondary">{children}</p>;
 
-/** The edit's changed lines with their context, each diff in turn; too large, a line saying so (the diff tab shows it). */
+/**
+ * An edit's changed lines with their context, each diff in turn; too large, a line saying so (the diff tab shows it).
+ * No diffs at all is an open request that carries none (an answered one doesn't show its diff here): NO_CHANGE.
+ */
 export const DiffRows = ({ diff }: { diff: InlineDiff }) => {
   if (diff.kind === "too-large") return <Message>This change is too large to show here. Open it side by side to review it.</Message>;
-  if (diff.parts.length === 0) return <Message>{CHANGE_GONE}</Message>;
+  if (diff.parts.length === 0) return <Message>{NO_CHANGE}</Message>;
   return (
     <div className="divide-y divide-line-subtle bg-surface-0 font-mono text-xs leading-4">
       {diff.parts.map((rows, part) => (

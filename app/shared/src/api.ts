@@ -281,6 +281,13 @@ export const isWaiting = (agent: Pick<AgentSummary, "state"> | undefined): boole
  */
 export const isRunning = (agent: Pick<AgentSummary, "state"> | undefined): boolean => agent?.state === "working" || agent?.state === "waiting";
 
+/**
+ * A permission request's title: its own tool call's, else its tool's (the latest tool call with its id), else `""`.
+ * An empty own title counts as none. The one rule for the agent list's open requests and the chat's request cards.
+ */
+export const permissionTitle = (own: string | null | undefined, toolTitle: string | null | undefined): string =>
+  own === undefined || own === null || own === "" ? (toolTitle ?? "") : own;
+
 export const ListAgentsResponse = z.object({ dbId: DbId, seq: Seq, agents: z.array(AgentSummary) });
 export type ListAgentsResponse = z.infer<typeof ListAgentsResponse>;
 

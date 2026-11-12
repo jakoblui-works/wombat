@@ -1,6 +1,6 @@
 // Turns an agent's log into what the chat shows. Pure, and the same however the log arrived: entries are taken in
 // seq order, once each (chat-model.append-order.test.ts).
-import type { LogEntry } from "@wombat/shared/api";
+import { permissionTitle, type LogEntry } from "@wombat/shared/api";
 import { bySeq } from "./by-seq.ts";
 import type { AgentLogEntry } from "./query-client.ts";
 
@@ -92,7 +92,7 @@ export const chatModel = (entries: readonly AgentLogEntry[], { mainSessionId }: 
 
   const items: ChatItem[] = [];
   const tools = new Map<string, ToolItem>();
-  const permissions = new Map<string, { item: PermissionItem; ownTitle: string | undefined; cancelled: boolean }>();
+  const permissions = new Map<string, { item: PermissionItem; ownTitle: string | null | undefined; cancelled: boolean }>();
   const answers = new Map<string, PermissionKind>();
   // The message or reasoning that chunks extend. Only placing a new item ends it: entries that update or answer
   // something earlier (an answer, a plan, an update to an earlier tool) and entries the chat doesn't show don't.
@@ -138,8 +138,7 @@ export const chatModel = (entries: readonly AgentLogEntry[], { mainSessionId }: 
             session,
           ),
         );
-        // An empty title counts as none, so the tool's title shows instead.
-        permissions.set(entry.requestId, { item, ownTitle: title || undefined, cancelled: false });
+        permissions.set(entry.requestId, { item, ownTitle: title, cancelled: false });
         break;
       }
       case "permission_answered":
@@ -207,7 +206,7 @@ export const chatModel = (entries: readonly AgentLogEntry[], { mainSessionId }: 
   }
 
   for (const { item, ownTitle, cancelled } of permissions.values()) {
-    item.title = ownTitle ?? tools.get(item.toolCallId)?.title ?? "";
+    item.title = permissionTitle(ownTitle, tools.get(item.toolCallId)?.title);
     const answer = answers.get(item.requestId) ?? (cancelled ? "cancelled" : undefined);
     if (answer !== undefined) item.answer = answer;
   }

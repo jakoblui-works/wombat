@@ -98,9 +98,9 @@ const COMPONENTS: Components = {
  */
 export const Markdown = memo(({ text, className }: MarkdownProps) => {
   const id = useId();
-  const { shown, omitted, showAll } = useClipped(text);
+  const { shown, omitted, showAll, textRef } = useClipped<HTMLDivElement>(text);
   return (
-    <div className={cn("flex min-w-0 flex-col gap-2 break-words", className)}>
+    <div ref={textRef} tabIndex={-1} className={cn("flex min-w-0 flex-col gap-2 break-words outline-none", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         remarkRehypeOptions={{ clobberPrefix: `md${id.replace(/[^\w-]/g, "")}-` }}

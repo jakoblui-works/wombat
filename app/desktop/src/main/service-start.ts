@@ -2,10 +2,12 @@
 // so it's started detached with its output in a log file, and the app finds it the way every client does: through
 // the discovery file and its token.
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
 import path from "node:path";
+import { SERVICE_ENV } from "@wombat/shared";
 import { discoveryPath, findRunningService, HOLDER_WAIT_MS, type DiscoveryFile } from "@wombat/shared/discovery";
 import { ensurePrivateFile } from "@wombat/shared/private-file";
+import { isAlive } from "@wombat/shared/process-stat";
 import { stateDir } from "@wombat/shared/state-dir";
 import { callService } from "./service-client.ts";
 
@@ -36,13 +38,36 @@ export const pageMessage = (error: unknown): string => {
   return error.privatePaths.reduce((message, at) => message.replaceAll(at, `…/${path.basename(at)}`), error.message);
 };
 
-/** The failure for a running service that isn't for `workspace`: the app never takes it for that workspace's. */
-export const otherWorkspaceFailure = (running: DiscoveryFile, workspace: string): ServiceStartFailed =>
-  new ServiceStartFailed(
-    `The running service is for another workspace (${running.workspace ?? "one it doesn't name"}), not ${workspace}. ` +
-      `Switch to ${workspace} again to restart the service for it.`,
+/**
+ * A running service from before this app: its discovery file doesn't name its workspace. The connection shows it as
+ * `incompatible`, with Restart.
+ */
+export class ServiceTooOld extends ServiceStartFailed {
+  constructor(running: DiscoveryFile) {
+    super(
+      `The running service (pid ${String(running.pid)}) predates this app: it doesn't say which workspace it runs for. ` +
+        `Stop it yourself (\`kill ${String(running.pid)}\`; its agents stop with it), then press Restart to start this app's own service.`,
+    );
+  }
+}
+
+/** `running` when it's a service of this app (it names its workspace); throws ServiceTooOld when it predates the app. */
+export const ofThisApp = (running: DiscoveryFile): DiscoveryFile => {
+  if (running.workspace === undefined) throw new ServiceTooOld(running);
+  return running;
+};
+
+/**
+ * The failure for a running service that isn't for `workspace`: the app never takes it for that workspace's. One
+ * that names no workspace predates the app (ServiceTooOld).
+ */
+export const otherWorkspaceFailure = (running: DiscoveryFile, workspace: string): ServiceStartFailed => {
+  if (running.workspace === undefined) return new ServiceTooOld(running);
+  return new ServiceStartFailed(
+    `The running service is for another workspace (${running.workspace}), not ${workspace}. Switch to ${workspace} again to restart the service for it.`,
     [running.workspace],
   );
+};
 
 /** The service's log, in Wombat's state folder; throws when there's no state folder. */
 export const serviceLogPath = (env: NodeJS.ProcessEnv): string => path.join(stateDir(env), "service.log");
@@ -51,16 +76,6 @@ export const serviceLogPath = (env: NodeJS.ProcessEnv): string => path.join(stat
 const openLog = (file: string): number => {
   ensurePrivateFile(file);
   return openSync(file, "a");
-};
-
-/** False once `pid` has exited (a zombie counts as exited: only its parent hasn't collected it yet). */
-export const isRunning = (pid: number): boolean => {
-  try {
-    const stat = readFileSync(`/proc/${String(pid)}/stat`, "utf8");
-    return stat.slice(stat.lastIndexOf(")") + 2)[0] !== "Z";
-  } catch {
-    return false;
-  }
 };
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -78,9 +93,9 @@ export type StartOptions = {
 /** The service's env: the app's own, with the workspace and items root from the settings. */
 const serviceEnv = (env: NodeJS.ProcessEnv, workspace: string, itemsRoot: string | undefined): NodeJS.ProcessEnv => {
   // The settings own the items root: an inherited one may belong to another workspace.
-  const out: NodeJS.ProcessEnv = { ...env, WOMBAT_WORKSPACE: workspace };
-  delete out["WOMBAT_ITEMS"];
-  if (itemsRoot !== undefined) out["WOMBAT_ITEMS"] = itemsRoot;
+  const out: NodeJS.ProcessEnv = { ...env, [SERVICE_ENV.workspace]: workspace };
+  delete out[SERVICE_ENV.items];
+  if (itemsRoot !== undefined) out[SERVICE_ENV.items] = itemsRoot;
   return out;
 };
 
@@ -98,7 +113,8 @@ export const startService = async ({
 }: StartOptions): Promise<DiscoveryFile> => {
   if (!existsSync(entry)) {
     throw new ServiceStartFailed(
-      `The service's entry ${entry} is missing. Rebuild the app (\`pnpm --filter @wombat/desktop build\` in app/) and start it again.`,
+      `The service's entry ${entry} is missing. The app runs the service from its source, app/service/src in the Wombat repo: ` +
+        "restore that folder (`git status` in the repo shows what's gone) and start Wombat again.",
       [entry],
     );
   }
@@ -163,7 +179,7 @@ export const stopService = async (file: DiscoveryFile): Promise<void> => {
     );
   }
   const deadline = Date.now() + EXIT_TIMEOUT_MS;
-  while (isRunning(file.pid)) {
+  while (isAlive(file.pid)) {
     if (Date.now() > deadline) {
       throw new ServiceStartFailed(
         `The service (pid ${String(file.pid)}) stopped its agents but hasn't exited. Stop it yourself (\`kill ${String(file.pid)}\`) and try again.`,

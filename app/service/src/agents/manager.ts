@@ -7,6 +7,7 @@ import {
   AnswerPermissionRequest,
   LogEntry,
   parseLogEntry,
+  permissionTitle,
   PROPOSAL_ALERT,
   type AgentSummary,
   type Alert,
@@ -390,7 +391,7 @@ export const createManager = ({
     }
     const { toolCall, options, at } = parsed.data;
     const stored = proc.toolCalls.get(toolCall.toolCallId);
-    const title = toolCall.title ?? stored?.title ?? "";
+    const title = permissionTitle(toolCall.title, stored?.title);
     const kind = toolCall.kind ?? stored?.kind ?? "other";
     return new Promise<RequestPermissionResponse>((respond) => {
       proc.pending.set(requestId, { offered, sessionId, respond, at, title, kind });

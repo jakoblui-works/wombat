@@ -6,7 +6,7 @@ import path from "node:path";
 import { expect, onTestFinished, test, vi } from "vitest";
 
 import { alertService } from "../../test/alert-service.ts";
-import { serviceSandbox, type ServiceSandbox } from "../../test/service-sandbox.ts";
+import { inProcessService, serviceSandbox, type ServiceSandbox } from "../../test/service-sandbox.ts";
 import type { ConnectionState } from "../shared/bridge.ts";
 import { serviceConnection, type ConnectionTiming } from "./service-connection.ts";
 import { startService } from "./service-start.ts";
@@ -107,6 +107,19 @@ test("a start that fails is the failed state, its message naming no path outside
   expect(last?.state).toBe("failed");
   expect(last?.message).toContain("no-such-entry.ts");
   expect(last?.message).not.toContain(sandbox.base);
+});
+
+test("a start that finds a service from before this app (no workspace in its file) is incompatible, saying it predates the app", async () => {
+  const sandbox = serviceSandbox();
+  await inProcessService(sandbox, undefined);
+  const { connection, states } = connect(sandbox);
+  // As a start that finds the lock held: it exits 0 and leaves the old service running.
+  await connection.reconnect(() => startService({ env: sandbox.env, entry: sandbox.exitingEntry(), workspace: sandbox.workspace("main") }));
+
+  const last = states.at(-1);
+  expect(last?.state).toBe("incompatible");
+  expect(last?.message).toContain("predates this app");
+  expect(last?.message).toContain("Restart");
 });
 
 test("a service that keeps dropping the stream right after opening it is retried with growing waits, then failed", async () => {

@@ -11,29 +11,14 @@ import { closeSync, fstatSync, openSync, readdirSync, readFileSync, rmSync } fro
 import { basename, dirname, join } from "node:path";
 
 import { findRunningService, HOLDER_WAIT_MS, type DiscoveryFile } from "@wombat/shared/discovery";
+import { isAlreadyThere, isMissing } from "@wombat/shared/errno";
 import { createPrivateFile, writePrivateFile } from "@wombat/shared/private-file";
-
-import { isAlreadyThere, isMissing, isProcessGone } from "./errno.ts";
+import { startTimeOf } from "@wombat/shared/process-stat";
 
 const LOCK_FILE = "service.lock";
 const POLL_MS = 50;
 
 type Holder = { pid: number; start: string };
-
-/** The process's start time in clock ticks since boot; undefined once it's gone or a zombie. */
-const startTimeOf = (pid: number): string | undefined => {
-  let text: string;
-  try {
-    text = readFileSync(`/proc/${String(pid)}/stat`, "utf8");
-  } catch (error) {
-    if (isProcessGone(error)) return undefined;
-    throw error;
-  }
-  // The command name (field 2) is in parentheses and may hold spaces; the fields after it start with the state
-  // (field 3), so the start time (field 22) is the 20th.
-  const fields = text.slice(text.lastIndexOf(")") + 2).split(" ");
-  return fields[0] === "Z" ? undefined : fields[19];
-};
 
 const ownLine = () => {
   const start = startTimeOf(process.pid);
@@ -49,7 +34,7 @@ const parseHolder = (text: string): Holder | undefined => {
 };
 
 /** An unreadable lock (edited by hand) has no live holder. */
-const isAlive = (holder: Holder | undefined) => holder !== undefined && startTimeOf(holder.pid) === holder.start;
+const isHolderAlive = (holder: Holder | undefined) => holder !== undefined && startTimeOf(holder.pid) === holder.start;
 
 type Seen = { ino: number; text: string; holder: Holder | undefined };
 
@@ -89,13 +74,13 @@ const takeOver = (path: string, seen: Seen, line: string): boolean => {
     } catch (error) {
       if (!isAlreadyThere(error)) throw error;
       const taker = readLock(marker);
-      if (taker === undefined || isAlive(taker.holder)) return false;
+      if (taker === undefined || isHolderAlive(taker.holder)) return false;
       continue;
     }
     let replaced = false;
     try {
       const now = readLock(path);
-      if (now?.ino === seen.ino && !isAlive(now.holder)) {
+      if (now?.ino === seen.ino && !isHolderAlive(now.holder)) {
         writePrivateFile(path, line);
         replaced = true;
       }
@@ -156,7 +141,7 @@ export const takeStartLock = async (
     const seen = readLock(path);
     // Released since the create failed: try again at once.
     if (seen === undefined) continue;
-    if (!isAlive(seen.holder)) {
+    if (!isHolderAlive(seen.holder)) {
       if (takeOver(path, seen, line)) return held;
     } else if (seen.holder) {
       lastHolder = seen.holder.pid;

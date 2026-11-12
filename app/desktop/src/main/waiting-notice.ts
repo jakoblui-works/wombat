@@ -62,22 +62,23 @@ export const waitingNotices = ({ agents, show, openAgent, log = console.warn }: 
     );
   };
 
+  const forget = (agentId: string): void => {
+    waiting.delete(agentId);
+    shown.get(agentId)?.close();
+    shown.delete(agentId);
+  };
+
   const check = async (agentId: string): Promise<void> => {
     const list = await read();
     if (list === undefined) return;
+    // Its notice would open a question that's no longer asked.
     if (!isWaiting(list.find(({ id }) => id === agentId))) {
-      waiting.delete(agentId);
+      forget(agentId);
       return;
     }
     if (waiting.has(agentId)) return;
     waiting.add(agentId);
     notify(agentId);
-  };
-
-  const forget = (agentId: string): void => {
-    waiting.delete(agentId);
-    shown.get(agentId)?.close();
-    shown.delete(agentId);
   };
 
   const refill = async (): Promise<void> => {

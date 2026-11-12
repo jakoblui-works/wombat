@@ -1,13 +1,14 @@
 // The workspace control: which workspace the app opens, and which service runs for it. Dialogs are injected; the
 // services are the fake service (test/fake-service.ts) or one in this process, in a temp sandbox.
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { isAlive } from "@wombat/shared/process-stat";
 import { expect, test } from "vitest";
 
-import { isRunning, startService } from "./service-start.ts";
+import { startService } from "./service-start.ts";
 import { loadSettings, savePageSettings, saveSettings } from "./settings.ts";
 import { FAKE_SERVICE_ENTRY, inProcessService, serviceSandbox, type ServiceSandbox } from "../../test/service-sandbox.ts";
-import { workspaceControl, workspaceRepos, type WorkspaceDeps } from "./workspace.ts";
+import { workspaceControl, type WorkspaceDeps } from "./workspace.ts";
 
 const control = (sandbox: ServiceSandbox, deps: Partial<WorkspaceDeps> = {}) =>
   workspaceControl({
@@ -53,7 +54,7 @@ test("a switch asked for while the first start is still in flight waits for it, 
 
   expect(sandbox.starts().map((start) => start.workspace)).toEqual([first, second]);
   expect(firstFile?.workspace).toBe(first);
-  expect(isRunning(firstFile?.pid ?? 0), "the first workspace's service still runs").toBe(false);
+  expect(isAlive(firstFile?.pid ?? 0), "the first workspace's service still runs").toBe(false);
   expect(secondFile.workspace).toBe(second);
   expect(savedWorkspace(sandbox)).toBe(second);
 });
@@ -75,7 +76,7 @@ test("Restart on a service for another workspace stops it and starts one for the
   expect(asked).toEqual([saved]);
   expect(opened?.workspace).toBe(saved);
   expect((await opened?.service)?.workspace).toBe(saved);
-  expect(isRunning(old.pid)).toBe(false);
+  expect(isAlive(old.pid)).toBe(false);
   expect(savedWorkspace(sandbox)).toBe(saved);
 });
 
@@ -104,19 +105,6 @@ test("Cancel on a service that doesn't name its workspace keeps it, and the sett
   expect(opened?.workspace).toBe(saved);
   expect(await opened?.service).toEqual(running);
   expect(savedWorkspace(sandbox)).toBe(saved);
-});
-
-test("workspaceRepos lists the root's immediate subfolders that are git repos, worktrees included", async () => {
-  const sandbox = serviceSandbox();
-  const root = sandbox.workspace("main");
-  mkdirSync(path.join(root, "web", ".git"), { recursive: true });
-  mkdirSync(path.join(root, "api"), { recursive: true });
-  writeFileSync(path.join(root, "api", ".git"), "gitdir: /elsewhere\n");
-  mkdirSync(path.join(root, "notes"), { recursive: true });
-  mkdirSync(path.join(root, "notes", "nested", ".git"), { recursive: true });
-  writeFileSync(path.join(root, "README.md"), "");
-
-  expect(await workspaceRepos(root)).toEqual(["api", "web"]);
 });
 
 test("a page's settings change whose save fails leaves the settings as they were, and the page's error names no path", () => {
@@ -149,13 +137,13 @@ test("shutdown stops the running service, and restart then starts one for the sa
   const first = await workspace.restart();
 
   await workspace.shutdown();
-  expect(isRunning(first.pid), "the service still runs").toBe(false);
+  expect(isAlive(first.pid), "the service still runs").toBe(false);
   expect(existsSync(sandbox.discoveryPath)).toBe(false);
 
   const second = await workspace.restart();
   expect(second.pid).not.toBe(first.pid);
   expect(second.workspace).toBe(saved);
-  expect(isRunning(second.pid)).toBe(true);
+  expect(isAlive(second.pid)).toBe(true);
 });
 
 test("a switch that would stop a service for another workspace asks first; Cancel stops and saves nothing", async () => {
@@ -174,7 +162,7 @@ test("a switch that would stop a service for another workspace asks first; Cance
   expect(await workspace.confirmSwitch(next)).toBe(false);
   // The fake service has no GET /agents, so the count is unknown.
   expect(asked).toEqual([{ folder: next, running: undefined }]);
-  expect(isRunning(running.pid)).toBe(true);
+  expect(isAlive(running.pid)).toBe(true);
   expect(sandbox.starts()).toHaveLength(1);
   expect(savedWorkspace(sandbox)).toBe(current);
 });

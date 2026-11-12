@@ -17,8 +17,8 @@ export type ServiceAnswer = { status: number; body: unknown };
  */
 export type RendererSettings = { askOnQuit: boolean; lastAgentFolder?: string; layout?: unknown };
 
-/** The workspace root, and the names of its immediate subfolders that are git repos. */
-export type WorkspaceInfo = { root: string; repos: string[] };
+/** The workspace root. Its repos are the service's to list (GET /repos). */
+export type WorkspaceInfo = { root: string };
 
 export type Unsubscribe = () => void;
 

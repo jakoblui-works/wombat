@@ -7,7 +7,7 @@ import type { ViewProps } from "../../registry.ts";
 import { useAnswer } from "../Chat/answer.ts";
 import { liveState } from "../Chat/live-state.ts";
 import { useChatModel } from "../Chat/use-chat-model.ts";
-import { CHANGE_GONE } from "../Chat/EditDiff/EditDiff.tsx";
+import { CHANGE_GONE, NO_CHANGE } from "../Chat/EditDiff/EditDiff.tsx";
 import { LogError } from "../Chat/LogError/LogError.tsx";
 import { AnswerButtons, AnswerError, EditTarget, Outcome, Waiting } from "../Chat/Permission/Permission.tsx";
 import { DiffParams, diffTitle } from "./diff-params.ts";
@@ -65,7 +65,7 @@ const EditDiff = ({ agentId, requestId, setTitle }: DiffParams & { setTitle: Vie
       </header>
       <AnswerError error={error} className="border-b" />
       {shownDiff === undefined ? (
-        <Note>{CHANGE_GONE}</Note>
+        <Note>{answer === undefined ? NO_CHANGE : CHANGE_GONE}</Note>
       ) : (
         <>
           {request.diffs.length > 1 ? (

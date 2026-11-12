@@ -2,9 +2,8 @@ import { randomBytes } from "node:crypto";
 import { unlinkSync } from "node:fs";
 
 import { readDiscovery, type DiscoveryFile } from "@wombat/shared/discovery";
+import { isMissing } from "@wombat/shared/errno";
 import { writePrivateFile } from "@wombat/shared/private-file";
-
-import { isMissing } from "./errno.ts";
 
 /** A fresh random bearer token (at least 16 characters). */
 export const newToken = (): string => randomBytes(32).toString("base64url");

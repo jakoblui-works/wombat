@@ -1,4 +1,4 @@
-// Reading the errno code of a failed file operation, the one place it is done.
+// Reading the errno code of a failed file or /proc operation, the one place it is done (service and app).
 const codeOf = (error: unknown) => {
   const code = (error as { code?: unknown } | null | undefined)?.code;
   return typeof code === "string" ? code : undefined;

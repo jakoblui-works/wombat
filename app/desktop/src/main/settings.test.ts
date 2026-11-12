@@ -93,3 +93,29 @@ test("the bridge's RendererSettings and the page's patch schema are tied at comp
   const otherType: PatchMatches<{ askOnQuit: string; lastAgentFolder?: string; layout?: unknown }, z.infer<typeof RendererSettingsPatch>> = true;
   expect([matches, extraField, otherType]).toEqual([true, true, true]);
 });
+
+test("one workspace's relative itemsRoot costs only itself: the other workspaces and that workspace's layout stay", () => {
+  const userData = tempUserData();
+  const file = settingsPath(userData);
+  mkdirSync(userData);
+  writeFileSync(
+    file,
+    JSON.stringify({
+      workspace: "/home/dev/bakery",
+      workspaces: {
+        "/home/dev/bakery": { itemsRoot: "relative/secret-docs", layout: { panes: 2 } },
+        "/home/dev/other": { itemsRoot: "/home/dev/other/docs" },
+      },
+    }),
+  );
+  const lines: string[] = [];
+  expect(loadSettings(file, (line) => lines.push(line))).toEqual({
+    ...DEFAULTS,
+    workspace: "/home/dev/bakery",
+    workspaces: { "/home/dev/bakery": { layout: { panes: 2 } }, "/home/dev/other": { itemsRoot: "/home/dev/other/docs" } },
+  });
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).toContain("itemsRoot");
+  expect(lines[0]).not.toContain("secret-docs");
+  expect(lines[0]).not.toContain("/home/dev/bakery");
+});

@@ -17,6 +17,7 @@ import {
   isWaiting,
   parseAlert,
   parseLogEntry,
+  permissionTitle,
 } from "./api.ts";
 import type { LogEntry } from "./api.ts";
 
@@ -348,6 +349,13 @@ describe("responses (lenient)", () => {
     expect(isRunning({ state: "done" })).toBe(false);
     expect(isRunning({ state: "error" })).toBe(false);
     expect(isRunning({ state: "stopped" })).toBe(false);
+  });
+
+  test("a permission's title is its own, else its tool's, else empty; an empty own title counts as none", () => {
+    expect(permissionTitle("Edit src/app.ts", "Write file")).toBe("Edit src/app.ts");
+    expect(permissionTitle("", "Write file")).toBe("Write file");
+    expect(permissionTitle(null, "Write file")).toBe("Write file");
+    expect(permissionTitle(undefined, undefined)).toBe("");
   });
 
   test("ErrorBody accepts errors with and without a hint and ignores unknown fields", () => {

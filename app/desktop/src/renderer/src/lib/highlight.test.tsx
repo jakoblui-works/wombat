@@ -21,3 +21,12 @@ test("token colours are style objects on React elements, with no raw HTML or sty
   const colours = new Set(props.map((p) => (p.style as { color?: string } | undefined)?.color).filter(Boolean));
   expect(colours.size).toBeGreaterThanOrEqual(3);
 });
+
+/** How many colours a fence of `code` in `lang` is drawn in. */
+const coloursOf = (code: string, lang: string): number =>
+  new Set(elementProps(Code({ code, lang })).map((p) => (p.style as { color?: string } | undefined)?.color).filter(Boolean)).size;
+
+test("languages beyond TypeScript are highlighted, by name or alias", () => {
+  expect(coloursOf('{ "name": "bakery", "port": 8080, "debug": true }', "json")).toBeGreaterThan(1);
+  expect(coloursOf('if [ -f "$HOME/.profile" ]; then echo "found"; fi', "bash")).toBeGreaterThan(1);
+});

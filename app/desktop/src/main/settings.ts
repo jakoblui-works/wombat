@@ -11,12 +11,15 @@ const VERSION = 1;
 
 const AbsolutePath = z.string().refine((value) => path.isAbsolute(value), "must be an absolute path");
 
+/** One workspace root's settings. */
+const WorkspaceSettings = z.object({ itemsRoot: AbsolutePath.optional(), layout: z.unknown().optional() });
+
 export const Settings = z.object({
   version: z.literal(VERSION).default(VERSION),
   /** The workspace root the service runs for; unset until the user picks one. */
   workspace: AbsolutePath.optional(),
   /** Per workspace root. */
-  workspaces: z.record(z.string(), z.object({ itemsRoot: AbsolutePath.optional(), layout: z.unknown().optional() })).default({}),
+  workspaces: z.record(z.string(), WorkspaceSettings).default({}),
   askOnQuit: z.boolean().default(true),
   lastAgentFolder: z.string().optional(),
 });
@@ -32,19 +35,41 @@ const defaults = (): Settings => Settings.parse({});
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+/** The log line for a setting that doesn't parse: it names the field, never its value. */
+const logInvalid = (log: (line: string) => void, key: string): void =>
+  log(`The setting "${key}" in settings.json isn't valid; using its default. Set it again in the app.`);
+
+/** The fields of `shape` in `raw` that parse, each on its own; a field that doesn't is logged as `<prefix><key>`. */
+const validFields = (shape: Record<string, z.ZodType>, raw: Record<string, unknown>, log: (line: string) => void, prefix = ""): Record<string, unknown> => {
+  const fields: Record<string, unknown> = {};
+  for (const [key, field] of Object.entries(shape)) {
+    const parsed = field.safeParse(raw[key]);
+    if (parsed.success) fields[key] = parsed.data;
+    else logInvalid(log, `${prefix}${key}`);
+  }
+  return fields;
+};
+
+/** Each workspace and each of its fields on its own; the log names the field, never the workspace's folder. */
+const parseWorkspaces = (raw: unknown, log: (line: string) => void): Settings["workspaces"] => {
+  if (raw === undefined) return {};
+  if (!isObject(raw)) {
+    logInvalid(log, "workspaces");
+    return {};
+  }
+  const workspaces: Settings["workspaces"] = {};
+  for (const [root, entry] of Object.entries(raw)) {
+    if (isObject(entry)) workspaces[root] = WorkspaceSettings.parse(validFields(WorkspaceSettings.shape, entry, log, "workspaces."));
+    else logInvalid(log, "workspaces");
+  }
+  return workspaces;
+};
+
 /** Each field on its own, so one bad field costs only itself; the log names the field, never its value. */
 const parseFields = (raw: Record<string, unknown>, log: (line: string) => void): Settings => {
-  const fields: Record<string, unknown> = {};
-  for (const [key, field] of Object.entries(Settings.shape)) {
-    const parsed = field.safeParse(raw[key]);
-    if (parsed.success) {
-      fields[key] = parsed.data;
-      continue;
-    }
-    log(`The setting "${key}" in settings.json isn't valid; using its default. Set it again in the app.`);
-  }
-  // Fields that failed are left out above, so their defaults apply here.
-  return Settings.parse(fields);
+  // Fields that failed are left out, so their defaults apply here.
+  const fields = validFields(Settings.omit({ workspaces: true }).shape, raw, log);
+  return Settings.parse({ ...fields, workspaces: parseWorkspaces(raw["workspaces"], log) });
 };
 
 /** A newer app's settings: this one can't tell which fields it would lose by rewriting them. */

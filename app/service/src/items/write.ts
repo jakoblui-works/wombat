@@ -7,13 +7,13 @@ import { lstat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
 import { ItemWriteErrorCode } from "@wombat/shared/api";
+import { isAlreadyThere, isMissingPath } from "@wombat/shared/errno";
 import { ITEM_FIELDS, OWN_KEYS, type Problem, type StructureSettings } from "@wombat/shared/items";
 import { stringify } from "yaml";
 
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { findByHandle, isClash, loadItem, readRoot, type LoadedItem, type LoadedStructure, type NamedProblem, type ProblemNames, type RootRead, type ValidStructure } from "./catalog.ts";
-import { isAlreadyThere, isMissingPath } from "../errno.ts";
 import { NoHardLinks, queueWrite, readAtVersion, removeUnchanged, VersionChanged, versionOf, writeAtomic, type VersionedFile } from "./files.ts";
 import { bodyEdit, checkedText, parseItemFile, readsBackAs, setKeyEdits, titleEdit, type ParsedItemFile } from "./item-file.ts";
 import { inFolder, isIncluded, isSkippedPath, joinRootPath, SETTINGS_FILE, throughSymlink } from "./structures.ts";

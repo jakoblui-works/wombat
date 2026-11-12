@@ -10,8 +10,7 @@ import { onTestFinished } from "vitest";
 import { API_VERSION } from "@wombat/shared";
 import type { DiscoveryFile } from "@wombat/shared/discovery";
 import { writePrivateFile } from "@wombat/shared/private-file";
-
-import { isRunning } from "../src/main/service-start.ts";
+import { isAlive } from "@wombat/shared/process-stat";
 
 /** The fake service's entry (see fake-service.ts). */
 export const FAKE_SERVICE_ENTRY = path.join(import.meta.dirname, "fake-service.ts");
@@ -36,7 +35,7 @@ export const serviceSandbox = () => {
           .map((line) => JSON.parse(line) as Start)
       : [];
   onTestFinished(() => {
-    for (const { pid } of starts()) if (isRunning(pid)) process.kill(pid, "SIGKILL");
+    for (const { pid } of starts()) if (isAlive(pid)) process.kill(pid, "SIGKILL");
     rmSync(base, { recursive: true, force: true });
   });
   return {

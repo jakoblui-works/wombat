@@ -51,11 +51,11 @@ const STATUS_LOOK: Readonly<Record<ToolCallStatus, { label: string; icon: Lucide
 const asText = (value: unknown): string => (typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? String(value)));
 
 const Detail = ({ label, text }: { label: string; text: string }) => {
-  const { shown, omitted, showAll } = useClipped(text);
+  const { shown, omitted, showAll, textRef } = useClipped<HTMLElement>(text);
   return (
     <div className="flex gap-3">
       <dt className="w-11 shrink-0 pt-1 text-xs font-medium text-fg-tertiary">{label}</dt>
-      <dd className="min-w-0 flex-1">
+      <dd ref={textRef} tabIndex={-1} className="min-w-0 flex-1 outline-none">
         <pre className="max-h-96 overflow-auto rounded-md border border-line-subtle bg-surface-0 px-2.5 py-1 font-mono text-xs whitespace-pre text-fg-secondary">{shown}</pre>
         <Omitted count={omitted} onShowAll={showAll} />
       </dd>

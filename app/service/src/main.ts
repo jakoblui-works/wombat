@@ -1,11 +1,11 @@
 import { createServer } from "node:net";
 
 import { API_VERSION } from "@wombat/shared";
+import { errorCode } from "@wombat/shared/errno";
 
 import { createManager, type Manager } from "./agents/manager.ts";
 import { readConfig } from "./config.ts";
 import { newToken, removeDiscovery, writeDiscovery } from "./discovery.ts";
-import { errorCode } from "./errno.ts";
 import { openCatalog } from "./items/catalog.ts";
 import { openInstructions, readInstructions, refreshingWriter, type Instructions } from "./items/instructions.ts";
 import type { Harness } from "./harness/harness.ts";
