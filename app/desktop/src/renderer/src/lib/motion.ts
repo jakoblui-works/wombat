@@ -43,3 +43,6 @@ export const usePlay = <E extends Element>(className: string, key: unknown, { on
   }, [key, className]);
   return ref;
 };
+
+/** Whether the system asks for reduced motion now; CSS motion follows it on its own (globals.css). */
+export const prefersReducedMotion = (): boolean => window.matchMedia("(prefers-reduced-motion: reduce)").matches;

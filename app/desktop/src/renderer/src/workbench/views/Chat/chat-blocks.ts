@@ -33,3 +33,9 @@ export const chatBlocks = (items: readonly ChatItem[]): ChatBlock[] => {
   }
   return blocks;
 };
+
+/** The key of the agent message still being written: the last block, when it is an agent's text and its turn runs. */
+export const streamingKey = (blocks: readonly ChatBlock[], turnActive: boolean): string | undefined => {
+  const last = blocks.at(-1);
+  return turnActive && last?.kind === "item" && last.item.kind === "agent" ? last.key : undefined;
+};

@@ -11,8 +11,9 @@ import { DIFF_VIEW } from "../Diff/diff-params.ts";
 import { type EditRequest, editRequest } from "../approvals/edit-request.ts";
 import { useAnswer } from "../approvals/answer.ts";
 import { usePlay } from "../../../lib/motion.ts";
+import { useReveal } from "../../../lib/use-reveal.ts";
 import { type Arrivals, NO_ARRIVALS, trackArrivals } from "./arrivals.ts";
-import { type ChatBlock, chatBlocks } from "./chat-blocks.ts";
+import { type ChatBlock, chatBlocks, streamingKey } from "./chat-blocks.ts";
 import { CHAT_VIEW, ChatParams } from "./chat-params.ts";
 import { type LiveState, liveState } from "../approvals/live-state.ts";
 import { sameBlock } from "./same-item.ts";
@@ -23,6 +24,7 @@ import { Composer } from "./Composer/Composer.tsx";
 import { ComposerFooter } from "./Composer/ComposerFooter/ComposerFooter.tsx";
 import { LogError } from "../approvals/LogError/LogError.tsx";
 import { Markdown } from "./Markdown/Markdown.tsx";
+import { safePrefix } from "./Markdown/safe-prefix.ts";
 import { Permission } from "./Permission/Permission.tsx";
 import { Plan } from "./Plan/Plan.tsx";
 import { Reasoning } from "./Reasoning/Reasoning.tsx";
@@ -68,6 +70,11 @@ const SubAgent = ({ children }: { children: ReactNode }) => (
 
 type StaticItem = Extract<ChatBlock, { kind: "item" }>["item"];
 
+const AgentText = ({ text }: { text: string }) => <Markdown text={text} className="text-base text-fg-primary" />;
+
+/** The agent message still being written, revealed at an even pace; only it renders again on each frame. */
+const StreamingText = ({ text, fresh }: { text: string; fresh: boolean }) => <AgentText text={safePrefix(useReveal(text, true, fresh))} />;
+
 /** An item that shows only what the log says (everything but a permission, whose state is live). */
 const StaticItemView = ({ item }: { item: StaticItem }): ReactNode => {
   switch (item.kind) {
@@ -78,7 +85,7 @@ const StaticItemView = ({ item }: { item: StaticItem }): ReactNode => {
         </div>
       );
     case "agent":
-      return <Markdown text={item.text} className="text-base text-fg-primary" />;
+      return <AgentText text={item.text} />;
     case "reasoning":
       return <Reasoning text={item.text} />;
     case "turn_end": {
@@ -113,9 +120,11 @@ type BlockProps = {
   cards: Map<string, HTMLElement>;
   /** The block arrived while the chat was open (`trackArrivals`): it fades and slides in. */
   fresh: boolean;
+  /** The block is the agent message still being written (`streamingKey`). */
+  streaming: boolean;
 };
 
-const Block = ({ block, live, edits, connected, answers, cards, fresh, onOpenSideBySide }: BlockProps) => {
+const Block = ({ block, live, edits, connected, answers, cards, fresh, streaming, onOpenSideBySide }: BlockProps) => {
   let shown: ReactNode;
   if (block.kind === "permission") {
     const item = block.item;
@@ -137,7 +146,8 @@ const Block = ({ block, live, edits, connected, answers, cards, fresh, onOpenSid
         }}
       />
     );
-  } else shown = <StaticBlock block={block} />;
+  } else if (streaming && block.kind === "item" && block.item.kind === "agent") shown = <StreamingText text={block.item.text} fresh={fresh} />;
+  else shown = <StaticBlock block={block} />;
   const session: ChatItem["sessionId"] = block.kind === "tools" ? block.items[0]?.sessionId : block.item.sessionId;
   const placed = session === undefined ? shown : <SubAgent>{shown}</SubAgent>;
   return fresh && !showsNothing(block) ? <Arrival>{placed}</Arrival> : placed;
@@ -163,6 +173,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const workbench = useWorkbench();
   const openSideBySide = (requestId: string) => workbench.openBeside(DIFF_VIEW, { agentId, requestId }, { viewId: CHAT_VIEW, params: { agentId } });
   const live = useMemo(() => (model === undefined ? undefined : liveState(model, agent)), [model, agent]);
+  const streamingBlock = streamingKey(blocks, live?.turnActive ?? false);
 
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -236,6 +247,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
                 answers={answers}
                 cards={cards.current}
                 fresh={tracked.fresh.has(block.key)}
+                streaming={block.key === streamingBlock}
                 onOpenSideBySide={openSideBySide}
               />
             ))}
