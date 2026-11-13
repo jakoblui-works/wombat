@@ -2,8 +2,9 @@
 // direct change before anything is stored. Approving applies a proposal through the writer on the version the
 // agent read, under the structure's settings as they are now; anything changed since makes it a conflict, never
 // an overwrite.
-import { ItemWriteErrorCode, ProposalErrorCode } from "@wombat/shared/api";
-import { type Problem, type Proposal, type ProposalStatus } from "@wombat/shared/items";
+import { ItemWriteErrorCode } from "@wombat/shared/api";
+import type { Problem } from "@wombat/shared/items";
+import { canDecide, ProposalErrorCode, type ItemProposal, type ProposalStatus } from "@wombat/shared/proposals";
 
 import type { View } from "../items/access.ts";
 import type { Catalog, LoadedItem, Snapshot, ValidStructure } from "../items/catalog.ts";
@@ -26,16 +27,19 @@ export class ProposalError extends Error {
 
 export type ProposalResult = { proposed: string };
 
+/** An item proposal as sent, with what it proposes, for the service's own callers. */
+export type ItemProposalRecord = ItemProposal & Pick<StoredProposal, "fields" | "baseVersion">;
+
 export type ItemProposals = {
   proposeCreate(agentId: string, structureId: string, input: ItemInput, reason: string): Promise<ProposalResult>;
   proposeUpdate(agentId: string, handle: string, fields: Record<string, unknown>, version: string, reason: string): Promise<ProposalResult>;
   proposeDelete(agentId: string, handle: string, version: string, reason: string): Promise<ProposalResult>;
   /** For people (HTTP): every proposal, hidden structures' included, or those with `status`. */
-  proposals(status?: ProposalStatus): Promise<Proposal[]>;
+  proposals(status?: ProposalStatus): Promise<ItemProposalRecord[]>;
   /** Applies a pending proposal through the writer; a conflict answers with `status: "conflict"` and its problem. */
-  approve(id: string): Promise<Proposal>;
+  approve(id: string): Promise<ItemProposalRecord>;
   /** Marks a pending proposal rejected; no file is touched. */
-  reject(id: string): Promise<Proposal>;
+  reject(id: string): Promise<ItemProposalRecord>;
 };
 
 /** The view functions come from access.ts, which alone decides what an agent may read about a structure. */
@@ -87,11 +91,14 @@ export const openItemProposals = ({
     return { proposed: stored.id };
   };
 
-  /** A stored proposal with its item's current handle (people see hidden structures too). */
-  const proposalOf = (stored: StoredProposal, items: LoadedItem[], handle?: string | null): Proposal => {
+  /**
+   * A stored proposal with its item's current handle (people see hidden structures too). The store keeps one version
+   * per proposal, the agent's.
+   */
+  const proposalOf = (stored: StoredProposal, items: LoadedItem[], handle?: string | null): ItemProposalRecord => {
     const { itemId, ...rest } = stored;
     const found = itemId === null ? undefined : items.find((item) => item.id === itemId);
-    return { ...rest, handle: handle !== undefined ? handle : (found?.handle ?? null) };
+    return { ...rest, target: "item", version: 1, editedByMe: false, handle: handle !== undefined ? handle : (found?.handle ?? null) };
   };
 
   /** Approvals and rejections one at a time, so a proposal is never applied twice. */
@@ -105,7 +112,7 @@ export const openItemProposals = ({
   const pending = (id: string) => {
     const stored = store.getProposal(id);
     if (stored === undefined) throw new ProposalError(ProposalErrorCode.enum.proposal_not_found, `No proposal has the id ${id}. Refresh the proposals to see the current ones.`);
-    if (stored.status !== "pending") {
+    if (!canDecide(stored.status)) {
       throw new ProposalError(
         ProposalErrorCode.enum.proposal_not_pending,
         `Proposal ${id} is already ${stored.status}; only a pending proposal can be approved or rejected. Refresh the proposals to see its state.`,

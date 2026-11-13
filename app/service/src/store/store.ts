@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
 import type { AgentSummary, LogEntry } from "@wombat/shared/api";
-import type { Problem, Proposal, ProposalStatus } from "@wombat/shared/items";
+import type { Problem } from "@wombat/shared/items";
+import type { ItemProposalKind, ProposalStatus } from "@wombat/shared/proposals";
 import { ensurePrivateFile, tightenPrivateFile } from "@wombat/shared/private-file";
 
 
@@ -20,7 +21,23 @@ export type NewLogEntry = DistributiveOmit<LogEntry, "seq" | "agentId" | "at"> &
  * A proposal as stored: it names its item by id (`itemId`, null for a create until it's approved), since handles
  * change by hand; the access module turns the id into the item's current handle.
  */
-export type StoredProposal = Omit<Proposal, "handle"> & { itemId: string | null };
+export type StoredProposal = {
+  id: string;
+  structure: string;
+  itemId: string | null;
+  kind: ItemProposalKind;
+  /** Field name → proposed value: `title`, `body` or property names, link values as ids. */
+  fields: Record<string, unknown>;
+  file: string | null;
+  reason: string;
+  /** The item's version the change is based on; null for a create. */
+  baseVersion: string | null;
+  status: ProposalStatus;
+  agentId: string;
+  at: string;
+  decidedAt?: string;
+  problem?: Problem;
+};
 
 /** A proposal as handed to `insertProposal`: the store adds the id, `at` and the pending status. */
 export type NewProposal = Pick<StoredProposal, "structure" | "itemId" | "kind" | "fields" | "file" | "reason" | "baseVersion" | "agentId">;

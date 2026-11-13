@@ -36,6 +36,7 @@ export const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {
   items_not_writable: 500,
   proposal_not_found: 404,
   proposal_not_pending: 409,
+  proposal_changed: 409,
 };
 
 /** An ErrorBody response: every refusal and failure the service sends has this shape. */

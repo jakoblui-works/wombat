@@ -4,7 +4,7 @@
 // proposalId), never the reason, the fields, a title or a handle.
 import { describe, expect, onTestFinished, test } from "vitest";
 
-import type { Proposal } from "@wombat/shared/items";
+import type { Proposal } from "@wombat/shared/proposals";
 
 import { openStore, type Store } from "../store/store.ts";
 import { readAt, writeAt } from "../../test/items-fixtures.ts";

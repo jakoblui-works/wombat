@@ -10,7 +10,7 @@
 // (as main does), or ignore `after` for one agent; a log read past MAX_LOG_READS for one agent answers 500, so a
 // client that loops fails its test instead of hanging it.
 import { type AgentSummary, type Alert, ListLogQuery, type LogEntry } from "@wombat/shared/api";
-import type { Proposal } from "@wombat/shared/items";
+import type { Proposal } from "@wombat/shared/proposals";
 import type { ConnectionState, WombatBridge } from "../src/shared/bridge.ts";
 import { atFor, type Body } from "../../shared/test/log-entries.ts";
 import { summary } from "./summaries.ts";

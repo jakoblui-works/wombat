@@ -8,7 +8,8 @@
 // the stream open and isn't an alert.
 import { z } from "zod";
 
-import { Item, ItemSummary, knownItems, Proposal, ProposalStatus, StructureSummary } from "./items.ts";
+import { Item, ItemSummary, knownItems, StructureSummary } from "./items.ts";
+import { ProposalErrorCode } from "./proposals.ts";
 import { MAX_BODY_BYTES } from "./routes.ts";
 
 const Seq = z.int().nonnegative();
@@ -42,6 +43,8 @@ export const SendMessageRequest = z.strictObject({
     .string()
     .regex(/^[A-Za-z0-9_-]{1,64}$/, { message: "commandId must be 1-64 letters, digits, - or _" })
     .exactOptional(),
+  /** The proposal the message is about, when the user writes from one. */
+  proposalId: z.string().min(1).exactOptional(),
 });
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 
@@ -70,20 +73,6 @@ export const ListLogQuery = z.strictObject(
   },
 );
 export type ListLogQuery = z.infer<typeof ListLogQuery>;
-
-/** `GET /proposals?status=`: every proposal, or those with one status. */
-export const ListProposalsQuery = z.strictObject(
-  {
-    status: z
-      .enum(ProposalStatus.options, { error: "status must be one of pending, approved, rejected or conflict" })
-      .exactOptional(),
-  },
-  {
-    error: (issue) =>
-      issue.code === "unrecognized_keys" ? "unknown query parameter; send only status" : undefined,
-  },
-);
-export type ListProposalsQuery = z.infer<typeof ListProposalsQuery>;
 
 // Responses (lenient)
 
@@ -160,13 +149,6 @@ export const AgentErrorCode = z.enum([
   "unsupported",
 ]);
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
-
-/**
- * `POST /proposals/:id/approve` and `/reject`: `proposal_not_found` for an unknown proposal id,
- * `proposal_not_pending` for one already decided. The app refetches the proposals.
- */
-export const ProposalErrorCode = z.enum(["proposal_not_found", "proposal_not_pending"]);
-export type ProposalErrorCode = z.infer<typeof ProposalErrorCode>;
 
 /**
  * The items routes' error codes: `items_not_configured` when the service runs without an items root (the app hides
@@ -581,7 +563,7 @@ export const SessionUpdate = z.discriminatedUnion("sessionUpdate", [
 ]);
 export type SessionUpdate = z.infer<typeof SessionUpdate>;
 
-// Items and proposals (lenient), read by the app; the shapes live in `items.ts`.
+// Items (lenient), read by the app; the shapes live in `items.ts`, the proposals' in `proposals.ts`.
 
 /** `GET /structures`: every structure under the items root, hidden ones and broken settings included. */
 export const ListStructuresResponse = z.object({ structures: z.array(StructureSummary) });
@@ -595,9 +577,6 @@ export type ListItemsResponse = z.infer<typeof ListItemsResponse>;
 export const GetItemResponse = Item;
 export type GetItemResponse = z.infer<typeof GetItemResponse>;
 
-/** `GET /proposals`: the proposals matching ListProposalsQuery. */
-export const ListProposalsResponse = z.object({ proposals: z.array(Proposal) });
-export type ListProposalsResponse = z.infer<typeof ListProposalsResponse>;
 
 // Log entries (lenient): an agent's stored history, read through `GET /agents/:id/log`.
 

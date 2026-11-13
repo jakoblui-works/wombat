@@ -12,6 +12,7 @@
     "./log-fold": "./src/log-fold.ts",
     "./private-file": "./src/private-file.ts",
     "./process-stat": "./src/process-stat.ts",
+    "./proposals": "./src/proposals.ts",
     "./routes": "./src/routes.ts",
     "./state-dir": "./src/state-dir.ts"
   },

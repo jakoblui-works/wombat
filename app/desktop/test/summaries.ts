@@ -1,6 +1,6 @@
 // Invented agent summaries and proposals for the renderer's tests; the log entries are in shared/test/log-entries.ts.
 import type { AgentSummary } from "@wombat/shared/api";
-import type { Proposal } from "@wombat/shared/items";
+import type { Proposal } from "@wombat/shared/proposals";
 import { AGENT, atFor } from "../../shared/test/log-entries.ts";
 
 /** An agent summary as GET /agents lists it. */
@@ -21,13 +21,14 @@ export const summary = (id: string, fields: Partial<AgentSummary> = {}): AgentSu
 /** A pending proposal as GET /proposals lists it (an invented edit to an opening-hours page). */
 export const proposal = (id: string, agentId = AGENT): Proposal => ({
   id,
+  target: "item",
   structure: "pages",
   kind: "update",
   handle: "PAGE-3",
-  fields: { title: "Opening hours" },
   file: null,
   reason: "Saturday hours changed",
-  baseVersion: "v1",
+  version: 1,
+  editedByMe: false,
   status: "pending",
   agentId,
   at: atFor(2),

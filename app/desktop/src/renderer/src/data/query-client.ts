@@ -6,11 +6,11 @@ import {
   ListAgentsResponse,
   ListHarnessesResponse,
   ListLogResponse,
-  ListProposalsResponse,
   ListReposResponse,
   parseLogEntry,
 } from "@wombat/shared/api";
 import type { FoldEntry } from "@wombat/shared/log-fold";
+import { ListProposalsResponse } from "@wombat/shared/proposals";
 import { bySeq } from "./by-seq.ts";
 import { call } from "./client.ts";
 import { keys, logAgentId } from "./keys.ts";

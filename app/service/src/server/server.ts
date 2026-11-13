@@ -11,8 +11,6 @@ import {
   ItemsErrorCode,
   ListItemsResponse as ListItemsSchema,
   ListLogQuery,
-  ListProposalsQuery,
-  ListProposalsResponse as ListProposalsSchema,
   ListStructuresResponse as ListStructuresSchema,
   SendMessageRequest,
   ServerErrorCode,
@@ -26,13 +24,18 @@ import {
   type ListHarnessesResponse,
   type ListItemsResponse,
   type ListLogResponse,
-  type ListProposalsResponse,
   type ListReposResponse,
   type ListStructuresResponse,
-  type ProposalErrorCode,
   type VersionResponse,
 } from "@wombat/shared/api";
-import { Proposal as ProposalSchema, type Proposal } from "@wombat/shared/items";
+import {
+  ListProposalsQuery,
+  ListProposalsResponse as ListProposalsSchema,
+  Proposal as ProposalSchema,
+  type ListProposalsResponse,
+  type Proposal,
+  type ProposalErrorCode,
+} from "@wombat/shared/proposals";
 import { MAX_BODY_BYTES } from "@wombat/shared/routes";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -332,6 +335,18 @@ export const startServer = async ({
     if (!access) return notConfigured(c);
     return c.json(checked(ProposalSchema, await access.reject(c.req.param("id"))) satisfies Proposal);
   });
+
+  // In the app's contract already; the store keeps no versions or drafts to answer them with yet.
+  const notServedYet = (c: Context) =>
+    errorResponse(
+      c,
+      SERVER_STATUS.not_found,
+      ServerErrorCode.enum.not_found,
+      `This service doesn't serve ${c.req.method} ${c.req.routePath} yet. Update the service to a version that does.`,
+    );
+  app.get("/proposals/:id", notServedYet);
+  app.put("/proposals/:id/draft", notServedYet);
+  app.delete("/proposals/:id/draft", notServedYet);
 
   app.get("/events", (c) => {
     // Hono answers HEAD by running this handler and dropping the body, which would leave a subscription that
