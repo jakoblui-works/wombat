@@ -1,5 +1,5 @@
 // What quitting does to the service and its agents, and that a waiting agent raises a notification. Nobody should
-// have a service in the background without knowing: a quit with no agent process stops the service, and a service
+// have a service in the background without knowing: a service
 // kept running is announced by a notification (keepNotifications reads the ones raised as the app quits). Every launch runs
 // in its own sandbox (app-fixtures.ts); the quit question's answer comes from WOMBAT_E2E_QUIT_ANSWER, and notifications
 // are recorded in main (E2E_NOTIFICATIONS), never shown. What reaches Electron's Notification is checked in

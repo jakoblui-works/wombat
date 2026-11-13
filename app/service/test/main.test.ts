@@ -193,7 +193,7 @@ test(
     expect(readFileSync(at.discoveryPath, "utf8"), "the first instance's file is untouched").toBe(text);
     const again = await api(file, "GET", "/version");
     expect(again.status).toBe(200);
-    expect(again.json, "startedAt or codeId moved: computed per request, not once at start").toEqual(version.json);
+    expect(again.json, "startedAt moved: computed per request, not once at start").toEqual(version.json);
 
     service.child.kill("SIGTERM");
     expect(await service.exited()).toEqual({ code: 0, signal: null });

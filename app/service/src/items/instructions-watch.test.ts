@@ -1,5 +1,4 @@
-// The items-root watcher behind the instructions file: a burst of file changes gives one write after the debounce,
-// and the watch recovers when the root itself is replaced.
+// The items-root watcher behind the instructions file recovers when the root itself is replaced.
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

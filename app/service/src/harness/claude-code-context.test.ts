@@ -1,5 +1,5 @@
 // `contextBreakdownOf` is the one reader of
-// Claude's `context_usage` (SDKContextUsage). Invented reports only. Also: the harness id the
+// Claude's `context_usage` (SDKContextUsage). Invented reports only. The harness id the
 // desktop's Claude module registers under (shared/test/context-cases.ts) is this harness's.
 import { ContextBreakdown } from "@wombat/shared/api";
 import { expect, test } from "vitest";

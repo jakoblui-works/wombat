@@ -46,9 +46,6 @@ export const trackedHarness = (scenario: FakeScenario, pidDir: string, options: 
 
 export const ALL_SCENARIOS: readonly FakeScenario[] = SCENARIOS;
 
-/** A harness on the reply scenario that can't resume its agents (no `resumable`). */
-export const NO_RESUME_HARNESS = "fake-reply-no-resume";
-
 /**
  * A harness on the hang scenario whose `contextBreakdown` gives up after CONTEXT_GIVE_UP_MS, while the agent still
  * holds the `/context` prompt (until a release file or a cancel; see CONTEXT_CANCELLED_FILE).
@@ -57,13 +54,11 @@ export const GIVE_UP_HARNESS = "fake-hang-gives-up";
 export const CONTEXT_GIVE_UP_MS = 300;
 
 /**
- * Every harness the fixtures give the manager: each scenario as `fake-<scenario>`, GIVE_UP_HARNESS and
- * NO_RESUME_HARNESS.
+ * Every harness the fixtures give the manager: each scenario as `fake-<scenario>` and GIVE_UP_HARNESS.
  */
 export const fixtureHarnesses = (pidDir: string): Harness[] => [
   ...ALL_SCENARIOS.map((scenario) => trackedHarness(scenario, pidDir)),
   { ...trackedHarness("hang", pidDir, { contextTimeoutMs: CONTEXT_GIVE_UP_MS }), id: GIVE_UP_HARNESS },
-  { ...trackedHarness("reply", pidDir, { resume: false }), id: NO_RESUME_HARNESS },
 ];
 
 export const isAlive = (pid: number) => {

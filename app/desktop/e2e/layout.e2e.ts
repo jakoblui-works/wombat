@@ -67,7 +67,3 @@ test.describe("saved layout", () => {
     expect(after, "the layout after the restart").toEqual(before);
   });
 });
-
-// The open tabs follow the agents list (one rule, the registry's isKnown, for the restore and live).
-test.describe("chat tabs follow the agents list", () => {
-});

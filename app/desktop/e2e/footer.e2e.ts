@@ -3,7 +3,7 @@
 // the fake agent (app-fixtures.ts), which offers a select "Model" (Fake small, Refuse large; category model), a boolean
 // "Fast mode", a select "Effort" (category thought_level) and a select "Mode" (category mode), and refuses
 // "Refuse large".
-// What this check relies on in the page (roles and names, not looks; "Default settings"):
+// What this check relies on in the page (roles and names, not looks):
 // - the footer sits in the agent's chat (the editor group with its tab, agent-views.ts `groupWithTab`);
 // - the settings button is a `button` whose name has the current model's and effort's names; it opens a `dialog`;
 // - in the dialog, a select's values are listed by name, a click on one sets it, and the current one carries

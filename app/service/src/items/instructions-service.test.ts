@@ -1,8 +1,7 @@
 // The instructions file through the service as a process: an
 // agent started as soon as the service is up gets exactly `<workspace>/.wombat/AGENTS.md` as the top-level
 // `systemPrompt` (mode append) of its session/new, and a harness that doesn't ask gets nothing; a hand edit shows
-// in the file within the debounce (a change that leaves its text as it is doesn't rewrite it), and an approval
-// before it answers; the file never lands in a repo; and with nothing to render, a stale file is removed and no
+// in the file within the debounce (a change that leaves its text as it is doesn't rewrite it); and with nothing to render, a stale file is removed and no
 // prompt is sent.
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

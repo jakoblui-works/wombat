@@ -1,4 +1,4 @@
-// What "needs me" lists ("needsMe"): every pending permission of a waiting agent, a row for a
+// What "needs me" lists: every pending permission of a waiting agent, a row for a
 // waiting agent without one, newest first, ties by agent id; nothing for an agent that no longer waits.
 import { expect, test } from "vitest";
 

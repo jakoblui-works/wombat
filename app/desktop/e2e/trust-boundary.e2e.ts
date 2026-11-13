@@ -168,8 +168,7 @@ const recordViolations = async (target: Page): Promise<void> => {
 const violations = (target: Page): Promise<string[]> =>
   target.evaluate((key) => [...((window as unknown as Record<string, string[] | undefined>)[key] ?? ["(recorder missing)"])], VIOLATIONS);
 
-// Let the tasks queued during load (effects, injected styles) run. (Not requestAnimationFrame:
-// the window is hidden, so frames may never come.)
+// Let the tasks queued during load (effects, injected styles) run.
 const settleTasks = (target: Page): Promise<void> =>
   target.evaluate(() => new Promise<void>((resolve) => setTimeout(() => setTimeout(resolve, 0), 0)));
 
@@ -188,7 +187,7 @@ test.beforeEach(async ({ sandbox }) => {
   ({ app, page } = await launch(sandbox));
 });
 
-const check0 = (): Promise<void> =>
+const windowIsLockedDown = (): Promise<void> =>
   test.step("the app's window has context isolation and the sandbox on, and Node off", async () => {
   const { app } = opened();
   expect(await windowCount(app)).toBe(1);
@@ -207,7 +206,7 @@ const check0 = (): Promise<void> =>
   expect(prefs).toEqual({ contextIsolation: true, sandbox: true, nodeIntegration: false });
 });
 
-const check1 = (): Promise<void> =>
+const windowOpenOpensNothing = (): Promise<void> =>
   test.step("window.open from the renderer opens no window", async () => {
   const { app, page } = opened();
   await stubOutside(app);
@@ -222,7 +221,7 @@ const check1 = (): Promise<void> =>
   expect(await windowCount(app)).toBe(1);
 });
 
-const check2 = (): Promise<void> =>
+const outsideNavigationStaysOnApp = (): Promise<void> =>
   test.step("navigating the page to an outside https URL leaves it on the app", async () => {
   const { app, page } = opened();
   await stubOutside(app);
@@ -249,7 +248,7 @@ const check2 = (): Promise<void> =>
 
 // The policy comes from the app:// handler as a response header, never a
 // meta tag; this reads what the handler sent, not a copy of the string.
-const check3 = (): Promise<void> =>
+const pageHasOneStrictCsp = (): Promise<void> =>
   test.step("the page is served with one strict CSP header, and no CSP meta tag", async () => {
   const { page } = opened();
   const response = await reloadPage(page);
@@ -267,7 +266,7 @@ const check3 = (): Promise<void> =>
 // Everything else app:// serves (the page's own scripts and styles, Monaco's worker, a 404) carries a fixed policy of
 // its own: a worker runs under its response's policy, not the page's, so without one it could fetch anything.
 // Read through main's net.fetch, which goes through the same app:// handler the page's loads do.
-const check4 = (): Promise<void> =>
+const otherResponsesCarryAPolicy = (): Promise<void> =>
   test.step("every other app:// response, an asset or a 404, carries one policy: default-src 'self', connect-src and object-src 'none'", async () => {
   const { app: main, page: shown } = opened();
   const asset = await shown.evaluate(() => document.querySelector<HTMLScriptElement>("script[src]")?.src ?? null);
@@ -294,7 +293,7 @@ const check4 = (): Promise<void> =>
 
 // The style attribute probes show the relaxation Monaco needs (style="" attributes, as in VS Code's own
 // style policy) is in place, and limited to attributes: <style> elements still need the nonce.
-const check5 = (): Promise<void> =>
+const pageEnforcesItsCsp = (): Promise<void> =>
   test.step("the page enforces its CSP: inline scripts and un-nonced <style> are blocked; nonced <style>, CSSOM styles and style attributes apply", async () => {
   const { page } = opened();
   await reloadPage(page);
@@ -351,7 +350,7 @@ const check5 = (): Promise<void> =>
   });
 });
 
-const check6 = (): Promise<void> =>
+const loadingCausesNoViolations = (): Promise<void> =>
   test.step("loading the page causes no CSP violations", async () => {
   const { page } = opened();
   await recordViolations(page);
@@ -368,7 +367,7 @@ const check6 = (): Promise<void> =>
   await expect.poll(async () => (await violations(page)).length, { message: "the violation recorder saw nothing" }).toBeGreaterThan(0);
 });
 
-const check7 = (): Promise<void> =>
+const preloadExposesOnlyTheBridge = (): Promise<void> =>
   test.step("the preload bridge exposes only the allowed globals, names and functions", async () => {
   const { page } = opened();
   const bridge = await page.evaluate(() => {
@@ -410,7 +409,7 @@ const check7 = (): Promise<void> =>
   });
 });
 
-const check8 = (): Promise<void> =>
+const permissionsAreDenied = (): Promise<void> =>
   test.step("permission requests and checks from the renderer are denied", async () => {
   const { page } = opened();
   // Probes whose outcome is decided by the app's permission handlers, not by hardware:
@@ -449,7 +448,7 @@ const check8 = (): Promise<void> =>
 // itself, everything the bridge answers or sends (settings, workspace, service answers, a refusal's message,
 // connection states), storage, cookies and the document. The port and the discovery file's path count too: the
 // page never needs them.
-const check9 = ({ sandbox }: { sandbox: Sandbox }): Promise<void> =>
+const pageHoldsNoToken = ({ sandbox }: { sandbox: Sandbox }): Promise<void> =>
   test.step("the page holds no token, service address or discovery path: not in its globals, the bridge, its storage or its document", async () => {
   const { page } = opened();
   await waitForConnection(page, "connected");
@@ -542,7 +541,7 @@ const check9 = ({ sandbox }: { sandbox: Sandbox }): Promise<void> =>
 // request() is limited to APP_ROUTES (@wombat/shared/routes), checked in main before any network call. A refusal
 // rejects the call (it never comes back as a service answer). The /shutdown variants show that nothing reached the
 // service: one that did would end it.
-const check10 = ({ sandbox }: { sandbox: Sandbox }): Promise<void> =>
+const bridgeRefusesOtherRoutes = ({ sandbox }: { sandbox: Sandbox }): Promise<void> =>
   test.step("the bridge refuses, in main, every method and path outside the app's routes, and none reaches the service", async () => {
   const { page } = opened();
   await waitForConnection(page, "connected");
@@ -581,7 +580,7 @@ const check10 = ({ sandbox }: { sandbox: Sandbox }): Promise<void> =>
 // command() runs only the ids in MAIN_COMMAND_IDS (src/shared/bridge.ts), checked in main: anything else rejects and
 // runs nothing. Each refused value is a near miss of zoom.in or window.close, so a command that ran anyway would show
 // as a changed zoom level, a level heard through onZoom, or a closed window.
-const check11 = (): Promise<void> =>
+const bridgeRefusesOtherCommands = (): Promise<void> =>
   test.step("the bridge refuses, in main, every command id outside MAIN_COMMAND_IDS, and runs nothing for it", async () => {
   const { app, page } = opened();
   await watchZoom(page);
@@ -620,7 +619,7 @@ const check11 = (): Promise<void> =>
 // The page's clipboard commands (edit.cut, edit.copy, edit.paste) run only right after the user's own input to the
 // window, checked in main, so script in the page can't read or write the clipboard on its own. No input has reached
 // the window since launch; the field is the test's own, focused by script.
-const check12 = (): Promise<void> =>
+const pasteNeedsUserInput = (): Promise<void> =>
   test.step("the page's edit.paste pastes nothing with no user input, and pastes right after a key press", async () => {
   const { app, page } = opened();
   const field = page.getByTestId("e2e-clipboard-field");
@@ -647,25 +646,25 @@ const check12 = (): Promise<void> =>
 // Paste comes first (it needs no input since launch); the probes that open windows, navigate or start an agent come last.
 test("the window, the preload bridge and permissions are locked down", async () => {
   test.setTimeout(90_000);
-  await check12();
-  await check0();
-  await check7();
-  await check8();
-  await check1();
-  await check2();
+  await pasteNeedsUserInput();
+  await windowIsLockedDown();
+  await preloadExposesOnlyTheBridge();
+  await permissionsAreDenied();
+  await windowOpenOpensNothing();
+  await outsideNavigationStaysOnApp();
 });
 
 test("the page's CSP is served on every response and enforced", async () => {
   test.setTimeout(90_000);
-  await check3();
-  await check4();
-  await check6();
-  await check5();
+  await pageHasOneStrictCsp();
+  await otherResponsesCarryAPolicy();
+  await loadingCausesNoViolations();
+  await pageEnforcesItsCsp();
 });
 
 test("the page reaches the service only through main: no token in the page, no route or command outside the allow-lists", async ({ sandbox }) => {
   test.setTimeout(90_000);
-  await check10({ sandbox });
-  await check11();
-  await check9({ sandbox });
+  await bridgeRefusesOtherRoutes({ sandbox });
+  await bridgeRefusesOtherCommands();
+  await pageHoldsNoToken({ sandbox });
 });

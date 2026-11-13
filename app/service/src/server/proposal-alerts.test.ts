@@ -31,7 +31,7 @@ describe("proposal alerts", () => {
           // Already closed.
         }
       });
-      // The store's proposal read ("Store"), synchronous like the rest of the store.
+      // The store's proposal read, synchronous like the rest of the store.
       const getProposal = (id: string) => (reader as Store & { getProposal?: (id: string) => Proposal | undefined }).getProposal?.(id);
 
       const problems: string[] = [];

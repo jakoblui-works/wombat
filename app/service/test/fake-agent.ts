@@ -660,7 +660,7 @@ const run = (scenario: FakeScenario) => {
           const told = new Promise<void>((release) => process.once("SIGTERM", () => release()));
           await send(client, sessionId, text("Working on it."));
           await told;
-          setTimeout(() => process.exit(0), 50);
+          setTimeout(() => process.exit(0), 250);
           throw RequestError.internalError(undefined, "the fake agent was told to end mid-turn");
         }
         case "replay": {
