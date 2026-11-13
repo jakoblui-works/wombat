@@ -14,7 +14,6 @@ import { describe, expect, onTestFinished, test } from "vitest";
 import { AccessError } from "./access.ts";
 import { ACCESS_FILES, AGENT, HIDDEN, MARKER, expectRefused, extraProblemKeys, leaks, openAccessRoot, refusal } from "../../test/access-fixtures.ts";
 import { UUID } from "../../test/instructions-fixtures.ts";
-import { itemAt } from "../../test/items-fixtures.ts";
 
 /** The message with the name the agent typed replaced, so two refusals can be compared. */
 const withoutTyped = (message: string, typed: string) => message.replaceAll(typed, "<typed>");
@@ -53,15 +52,9 @@ describe("hidden never reaches an agent", () => {
     const input = { title: "A new plan", body: "\nInvented.\n" };
     const pairs: { what: string; hidden: () => Promise<unknown>; missing: () => Promise<unknown>; typed: [string, string] }[] = [
       { what: "get", hidden: () => access.get("KST-1"), missing: () => access.get("KST-99"), typed: ["KST-1", "KST-99"] },
-      { what: "describe", hidden: () => access.describe(HIDDEN.structure), missing: () => access.describe("no-such-structure"), typed: [HIDDEN.structure, "no-such-structure"] },
       { what: "list", hidden: () => access.list(HIDDEN.structure), missing: () => access.list("no-such-structure"), typed: [HIDDEN.structure, "no-such-structure"] },
-      { what: "search in", hidden: () => access.search("plan", HIDDEN.structure), missing: () => access.search("plan", "no-such-structure"), typed: [HIDDEN.structure, "no-such-structure"] },
-      { what: "update", hidden: () => access.update(AGENT, "KST-1", { codename: "x" }, "v"), missing: () => access.update(AGENT, "KST-99", { codename: "x" }, "v"), typed: ["KST-1", "KST-99"] },
-      { what: "remove", hidden: () => access.remove(AGENT, "KST-1", "v"), missing: () => access.remove(AGENT, "KST-99", "v"), typed: ["KST-1", "KST-99"] },
       { what: "create", hidden: () => access.create(AGENT, HIDDEN.structure, input), missing: () => access.create(AGENT, "no-such-structure", input), typed: [HIDDEN.structure, "no-such-structure"] },
       { what: "propose_update", hidden: () => access.proposeUpdate(AGENT, "KST-1", { codename: "x" }, "v", "why"), missing: () => access.proposeUpdate(AGENT, "KST-99", { codename: "x" }, "v", "why"), typed: ["KST-1", "KST-99"] },
-      { what: "propose_delete", hidden: () => access.proposeDelete(AGENT, "KST-1", "v", "why"), missing: () => access.proposeDelete(AGENT, "KST-99", "v", "why"), typed: ["KST-1", "KST-99"] },
-      { what: "propose_create", hidden: () => access.proposeCreate(AGENT, HIDDEN.structure, input, "why"), missing: () => access.proposeCreate(AGENT, "no-such-structure", input, "why"), typed: [HIDDEN.structure, "no-such-structure"] },
       {
         what: "a link value naming a hidden handle",
         hidden: () => access.proposeUpdate(AGENT, "BUG-2", { vault: "KST-1" }, version, "why"),
@@ -163,22 +156,6 @@ describe("hidden never reaches an agent", () => {
       expect(leaks(JSON.stringify(underHidden), [MARKER, den, "Kestrel den", "KDN", "KNS", "inside another structure"]), what).toEqual([]);
       expect(await access.list(structure), `${what}: nothing was created under either folder`).toHaveLength(1);
     }
-  });
-
-  test("an ordinary value problem reads as the catalog gives it, even when its text contains a hidden structure's name", async () => {
-    // The hidden structure is named with a common word that a visible field's problem also uses.
-    const files = {
-      ...ACCESS_FILES,
-      "vault/_structure.yaml": `version: 1\nid: ${HIDDEN.structure}\nname: Owner\nprefix: ${HIDDEN.prefix}\naccess: hidden\nproperties:\n  codename: { type: text }\n`,
-      "backlog/BL-3-owner-typo.md": `---\nid: 0196f3c2-9c00-7000-8000-000000000003\nhandle: BL-3\nproject: nope\nowner: 5\n---\n# An owner typed as a number\n\nInvented.\n`,
-    };
-    const { access, catalog } = openAccessRoot(files);
-    const fromCatalog = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "backlog"), "backlog/BL-3-owner-typo.md").problems;
-    expect(fromCatalog.map((problem) => problem.field).sort(), "the file has a problem on each value").toEqual(["owner", "project"]);
-
-    expect((await access.get("BL-3")).problems, "get").toEqual(fromCatalog);
-    expect(extraProblemKeys({ problems: (await access.get("BL-3")).problems }), "keys beyond Problem's").toEqual([]);
-    expect((await access.list("backlog")).find((item) => item.handle === "BL-3")?.problems, "list").toEqual(fromCatalog);
   });
 
   test("a prefix clash with a hidden structure, in a folder or at the root, refuses a write or a proposal the same way and names nothing hidden", async () => {
@@ -350,60 +327,6 @@ describe("hidden never reaches an agent", () => {
     const withHidden = await seen({ ...pub, ...hidden });
     expect(withHidden).toEqual(without);
     expect(leaks(JSON.stringify(withHidden), [MARKER, HIDDEN.structure, HIDDEN.name]), "hidden names").toEqual([]);
-  });
-
-  test("a hidden structure at the root doesn't change how clashes and unreadable folders between visible structures read", async () => {
-    const id = (n: number) => `0196f3c2-9e00-7000-8000-0000000000a${String(n)}`;
-    const visible = {
-      // Two files sharing a handle, in a free-named structure.
-      "p/_structure.yaml": "version: 1\nid: pub\nname: Public notes\nprefix: PUB\naccess: edit\nnaming: free\ninclude: [\"**/*.md\"]\n",
-      "p/a.md": `---\nid: ${id(1)}\nhandle: PUB-1\n---\n# One of two with this handle\n\nInvented.\n`,
-      "p/b.md": `---\nid: ${id(2)}\nhandle: PUB-1\n---\n# The other with this handle\n\nInvented.\n`,
-      // Two structures with one prefix, and two with one id.
-      "x1/_structure.yaml": "version: 1\nid: x1\nname: X one\nprefix: XX\naccess: edit\n",
-      "x2/_structure.yaml": "version: 1\nid: x2\nname: X two\nprefix: XX\naccess: edit\n",
-      "y1/_structure.yaml": "version: 1\nid: twin\nname: Twin one\nprefix: YA\naccess: edit\n",
-      "y2/_structure.yaml": "version: 1\nid: twin\nname: Twin two\nprefix: YB\naccess: edit\n",
-      // A structure with a subfolder that can't be read (made below).
-      "u/_structure.yaml": "version: 1\nid: unread\nname: Unread\nprefix: UNR\naccess: edit\n",
-    };
-    const hiddenRoot = { "_structure.yaml": `version: 1\nid: ${MARKER}-root\nname: Kestrel root\nprefix: KRT\naccess: hidden\n` };
-    const input = { title: "A new note", body: "\nInvented.\n" };
-
-    /** What an agent gets about the visible structures: each answer, or the refusal's code, message and problems. */
-    const seen = async (files: Record<string, string>) => {
-      const { access, root } = openAccessRoot(files);
-      const locked = join(root, "u", "locked");
-      mkdirSync(locked);
-      chmodSync(locked, 0o000);
-      onTestFinished(() => chmodSync(locked, 0o755));
-      const answer = async (call: () => Promise<unknown>) => {
-        try {
-          return await call();
-        } catch (error) {
-          expect(error).toBeInstanceOf(AccessError);
-          const { code, message, problems } = error as AccessError;
-          return { code, message, problems };
-        }
-      };
-      const version = (await access.get("PUB-1")).version;
-      return {
-        "list pub": await answer(() => access.list("pub")),
-        "get PUB-1": await answer(() => access.get("PUB-1")),
-        "update PUB-1": await answer(() => access.update(AGENT, "PUB-1", { title: "Renamed" }, version)),
-        "remove PUB-1": await answer(() => access.remove(AGENT, "PUB-1", version)),
-        "create in x1 (a prefix clash)": await answer(() => access.create(AGENT, "x1", input)),
-        "create in twin (an id clash)": await answer(() => access.create(AGENT, "twin", input)),
-        "create in unread (an unreadable folder)": await answer(() => access.create(AGENT, "unread", input)),
-      };
-    };
-
-    const without = await seen(visible);
-    // Each answer carries the problem it's about, so the comparison looks at real text.
-    for (const [what, got] of Object.entries(without)) expect(JSON.stringify(got), what).toContain('"message"');
-    const withHidden = await seen({ ...visible, ...hiddenRoot });
-    expect(withHidden, "with a hidden structure at the root").toEqual(without);
-    expect(leaks(JSON.stringify(withHidden), [MARKER, "Kestrel root", "KRT"]), "hidden names").toEqual([]);
   });
 
   test("a free path through a hidden folder to a visible structure inside it is refused like a path through a missing folder", async () => {

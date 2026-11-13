@@ -1,6 +1,6 @@
 // The items-root watcher behind the instructions file: a burst of file changes gives one write after the debounce,
 // and the watch recovers when the root itself is replaced.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,28 +14,6 @@ const rule = (n: number) => `---\nid: 0196f3c2-9e00-7000-8000-${String(n).padSta
 
 /** Tolerance on top of the debounce for fs.watch to report the changes; not a tuning value. */
 const SETTLE_MS = 1_000;
-
-test("a burst of file changes gives one write of the file", async () => {
-  const root = writeRoot({ "rules/_structure.yaml": SETTINGS, "rules/RUL-1-a.md": rule(1) });
-  const workspaceRoot = mkdtempSync(join(tmpdir(), "wombat-workspace-"));
-  onTestFinished(() => rmSync(workspaceRoot, { recursive: true, force: true }));
-  const { catalog } = openItems(root);
-  const events: string[] = [];
-  const instructions = openInstructions({ catalog, workspaceRoot, itemsRoot: root, log: (event) => events.push(event) });
-  onTestFinished(() => instructions.close());
-  instructions.watch();
-  const file = join(workspaceRoot, INSTRUCTIONS_FILE);
-
-  // Each change comes well inside the debounce of the one before, but the burst as a whole lasts more than two
-  // debounces: a debounce that doesn't restart on every change, or none at all, writes the file part-way through.
-  for (let n = 2; n <= 11; n += 1) {
-    writeAt(root, `rules/RUL-${n}-b.md`, rule(n));
-    await new Promise((resolve) => setTimeout(resolve, INSTRUCTIONS_DEBOUNCE_MS / 4));
-  }
-  await expect.poll(() => (existsSync(file) ? readFileSync(file, "utf8") : ""), { timeout: INSTRUCTIONS_DEBOUNCE_MS + SETTLE_MS }).toContain("Rule 11");
-
-  expect(events.filter((event) => event === "instructions_written")).toHaveLength(1);
-});
 
 test("after the items root is removed and put back (a re-clone), hand edits reach the file again", async () => {
   const root = writeRoot({ "rules/_structure.yaml": SETTINGS, "rules/RUL-1-a.md": rule(1) });

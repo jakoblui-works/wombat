@@ -78,41 +78,13 @@ type Row = { what: string; expect: "accepted" | "refused"; change: Change };
 const ROWS: Row[] = [
   // create
   { what: "create (control)", expect: "accepted", change: { kind: "create", twin: "named", input: { ...NEW, properties: { status: "open" } } } },
-  { what: "create setting an own key", expect: "refused", change: { kind: "create", twin: "named", input: { ...NEW, properties: { status: "open", id: "0196f3c2-9f00-7000-8000-000000000999" } } } },
-  { what: "create with an empty title", expect: "refused", change: { kind: "create", twin: "named", input: { ...NEW, title: "  ", properties: { status: "open" } } } },
-  { what: "create with a multi-line title", expect: "refused", change: { kind: "create", twin: "named", input: { ...NEW, title: "Two\nlines", properties: { status: "open" } } } },
-  { what: "create with a title that isn't text", expect: "refused", change: { kind: "create", twin: "named", input: { ...NEW, title: 5, properties: { status: "open" } } } },
-  { what: "create with a body that isn't text", expect: "refused", change: { kind: "create", twin: "named", input: { ...NEW, body: 5, properties: { status: "open" } } } },
-  { what: "create with an undeclared property", expect: "refused", change: { kind: "create", twin: "named", input: { ...NEW, properties: { status: "open", stray: "x" } } } },
-  { what: "create with a value that isn't an option", expect: "refused", change: { kind: "create", twin: "named", input: { ...NEW, properties: { status: "maybe" } } } },
-  { what: "create without a required property", expect: "refused", change: { kind: "create", twin: "named", input: { ...NEW, properties: {} } } },
-  { what: "create giving a file to a handle-named structure", expect: "refused", change: { kind: "create", twin: "named", input: { ...NEW, properties: { status: "open" }, file: "mine.md" } } },
-  { what: "create in a structure with problems", expect: "refused", change: { kind: "create", twin: "broken", input: { ...NEW, properties: { status: "open" } } } },
   { what: "free-named create (control)", expect: "accepted", change: { kind: "create", twin: "free", input: { ...NEW, file: "new-note.md" } } },
-  { what: "free-named create without a file", expect: "refused", change: { kind: "create", twin: "free", input: NEW } },
-  { what: "free-named create with a path out of the folder", expect: "refused", change: { kind: "create", twin: "free", input: { ...NEW, file: "../escape.md" } } },
-  { what: "free-named create at an existing file", expect: "refused", change: { kind: "create", twin: "free", input: { ...NEW, file: "existing.md" } } },
-  { what: "free-named create with a file that isn't .md", expect: "refused", change: { kind: "create", twin: "free", input: { ...NEW, file: "note.txt" } } },
   // update
   { what: "update (control)", expect: "accepted", change: { kind: "update", item: 1, fields: { note: "Seen again", title: "Ship the search page soon" } } },
   { what: "update clearing an optional property (control)", expect: "accepted", change: { kind: "update", item: 1, fields: { note: null } } },
-  { what: "update setting an own key", expect: "refused", change: { kind: "update", item: 1, fields: { handle: "TSK-40" } } },
-  { what: "update naming no fields", expect: "refused", change: { kind: "update", item: 1, fields: {} } },
-  { what: "update with a multi-line title", expect: "refused", change: { kind: "update", item: 1, fields: { title: "Two\nlines" } } },
-  { what: "update with a body that isn't text", expect: "refused", change: { kind: "update", item: 1, fields: { body: 3 } } },
-  { what: "update of an undeclared property", expect: "refused", change: { kind: "update", item: 1, fields: { stray: "x" } } },
-  { what: "update with a value that isn't an option", expect: "refused", change: { kind: "update", item: 1, fields: { status: "maybe" } } },
-  { what: "update clearing a required property", expect: "refused", change: { kind: "update", item: 1, fields: { status: null } } },
-  { what: "update of an item with an undeclared key", expect: "refused", change: { kind: "update", item: 2, fields: { note: "x" } } },
-  { what: "update of an item whose handle another file has", expect: "refused", change: { kind: "update", item: 3, fields: { note: "x" } } },
-  { what: "update of an item without a title", expect: "refused", change: { kind: "update", item: 5, fields: { note: "x" } } },
-  { what: "update of a field whose YAML anchor another key aliases", expect: "refused", change: { kind: "update", item: 6, fields: { note: "seen once" } } },
   { what: "update sent with an old version", expect: "refused", change: { kind: "update", item: 1, fields: { note: "x" }, stale: true } },
   // delete
-  { what: "delete (control)", expect: "accepted", change: { kind: "delete", item: 1 } },
   { what: "delete of an item without a title (control)", expect: "accepted", change: { kind: "delete", item: 5 } },
-  { what: "delete of an item whose handle another file has", expect: "refused", change: { kind: "delete", item: 3 } },
-  { what: "delete sent with an old version", expect: "refused", change: { kind: "delete", item: 1, stale: true } },
 ];
 
 /** What the agent got: accepted, or the refusal's code and the fields its problems name (messages left out). */

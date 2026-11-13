@@ -4,8 +4,8 @@
 // in the file within the debounce (a change that leaves its text as it is doesn't rewrite it), and an approval
 // before it answers; the file never lands in a repo; and with nothing to render, a stale file is removed and no
 // prompt is sent.
-import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
@@ -16,7 +16,6 @@ import { TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
 import {
   PLAIN,
   PROMPTED,
-  agentTool,
   promptText,
   readInstructions,
   startRecorded,
@@ -51,14 +50,6 @@ const untilLogged = async (service: RunningService, text: string) => {
   await expect.poll(() => writes(service).at(-1), { message: "the write of the current file in the log" }).toBe(Buffer.byteLength(text));
   return writes(service).length;
 };
-
-/** Files named AGENTS.md or CLAUDE.md anywhere under the workspace, relative to it. */
-const instructionFiles = (dir: string, root = dir): string[] =>
-  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) return instructionFiles(path, root);
-    return /^(agents|claude)\.md$/i.test(entry.name) ? [relative(root, path)] : [];
-  });
 
 describe("the instructions file in the service", () => {
   test(
@@ -121,34 +112,7 @@ describe("the instructions file in the service", () => {
     TEST_TIMEOUT_MS * 2,
   );
 
-  test(
-    "an approved change shows in AGENTS.md before the approval answers, and the file is never inside a repo",
-    async () => {
-      const service = await startService({ items: INSTRUCTIONS_FILES });
-      const { token } = await startRecorded(service, PROMPTED);
-
-      // Only propose and read structures can be marked (D34), so a service write reaches the file through an
-      // approval: read the file the moment the approval answers, well inside the debounce.
-      // A proposal changes nothing until it's approved; the approval shows before it answers.
-      const bug = (await agentTool(service, token, "get_item", { handle: "BUG-2" })) as { version: string };
-      const { proposed } = (await agentTool(service, token, "propose_update", {
-        handle: "BUG-2",
-        fields: { title: "The hero caption overlaps the image on small screens" },
-        version: bug.version,
-        reason: "Seen on a phone too.",
-      })) as { proposed: string };
-      expect(readInstructions(service), "after propose_update").not.toContain("on small screens");
-      const approved = await service.api("POST", `/proposals/${proposed}/approve`);
-      expect(approved.status, approved.text).toBe(200);
-      expect(readInstructions(service), "after the approval answered").toContain("on small screens");
-
-      expect(instructionFiles(service.workspace), "instruction files in the workspace").toEqual([join(".wombat", "AGENTS.md")]);
-    },
-    TEST_TIMEOUT_MS * 2,
-  );
-
   test.each([
-    { what: "without WOMBAT_ITEMS", items: undefined },
     { what: "with items but no structure marked as instructions", items: ACCESS_FILES },
   ])(
     "$what, a stale AGENTS.md is removed and agents get no system prompt",

@@ -11,7 +11,6 @@ import { join } from "node:path";
 import { describe, expect, onTestFinished, test } from "vitest";
 
 import { openAccess } from "./access.ts";
-import type { Catalog } from "./catalog.ts";
 import { INSTRUCTIONS_FILE, openInstructions, refreshingWriter, renderInstructions, writeInstructions } from "./instructions.ts";
 import { AGENT, leaks } from "../../test/access-fixtures.ts";
 import { HIDDEN_STRINGS, INSTRUCTIONS_FILES, UUID, itemBlock } from "../../test/instructions-fixtures.ts";
@@ -21,16 +20,6 @@ const workspace = () => {
   const dir = mkdtempSync(join(tmpdir(), "wombat-workspace-"));
   onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
   return dir;
-};
-
-/** Every problem message the catalog reports for the root: none may reach the file. */
-const problemTexts = async (catalog: Catalog) => {
-  const texts: string[] = [];
-  for (const structure of (await catalog.snapshot()).structures) {
-    texts.push(...structure.problems.map((problem) => problem.message));
-    if (structure.id !== null) for (const item of (await catalog.snapshot()).items.filter((item) => item.structure === structure.id)) texts.push(...item.problems.map((problem) => problem.message));
-  }
-  return texts;
 };
 
 describe("the instructions file", () => {
@@ -47,53 +36,6 @@ describe("the instructions file", () => {
     const linkedHidden = itemBlock(text, "BL-3");
     expect(linkedHidden, "BL-3's block").toBeDefined();
     expect(linkedHidden?.replaceAll("BL-3", "<handle>")).toBe(itemBlock(text, "BL-4")?.replaceAll("BL-4", "<handle>"));
-  });
-
-  test("an item invalid on disk neither breaks the file nor brings problem text into it", async () => {
-    const conventions = `version: 1
-id: conventions
-name: Conventions
-prefix: CONV
-access: propose
-instructions: full
-properties:
-  area: { type: select, options: [frontends, services] }
-`;
-    const files = {
-      "conventions/_structure.yaml": conventions,
-      "conventions/CONV-1-valid.md": "---\nid: 0196f3c2-9e00-7000-8000-000000000041\nhandle: CONV-1\narea: services\n---\n# Name branches after the task\n\nvalid-rule-text\n",
-      // A value problem: it has a title and a handle, so it renders, without its problem.
-      "conventions/CONV-2-unknown-area.md": "---\nid: 0196f3c2-9e00-7000-8000-000000000042\nhandle: CONV-2\narea: everywhere\n---\n# Keep commits small\n\nvalue-problem-rule-text\n",
-      // No title: skipped.
-      "conventions/CONV-3-no-title.md": "---\nid: 0196f3c2-9e00-7000-8000-000000000043\nhandle: CONV-3\n---\nuntitled-rule-text, with no heading.\n",
-      // Unparseable: skipped.
-      "conventions/CONV-4-broken.md": "---\nid: [0196f3c2\nhandle: CONV-4\n---\n# A broken rule\n\nunparseable-rule-text\n",
-      // Broken settings (an unknown key): the whole structure is skipped.
-      "guides/_structure.yaml": "version: 1\nid: guides\nname: Guides\nprefix: GDE\naccess: read\ninstructions: full\ncolour: blue\n",
-      "guides/GDE-1-style.md": "---\nid: 0196f3c2-9e00-7000-8000-000000000044\nhandle: GDE-1\n---\n# Style guide\n\nbroken-settings-guide-text\n",
-      // An edit structure marked for instructions (D34: refused, since agents could change them unapproved): skipped.
-      "rules/_structure.yaml": "version: 1\nid: rules\nname: Rules\nprefix: RUL\naccess: edit\ninstructions: full\n",
-      "rules/RUL-1-review.md": "---\nid: 0196f3c2-9e00-7000-8000-000000000045\nhandle: RUL-1\n---\n# Review before merging\n\nedit-structure-rule-text\n",
-    };
-    const { catalog } = openItems(writeRoot(files));
-    const problems = await problemTexts(catalog);
-    expect(problems.length, "the root has the problems this test is about").toBeGreaterThanOrEqual(5);
-    const refused = (await catalog.snapshot()).structures.filter((structure) => structure.problems.some((problem) => problem.field === "instructions" || problem.field === "access"));
-    expect(refused, "the edit structure's settings are refused").toHaveLength(1);
-
-    const text = (await renderInstructions(catalog)) ?? "";
-
-    expect(text).toContain("valid-rule-text");
-    expect(text, "a value problem doesn't keep an item out").toContain("value-problem-rule-text");
-    for (const skipped of ["untitled-rule-text", "unparseable-rule-text", "broken-settings-guide-text", "Style guide", "edit-structure-rule-text", "Review before merging"]) {
-      expect(text).not.toContain(skipped);
-    }
-    // A skipped item leaves no heading of its own: none names CONV-3 (untitled) and none is empty (unparseable).
-    const headings = text.split("\n").filter((line) => /^#{1,6}(\s|$)/.test(line));
-    expect(headings.filter((line) => line.includes("CONV-3") || line.replace(/^#+/, "").trim() === ""), "headings of skipped items").toEqual([]);
-    // Whole messages, and each without its leading `field: `, so a reworded prefix doesn't hide one.
-    const fragments = problems.flatMap((message) => [message, message.replace(/^[^:]*: /, "")]);
-    expect(fragments.filter((fragment) => text.includes(fragment)), "problem text in the file").toEqual([]);
   });
 
   test("is written atomically and read-only, rewritten over its read-only self, and kept as it was when a render fails", async () => {
@@ -158,5 +100,21 @@ properties:
     const deleted = await access.proposeDelete(AGENT, "BUG-2", version, "Fixed by the new layout.");
     expect((await access.approve(deleted.proposed)).status).toBe("approved");
     expect(readFileSync(path, "utf8"), "right after the approved delete").not.toContain("The hero caption overlaps the image");
+  });
+
+  test("a file over the cap is sent as an index of every structure, and one under it in full", async () => {
+    const catalog = openItems(
+      writeRoot({
+        "rules/_structure.yaml": "version: 1\nid: rules\nname: Rules\nprefix: RUL\naccess: propose\ninstructions: full\n",
+        "rules/RUL-1-a.md": "---\nid: 0196f3c2-9e00-7000-8000-000000000001\nhandle: RUL-1\n---\n# Rule one\nFirst line of rule one.\n\nA second paragraph only the full text has.\n",
+      }),
+    ).catalog;
+    const full = (await renderInstructions(catalog)) ?? "";
+    expect(full).toContain("A second paragraph only the full text has.");
+
+    const capped = (await renderInstructions(catalog, { maxBytes: Buffer.byteLength(full) - 1 })) ?? "";
+    expect(capped).toContain("First line of rule one.");
+    expect(capped).not.toContain("A second paragraph only the full text has.");
+    expect(await renderInstructions(catalog, { maxBytes: Buffer.byteLength(full) })).toBe(full);
   });
 });

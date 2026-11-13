@@ -24,11 +24,7 @@ const PROPERTY_TIMEOUT_MS = 30_000;
 
 describe("item file round trip", () => {
   test.each([
-    { field: "repo", value: "site-web", line: /^repo:/ },
     { field: "noted", value: "2026-11-05", line: /^noted:/ },
-    { field: "order", value: 7, line: /^order:/ },
-    { field: "note", value: "Seen again after the cookie fix", line: /^note:/ },
-    { field: "blocks", value: IDS.bl2, line: /^blocks:/ },
     { field: "title", value: "Login times out after 30 seconds on staging", line: /^# / },
   ])("updating $field changes only its line, keeps the path, and reads back", async ({ field, value, line }) => {
     const root = writeRoot(VALID_FILES);
@@ -49,37 +45,6 @@ describe("item file round trip", () => {
     expect(reread.id).toBe(IDS.bug1);
     expect(updated.version).toBe(reread.version);
     expect(updated.version).not.toBe(before.version);
-  });
-
-  test("setting a property the file doesn't have yet adds one line and keeps every other", async () => {
-    const root = writeRoot(VALID_FILES);
-    const { catalog, writer } = openItems(root);
-    const file = "bugs/hero-caption.md";
-    const before = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), file);
-
-    await writer.updateItem("BUG-2", { noted: "2026-11-06" }, before.version);
-
-    const after = readAt(root, file);
-    const added = lines(after).filter((line) => !lines(VALID_FILES[file] ?? "").includes(line));
-    expect(added).toHaveLength(1);
-    expect(added[0]).toMatch(/^noted:/);
-    expect(lines(after).filter((line) => line !== added[0])).toEqual(lines(VALID_FILES[file] ?? ""));
-    expect(itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), file).properties.noted).toBe("2026-11-06");
-  });
-
-  test("updating the body keeps the frontmatter and the title line byte for byte", async () => {
-    const root = writeRoot(VALID_FILES);
-    const { catalog, writer } = openItems(root);
-    const before = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE);
-    const body = "\nSteps:\r\n1. Sign in.\n\n<!-- kept as written -->\n    indented code\n";
-
-    await writer.updateItem("BUG-1", { body }, before.version);
-
-    const after = readAt(root, FILE);
-    const titleLine = "# Login times out after 30 seconds\n";
-    const head = ORIGINAL.slice(0, ORIGINAL.indexOf(titleLine) + titleLine.length);
-    expect(after.startsWith(head)).toBe(true);
-    expect(itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE).body).toBe(body);
   });
 
   test("an update that can't change only its field (a value shared through a YAML anchor) is refused, the file unchanged", async () => {

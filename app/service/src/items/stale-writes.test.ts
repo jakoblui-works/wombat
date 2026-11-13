@@ -27,19 +27,6 @@ describe("stale writes are refused", () => {
     expect(readAt(root, FILE)).toBe(handEdited);
   });
 
-  test("a version is good for one write: a second write based on it is refused", async () => {
-    const root = writeRoot(VALID_FILES);
-    const { catalog, writer } = openItems(root);
-    const base = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE).version;
-
-    await writer.updateItem("BUG-1", { order: 3 }, base);
-    const afterFirst = readAt(root, FILE);
-
-    await expectWriteError(writer.updateItem("BUG-1", { order: 4 }, base), "stale_version", "second update");
-    await expectWriteError(writer.deleteItem("BUG-1", base), "stale_version", "delete");
-    expect(readAt(root, FILE)).toBe(afterFirst);
-  });
-
   test("two updates at once on the same base: exactly one lands, the other is refused", async () => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);

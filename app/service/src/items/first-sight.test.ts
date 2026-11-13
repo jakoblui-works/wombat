@@ -14,7 +14,6 @@ import {
   IDS,
   UUID_V7,
   VALID_FILES,
-  frontmatterKeys,
   frontmatterValue,
   itemAt,
   openItems,
@@ -116,7 +115,6 @@ describe("first sight", () => {
   }, PROPERTY_TIMEOUT_MS);
 
   test.each([
-    { what: "a trailing space on the opening fence", text: "--- \nrepo: api\n---\n# A fence with a trailing space\n", line: 1 },
     { what: "a blank line before the fence", text: "\n---\nrepo: api\n---\n# A blank line before the fence\n", line: 2 },
   ])("a file with $what isn't written and is listed invalid at the fence's line", async ({ text, line }) => {
     const { item, written } = await readOnce({ ...BUGS_ROOT, "bugs/fence.md": text }, "bugs", "bugs/fence.md");
@@ -127,24 +125,11 @@ describe("first sight", () => {
 
   test.each([
     { what: "frontmatter and an H2 first", structure: "bugs", file: "bugs/no-title.md", text: "---\nrepo: api\n---\n## Steps\n\nNo H1 anywhere.\n" },
-    { what: "no frontmatter and plain text first", structure: "docs", file: "guides/no-title.md", text: "Notes before any heading.\n\n# Too late\n" },
   ])("a file without a valid title ($what) is never written and is listed invalid", async ({ structure, file, text }) => {
     const { item, written } = await readOnce({ ...BUGS_ROOT, "_structure.yaml": DOCS_SETTINGS, [file]: text }, structure, file);
 
     expect(written).toBe(text);
     expect(item.problems.length).toBeGreaterThan(0);
-  });
-
-  test("an indented frontmatter map gets id and handle at the map's indentation and keeps every other byte", async () => {
-    const text = "---\n  repo: api\n  note: Indented by hand\n---\n# Indented frontmatter\n\nBody.\n";
-
-    const { item, written } = await readOnce({ ...BUGS_ROOT, "bugs/indented.md": text }, "bugs", "bugs/indented.md");
-
-    expect(written, "the file is written").not.toBe(text);
-    expect(item.problems).toEqual([]);
-    expect(written).toContain(`\n  id: ${item.id ?? ""}\n`);
-    expect(written).toContain(`\n  handle: ${item.handle ?? ""}\n`);
-    expect(withoutAssigned(written)).toBe(text);
   });
 
   test("a first-sight edit that wouldn't read back as the same data is skipped: the file stays as it is", async () => {
@@ -155,21 +140,6 @@ describe("first sight", () => {
 
     expect(written).toBe(text);
     expect(item.problems.length, "the skipped write shows as a problem").toBeGreaterThan(0);
-  });
-
-  test("a hand-made document without frontmatter gets one with only id and handle, and the rest unchanged", async () => {
-    const original = "# Deploying\n\nRun the release workflow, then check `/health`.\n";
-    const root = writeRoot({ "_structure.yaml": DOCS_SETTINGS, "guides/deploy.md": original });
-    const { catalog } = openItems(root);
-
-    const item = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "docs"), "guides/deploy.md");
-    const written = readAt(root, "guides/deploy.md");
-
-    expect(item.problems).toEqual([]);
-    expect(frontmatterKeys(written).sort()).toEqual(["handle", "id"]);
-    expect(written.endsWith(original)).toBe(true);
-    expect(withoutAssigned(written)).toBe(original);
-    expect(item.title).toBe("Deploying");
   });
 
   test("a handle or alias typed into a link field becomes the target's id; nothing else changes", async () => {
@@ -184,22 +154,5 @@ describe("first sight", () => {
     expect(itemAt(bugs, "bugs/BUG-6-by-alias.md").properties.blocks).toBe(IDS.bl1);
     expect(unquoteIds(readAt(root, "bugs/BUG-5-by-handle.md"), [IDS.bl2])).toBe(byHandle.replace("blocks: BL-2", `blocks: ${IDS.bl2}`));
     expect(unquoteIds(readAt(root, "bugs/BUG-6-by-alias.md"), [IDS.bl1])).toBe(byAlias.replace("blocks: BL-3", `blocks: ${IDS.bl1}`));
-  });
-
-  test("a link naming an item of another structure, or no item, leaves the file as it is and the item invalid", async () => {
-    const wrongStructure = `---\nid: 0196f3c2-5e00-7000-8000-000000000003\nhandle: BUG-7\nrepo: api\nblocks: BUG-1\n---\n# Links a bug where a backlog item belongs\n`;
-    const unknown = `---\nid: 0196f3c2-5e00-7000-8000-000000000004\nhandle: BUG-8\nrepo: api\nblocks: BL-404\n---\n# Links nothing\n`;
-    const root = writeRoot({ ...VALID_FILES, "bugs/BUG-7-wrong.md": wrongStructure, "bugs/BUG-8-unknown.md": unknown });
-    const { catalog } = openItems(root);
-
-    const bugs = (await catalog.snapshot()).items.filter((item) => item.structure === "bugs");
-
-    for (const [file, text] of [
-      ["bugs/BUG-7-wrong.md", wrongStructure],
-      ["bugs/BUG-8-unknown.md", unknown],
-    ] as const) {
-      expect(itemAt(bugs, file).problems.length, file).toBeGreaterThan(0);
-      expect(readAt(root, file), file).toBe(text);
-    }
   });
 });

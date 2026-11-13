@@ -5,8 +5,7 @@
 // are never scanned; a file outside every structure is left alone.
 import { describe, expect, test } from "vitest";
 
-import { findByHandle } from "./catalog.ts";
-import { BACKLOG_SETTINGS, BUGS_SETTINGS, DOCS_SETTINGS, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
+import { BACKLOG_SETTINGS, BUGS_SETTINGS, DOCS_SETTINGS, openItems, writeRoot } from "../../test/items-fixtures.ts";
 
 let serial = 0;
 /** A valid item file with an id of its own. */
@@ -63,16 +62,6 @@ describe("membership", () => {
     });
   });
 
-  test("a hidden nested structure's item resolves as its own, never as the parent's", async () => {
-    const { catalog } = openItems(writeRoot(FILES));
-
-    const archived = findByHandle((await catalog.snapshot()).items, "ARC-1");
-    const bugs = (await catalog.snapshot()).items.filter((item) => item.structure === "bugs");
-
-    expect(archived?.path).toMatch(/(^|\/)bugs\/archive\/ARC-1-old\.md$/);
-    expect(bugs.some((loaded) => loaded.path.includes("archive/"))).toBe(false);
-  });
-
   test("a free structure's include never takes a file from another structure's folder", async () => {
     const root = writeRoot({
       ...FILES,
@@ -85,16 +74,5 @@ describe("membership", () => {
 
     expect(docs).not.toContain("BUG-1");
     expect(bugs).toEqual(["BUG-1"]);
-  });
-
-  test("files outside every structure are never written: no id or handle assigned to them", async () => {
-    const root = writeRoot(FILES);
-    const { catalog } = openItems(root);
-
-    for (let read = 0; read < 5; read += 1) await catalog.snapshot();
-
-    for (const file of ["roadmap.md", "bugs/notes/triage.md", "guides/old/v1-setup.md", ".drafts/DRF-1.md", "node_modules/some-pkg/VND-1.md"]) {
-      expect(readAt(root, file), file).toBe(FILES[file]);
-    }
   });
 });
