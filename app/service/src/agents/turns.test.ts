@@ -53,7 +53,7 @@ describe("turns", () => {
   );
 
   test(
-    "a crash mid-turn: state error with an error detail, never a normal turn end, and later sends are not_running",
+    "a crash mid-turn: state error with an error detail, never a normal turn end, and the process is gone",
     async () => {
       const t = setup();
       const { id } = await t.manager.start("fake-crash", REPO);
@@ -62,7 +62,6 @@ describe("turns", () => {
 
       expect(t.agent(id)?.error?.message).toBeTruthy();
       expect(t.entries(id).filter((entry) => entry.type === "turn_ended" && entry.stopReason === "end_turn")).toEqual([]);
-      await expect(t.manager.send(id, { text: "Again" })).rejects.toMatchObject({ code: "not_running" });
       await waitFor("the crashed process to be gone", () => t.pids().every((pid) => !isAlive(pid)));
     },
     TEST_TIMEOUT_MS,

@@ -1,4 +1,4 @@
-import type { AgentSummary, ConfigOption, ContextBreakdown } from "@wombat/shared/api";
+import type { AgentSummary, ChatAccess, ConfigOption, ContextBreakdown } from "@wombat/shared/api";
 import type { ComponentType } from "react";
 
 import type { Usage } from "../../../../../data/chat-model.ts";
@@ -13,8 +13,14 @@ export type FooterSlotProps = {
   setConfig: (configId: string, value: string | boolean) => Promise<void>;
   /** The last set's refusal, until the next set succeeds; a slot's dialog shows it (the footer's own line is behind the scrim). */
   failure?: string | undefined;
-  /** The agent has no process: a set would fail with `not_running`: a settings slot shows its values, offers no change and closes its dialogs (the composer says why). */
-  stopped?: boolean | undefined;
+  /**
+   * Whether the agent takes a set (`chatAccess`): `resumable`, a set starts it again; `closed`, a set would fail with
+   * `not_running`, so a settings slot shows its values, offers no change and closes its dialogs (the footer's
+   * NotRunning indicator says why). Absent: running.
+   */
+  access?: ChatAccess | undefined;
+  /** A set is waiting for the agent to start (it had no process): a settings slot says "Starting…". */
+  starting?: boolean | undefined;
 };
 
 /** The context dialog's body; ContextDialogHost owns the dialog's shell, title and close. */

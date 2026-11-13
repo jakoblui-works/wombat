@@ -5,13 +5,17 @@
 //   tool call's text content through Markdown, the same rules as agent text);
 // - a clipped text says how many characters were left out, in digits (group separators allowed);
 // - an open permission has the buttons "Approve" and "Reject" (permissionButtons) and, once answered, says
-//   "approved" or "rejected" (any case) and has no answer buttons.
-import type { ElectronApplication, Page } from "@playwright/test";
+//   "approved" or "rejected" (any case) and has no answer buttons;
+// - (S2d, T19) an agent without a process shows "Not running" in the composer footer, with the tooltip "Your next
+//   message starts it again" on hover; the settings button is a `button` named "Settings: …" that opens a `dialog`
+//   listing a select's values by name, the current one carrying aria-checked, aria-selected or aria-current "true";
+//   the message box is the textbox "Message", and Enter sends.
+import type { ElectronApplication, Locator, Page } from "@playwright/test";
 
-import { HOSTILE } from "../../service/test/fake-agent.ts";
+import { FAKE_CONFIG, fakeConfigOptions, HOSTILE } from "../../service/test/fake-agent.ts";
 import { MAX_SHOWN_CHARS } from "../src/renderer/src/workbench/views/Chat/clip-text.ts";
-import { agentSummary, click, expect, layoutOf, openAgent, REPO, startAgent, startWaitingAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
-import { answersIn, groupWithTab, logOf, prompt } from "./agent-views.ts";
+import { agentSummary, click, expect, layoutOf, openAgent, REPO, type Sandbox, startAgent, startWaitingAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import { answersIn, groupWithTab, logOf, prompt, waitForState } from "./agent-views.ts";
 
 // Main hands https links to the host's browser through `shell.openExternal`; the check records those calls instead
 // (as trust-boundary.e2e.ts does), so a test never opens the real browser.
@@ -182,4 +186,104 @@ test.describe("chat", () => {
     await expect(chat.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
     await expect(chat.getByRole("button", { name: "Reject", exact: true })).toHaveCount(0);
   });
+
+  // S2d, T19 (row T19-9, which also took over footer.e2e's T14-8): a stopped agent's chat goes on. Its footer says it
+  // isn't running (no line between the box and the footer), its settings stay usable and a pick starts it, and a
+  // message typed in the chat resumes it: the reply lands in the same chat, under the same agent, on the model it had.
+  test("resume: a stopped agent's chat says Not running, a setting picked starts it, and a message typed in it gets its reply in the same chat", async ({ sandbox }) => {
+    test.setTimeout(120_000);
+    await sandbox.startService(sandbox.workspace);
+    const agentId = await startAgent(sandbox, "fake-reply");
+    await prompt(sandbox, agentId, "Say hello to the bakery.");
+    await waitForState(sandbox, agentId, "done");
+
+    const launched = await sandbox.launch();
+    const { page } = launched;
+    const problems: string[] = [];
+    page.on("pageerror", (error) => problems.push(`page error: ${error.message}`));
+    page.on("console", (message) => {
+      if (message.type() === "error") problems.push(`console: ${message.text()}`);
+    });
+    await waitForConnection(page, "connected");
+    await openAgent(launched, agentId, 1);
+    const chat = groupWithTab(page, REPO);
+    const replies = chat.getByText("Hello from the fake agent.", { exact: true });
+    await expect(replies, "the first reply").toHaveCount(1, { timeout: WAIT_MS });
+    const notRunning = chat.getByText("Not running", { exact: true });
+    await expect(notRunning, "a running agent has no indicator").toHaveCount(0);
+
+    // Stopped while its settings dialog is open: the dialog stays, the buttons stay usable, the footer says so.
+    const settings = chat.getByRole("button", { name: /^Settings:/ });
+    const mode = chat.getByRole("button", { name: /^Mode:/ });
+    await click(settings);
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible({ timeout: WAIT_MS });
+    await stop(sandbox, agentId);
+    await expect(notRunning, "the indicator").toBeVisible({ timeout: WAIT_MS });
+    await expect(dialog, "an open settings dialog stays open").toBeVisible();
+    await expect(chat.getByText(/isn't running|Start a new agent/), "no line between the box and the footer").toHaveCount(0);
+
+    // A setting picked starts the agent, and the value lands.
+    const large = modelName("fake-large");
+    await click(dialog.getByText(large, { exact: true }));
+    await waitUntil("the agent running again on the model picked", WAIT_MS, async () =>
+      (await hasProcess(sandbox, agentId)) && (await loggedModel(sandbox, agentId)) === "fake-large" ? true : undefined,
+    );
+    await expect(current(dialog, large), "the model picked, marked").toHaveCount(1, { timeout: WAIT_MS });
+    await expect(notRunning, "running again").toHaveCount(0, { timeout: WAIT_MS });
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden({ timeout: WAIT_MS });
+
+    // Stopped again: a message typed in the chat starts it, and the reply lands here.
+    await stop(sandbox, agentId);
+    await expect(notRunning).toBeVisible({ timeout: WAIT_MS });
+    // Checked with no dialog open: the modal dialog hides the rest of the page from the accessibility tree.
+    await expect(settings, "settings stay usable while it isn't running").toBeEnabled();
+    await expect(mode, "so does Mode").toBeEnabled();
+    await notRunning.hover();
+    await expect(page.getByText("Your next message starts it again", { exact: true }), "the indicator's tooltip").toBeVisible({ timeout: WAIT_MS });
+    const tabs = await tabCount(page);
+    const box = chat.getByRole("textbox", { name: "Message", exact: true });
+    await box.fill("Are you still there?");
+    await box.press("Enter");
+    await expect(chat.getByText("Are you still there?", { exact: true }), "the message, in the chat").toBeVisible({ timeout: WAIT_MS });
+    await expect(replies, "the second reply, in the same chat").toHaveCount(2, { timeout: WAIT_MS });
+    await expect(notRunning, "running again").toHaveCount(0, { timeout: WAIT_MS });
+    expect(await tabCount(page), "no new tab").toBe(tabs);
+    const listed = await sandbox.api("GET", "/agents");
+    expect((listed.json as { agents: { id: string }[] }).agents.map((agent) => agent.id), "no second agent").toEqual([agentId]);
+    expect(await loggedModel(sandbox, agentId), "the model it had, after the resume").toBe("fake-large");
+    await expect(settings, "the footer shows it").toContainText(large);
+    expect(problems).toEqual([]);
+  });
 });
+
+const stop = async (sandbox: Sandbox, agentId: string): Promise<void> => {
+  const stopped = await sandbox.api("POST", `/agents/${agentId}/stop`);
+  expect(stopped.status, "stop through the api").toBe(204);
+};
+
+const hasProcess = async (sandbox: Sandbox, agentId: string): Promise<boolean> => {
+  const listed = await sandbox.api("GET", "/agents");
+  return (listed.json as { agents: { id: string; hasProcess?: boolean }[] }).agents.find((agent) => agent.id === agentId)?.hasProcess === true;
+};
+
+type ConfigEntry = { update?: { sessionUpdate?: string; configOptions?: { id: string; currentValue?: unknown }[] } };
+
+/** The model the service's log says the agent uses (its latest config_option_update). */
+const loggedModel = async (sandbox: Sandbox, agentId: string): Promise<unknown> => {
+  const entries = (await logOf(sandbox, agentId)) as ConfigEntry[];
+  const latest = entries.filter((entry) => entry.update?.sessionUpdate === "config_option_update").at(-1);
+  return latest?.update?.configOptions?.find((option) => option.id === FAKE_CONFIG.model.id)?.currentValue;
+};
+
+/** A model value's name as the fake agent offers it. */
+const modelName = (value: string): string => {
+  const [model] = fakeConfigOptions({ model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial });
+  const option = model?.type === "select" ? model.options.find((candidate) => "value" in candidate && candidate.value === value) : undefined;
+  return option && "name" in option ? option.name : value;
+};
+
+/** The element marking a select's current value in the dialog, holding `name`. */
+const current = (dialog: Locator, name: string): Locator =>
+  dialog.locator('[aria-checked="true"], [aria-selected="true"], [aria-current="true"]').filter({ hasText: name });

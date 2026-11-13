@@ -69,6 +69,27 @@ test(
   TEST_TIMEOUT_MS,
 );
 
+// S2d (T19-8, D26): /context on an agent without a process starts it, as a message does; the resume stores the
+// agent's options, and the hidden turn itself still stores nothing.
+test(
+  "T19-8: a /context on a stopped agent resumes it and answers its breakdown; only the resume's options reach the log",
+  async () => {
+    const t = setup();
+    const id = await started(t, "fake-reply");
+    await t.manager.stop(id);
+    const entries = t.entries(id);
+
+    expect(await t.manager.contextBreakdown(id)).toEqual(FAKE_BREAKDOWN);
+
+    expect(t.agent(id)).toMatchObject({ state: "done", hasProcess: true });
+    const added = t.entries(id).slice(entries.length);
+    expect(added.length, "control: the resume stored the options it answered").toBeGreaterThan(0);
+    expect(added.filter((entry) => !(entry.type === "session_update" && entry.update.sessionUpdate === "config_option_update"))).toEqual([]);
+    expect(t.entries(id).slice(0, entries.length)).toEqual(entries);
+  },
+  TEST_TIMEOUT_MS,
+);
+
 describe("T13-2: while a hidden turn runs, nothing else does", () => {
   test.each<[string, (t: Setup, agentId: string) => Promise<unknown>]>([
     ["a message", (t, id) => t.manager.send(id, { text: "Are you still there?" })],

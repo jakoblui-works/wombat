@@ -47,6 +47,9 @@ export const claudeCode: Harness = {
   id: "claude-code",
   name: "Claude Code",
   loginHint: "Claude Code isn't logged in. Run `claude` in a terminal and log in, then start the agent again.",
+  // claude-agent-acp resumes a stored session (`session/resume`) in a new process; model and effort come back at their
+  // defaults, which the manager sets again.
+  resumable: true,
   spawn: (cwd, source = process.env) => ({
     command: process.execPath,
     args: [binEntry()],

@@ -117,13 +117,30 @@ export const CONTEXT_CANCELLED_FILE = ".fake-context-cancelled";
 const AWAIT_FILE_POLL_MS = 10;
 
 /**
+ * Files in the agent's working directory (its folder) that change how every scenario answers, so a test can make one
+ * process refuse and the next one accept (S2d, T19):
+ * - RESUME_REFUSED_FILE: `session/resume` is refused with RESUME_REFUSAL_MESSAGE;
+ * - NO_RESUME_CAPABILITY_FILE: `initialize` doesn't advertise `sessionCapabilities.resume` (a `session/resume` is
+ *   still answered, so only a service that checks the capability notices);
+ * - CONFIG_REFUSED_FILE: every `session/set_config_option` is refused with CONFIG_REFUSAL_MESSAGE.
+ * Without them the agent advertises resume, and `session/resume` accepts any session id (a fresh process has never
+ * seen it), answering its config options at their initial values (as claude-agent-acp does for model and effort).
+ */
+export const RESUME_REFUSED_FILE = ".fake-refuse-resume";
+export const NO_RESUME_CAPABILITY_FILE = ".fake-no-resume-capability";
+export const CONFIG_REFUSED_FILE = ".fake-refuse-config";
+
+/** The agent's JSON-RPC error message when it refuses a resume; tests check it never reaches the service's logs. */
+export const RESUME_REFUSAL_MESSAGE = "resume-refusal-must-not-be-logged";
+
+/**
  * The config options every scenario offers (ACP v1 `SessionConfigOption`): a select `model` (category model), a
  * boolean `fast` (no category), a select `effort` (category thought_level) and a select `mode` (category mode).
  * A model value starting with `refuse` is offered but refused when set, so a test can see the agent say no to a value
  * the service accepts.
  */
 export const FAKE_CONFIG = {
-  model: { id: "model", values: ["fake-small", "refuse-large"] as const, initial: "fake-small" },
+  model: { id: "model", values: ["fake-small", "refuse-large", "fake-large"] as const, initial: "fake-small" },
   fast: { id: "fast", initial: false },
   effort: { id: "effort", values: ["low", "medium", "high"] as const, initial: "medium" },
   mode: { id: "mode", values: ["ask", "plan"] as const, initial: "ask" },
@@ -151,6 +168,7 @@ export const fakeConfigOptions = ({
     options: [
       { value: "fake-small", name: "Fake small" },
       { value: "refuse-large", name: "Refuse large", description: "Offered, but the agent refuses it" },
+      { value: "fake-large", name: "Fake large" },
     ],
   },
   { type: "boolean", id: FAKE_CONFIG.fast.id, name: "Fast mode", currentValue: fast },
@@ -287,11 +305,13 @@ const run = (scenario: FakeScenario) => {
   const held = new Map<string, () => void>();
   // Sessions a `session/cancel` arrived for while a permission request was open.
   const cancelled = new Set<string>();
-  // The mcpServers entries the last session/new carried, for the mcp-config scenario.
+  // The mcpServers entries the last session/new or session/resume carried, for the mcp-config and call-tool scenarios.
   let mcpServers: unknown = undefined;
   // The last session/new's params as they came over the wire, before the SDK's schema drops fields it doesn't
   // know (the stable v1 schema has no `systemPrompt`), for the mcp-config scenario.
   let sessionNew: unknown = undefined;
+  // The same for the last session/resume (S2d, T19).
+  let sessionResume: unknown = undefined;
   // The last session/set_config_option's params as they came over the wire (the SDK's union may read a shape the
   // real agent would refuse), and each session's current config values.
   let lastSet: Record<string, unknown> | undefined = undefined;
@@ -306,6 +326,7 @@ const run = (scenario: FakeScenario) => {
         try {
           const message = JSON.parse(line) as { method?: unknown; params?: unknown };
           if (message.method === "session/new") sessionNew = message.params;
+          if (message.method === "session/resume") sessionResume = message.params;
           if (message.method === "session/set_config_option") lastSet = message.params as Record<string, unknown>;
         } catch {
           // Not JSON: the SDK reports it.
@@ -345,7 +366,7 @@ const run = (scenario: FakeScenario) => {
   const app = agent({ name: "wombat-fake-agent" })
     .onRequest("initialize", () => ({
       protocolVersion: 1,
-      agentCapabilities: { loadSession: false },
+      agentCapabilities: { loadSession: false, ...(existsSync(NO_RESUME_CAPABILITY_FILE) ? {} : { sessionCapabilities: { resume: {} } }) },
       agentInfo: { name: "wombat-fake-agent", version: "0.0.0" },
       authMethods: [],
     }))
@@ -362,7 +383,15 @@ const run = (scenario: FakeScenario) => {
       configs.set(sessionId, { model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial });
       return { sessionId, configOptions: fakeConfigOptions({ model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial }) };
     })
+    .onRequest("session/resume", ({ params }) => {
+      if (existsSync(RESUME_REFUSED_FILE)) throw RequestError.internalError(undefined, RESUME_REFUSAL_MESSAGE);
+      // A fresh process: whatever session id it is given, it continues at the initial values.
+      mcpServers = params.mcpServers;
+      configs.set(params.sessionId, { model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial });
+      return { configOptions: fakeConfigOptions({ model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial }) };
+    })
     .onRequest("session/set_config_option", ({ params }) => {
+      if (existsSync(CONFIG_REFUSED_FILE)) throw RequestError.internalError(undefined, CONFIG_REFUSAL_MESSAGE);
       const config = configs.get(params.sessionId);
       if (config === undefined) throw RequestError.invalidParams(undefined, "unknown session");
       const raw = lastSet ?? {};
@@ -523,13 +552,14 @@ const run = (scenario: FakeScenario) => {
           await send(client, sessionId, text(" Here is the answer."));
           return { stopReason: "end_turn" };
         case "mcp-config": {
-          // The prompt is a file path: the agent writes the mcpServers entries it got, its environment and the raw
-          // session/new params (for the instructions drift check) there rather than into its reply, so the token
-          // never enters the service's log through this seam. "crash" instead ends the process as a crash would.
+          // The prompt is a file path: the agent writes the mcpServers entries it got, its environment, the raw
+          // session/new and session/resume params (for the instructions drift check and S2d's resume), the session
+          // it was prompted in and that session's current config values there rather than into its reply, so the
+          // token never enters the service's log through this seam. "crash" instead ends the process as a crash would.
           const [block] = prompt;
           const path = block?.type === "text" ? block.text : "";
           if (path === "crash") process.exit(3);
-          writeFileSync(path, JSON.stringify({ mcpServers, env: process.env, sessionNew }));
+          writeFileSync(path, JSON.stringify({ mcpServers, env: process.env, sessionNew, sessionResume, sessionId, config: configs.get(sessionId) }));
           await send(client, sessionId, text("Reported the MCP config."));
           return { stopReason: "end_turn" };
         }

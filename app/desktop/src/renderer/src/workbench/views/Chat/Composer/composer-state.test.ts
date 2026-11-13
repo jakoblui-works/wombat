@@ -35,8 +35,10 @@ test("text edited while the send is under way stays when it succeeds: only the s
   expect(edited.text).toBe("Go on, and add a test");
 });
 
-test("Send is disabled for a stopped agent, even with text", () => {
+// S2d (T19, row T19-11): a message to a stopped agent starts it again; only one that can't be started is closed.
+test("Send is disabled only for an agent that can't be started again, even with text", () => {
   const typed = run({ type: "edit", text: "Go on" });
-  expect(canSend(typed, { ...ready, stopped: true })).toBe(false);
-  expect(canSend(typed, { ...ready, stopped: false })).toBe(true);
+  expect(canSend(typed, { ...ready, access: "closed" })).toBe(false);
+  expect(canSend(typed, { ...ready, access: "resumable" })).toBe(true);
+  expect(canSend(typed, { ...ready, access: "running" })).toBe(true);
 });

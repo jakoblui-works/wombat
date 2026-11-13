@@ -43,16 +43,37 @@ test("the buttons say what they are and that they open a dialog", () => {
   expect(renderToStaticMarkup(<SettingsButton config={[mode]} setConfig={set} />)).toBe("");
 });
 
-test("both buttons are disabled for a stopped agent and still show their values", () => {
+test("both buttons are disabled for an agent that can't be started again and still show their values", () => {
   const set = () => Promise.resolve();
   const html = renderToStaticMarkup(
     <>
-      <SettingsButton config={[model, effort]} setConfig={set} stopped />
-      <ModeButton config={[mode]} setConfig={set} stopped />
+      <SettingsButton config={[model, effort]} setConfig={set} access="closed" />
+      <ModeButton config={[mode]} setConfig={set} access="closed" />
     </>,
   );
   expect(html.match(/ disabled=""/g)).toHaveLength(2);
   expect(html).toContain("Opus 5.5 · High");
   expect(html).toContain("Ask before edits");
   expect(renderToStaticMarkup(<SettingsButton config={[model]} setConfig={set} />)).not.toContain(" disabled=");
+});
+
+// S2d (D26): a set on an agent without a process starts it, so its buttons stay usable and say so while it starts.
+test("for an agent a set starts again, both buttons stay enabled, and say Starting… while a set waits", () => {
+  const set = () => Promise.resolve();
+  const resumable = renderToStaticMarkup(
+    <>
+      <SettingsButton config={[model, effort]} setConfig={set} access="resumable" />
+      <ModeButton config={[mode]} setConfig={set} access="resumable" />
+    </>,
+  );
+  expect(resumable).not.toContain(" disabled=");
+  expect(resumable).toContain("Opus 5.5 · High");
+  const starting = renderToStaticMarkup(
+    <>
+      <SettingsButton config={[model, effort]} setConfig={set} access="resumable" starting />
+      <ModeButton config={[mode]} setConfig={set} access="resumable" starting />
+    </>,
+  );
+  expect(starting).toContain('aria-label="Settings: Starting…"');
+  expect(starting).toContain('aria-label="Mode: Starting…"');
 });

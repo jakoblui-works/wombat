@@ -4,7 +4,7 @@ import { ContextBreakdown, ListHarnessesResponse } from "@wombat/shared/api";
 import { expect, test } from "vitest";
 
 import { FAKE_BREAKDOWN } from "../../test/fake-agent.ts";
-import { NO_CONTEXT_HARNESS, REPO, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
+import { NO_CONTEXT_HARNESS, NO_RESUME_HARNESS, REPO, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
 import { expectError, serve, type Served } from "../../test/server-fixtures.ts";
 
 const startAgent = async (s: Served, harness: string): Promise<string> => {
@@ -19,8 +19,9 @@ test("T13-15: GET /harnesses lists the context feature exactly for the harnesses
   expect(response.status, response.text).toBe(200);
   const features = new Map(ListHarnessesResponse.parse(response.json).map(({ id, features }) => [id, features]));
 
-  expect(features.get("fake-reply")).toEqual(["context"]);
-  expect(features.get(NO_CONTEXT_HARNESS)).toEqual([]);
+  // S2d adds "resume" beside it (a builder's row), so the context feature is checked on its own here.
+  expect(features.get("fake-reply")).toContain("context");
+  expect(features.get(NO_CONTEXT_HARNESS)).not.toContain("context");
 });
 
 test(
@@ -45,7 +46,8 @@ test(
     await waitFor("state working", () => s.agent(working)?.state === "working");
     expectError(await s.api("POST", `/agents/${working}/context`), 409, "busy", "during a turn");
 
-    const stopped = await startAgent(s, "fake-reply");
+    // S2d, D26: a stopped agent is started by /context, unless its harness can't resume (D28).
+    const stopped = await startAgent(s, NO_RESUME_HARNESS);
     const stop = await s.api("POST", `/agents/${stopped}/stop`);
     expect(stop.status, stop.text).toBe(204);
     expectError(await s.api("POST", `/agents/${stopped}/context`), 409, "not_running", "a stopped agent");

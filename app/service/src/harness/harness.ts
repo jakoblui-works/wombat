@@ -21,7 +21,13 @@ export type Harness = {
   loginHint: string;
   /** `source` is the environment the agent's is filtered from (see `agentEnv`); defaults to the service's. */
   spawn: (cwd: string, source?: NodeJS.ProcessEnv) => SpawnSpec;
-  /** Sent as `session/new`'s `_meta`: options only this harness reads. */
+  /**
+   * Whether an agent without a process can be started again in its stored session (the `resume` feature on `GET
+   * /harnesses`): its next message, setting or `/context` spawns it and sends ACP `session/resume`. The service still
+   * checks that `initialize` advertises `sessionCapabilities.resume`, and fails the resume without it.
+   */
+  resumable?: boolean;
+  /** Sent as `session/new`'s (and `session/resume`'s) `_meta`: options only this harness reads. */
   sessionMeta?: Record<string, unknown>;
   /**
    * Turns the instructions file's text into `session/new` parameters, merged in by the manager (the Claude Code

@@ -1,4 +1,5 @@
 // The message box's rules, pure: when Send works, what a key does, and what a send's outcome does to the text.
+import { type ChatAccess, HARNESS_FEATURE } from "@wombat/shared/api";
 
 export type ComposerState = {
   text: string;
@@ -31,12 +32,13 @@ export const composerReducer = (state: ComposerState, event: ComposerEvent): Com
 
 /**
  * Whether Send works: there's text, no send or turn is under way (the service answers `busy`), the app is connected,
- * and the agent has a process (a stopped agent's send would fail with `not_running`).
+ * and the agent can take a message: it runs, or the message starts it again (`resumable`); a `closed` one's send would
+ * fail with `not_running`.
  */
 export const canSend = (
   state: ComposerState,
-  { turnActive, connected, stopped = false }: { turnActive: boolean; connected: boolean; stopped?: boolean },
-): boolean => state.text.trim() !== "" && state.sending === undefined && !turnActive && connected && !stopped;
+  { turnActive, connected, access = "running" }: { turnActive: boolean; connected: boolean; access?: ChatAccess },
+): boolean => state.text.trim() !== "" && state.sending === undefined && !turnActive && connected && access !== "closed";
 
 /** What a key in the message box does: Enter sends; Shift+Enter (and Enter while an IME composes) is a new line. */
 export const keyAction = ({ key, shiftKey, isComposing }: { key: string; shiftKey: boolean; isComposing: boolean }): "send" | "type" =>
@@ -44,4 +46,4 @@ export const keyAction = ({ key, shiftKey, isComposing }: { key: string; shiftKe
 
 /** Whether the text is an app command rather than a message: the whole text `/context`, for a harness that offers it. */
 export const appCommand = (text: string, features: readonly string[]): "context" | undefined =>
-  text.trim() === "/context" && features.includes("context") ? "context" : undefined;
+  text.trim() === "/context" && features.includes(HARNESS_FEATURE.context) ? "context" : undefined;

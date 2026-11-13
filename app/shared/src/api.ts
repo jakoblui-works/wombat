@@ -235,8 +235,14 @@ export const VersionResponse = z.object({ apiVersion: z.int(), startedAt: Timest
 export type VersionResponse = z.infer<typeof VersionResponse>;
 
 /**
- * `features`: what the harness offers beyond the core (`context`: `POST /agents/:id/context`); `[]` from a service
- * from before the field.
+ * What a harness offers beyond the core, as `GET /harnesses` lists it in `features`: `context` (`POST
+ * /agents/:id/context`), `resume` (an agent without a process is started again by its next message, setting or
+ * `/context`, in the same session). The one name for each; nothing spells them out again.
+ */
+export const HARNESS_FEATURE = { context: "context", resume: "resume" } as const;
+
+/**
+ * `features`: what the harness offers beyond the core (HARNESS_FEATURE); `[]` from a service from before the field.
  */
 export const ListHarnessesResponse = z.array(z.object({ id: z.string(), name: z.string(), features: z.array(z.string()).default([]) }));
 export type ListHarnessesResponse = z.infer<typeof ListHarnessesResponse>;
@@ -342,6 +348,17 @@ export const agentsWithProcess = <T extends Pick<AgentSummary, "hasProcess">>(ag
  * a restarted service loads.
  */
 export const agentRunning = (agent: Pick<AgentSummary, "hasProcess">): boolean => agent.hasProcess;
+
+/**
+ * What a chat may do with its agent: `running` (it has a process), `resumable` (it hasn't, and its harness offers
+ * `resume`: the next message, setting or `/context` starts it again) or `closed` (it hasn't, and can't be started
+ * again: the box is read-only).
+ */
+export type ChatAccess = "running" | "resumable" | "closed";
+
+/** The chat's access (ChatAccess) from its agent and its harness's `features`: the one rule behind its composer and footer. */
+export const chatAccess = (agent: Pick<AgentSummary, "hasProcess">, features: readonly string[]): ChatAccess =>
+  agentRunning(agent) ? "running" : features.includes(HARNESS_FEATURE.resume) ? "resumable" : "closed";
 
 /** "1 agent", "2 agents": how many agents, wherever the app counts them. */
 export const agentCountLabel = (count: number): string => `${String(count)} ${count === 1 ? "agent" : "agents"}`;
@@ -487,6 +504,27 @@ export const selectValues = (option: Pick<SelectConfigOption, "options">): Selec
  */
 export const optionByCategory = (options: readonly ConfigOption[], category: string): ConfigOption | undefined =>
   options.find((option) => option.category === category);
+
+/**
+ * The settings to set again after a resume, in `stored`'s order: each option in both lists whose stored current value
+ * differs from the one the resume answered and is still among the returned option's values (a boolean takes any
+ * boolean). The agent answers a resume with some options at their defaults (Claude: model and effort), and would
+ * otherwise quietly run on them. Nothing stored (`undefined`): nothing to set.
+ */
+export const configToRestore = (
+  stored: readonly ConfigOption[] | undefined,
+  returned: readonly ConfigOption[],
+): { id: string; value: string | boolean }[] =>
+  (stored ?? []).flatMap((was): { id: string; value: string | boolean }[] => {
+    const now = returned.find((option) => option.id === was.id);
+    if (now === undefined || was.currentValue === now.currentValue) return [];
+    if (now.type === "boolean" && typeof was.currentValue === "boolean") return [{ id: was.id, value: was.currentValue }];
+    if (now.type === "select" && "options" in now && typeof was.currentValue === "string") {
+      const value = was.currentValue;
+      return selectValues(now).some((entry) => entry.value === value) ? [{ id: was.id, value }] : [];
+    }
+    return [];
+  });
 
 /** A select option's groups, or undefined when its options are flat (or there are none). */
 export const selectGroups = (option: Pick<SelectConfigOption, "options">): SelectValueGroup[] | undefined => {

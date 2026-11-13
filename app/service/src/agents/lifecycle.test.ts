@@ -1,13 +1,16 @@
 // Agent manager: starting (and failing to), commandId retries, stop, delete, start-up after a restart, and
 // shutdown.
-import { mkdirSync, symlinkSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { AgentSummary, SERVICE_STOP_REASON, type LogEntry } from "@wombat/shared/api";
 import { describe, expect, onTestFinished, test } from "vitest";
 
 import { summary, textChunk } from "../../test/store-fixtures.ts";
+import { FAKE_CONFIG, NO_RESUME_CAPABILITY_FILE, RESUME_REFUSED_FILE } from "../../test/fake-agent.ts";
 import {
   childPidOf,
+  chunkTexts,
   groupAlive,
   isAlive,
   REPO,
@@ -98,7 +101,7 @@ describe("commandId", () => {
 
 describe("stop and delete", () => {
   test(
-    "stop ends the agent's process group, state stopped, history kept; send is then not_running",
+    "stop ends the agent's process group, state stopped, history kept",
     async () => {
       const t = setup();
       const { id, agentPid, childPid } = await withChild(t);
@@ -109,7 +112,6 @@ describe("stop and delete", () => {
       await gone("the agent's process group", [agentPid, childPid], [agentPid]);
       expect(t.agent(id)?.state).toBe("stopped");
       expect(t.entries(id)).toEqual(history);
-      await expect(t.manager.send(id, { text: "Still there?" })).rejects.toMatchObject({ code: "not_running" });
     },
     TEST_TIMEOUT_MS,
   );
@@ -215,6 +217,140 @@ describe("start-up and shutdown", () => {
         // Before the setup's cleanup shuts the manager down, which would wait on the same pipe.
         killHolder();
       }
+    },
+    TEST_TIMEOUT_MS,
+  );
+});
+
+// S2d, T19: a message to an agent without a process resumes its session (session/resume) in a new process, under the
+// same agent and the same log. What a silent failure here would look like: Claude starting a fresh conversation under
+// the old chat, the history written twice, or a second process nobody stops.
+describe("resume", () => {
+  /** The session ids the entries carry (the ones that carry one). */
+  const sessionsOf = (entries: LogEntry[]) =>
+    [...new Set(entries.flatMap((entry) => ("sessionId" in entry && entry.sessionId !== undefined ? [entry.sessionId] : [])))];
+  const hasProcess = (t: Setup, id: string) => {
+    const stored = t.agent(id);
+    return stored === undefined ? undefined : AgentSummary.parse(stored).hasProcess;
+  };
+  /** A fake-reply agent that answered one message and was stopped; its stored session id and log. */
+  const stoppedAfterOneTurn = async (t: Setup) => {
+    const { id } = await t.manager.start("fake-reply", REPO);
+    await t.manager.send(id, { text: "Say hello to the bakery" });
+    await t.turnEnded(id);
+    const sessionId = t.agent(id)?.sessionId;
+    if (!sessionId) throw new Error("no stored session id");
+    await t.manager.stop(id);
+    await gone("the first process", t.pids());
+    return { id, sessionId, history: t.entries(id), spawned: t.pids().length };
+  };
+
+  test(
+    "T19-1: a message to a stopped agent continues the same chat: same agent, its stored session id on every new entry, the history before it untouched, one user message per send",
+    async () => {
+      const t = setup();
+      const { id, sessionId, history, spawned } = await stoppedAfterOneTurn(t);
+
+      const { seq } = await t.manager.send(id, { text: "Are you still there?" });
+      const ended = await t.turnEnded(id, 2);
+
+      expect(ended.stopReason).toBe("end_turn");
+      const entries = t.entries(id);
+      expect(entries.slice(0, history.length), "the history before the resume, as it was").toEqual(history);
+      const added = entries.slice(history.length);
+      expect(added.filter((entry) => entry.type === "user_message"), "the one message sent").toEqual([
+        expect.objectContaining({ seq, text: "Are you still there?" }),
+      ]);
+      expect(sessionsOf(added), "the new entries' session: the stored one, not a fresh one").toEqual([sessionId]);
+      expect(chunkTexts(added).join(""), "the reply").toBe("Hello from the fake agent.");
+      expect(t.store.listAgents().map((agent) => agent.id), "no second agent").toEqual([id]);
+      expect(t.agent(id)).toMatchObject({ sessionId, state: "done" });
+      expect(hasProcess(t, id)).toBe(true);
+      expect(t.pids(), "one new agent process").toHaveLength(spawned + 1);
+
+      // A resumed process ends as a started one does.
+      await t.manager.stop(id);
+      expect(t.agent(id)?.state).toBe("stopped");
+      expect(hasProcess(t, id)).toBe(false);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // D27: never a fresh session under the old chat (Claude would silently forget the conversation).
+  test.each([
+    ["the agent refuses session/resume", RESUME_REFUSED_FILE],
+    ["the agent doesn't offer session/resume at initialize", NO_RESUME_CAPABILITY_FILE],
+  ])(
+    "T19-6: when %s, the message stays, its turn ends failed, the agent is in error with its session and log kept and no process left, and the next message tries again",
+    async (_what, file) => {
+      const t = setup();
+      const folder = join(t.root, REPO);
+      const { id, sessionId, history, spawned } = await stoppedAfterOneTurn(t);
+      writeFileSync(join(folder, file), "");
+
+      const { seq } = await t.manager.send(id, { text: "Are you back?" });
+      const failed = await t.turnEnded(id, 2);
+      await waitFor("state error", () => t.agent(id)?.state === "error");
+
+      expect(failed.stopReason).toBe(SERVICE_STOP_REASON.error);
+      expect(t.entries(id).slice(0, history.length), "the history before the attempt, as it was").toEqual(history);
+      // Nothing from any session: a fresh one would have written its options and its reply.
+      expect(t.entries(id).slice(history.length).map(({ type, seq: at }) => ({ type, at })), "the message and its failed end only").toEqual([
+        { type: "user_message", at: seq },
+        { type: "turn_ended", at: failed.seq },
+      ]);
+      expect(t.agent(id)?.error?.message, "a message that names the remedy").toBeTruthy();
+      expect(t.agent(id)?.sessionId, "the stored session").toBe(sessionId);
+      expect(t.store.listAgents().map((agent) => agent.id), "the agent is kept").toEqual([id]);
+      expect(t.pids(), "it did try, in a new process").toHaveLength(spawned + 1);
+      await gone("the failed attempt's process", t.pids());
+      expect(hasProcess(t, id)).toBe(false);
+
+      // The next message tries again, and this time the agent takes the session back.
+      rmSync(join(folder, file));
+      const before = t.entries(id).length;
+      await t.manager.send(id, { text: "Now?" });
+      const ended = await t.turnEnded(id, 3);
+      expect(ended.stopReason).toBe("end_turn");
+      expect(sessionsOf(t.entries(id).slice(before)), "the stored session again").toEqual([sessionId]);
+      expect(t.agent(id)).toMatchObject({ sessionId, state: "done" });
+      expect(hasProcess(t, id)).toBe(true);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test(
+    "T19-7: a send and two settings on a stopped agent share one resume (one new process); a second send meanwhile is busy",
+    async () => {
+      const t = setup();
+      const { id } = await t.manager.start("fake-reply", REPO);
+      await t.manager.stop(id);
+      await gone("the first process", t.pids());
+      const spawned = t.pids().length;
+
+      const sent = t.manager.send(id, { text: "One" });
+      const second = t.manager.send(id, { text: "Two" }).then(
+        () => undefined,
+        (reason: unknown) => reason,
+      );
+      const effort = t.manager.setConfig(id, FAKE_CONFIG.effort.id, "high");
+      const fast = t.manager.setConfig(id, FAKE_CONFIG.fast.id, true);
+      const together = Promise.all([sent, effort, fast]);
+      together.catch(() => undefined);
+
+      expect(await second, "a second message while the first one's resume runs").toMatchObject({ code: "busy" });
+      await together;
+      await t.turnEnded(id);
+
+      expect(t.pids(), "one process for all three").toHaveLength(spawned + 1);
+      expect(t.entries(id).filter((entry) => entry.type === "user_message").map((entry) => (entry.type === "user_message" ? entry.text : ""))).toEqual(["One"]);
+      const options = t.entries(id).flatMap((entry) =>
+        entry.type === "session_update" && entry.update.sessionUpdate === "config_option_update" ? [entry.update.configOptions] : [],
+      );
+      const latest = Object.fromEntries((options.at(-1) ?? []).map((option) => [option.id, option.currentValue]));
+      expect(latest, "both settings reached the one agent").toMatchObject({ [FAKE_CONFIG.effort.id]: "high", [FAKE_CONFIG.fast.id]: true });
+      // Every process but the live one is gone: a second resume would leave one running.
+      await waitFor("only the live agent process left", () => t.pids().filter((pid) => isAlive(pid)).length === 1);
     },
     TEST_TIMEOUT_MS,
   );

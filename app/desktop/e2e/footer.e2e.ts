@@ -8,9 +8,9 @@
 // - the settings button is a `button` whose name has the current model's and effort's names; it opens a `dialog`;
 // - in the dialog, a select's values are listed by name, a click on one sets it, and the current one carries
 //   aria-checked, aria-selected or aria-current "true"; a boolean is a `switch` named by the option's `name`;
-// - the dialog stays open after a pick;
-// - (T14-8) the Mode button is a `button` named "Mode: <current mode>"; once the agent is stopped, an open settings
-//   dialog closes, both buttons are disabled, and the composer says STOPPED_TEXT (Composer.tsx).
+// - the dialog stays open after a pick.
+// (T14-8, a stopped agent's footer, was replaced in S2d by chat.e2e.ts's resume check, row T19-9: settings stay
+// usable while the agent isn't running, and a pick starts it.)
 import type { Locator } from "@playwright/test";
 
 import { FAKE_CONFIG, fakeConfigOptions } from "../../service/test/fake-agent.ts";
@@ -42,9 +42,6 @@ const setFromElsewhere = async (sandbox: Sandbox, agentId: string, configId: str
 /** The element marking a select's current value in the dialog, holding `name`. */
 const current = (dialog: Locator, name: string): Locator =>
   dialog.locator('[aria-checked="true"], [aria-selected="true"], [aria-current="true"]').filter({ hasText: name });
-
-/** What the composer says for an agent without a process (Composer.tsx STOPPED_TEXT). */
-const STOPPED_TEXT = "This agent isn't running. Start a new agent to continue.";
 
 const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -87,33 +84,5 @@ test.describe("composer footer", () => {
     await page.keyboard.press("Escape");
     await expect(settings, "the button shows the model in use").toContainText(initial, { timeout: WAIT_MS });
     await expect(settings).not.toContainText(optionName(REFUSED));
-  });
-
-  // T14-8: a stopped agent can't be configured from the footer.
-  test("footer: stopping the agent closes an open settings dialog, disables the settings and Mode buttons, and says it isn't running", async ({ sandbox }) => {
-    test.setTimeout(90_000);
-    await sandbox.startService(sandbox.workspace);
-    const agentId = await startAgent(sandbox, "fake-reply");
-    const launched = await sandbox.launch();
-    const { page } = launched;
-    await waitForConnection(page, "connected");
-    await openAgent(launched, agentId, 1);
-    const chat = groupWithTab(page, REPO);
-
-    const settings = chat.getByRole("button", { name: new RegExp(escape(optionName(FAKE_CONFIG.model.initial))) });
-    const mode = chat.getByRole("button", { name: /^Mode:/ });
-    await expect(settings, "the settings button, usable").toBeEnabled({ timeout: WAIT_MS });
-    await expect(mode, "the Mode button, usable").toBeEnabled();
-    await click(settings);
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible({ timeout: WAIT_MS });
-
-    const stopped = await sandbox.api("POST", `/agents/${agentId}/stop`);
-    expect(stopped.status, "stop through the api").toBe(204);
-
-    await expect(dialog, "the open dialog closes").toBeHidden({ timeout: WAIT_MS });
-    await expect(settings, "no settings for a stopped agent").toBeDisabled({ timeout: WAIT_MS });
-    await expect(mode, "no mode for a stopped agent").toBeDisabled();
-    await expect(chat.getByText(STOPPED_TEXT, { exact: true })).toBeVisible({ timeout: WAIT_MS });
   });
 });

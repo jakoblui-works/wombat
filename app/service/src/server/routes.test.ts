@@ -14,7 +14,7 @@ import {
 } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
-import { REPO, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
+import { NO_RESUME_HARNESS, REPO, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
 import { expectError, serve, type Served } from "../../test/server-fixtures.ts";
 
 /** Starts an agent over HTTP and returns its summary. */
@@ -188,7 +188,10 @@ describe("routes", () => {
       expect((await s.api("POST", `/agents/${id}/messages`, { text: "Wait for me" })).status).toBe(202);
       expectError(await s.api("POST", `/agents/${id}/messages`, { text: "And this" }), 409, "busy", "a second message");
       expect((await s.api("POST", `/agents/${id}/stop`)).status).toBe(204);
-      expectError(await s.api("POST", `/agents/${id}/messages`, { text: "Hello?" }), 409, "not_running", "a stopped agent");
+      // S2d: a stopped agent is resumed by a message, unless its harness can't resume (D28).
+      const closed = await startAgent(s, NO_RESUME_HARNESS);
+      expect((await s.api("POST", `/agents/${closed.id}/stop`)).status).toBe(204);
+      expectError(await s.api("POST", `/agents/${closed.id}/messages`, { text: "Hello?" }), 409, "not_running", "a stopped agent whose harness can't resume");
     },
     TEST_TIMEOUT_MS,
   );

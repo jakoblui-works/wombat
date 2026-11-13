@@ -15,6 +15,7 @@ import {
   type ErrorBody,
   type SendMessageRequest,
   type ServerErrorCode,
+  configToRestore,
   selectValues,
   type ContextBreakdown,
 } from "@wombat/shared/api";
@@ -23,6 +24,7 @@ import {
   configOf,
   emptyFold,
   foldEntry,
+  foldLog,
   lastMainMessage,
   permissionOf,
   sameActivity,
@@ -77,6 +79,7 @@ export type ManagerOptions = {
 
 type PermissionKind = AnswerPermissionRequest["kind"];
 type ErrorDetail = ErrorBody["error"];
+type StateDetails = { error?: ErrorDetail; lastUserAt?: string };
 type PendingPermission = AgentSummary["pendingPermissions"][number];
 
 type Pending = Pick<PendingPermission, "at"> & {
@@ -135,6 +138,11 @@ type Proc = {
    * changes answer `busy`. Set and cleared only by `contextBreakdown`.
    */
   hidden: boolean;
+  /**
+   * The agent's config sets, one after another: each is checked against the options the one before it stored, and a
+   * set's answer never mixes with the next one's request.
+   */
+  setting: Promise<void>;
   /** The prompt cache as the harness last reported it (`AgentSummary.cache`); in memory only. */
   cache: CacheState | null;
   /** Harnesses waiting for extension notifications; rejected when the process ends. */
@@ -143,6 +151,7 @@ type Proc = {
 
 const START_TIMEOUT_MS = 60_000;
 /** Why a message or config change is refused while the agent reports its context. */
+const STILL_WORKING = "The agent is still working on the last message. Wait for it to finish, or cancel it.";
 const HIDDEN_BUSY =
   "The agent is reporting its context. Try again in a moment; if it stays busy, stop the agent and start a new one.";
 /** How long an agent gets to exit after SIGTERM before its process group is killed. */
@@ -215,11 +224,18 @@ const busy = (message: string) => new AgentError(AgentErrorCode.enum.busy, messa
 const sameCache = (a: CacheState | null, b: CacheState | null) =>
   a === b || (a !== null && b !== null && a.ttlSeconds === b.ttlSeconds && a.lastRequestAt === b.lastRequestAt);
 
-const notRunning = () =>
+/** Why a call found no process to act on; `resumable` (its harness's) says whether a message starts it again. */
+const notRunning = (resumable = false) =>
   new AgentError(
     AgentErrorCode.enum.not_running,
-    "The agent isn't running (it was stopped or its process ended). Start a new agent to continue; its history is kept.",
+    `The agent isn't running (it was stopped or its process ended). ${
+      resumable ? "Send a message to start it again" : "Start a new agent to continue"
+    }; its history is kept.`,
   );
+
+/** Why an agent without a process stays so: its harness can't resume it, so its chat is closed. */
+const notResumable = () =>
+  new AgentError(AgentErrorCode.enum.not_running, "This agent can't be started again. Start a new agent to continue.");
 
 /**
  * Starts agents through their harness and records everything they do in the store before telling listeners,
@@ -245,6 +261,12 @@ export const createManager = ({
   // only passes through its agent's session/new.
   const agentTokens = new Map<string, string>();
   let mcpUrl: string | undefined;
+  // The one resume under way per agent (`ensureRunning`): every caller waiting for the agent's process shares it.
+  const resuming = new Map<string, Promise<Proc>>();
+  // Agents whose message is stored while their process is being resumed: the turn runs once it is (`resumeTurn`).
+  const pendingTurns = new Set<string>();
+  // Agents whose waiting message was cancelled before its resume finished: the turn ends without being sent.
+  const cancelledTurns = new Set<string>();
 
   const emit = (event: Committed) => {
     for (const listener of [...listeners]) {
@@ -289,12 +311,23 @@ export const createManager = ({
     return summary;
   };
 
-  /** Stores the entries and folds each one as stored; every entry of the agent's log is written through here. */
+  /**
+   * Stores the entries and tells listeners; every entry of the agent's log is written through here. Only for an agent
+   * without a process (a message that resumes it, the end of a turn whose resume failed); otherwise `appendLog`.
+   */
+  const storeEntries = (agentId: string, entries: NewLogEntry[]) => {
+    const stored = entries.map((entry) => ({ ...entry, at: entry.at ?? now() }));
+    const seqs = store.append(agentId, stored);
+    const last = seqs.at(-1);
+    if (last !== undefined) emit({ seq: last, agentId, type: "log" });
+    return { stored, seqs };
+  };
+
+  /** Stores the entries (`storeEntries`) and folds each one as stored. */
   const appendLog = (proc: Proc, entries: NewLogEntry[]) => {
     const { agentId } = proc;
     if (!proc.fold) throw new Error(`Can't log for agent ${agentId} before its session started.`);
-    const stored = entries.map((entry) => ({ ...entry, at: entry.at ?? now() }));
-    const seqs = store.append(agentId, stored);
+    const { stored, seqs } = storeEntries(agentId, entries);
     let fold = proc.fold;
     for (const [index, entry] of stored.entries()) {
       if (entry.type === "user_message") fold = emptyFold(proc.sessionId);
@@ -302,8 +335,6 @@ export const createManager = ({
     }
     proc.fold = fold;
     proc.config = configOf(fold) ?? proc.config;
-    const last = seqs.at(-1);
-    if (last !== undefined) emit({ seq: last, agentId, type: "log" });
     return seqs;
   };
 
@@ -318,15 +349,15 @@ export const createManager = ({
     });
 
   /** The summary's activity: what the turn's fold says while the agent works, else none. */
-  const activityNow = (proc: Proc, state: AgentSummary["state"]) => (state === "working" && proc.fold ? activityOf(proc.fold) : null);
+  const activityNow = (proc: Proc | undefined, state: AgentSummary["state"]) => (state === "working" && proc?.fold ? activityOf(proc.fold) : null);
 
   /**
    * `current` with what the turn's fold says now: the activity for `state`, and lastText. With no main-session message
    * in the fold (a new turn), the stored lastText stays.
    */
-  const fromFold = (proc: Proc, current: AgentSummary, state: AgentSummary["state"]): AgentSummary => {
+  const fromFold = (proc: Proc | undefined, current: AgentSummary, state: AgentSummary["state"]): AgentSummary => {
     const next: AgentSummary = { ...current, activity: activityNow(proc, state) };
-    const message = proc.fold && lastMainMessage(proc.fold);
+    const message = proc?.fold && lastMainMessage(proc.fold);
     if (message !== undefined) {
       const text = excerpt(message);
       delete next.lastText;
@@ -349,14 +380,19 @@ export const createManager = ({
 
   /**
    * Writes the agent's state with its pendingPermissions derived anew and its activity and lastText from its fold
-   * (`fromFold`), so every change to the open requests is followed by one of these.
+   * (`fromFold`), so every change to the open requests is followed by one of these. `agentState` is for an agent
+   * without a process (no requests, no activity).
    */
-  const setState = (
-    proc: Proc,
+  const setState = (proc: Proc, state: AgentSummary["state"], details: StateDetails = {}) => {
+    agentState(proc.agentId, proc, state, details);
+  };
+
+  const agentState = (
+    agentId: string,
+    proc: Proc | undefined,
     state: AgentSummary["state"],
-    { error, lastUserAt }: { error?: ErrorDetail; lastUserAt?: string } = {},
+    { error, lastUserAt }: StateDetails = {},
   ) => {
-    const { agentId } = proc;
     const current = summaries.get(agentId);
     if (!current) return;
     const next: AgentSummary = {
@@ -634,6 +670,7 @@ export const createManager = ({
       config: undefined,
       skipped: 0,
       hidden: false,
+      setting: Promise.resolve(),
       cache: null,
       extWaiters: new Set(),
     };
@@ -643,7 +680,8 @@ export const createManager = ({
       if (finished) return;
       finished = true;
       revokeToken(proc);
-      procs.delete(agentId);
+      // A resume may already have put a new process in its place.
+      if (procs.get(agentId) === proc) procs.delete(agentId);
       proc.acp.close();
       cancelPending(proc);
       for (const waiter of [...proc.extWaiters]) waiter.reject(new Error("The agent's process ended."));
@@ -660,7 +698,11 @@ export const createManager = ({
           setState(proc, "error", {
             error: {
               code: AgentErrorCode.enum.agent_failed,
-              message: `The agent process ${how} unexpectedly. Start a new agent to continue; this one's history is kept.`,
+              message:
+                `The agent process ${how} unexpectedly. ` +
+                (proc.harness.resumable === true
+                  ? "Send a message to start it again; its history is kept."
+                  : "Start a new agent to continue; this one's history is kept."),
             },
           }),
         );
@@ -714,6 +756,20 @@ export const createManager = ({
     }
   };
 
+  /**
+   * What a session starts or resumes with: the harness's `_meta`, the instructions as they are now (a
+   * running agent keeps the ones it started with) and the process's own /mcp token.
+   */
+  const sessionExtra = async (proc: Proc) => {
+    const { harness } = proc;
+    const instructions = harness.sessionParams === undefined ? undefined : await readInstructions();
+    return {
+      mcpServers: mcpServersFor(proc),
+      ...(harness.sessionMeta === undefined ? {} : { _meta: harness.sessionMeta }),
+      ...(instructions === undefined || harness.sessionParams === undefined ? {} : { params: harness.sessionParams(instructions) }),
+    };
+  };
+
   const startFailure = (error: unknown, harness: Harness, proc: Proc) => {
     if (error instanceof AgentError) return error;
     const code = rpcCode(error);
@@ -756,20 +812,193 @@ export const createManager = ({
   }
   log("agents_loaded", { count: summaries.size, markedStopped: marked });
 
+  /** The agent's folder for `repo`, which must resolve inside the workspace. */
+  const folderOf = (repo: string) => {
+    try {
+      return resolveRepo(workspaceRoot, repo);
+    } catch (error) {
+      if (error instanceof RepoError) throw new AgentError(error.code, error.message);
+      throw error;
+    }
+  };
+
+  /** Whether the agent's harness can start it again in its stored session; otherwise its chat is closed. */
+  const canResume = (summary: AgentSummary) => findHarness(summary.harness, harnesses)?.resumable === true;
+
+  /**
+   * The agent's process when it can take a message or setting now: recorded, not ending, not being resumed, and no
+   * message waiting for a resume to run.
+   */
+  const liveProc = (agentId: string) => {
+    const proc = procs.get(agentId);
+    return proc?.recorded && !proc.ending && !resuming.has(agentId) && !pendingTurns.has(agentId) ? proc : undefined;
+  };
+
+  /**
+   * Spawns a process for a stored agent and takes up its session with ACP `session/resume` (`ensureRunning`'s one
+   * attempt): the fold and config come from the stored log, the settings the resume answered at their defaults are set
+   * again (`configToRestore`), and the agent's state is `done` unless a message waits for it. A failure ends the
+   * process before anything is recorded of it, so the stored agent and its log stay as they were.
+   */
+  const resume = async (summary: AgentSummary, harness: Harness): Promise<Proc> => {
+    const { id: agentId, sessionId } = summary;
+    // A process still ending (a stop just asked for) writes its end first; a delete meanwhile ends the attempt.
+    await procs.get(agentId)?.closed;
+    if (!summaries.has(agentId)) {
+      log("agent_resume_failed", { agentId, harness: harness.id, code: AgentErrorCode.enum.not_found });
+      throw notFound(agentId);
+    }
+    const cwd = folderOf(summary.repo);
+    const scope = await scopes.scopeFor(agentId);
+    assertOpen();
+    const proc = spawnAgent(agentId, harness, cwd, scope);
+    procs.set(agentId, proc);
+    log("agent_resuming", { agentId, harness: harness.id });
+    const tooSlow = () =>
+      new AgentError(
+        AgentErrorCode.enum.agent_failed,
+        `${harness.name} didn't take up this chat's session again within ${START_TIMEOUT_MS / 1000} s. Send the message again to retry.`,
+      );
+    try {
+      const deadline = Date.now() + START_TIMEOUT_MS;
+      const initialized = await withTimeout(proc.acp.initialize(), START_TIMEOUT_MS, tooSlow);
+      if (!initialized.agentCapabilities?.sessionCapabilities?.resume) {
+        throw new AgentError(
+          AgentErrorCode.enum.agent_failed,
+          `This version of ${harness.name} can't take up a stored session, so this chat can't go on. Update it and send the message again, or start a new agent; this one's history is kept.`,
+        );
+      }
+      const session = await sessionExtra(proc);
+      const { configOptions } = await withTimeout(proc.acp.resumeSession(sessionId, cwd, session), Math.max(0, deadline - Date.now()), tooSlow);
+      if (!summaries.has(agentId)) throw notFound(agentId);
+      if (shuttingDown || proc.ending || procs.get(agentId) !== proc) throw notRunning(true);
+      proc.sessionId = sessionId;
+      proc.fold = foldLog(store.readLog(agentId).entries, sessionId);
+      proc.config = configOf(proc.fold);
+      const stored = proc.config;
+      proc.recorded = true;
+      if (configOptions.length > 0) safely(agentId, "config_option_update", () => {
+          appendConfig(proc, configOptions);
+        });
+      for (const { sessionId: from, update } of proc.held.splice(0)) handleUpdate(proc, from, update);
+      const returned = ConfigOptions.safeParse(configOptions);
+      for (const { id: configId, value } of returned.success ? configToRestore(stored, returned.data) : []) {
+        try {
+          const options = await proc.acp.setConfigOption(sessionId, configId, value);
+          safely(agentId, "config_option_update", () => {
+            appendConfig(proc, options);
+          });
+        } catch (error) {
+          log("config_restore_refused", { agentId, configId: safeName(configId), code: rpcCode(error) ?? -1 });
+        }
+      }
+      // A stop or delete during the restore: the close handler writes the agent's state, not this.
+      const running = !proc.ending && procs.get(agentId) === proc;
+      if (running && !pendingTurns.has(agentId)) safely(agentId, "resumed", () => setState(proc, "done"));
+      log("agent_resumed", { agentId, harness: harness.id });
+      return proc;
+    } catch (error) {
+      const failure = error instanceof AgentError || rpcCode(error) === ACP_AUTH_REQUIRED || proc.acp.isClosed() ? startFailure(error, harness, proc) : refusedResume(error, harness);
+      // Nothing was recorded, so the close handler writes nothing.
+      proc.ending ??= "remove";
+      await terminate(proc);
+      // The summary was written while the attempt's process ran (a message stored meanwhile): it has none now.
+      const current = summaries.get(agentId);
+      if (current?.hasProcess && !procs.has(agentId)) safely(agentId, "resume_failed", () => putSummary(current, "agent_changed"));
+      log("agent_resume_failed", { agentId, harness: harness.id, code: failure.code });
+      throw failure;
+    }
+  };
+
+  /** The agent's refusal of `session/resume`: the remedy is to try again, then a new agent. */
+  const refusedResume = (error: unknown, harness: Harness) => {
+    const code = rpcCode(error);
+    return new AgentError(
+      AgentErrorCode.enum.agent_failed,
+      `${harness.name} couldn't take up this chat's session again${code === undefined ? "" : ` (ACP error ${code})`}. ` +
+        "Send the message again to retry; if it keeps failing, start a new agent (this one's history is kept).",
+    );
+  };
+
+  /**
+   * The agent's process, ready for a message or setting: the live one, or one spawned and resumed in the stored session
+   * (`resume`); every caller meanwhile shares the one attempt. The only way a process is started for an existing
+   * agent. `not_found` for an unknown agent, `not_running` when its harness can't resume, and the attempt's
+   * error when it fails: never a fresh session under the old chat, where Claude would silently forget the conversation.
+   */
+  const ensureRunning = async (agentId: string): Promise<Proc> => {
+    assertOpen();
+    const summary = summaries.get(agentId);
+    if (!summary) throw notFound(agentId);
+    const pending = resuming.get(agentId);
+    if (pending) return pending;
+    const live = liveProc(agentId);
+    if (live) return live;
+    const harness = findHarness(summary.harness, harnesses);
+    if (harness?.resumable !== true) throw notResumable();
+    const attempt = resume(summary, harness).finally(() => resuming.delete(agentId));
+    resuming.set(agentId, attempt);
+    return attempt;
+  };
+
+  /**
+   * The background half of a message to an agent without a process: resumes it, then runs the stored message's turn.
+   * A failed resume ends the turn as failed and leaves the agent in `error` with the attempt's message; one that
+   * a stop or shutdown ended leaves it stopped.
+   */
+  const resumeTurn = async (agentId: string, text: string) => {
+    let proc: Proc | undefined;
+    let failure: unknown;
+    try {
+      proc = await ensureRunning(agentId);
+    } catch (error) {
+      failure = error;
+    }
+    pendingTurns.delete(agentId);
+    const cancelled = cancelledTurns.delete(agentId);
+    if (proc !== undefined) {
+      const resumed = proc;
+      resumed.turn = true;
+      // Ending already: its close handler ends the turn.
+      if (resumed.ending && procs.get(agentId) === resumed) return;
+      if (procs.get(agentId) !== resumed) {
+        // Ended already: its close handler wrote the agent's state, but saw no turn.
+        resumed.turn = false;
+        if (summaries.has(agentId)) safely(agentId, "turn_stopped", () => storeEntries(agentId, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.stopped }]));
+        return;
+      }
+      if (cancelled) {
+        // Cancelled while the agent was starting: the message never reaches it.
+        resumed.turn = false;
+        safely(agentId, "turn_cancelled", () => {
+          appendLog(resumed, [{ type: "turn_ended", stopReason: "cancelled" }]);
+          setState(resumed, "done");
+        });
+        log("turn_ended", { agentId, stopReason: "cancelled" });
+        return;
+      }
+      safely(agentId, "turn_started", () => setState(resumed, "working"));
+      await runTurn(resumed, text);
+      return;
+    }
+    if (!summaries.has(agentId)) return;
+    const stopped = failure instanceof AgentError && failure.code === AgentErrorCode.enum.not_running;
+    const message = failure instanceof AgentError ? failure.message : "The agent couldn't be started again. Send the message again to retry.";
+    safely(agentId, "turn_failed", () => {
+      storeEntries(agentId, [{ type: "turn_ended", stopReason: stopped ? SERVICE_STOP_REASON.stopped : SERVICE_STOP_REASON.error }]);
+      if (stopped) agentState(agentId, undefined, "stopped");
+      else agentState(agentId, undefined, "error", { error: { code: AgentErrorCode.enum.agent_failed, message } });
+    });
+    log("turn_failed", { agentId, resumeError: failure instanceof AgentError ? failure.code : "unknown" });
+  };
+
   const start = async (harnessId: string, repo: string): Promise<AgentSummary> => {
     assertOpen();
     const harness = findHarness(harnessId, harnesses);
     if (!harness) {
       throw new AgentError(AgentErrorCode.enum.unknown_harness, `There's no harness "${harnessId}". List the harnesses to see which exist.`);
     }
-    let cwd: string;
-    try {
-      cwd = resolveRepo(workspaceRoot, repo);
-    } catch (error) {
-      if (error instanceof RepoError) throw new AgentError(error.code, error.message);
-      throw error;
-    }
-
+    const cwd = folderOf(repo);
     const agentId = randomUUID();
     const scope = await scopes.scopeFor(agentId);
     // Shutdown may have begun while the scopes were being set up.
@@ -785,13 +1014,7 @@ export const createManager = ({
     try {
       const deadline = Date.now() + START_TIMEOUT_MS;
       const initialized = await withTimeout(proc.acp.initialize(), START_TIMEOUT_MS, tooSlow);
-      // D26: the instructions as they are now; a running agent keeps the ones it started with.
-      const instructions = harness.sessionParams === undefined ? undefined : await readInstructions();
-      const session = {
-        mcpServers: mcpServersFor(proc),
-        ...(harness.sessionMeta === undefined ? {} : { _meta: harness.sessionMeta }),
-        ...(instructions === undefined || harness.sessionParams === undefined ? {} : { params: harness.sessionParams(instructions) }),
-      };
+      const session = await sessionExtra(proc);
       const { sessionId, configOptions } = await withTimeout(proc.acp.newSession(cwd, session), Math.max(0, deadline - Date.now()), tooSlow);
       const branch = await branchOf(agentId, cwd);
       // procs no longer holding it means the process ended before its summary could be stored.
@@ -839,9 +1062,9 @@ export const createManager = ({
         return { seq };
       }
     }
-    const proc = procs.get(agentId);
-    if (!proc?.recorded || proc.ending) throw notRunning();
-    if (proc.turn) throw busy("The agent is still working on the last message. Wait for it to finish, or cancel it.");
+    const proc = liveProc(agentId);
+    if (!proc) return sendResuming(agentId, text, commandId);
+    if (proc.turn) throw busy(STILL_WORKING);
     if (proc.hidden) throw busy(HIDDEN_BUSY);
     const at = now();
     const [seq = 0] = appendLog(proc, [
@@ -853,6 +1076,29 @@ export const createManager = ({
     proc.turn = true;
     log("turn_started", { agentId, seq });
     void runTurn(proc, text);
+    return { seq };
+  };
+
+  /**
+   * `sendNow` for an agent without a live process: stores the message, then resumes the agent and runs its turn in the
+   * background (`resumeTurn`); the caller gets the message's seq at once.
+   */
+  const sendResuming = (agentId: string, text: string, commandId: string | undefined): { seq: number } => {
+    const summary = summaries.get(agentId);
+    if (!summary) throw notFound(agentId);
+    if (pendingTurns.has(agentId)) throw busy(STILL_WORKING);
+    if (!canResume(summary)) throw notResumable();
+    const at = now();
+    const message: NewLogEntry = { type: "user_message", at, text, ...(commandId === undefined ? {} : { commandId }) };
+    // A resume that has folded the log already (it is setting the agent's config again) folds the message too.
+    const current = procs.get(agentId);
+    const resumed = current?.recorded && !current.ending ? current : undefined;
+    const [seq = 0] = resumed ? appendLog(resumed, [message]) : storeEntries(agentId, [message]).seqs;
+    if (commandId !== undefined) knownCommands(agentId).set(commandId, seq);
+    pendingTurns.add(agentId);
+    safely(agentId, "turn_started", () => agentState(agentId, resumed, "working", { lastUserAt: at }));
+    log("turn_started", { agentId, seq });
+    void resumeTurn(agentId, text);
     return { seq };
   };
 
@@ -890,13 +1136,20 @@ export const createManager = ({
 
   /**
    * Sets one of the agent's config options, checked against its latest stored options; returns once the agent's new
-   * options are stored. A value the agent refuses fails with `agent_error`, its message carrying the agent's own.
+   * options are stored. An agent without a process is resumed first (`ensureRunning`). A value the agent refuses fails with `agent_error`, its message carrying the agent's own.
    */
   const setConfig = async (agentId: string, configId: string, value: string | boolean) => {
-    assertOpen();
-    if (!summaries.has(agentId)) throw notFound(agentId);
-    const proc = procs.get(agentId);
-    if (!proc?.recorded || proc.ending) throw notRunning();
+    // A set on an agent without a process starts it, as a message does.
+    const proc = await ensureRunning(agentId);
+    const set = proc.setting.then(() => setOne(proc, configId, value));
+    proc.setting = set.catch(() => undefined);
+    return set;
+  };
+
+  /** One set on a running agent, after the ones before it (`Proc.setting`). */
+  const setOne = async (proc: Proc, configId: string, value: string | boolean) => {
+    const { agentId } = proc;
+    if (proc.ending || procs.get(agentId) !== proc) throw notRunning(proc.harness.resumable);
     if (proc.hidden) throw busy(HIDDEN_BUSY);
     const option = proc.config?.find(({ id }) => id === configId);
     if (option === undefined) {
@@ -911,7 +1164,7 @@ export const createManager = ({
     try {
       options = await proc.acp.setConfigOption(proc.sessionId, configId, value);
     } catch (error) {
-      if (proc.acp.isClosed() || proc.ending) throw notRunning();
+      if (proc.acp.isClosed() || proc.ending) throw notRunning(proc.harness.resumable);
       const code = rpcCode(error);
       log("config_refused", { agentId, configId: safeName(configId), code: code ?? -1 });
       const said = rpcMessage(error);
@@ -933,9 +1186,16 @@ export const createManager = ({
 
   const cancel = async (agentId: string) => {
     assertOpen();
-    if (!summaries.has(agentId)) throw notFound(agentId);
+    const summary = summaries.get(agentId);
+    if (!summary) throw notFound(agentId);
+    if (pendingTurns.has(agentId)) {
+      // The message waits for the agent to start: it is ended there, before it is sent (`resumeTurn`).
+      cancelledTurns.add(agentId);
+      log("turn_cancel_sent", { agentId, permissionsCancelled: 0 });
+      return;
+    }
     const proc = procs.get(agentId);
-    if (!proc?.recorded || proc.ending) throw notRunning();
+    if (!proc?.recorded || proc.ending) throw notRunning(canResume(summary));
     try {
       await proc.acp.cancel(proc.sessionId);
     } catch {
@@ -948,26 +1208,36 @@ export const createManager = ({
     log("turn_cancel_sent", { agentId, permissionsCancelled: cancelled });
   };
 
+  /**
+   * Ends the agent's process and, when a resume is under way, the process it produces: a stop or delete never leaves
+   * one running that nothing can stop. False when there was neither.
+   */
+  const endAgent = async (agentId: string, why: "stop" | "remove") => {
+    const end = async (proc: Proc) => {
+      if (why === "remove") proc.ending = "remove";
+      else proc.ending ??= "stop";
+      revokeToken(proc);
+      await terminate(proc);
+    };
+    const proc = procs.get(agentId);
+    if (proc) await end(proc);
+    const attempt = resuming.get(agentId);
+    const resumed = attempt && (await attempt.catch(() => undefined));
+    if (resumed && resumed !== proc) await end(resumed);
+    return proc !== undefined || attempt !== undefined;
+  };
+
   const stop = async (agentId: string) => {
     assertOpen();
     if (!summaries.has(agentId)) throw notFound(agentId);
-    const proc = procs.get(agentId);
-    if (!proc) return;
-    proc.ending ??= "stop";
-    revokeToken(proc);
-    await terminate(proc);
+    if (!(await endAgent(agentId, "stop"))) return;
     log("agent_stopped", { agentId });
   };
 
   const remove = async (agentId: string) => {
     assertOpen();
     if (!summaries.has(agentId)) throw notFound(agentId);
-    const proc = procs.get(agentId);
-    if (proc) {
-      proc.ending = "remove";
-      revokeToken(proc);
-      await terminate(proc);
-    }
+    await endAgent(agentId, "remove");
     const seq = store.deleteAgent(agentId);
     summaries.delete(agentId);
     commandIds.delete(agentId);
@@ -1011,21 +1281,27 @@ export const createManager = ({
   /**
    * The agent's context breakdown, by a hidden turn its harness drives: nothing of the turn reaches the log, the
    * summary or the events, and nothing else runs on the agent meanwhile. Refused while a turn runs (`busy`); a failure
-   * answers `agent_error` with the agent's message, and the agent stays as it was.
+   * answers `agent_error` with the agent's message, and the agent stays as it was. An agent without a process is
+   * resumed first (`ensureRunning`).
    */
   const contextBreakdown = async (agentId: string): Promise<ContextBreakdown> => {
     assertOpen();
-    if (!summaries.has(agentId)) throw notFound(agentId);
-    const proc = procs.get(agentId);
-    if (!proc?.recorded || proc.ending) throw notRunning();
-    const report = proc.harness.contextBreakdown;
-    if (report === undefined) {
+    const summary = summaries.get(agentId);
+    if (!summary) throw notFound(agentId);
+    const harness = findHarness(summary.harness, harnesses);
+    const report = harness?.contextBreakdown;
+    if (harness === undefined || report === undefined) {
       throw new AgentError(
         AgentErrorCode.enum.unsupported,
-        `${proc.harness.name} doesn't report its context. Use an agent whose harness offers the context feature.`,
+        `${harness?.name ?? summary.harness} doesn't report its context. Use an agent whose harness offers the context feature.`,
       );
     }
-    if (proc.turn) throw busy("The agent is working on a turn; its context is available once it is idle. Try again then.");
+    const turnBusy = () => busy("The agent is working on a turn; its context is available once it is idle. Try again then.");
+    if (pendingTurns.has(agentId)) throw turnBusy();
+    // Asking an agent without a process starts it, as a message does.
+    const proc = await ensureRunning(agentId);
+    // A message may have come while the agent was being resumed.
+    if (proc.turn || pendingTurns.has(agentId)) throw turnBusy();
     if (proc.hidden) throw busy(HIDDEN_BUSY);
     proc.hidden = true;
     // The hidden turn's prompts still unanswered: it stays hidden until the agent has answered them all, even when
@@ -1048,7 +1324,7 @@ export const createManager = ({
         home: proc.home,
       });
     } catch (error) {
-      if (proc.acp.isClosed() || proc.ending) throw notRunning();
+      if (proc.acp.isClosed() || proc.ending) throw notRunning(proc.harness.resumable);
       const code = rpcCode(error);
       log("context_failed", { agentId, code: code ?? -1 });
       const said = rpcMessage(error);

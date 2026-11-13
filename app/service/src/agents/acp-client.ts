@@ -21,12 +21,12 @@ export type AgentHandlers = {
   permission: (request: RequestPermissionRequest) => Promise<RequestPermissionResponse>;
 };
 
-/** What a session starts with besides its folder: the MCP servers it may call, and harness-only options. */
+/** What a session starts (or resumes) with besides its folder: the MCP servers it may call, and harness-only options. */
 export type SessionExtra = {
   mcpServers?: McpServer[];
   _meta?: Record<string, unknown>;
   /**
-   * Top-level `session/new` fields a harness asks for (the instructions' `systemPrompt`). Sent as given: the SDK
+   * Top-level `session/new` (and `session/resume`) fields a harness asks for (the instructions' `systemPrompt`). Sent as given: the SDK
    * doesn't check outgoing params, and its stable schema would drop fields it doesn't know.
    */
   params?: Record<string, unknown>;
@@ -37,6 +37,11 @@ export type AcpAgent = {
   initialize: () => Promise<InitializeResponse>;
   /** The session's id, and its config options unparsed (`[]` when the agent sends none). */
   newSession: (cwd: string, extra?: SessionExtra) => Promise<{ sessionId: string; configOptions: unknown[] }>;
+  /**
+   * Takes up a stored session in this process (ACP `session/resume`: the agent keeps its memory of the conversation and
+   * replays nothing), with the same extras as `newSession`. Its config options unparsed (`[]` when the agent sends none).
+   */
+  resumeSession: (sessionId: string, cwd: string, extra?: SessionExtra) => Promise<{ configOptions: unknown[] }>;
   prompt: (sessionId: string, text: string) => Promise<PromptResponse>;
   cancel: (sessionId: string) => Promise<void>;
   /**
@@ -87,6 +92,10 @@ export const connectAgent = (child: ChildProcessWithoutNullStreams, handlers: Ag
     newSession: async (cwd, { mcpServers = [], _meta, params = {} } = {}) => {
       const { sessionId, configOptions } = await agent.request("session/new", { ...params, cwd, mcpServers, ...(_meta === undefined ? {} : { _meta }) });
       return { sessionId, configOptions: configOptions ?? [] };
+    },
+    resumeSession: async (sessionId, cwd, { mcpServers = [], _meta, params = {} } = {}) => {
+      const { configOptions } = await agent.request("session/resume", { ...params, sessionId, cwd, mcpServers, ...(_meta === undefined ? {} : { _meta }) });
+      return { configOptions: configOptions ?? [] };
     },
     prompt: (sessionId, text) => agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text }] }),
     cancel: (sessionId) => agent.notify("session/cancel", { sessionId }),

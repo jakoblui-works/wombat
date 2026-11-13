@@ -1,17 +1,22 @@
 // Lasting check (silent failure): service logs hold ids, states and counts only: no prompt, reply, diff,
 // tool content or agent stderr ever reaches a log line.
 import { randomUUID } from "node:crypto";
+import { rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import type { LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
 import {
   CONFIG_REFUSAL_MESSAGE,
+  CONFIG_REFUSED_FILE,
   CONTEXT_FAILURE_MESSAGE,
   FAKE_BREAKDOWN,
   FAKE_CONFIG,
   HIDDEN_TITLE,
   HIDDEN_UPDATE_MARKER,
+  RESUME_REFUSAL_MESSAGE,
+  RESUME_REFUSED_FILE,
 } from "../../test/fake-agent.ts";
 import { killedUnits, sliceStops } from "../../test/fake-systemd.ts";
 import { chunkTexts, REPO, setup, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
@@ -168,6 +173,43 @@ test(
 
     const lines = JSON.stringify(t.logs);
     for (const marker of [HIDDEN_UPDATE_MARKER, HIDDEN_TITLE, CONTEXT_FAILURE_MESSAGE]) expect(lines).not.toContain(marker);
+  },
+  TEST_TIMEOUT_MS,
+);
+
+// S2d, T19 (row T19-10): the resume's own log lines (agent_resuming, agent_resumed, agent_resume_failed,
+// config_restore_refused) carry ids and codes; the agent's refusals and the messages that caused them stay out.
+test(
+  "T19-10: a refused resume and a resume whose restore the agent refuses log ids and codes, never the prompts, replies or the agent's messages",
+  async () => {
+    const t = setup();
+    const folder = join(t.root, REPO);
+    const prompts = [`refused prompt ${randomUUID()}`, `resumed prompt ${randomUUID()}`];
+    const { id } = await t.manager.start("fake-reply", REPO);
+    await t.manager.setConfig(id, FAKE_CONFIG.effort.id, "high");
+    await t.manager.stop(id);
+
+    writeFileSync(join(folder, RESUME_REFUSED_FILE), "");
+    await t.manager.send(id, { text: prompts[0] ?? "" });
+    await t.turnEnded(id, 1);
+    rmSync(join(folder, RESUME_REFUSED_FILE));
+    writeFileSync(join(folder, CONFIG_REFUSED_FILE), "");
+    await t.manager.send(id, { text: prompts[1] ?? "" });
+    const ended = await t.turnEnded(id, 2);
+
+    // Controls: the resume went on past the refused restore, and both failures were logged about this agent.
+    expect(ended.stopReason).toBe("end_turn");
+    const lines = t.logs.map((line) => JSON.stringify(line));
+    for (const event of ["agent_resume_failed", "config_restore_refused"]) {
+      expect(t.logs.some((line) => line.event === event && JSON.stringify(line).includes(id)), `${event}, by id`).toBe(true);
+    }
+    for (const line of t.logs) {
+      for (const value of Object.values(line.fields)) expect(["string", "number", "boolean"]).toContain(typeof value);
+    }
+    const content = [...prompts, ...chunkTexts(t.entries(id)), RESUME_REFUSAL_MESSAGE, CONFIG_REFUSAL_MESSAGE];
+    expect(chunkTexts(t.entries(id)).length, "control: the reply is there to look for").toBeGreaterThan(0);
+    const leaks = lines.flatMap((line) => content.filter((text) => line.includes(text)).map((text) => ({ line, text })));
+    expect(leaks).toEqual([]);
   },
   TEST_TIMEOUT_MS,
 );

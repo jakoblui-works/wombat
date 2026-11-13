@@ -1,4 +1,4 @@
-import { agentRunning } from "@wombat/shared/api";
+import { chatAccess } from "@wombat/shared/api";
 import { memo, type ReactNode, useEffect, useState, useLayoutEffect, useMemo, useRef } from "react";
 
 import { ScrollArea } from "../../../components/ui/scroll-area";
@@ -132,11 +132,13 @@ const Block = ({ block, live, edits, connected, answers, cards, onOpenSideBySide
 /** One agent's chat: the plan pinned on top, the conversation, the message box at the bottom. */
 const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | undefined }) => {
   const { model, agent, log } = useChatModel(agentId);
-  // Not while the agent is still loading: only a known agent without a process is stopped.
-  const stopped = agent !== undefined && !agentRunning(agent);
   const connected = useConnection().state === "connected";
   const answers = useAnswer(agentId);
   const harnesses = useHarnesses();
+  const harness = harnesses.data?.find(({ id }) => id === agent?.harness);
+  const features = harness?.features ?? [];
+  // While the agent is still loading it counts as running: only a known agent without a process isn't.
+  const access = agent === undefined ? "running" : chatAccess(agent, features);
   const setConfig = useSetConfig();
   const blocks = useMemo(() => (model === undefined ? [] : chatBlocks(model.items)), [model]);
   const edits = useMemo(() => (model === undefined ? new Map<string, EditRequest>() : editRequests(model, blocks)), [model, blocks]);
@@ -228,17 +230,17 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
         agentId={agentId}
         turnActive={live?.turnActive ?? false}
         connected={connected && model !== undefined}
-        stopped={stopped}
-        features={harnesses.data?.find(({ id }) => id === agent?.harness)?.features ?? []}
+        access={access}
+        features={features}
         onOpenContext={() => setContextOpen(true)}
       />
       {agent === undefined ? null : (
         <ComposerFooter
           agent={agent}
-          toolName={harnesses.data?.find(({ id }) => id === agent.harness)?.name ?? agent.harness}
+          toolName={harness?.name ?? agent.harness}
           options={model?.config}
           usage={model?.usage}
-          stopped={stopped}
+          access={access}
           onSet={(configId, value) => setConfig.mutateAsync({ agentId, configId, value })}
         />
       )}

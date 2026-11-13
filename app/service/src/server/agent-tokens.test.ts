@@ -1,7 +1,8 @@
 // Lasting check (silent failure): agent and app tokens apart. An agent's token opens /mcp only, and acts as that
 // agent; the app's token never opens /mcp; on /mcp a request without the agent token, with an Origin, or with a
 // foreign Host is refused; a token stops working when its agent is stopped, deleted, crashes, is killed, or the
-// service shuts down. Otherwise an agent could drive other agents or approve its own proposals.
+// service shuts down; a resumed agent gets a new one (S2d). Otherwise an agent could drive other agents or approve
+// its own proposals.
 import { describe, expect, test } from "vitest";
 
 import { APP_ORIGIN, appRoutes, expectError } from "../../test/server-fixtures.ts";
@@ -132,6 +133,31 @@ describe("agent and app tokens apart", () => {
 
       await s.manager.shutdown();
       expect(isRefused(await mcpRequest(s, running.token, "tools/list")), "a token after shutdown").toBe(true);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // S2d, T19 (row T19-3): a token never outlives its process, so a resumed agent gets a new one; with the old one its
+  // Wombat tools would fail, and reviving the old one would let a dead process's token back in.
+  test(
+    "T19-3: a resumed agent gets a new token that acts as the same agent; the stopped process's token stays refused, and the new one ends with its process",
+    async () => {
+      const { s } = await serveItems();
+      const first = await agentConfig(s);
+      await s.manager.stop(first.agentId);
+
+      const resumed = await agentConfig(s, first.agentId);
+
+      expect(resumed.token, "a new token").not.toBe(first.token);
+      expect(isRefused(await mcpRequest(s, first.token, "tools/list")), "the stopped process's token").toBe(true);
+      expect(await toolsListed(s, resumed.token, "tools/list"), "the resumed process's token opens /mcp").toBe(true);
+      const proposed = await callTool(s, resumed.token, "propose_create", { structure: "bugs", title: "Proposed after the resume", reason: "Seen again" });
+      const listed = await s.api("GET", "/proposals");
+      const proposals = (listed.json as { proposals: { id: string; agentId: string }[] }).proposals;
+      expect(proposals.find((proposal) => proposal.id === (proposed.json as { proposed: string }).proposed)?.agentId, "acts as the same agent").toBe(first.agentId);
+
+      await s.manager.stop(first.agentId);
+      expect(isRefused(await mcpRequest(s, resumed.token, "tools/list")), "the resumed process's token once it is stopped").toBe(true);
     },
     TEST_TIMEOUT_MS,
   );
