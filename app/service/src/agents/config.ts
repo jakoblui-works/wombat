@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { canResume } from "../harness/registry.ts";
 import { safeName, type Log } from "../log.ts";
-import type { AgentProcess } from "./agent-process.ts";
+import { isGoingAway, type AgentProcess } from "./agent-process.ts";
 import type { AgentRecord } from "./agent-record.ts";
 import { AgentError, busy, notFound, notRunning, rpcCode, rpcMessage } from "./errors.ts";
 import { HIDDEN_BUSY } from "./hidden-turn.ts";
@@ -18,7 +18,7 @@ export const CONFIG_SET_TIMEOUT_MS = 30_000;
 export const ConfigOptions = z.array(ConfigOption);
 
 /** Throws `invalid_request` unless `value` is one the option takes: a boolean for a boolean, one of a select's values for a select. */
-export const checkConfigValue = (option: ConfigOption, value: string | boolean) => {
+const checkConfigValue = (option: ConfigOption, value: string | boolean) => {
   const fail = (message: string) => new AgentError("invalid_request", `The config option "${option.id}" ${message}`);
   if (option.type === "boolean") {
     if (typeof value !== "boolean") throw fail("takes true or false. Send one it takes.");
@@ -33,7 +33,7 @@ export const checkConfigValue = (option: ConfigOption, value: string | boolean) 
 };
 
 /** Why a config set failed when the agent never answered it. */
-export const configUnanswered = (configId: string, timeoutMs: number) =>
+const configUnanswered = (configId: string, timeoutMs: number) =>
   new AgentError(
     AgentErrorCode.enum.agent_error,
     `The agent didn't answer the change to "${configId}" within ${timeoutMs / 1000} s, so it may not have taken it. ` +
@@ -47,14 +47,14 @@ export const setConfigWithin = (proc: Proc, configId: string, value: string | bo
 export type ConfigDeps = {
   log: Log;
   configSetTimeoutMs: number;
-  procOf: AgentProcess["procOf"];
+  isCurrent: AgentProcess["isCurrent"];
   hasAgent: AgentRecord["hasAgent"];
   appendLog: AgentRecord["appendLog"];
   ensureRunning: Resume["ensureRunning"];
 };
 
 /** The agents' config options: set by the user one after another, and stored as the agent reports them. */
-export const createConfig = ({ log, configSetTimeoutMs, procOf, hasAgent, appendLog, ensureRunning }: ConfigDeps) => {
+export const createConfig = ({ log, configSetTimeoutMs, isCurrent, hasAgent, appendLog, ensureRunning }: ConfigDeps) => {
   // Each process's config sets, one after another: each is checked against the options the one before it stored, and
   // a set's answer never mixes with the next one's request.
   const settings = new WeakMap<Proc, Promise<void>>();
@@ -85,7 +85,7 @@ export const createConfig = ({ log, configSetTimeoutMs, procOf, hasAgent, append
   /** One set on a running agent, after the ones before it (`settings`). */
   const setOne = async (proc: Proc, configId: string, value: string | boolean) => {
     const { agentId } = proc;
-    if (endingByService(proc.phase) || procOf(agentId) !== proc) throw notRunning(canResume(proc.harness));
+    if (endingByService(proc.phase) || !isCurrent(proc)) throw notRunning(canResume(proc.harness));
     if (isHidden(proc.phase)) throw busy(HIDDEN_BUSY);
     const option = proc.config?.find(({ id }) => id === configId);
     if (option === undefined) {
@@ -100,7 +100,7 @@ export const createConfig = ({ log, configSetTimeoutMs, procOf, hasAgent, append
     try {
       options = await setConfigWithin(proc, configId, value, configSetTimeoutMs);
     } catch (error) {
-      if (proc.acp.isClosed() || endingByService(proc.phase)) throw notRunning(canResume(proc.harness));
+      if (isGoingAway(proc)) throw notRunning(canResume(proc.harness));
       if (error instanceof AgentError) {
         log("config_unanswered", { agentId, configId: safeName(configId) });
         throw error;

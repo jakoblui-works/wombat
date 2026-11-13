@@ -13,9 +13,12 @@ import { activityOf, commandsOf, configOf, emptyFold, foldEntry, lastMainMessage
 import { canResume } from "../harness/registry.ts";
 import { safeName, type Log } from "../log.ts";
 import type { NewLogEntry, Store } from "../store/store.ts";
+import type { AgentProcess, AgentProcessDeps } from "./agent-process.ts";
 import { readBranch } from "./branch.ts";
+import type { Config } from "./config.ts";
+import { notRunning } from "./errors.ts";
 import { excerpt, keepForExcerpt } from "./excerpt.ts";
-import { isHidden, recordsAgent, stateOnClose, writesTurnEndOnClose, type AgentPhase } from "./phase.ts";
+import { isHidden, mayRecord, next, recordsAgent, stateOnClose, writesTurnEndOnClose } from "./phase.ts";
 import { pendingPermissions } from "./permissions.ts";
 import { now, type Proc } from "./proc.ts";
 
@@ -30,16 +33,24 @@ export type AgentRecordDeps = {
   store: Store;
   log: Log;
   /** Whether the agent has a live process: the summary's `hasProcess`. */
-  hasProcess: (agentId: string) => boolean;
+  hasProcess: AgentProcess["hasProcess"];
+  isCurrent: AgentProcess["isCurrent"];
+  shuttingDown: () => boolean;
+  appendConfig: Config["appendConfig"];
 };
 
+type HeldUpdate = { sessionId: string; update: unknown };
+
 /** The agents' summaries and logs as stored, and the listeners told of each change once it can be read. */
-export const createAgentRecord = ({ store, log, hasProcess }: AgentRecordDeps) => {
+export const createAgentRecord = (deps: AgentRecordDeps) => {
+  const { store, log, hasProcess, isCurrent, shuttingDown, appendConfig } = deps;
   const listeners = new Set<(event: Committed) => void>();
   const summaries = new Map(store.listAgents().map((agent) => [agent.id, agent]));
   // commandId → seq of its user_message, per agent; loaded from the store on first use.
   const commandIds = new Map<string, Map<string, number>>();
   const skippedUpdates = new WeakMap<Proc, number>();
+  // Updates that arrived before the agent's summary was stored, per process.
+  const heldUpdates = new WeakMap<Proc, HeldUpdate[]>();
 
   const emit = (event: Committed) => {
     for (const listener of [...listeners]) {
@@ -143,7 +154,9 @@ export const createAgentRecord = ({ store, log, hasProcess }: AgentRecordDeps) =
 
   const handleUpdate = (proc: Proc, sessionId: string, update: unknown) => {
     if (!recordsAgent(proc.phase)) {
-      proc.held.push({ sessionId, update });
+      const held = heldUpdates.get(proc) ?? [];
+      held.push({ sessionId, update });
+      heldUpdates.set(proc, held);
       return;
     }
     const { agentId } = proc;
@@ -176,9 +189,27 @@ export const createAgentRecord = ({ store, log, hasProcess }: AgentRecordDeps) =
     });
   };
 
-  /** Records the updates that arrived before the agent was; call once it is. */
   const releaseHeld = (proc: Proc) => {
-    for (const { sessionId, update } of proc.held.splice(0)) handleUpdate(proc, sessionId, update);
+    const held = heldUpdates.get(proc) ?? [];
+    heldUpdates.delete(proc);
+    for (const { sessionId, update } of held) handleUpdate(proc, sessionId, update);
+  };
+
+  /**
+   * Records the session `proc` opened: `write` stores what the caller keeps of it, then the session's config options
+   * and the updates held meanwhile are stored. Throws `notRunning` when the process may no longer be recorded.
+   */
+  const recordSession = <T>(proc: Proc, configOptions: unknown[], resumable: boolean, write: () => T): T => {
+    if (shuttingDown() || !mayRecord(proc.phase) || !isCurrent(proc)) throw notRunning(resumable);
+    const written = write();
+    proc.phase = next(proc.phase, { type: "recorded" });
+    if (configOptions.length > 0) {
+      safely(proc.agentId, "config_option_update", () => {
+        appendConfig(proc, configOptions);
+      });
+    }
+    releaseHeld(proc);
+    return written;
   };
 
   /**
@@ -241,8 +272,8 @@ export const createAgentRecord = ({ store, log, hasProcess }: AgentRecordDeps) =
     }
   };
 
-  /** What the log and the summary get once the agent's process closed; `closing` is its phase before. */
-  const recordClosed = (proc: Proc, closing: AgentPhase, code: number | null, signal: NodeJS.Signals | null) => {
+  /** What the log and the summary get once the agent's process closed. */
+  const recordClosed: AgentProcessDeps["closed"] = (proc, closing, code, signal) => {
     const { agentId } = proc;
     // A turn the process ended under gets its end in the log too; a removed agent has no log left.
     if (writesTurnEndOnClose(closing)) {
@@ -307,8 +338,6 @@ export const createAgentRecord = ({ store, log, hasProcess }: AgentRecordDeps) =
     putSummary,
     storeEntries,
     appendLog,
-    fromFold,
-    refreshFromFold,
     setState,
     agentState,
     branchOf,
@@ -316,7 +345,7 @@ export const createAgentRecord = ({ store, log, hasProcess }: AgentRecordDeps) =
     safely,
     knownCommands,
     handleUpdate,
-    releaseHeld,
+    recordSession,
     recordClosed,
     markStored,
   };

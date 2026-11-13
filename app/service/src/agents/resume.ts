@@ -1,3 +1,4 @@
+import type { InitializeResponse } from "@agentclientprotocol/sdk";
 import { AgentErrorCode, configToRestore, type AgentSummary } from "@wombat/shared/api";
 import { commandsOf, configOf, foldLog } from "@wombat/shared/log-fold";
 
@@ -9,11 +10,10 @@ import { RepoError, resolveRepo } from "../workspace.ts";
 import { START_TIMEOUT_MS, startFailure, type AgentProcess } from "./agent-process.ts";
 import type { AgentRecord } from "./agent-record.ts";
 import { ConfigOptions, setConfigWithin, type Config } from "./config.ts";
-import { ACP_AUTH_REQUIRED, AgentError, notFound, notResumable, notRunning, requireAgent, rpcCode } from "./errors.ts";
-import { endingByService, mayRecord, next, takesCalls } from "./phase.ts";
+import { ACP_AUTH_REQUIRED, AgentError, notFound, notResumable, requireAgent, rpcCode } from "./errors.ts";
+import { endingByService, takesCalls } from "./phase.ts";
 import type { Proc } from "./proc.ts";
 import type { createScopes } from "./scope.ts";
-import { withTimeout } from "./timeout.ts";
 import type { Turns } from "./turns.ts";
 
 /** The agent's folder for `repo`, which must resolve inside the workspace. */
@@ -44,18 +44,18 @@ export type ResumeDeps = {
   scopes: Pick<ReturnType<typeof createScopes>, "scopeFor">;
   /** Throws once the service is shutting down. */
   assertOpen: () => void;
-  shuttingDown: () => boolean;
   summaryOf: AgentRecord["summaryOf"];
   hasAgent: AgentRecord["hasAgent"];
   putSummary: AgentRecord["putSummary"];
   setState: AgentRecord["setState"];
   safely: AgentRecord["safely"];
-  releaseHeld: AgentRecord["releaseHeld"];
+  recordSession: AgentRecord["recordSession"];
   appendConfig: Config["appendConfig"];
   spawnAgent: AgentProcess["spawnAgent"];
-  terminate: AgentProcess["terminate"];
-  sessionExtra: AgentProcess["sessionExtra"];
+  openSession: AgentProcess["openSession"];
+  abandon: AgentProcess["abandon"];
   procOf: AgentProcess["procOf"];
+  isCurrent: AgentProcess["isCurrent"];
   hasProcess: AgentProcess["hasProcess"];
   hasPendingTurn: Turns["hasPendingTurn"];
 };
@@ -69,18 +69,18 @@ export const createResume = (deps: ResumeDeps) => {
     readLog,
     scopes,
     assertOpen,
-    shuttingDown,
     summaryOf,
     hasAgent,
     putSummary,
     setState,
     safely,
-    releaseHeld,
+    recordSession,
     appendConfig,
     spawnAgent,
-    terminate,
-    sessionExtra,
+    openSession,
+    abandon,
     procOf,
+    isCurrent,
     hasProcess,
     hasPendingTurn,
   } = deps;
@@ -128,31 +128,26 @@ export const createResume = (deps: ResumeDeps) => {
         AgentErrorCode.enum.agent_failed,
         `${harness.name} didn't take up this chat's session again within ${START_TIMEOUT_MS / 1000} s. Send the message again to retry.`,
       );
-    try {
-      const deadline = Date.now() + START_TIMEOUT_MS;
-      const initialized = await withTimeout(proc.acp.initialize(), START_TIMEOUT_MS, tooSlow);
+    const canTakeUp = (initialized: InitializeResponse) => {
       if (!initialized.agentCapabilities?.sessionCapabilities?.resume) {
         throw new AgentError(
           AgentErrorCode.enum.agent_failed,
           `This version of ${harness.name} can't take up a stored session, so this chat can't go on. Update it and send the message again, or start a new agent; this one's history is kept.`,
         );
       }
-      const session = await sessionExtra(proc);
-      const { configOptions } = await withTimeout(proc.acp.resumeSession(sessionId, cwd, session), Math.max(0, deadline - Date.now()), tooSlow);
+    };
+    try {
+      const {
+        session: { configOptions },
+      } = await openSession(proc, tooSlow, (extra) => proc.acp.resumeSession(sessionId, cwd, extra), canTakeUp);
       requireAgent(agentId, summaryOf);
-      if (shuttingDown() || !mayRecord(proc.phase) || procOf(agentId) !== proc) throw notRunning(true);
-      proc.sessionId = sessionId;
-      proc.fold = foldLog(readLog(agentId).entries, sessionId);
-      proc.config = configOf(proc.fold);
-      proc.commands = commandsOf(proc.fold);
-      const stored = proc.config;
-      proc.phase = next(proc.phase, { type: "recorded" });
-      if (configOptions.length > 0) {
-        safely(agentId, "config_option_update", () => {
-          appendConfig(proc, configOptions);
-        });
-      }
-      releaseHeld(proc);
+      const stored = recordSession(proc, configOptions, true, () => {
+        proc.sessionId = sessionId;
+        proc.fold = foldLog(readLog(agentId).entries, sessionId);
+        proc.config = configOf(proc.fold);
+        proc.commands = commandsOf(proc.fold);
+        return proc.config;
+      });
       const returned = ConfigOptions.safeParse(configOptions);
       for (const { id: configId, value } of returned.success ? configToRestore(stored, returned.data) : []) {
         try {
@@ -170,15 +165,13 @@ export const createResume = (deps: ResumeDeps) => {
         }
       }
       // A stop or delete during the restore: the close handler writes the agent's state, not this.
-      const running = !endingByService(proc.phase) && procOf(agentId) === proc;
+      const running = !endingByService(proc.phase) && isCurrent(proc);
       if (running && !hasPendingTurn(agentId)) safely(agentId, "resumed", () => setState(proc, "done"));
       log("agent_resumed", { agentId, harness: harness.id });
       return proc;
     } catch (error) {
       const failure = error instanceof AgentError || rpcCode(error) === ACP_AUTH_REQUIRED || proc.acp.isClosed() ? startFailure(error, harness, proc) : refusedResume(error, harness);
-      // Nothing was recorded, so the close handler writes nothing.
-      proc.phase = next(proc.phase, { type: "endRequested", why: "remove" });
-      await terminate(proc);
+      await abandon(proc);
       // The summary was written while the attempt's process ran (a message stored meanwhile): it has none now.
       const current = summaryOf(agentId);
       if (current?.hasProcess && !hasProcess(agentId)) safely(agentId, "resume_failed", () => putSummary(current, "agent_changed"));

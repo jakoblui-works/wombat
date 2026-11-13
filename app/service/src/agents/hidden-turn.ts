@@ -3,10 +3,11 @@ import { AgentErrorCode, type ContextBreakdown } from "@wombat/shared/api";
 import type { CacheState, Harness } from "../harness/harness.ts";
 import { canResume, findHarness } from "../harness/registry.ts";
 import type { Log } from "../log.ts";
+import { isGoingAway } from "./agent-process.ts";
 import type { AgentRecord } from "./agent-record.ts";
 import { contextGate } from "./context-gate.ts";
 import { AgentError, busy, notRunning, requireAgent, rpcCode, rpcMessage } from "./errors.ts";
-import { endingByService, isHidden, isTurnOpen, next, recordsAgent } from "./phase.ts";
+import { isHidden, isTurnOpen, next, recordsAgent } from "./phase.ts";
 import type { Proc } from "./proc.ts";
 import type { Resume } from "./resume.ts";
 import type { Turns } from "./turns.ts";
@@ -184,19 +185,19 @@ export const createHiddenTurn = ({ log, harnesses, assertOpen, summaryOf, putSum
         home: proc.home,
       });
     } catch (error) {
-      if (proc.acp.isClosed() || endingByService(proc.phase)) throw notRunning(canResume(proc.harness));
+      if (isGoingAway(proc)) throw notRunning(canResume(proc.harness));
       const code = rpcCode(error);
       log("context_failed", { agentId, code: code ?? -1 });
       const said = rpcMessage(error);
       // An ACP error is the agent's, and may pass: try again. Anything else is the harness's, whose message names the
       // remedy.
-      const next =
+      const remedy =
         code === undefined
           ? (said ?? "")
           : `Try again.${said === undefined || said === "" ? "" : ` The agent said: ${said}`}`;
       throw new AgentError(
         AgentErrorCode.enum.agent_error,
-        `The agent couldn't report its context${code === undefined ? "" : ` (ACP error ${code})`}; it keeps running as it was.${next === "" ? "" : ` ${next}`}`,
+        `The agent couldn't report its context${code === undefined ? "" : ` (ACP error ${code})`}; it keeps running as it was.${remedy === "" ? "" : ` ${remedy}`}`,
       );
     } finally {
       ended = true;

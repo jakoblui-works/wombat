@@ -20,6 +20,8 @@ export const createMcpTokens = ({ isCurrent, shuttingDown }: McpTokensDeps) => {
   // Token key → agentId for every agent with a live /mcp token. The tokens themselves are held nowhere: each one
   // only passes through its agent's session/new.
   const agentTokens = new Map<string, string>();
+  // Each process's key in `agentTokens`, once minted; dropped when the token is revoked.
+  const tokenKeys = new WeakMap<Proc, string>();
   let mcpUrl: string | undefined;
 
   /**
@@ -29,15 +31,17 @@ export const createMcpTokens = ({ isCurrent, shuttingDown }: McpTokensDeps) => {
   const mcpServersFor = (proc: Proc): McpServer[] => {
     if (mcpUrl === undefined || shuttingDown() || !isCurrent(proc) || !mayMintToken(proc.phase)) return [];
     const token = randomBytes(32).toString("base64url");
-    proc.tokenKey = tokenKey(token);
-    agentTokens.set(proc.tokenKey, proc.agentId);
+    const key = tokenKey(token);
+    tokenKeys.set(proc, key);
+    agentTokens.set(key, proc.agentId);
     return [{ type: "http", name: MCP_SERVER_NAME, url: mcpUrl, headers: [{ name: "Authorization", value: `Bearer ${token}` }] }];
   };
 
   const revokeToken = (proc: Proc) => {
-    if (proc.tokenKey === undefined) return;
-    agentTokens.delete(proc.tokenKey);
-    proc.tokenKey = undefined;
+    const key = tokenKeys.get(proc);
+    if (key === undefined) return;
+    agentTokens.delete(key);
+    tokenKeys.delete(proc);
   };
 
   /** Where agents reach the service's /mcp endpoint; agents started from now on get a token and this URL. */

@@ -35,8 +35,6 @@ export type Proc = {
   /** When the process exited (ms since the epoch); the close grace counts from here. */
   exitedAt: number | undefined;
   acp: AcpAgent;
-  /** The key of the agent's /mcp token in the live token map, once minted; deleted when the token is revoked. */
-  tokenKey: string | undefined;
   closed: Promise<void>;
   sessionId: string;
   /**
@@ -45,8 +43,6 @@ export type Proc = {
    * meanwhile the agent's updates are dropped, and messages and config changes answer `busy`.
    */
   phase: AgentPhase;
-  /** Updates that arrived before the agent's summary was stored. */
-  held: { sessionId: string; update: unknown }[];
   /** Open permission requests by requestId, oldest first; the summary's pendingPermissions mirror it. */
   pending: Map<string, Pending>;
   /**

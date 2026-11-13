@@ -2,7 +2,7 @@ import { AgentErrorCode, SERVICE_STOP_REASON, type SendMessageRequest } from "@w
 
 import { safeName, type Log } from "../log.ts";
 import type { NewLogEntry } from "../store/store.ts";
-import type { AgentProcess } from "./agent-process.ts";
+import { isGoingAway, type AgentProcess } from "./agent-process.ts";
 import type { AgentRecord } from "./agent-record.ts";
 import { AgentError, busy, notResumable, notRunning, requireAgent, rpcCode } from "./errors.ts";
 import { HIDDEN_BUSY } from "./hidden-turn.ts";
@@ -28,6 +28,7 @@ export type TurnsDeps = {
   safely: AgentRecord["safely"];
   cancelPending: Permissions["cancelPending"];
   procOf: AgentProcess["procOf"];
+  isCurrent: AgentProcess["isCurrent"];
   liveProc: Resume["liveProc"];
   canResumeAgent: Resume["canResumeAgent"];
   ensureRunning: Resume["ensureRunning"];
@@ -48,6 +49,7 @@ export const createTurns = ({
   safely,
   cancelPending,
   procOf,
+  isCurrent,
   liveProc,
   canResumeAgent,
   ensureRunning,
@@ -82,7 +84,7 @@ export const createTurns = ({
       cancelPending(proc);
       // The connection closed, or the service is ending the process (whose answer may beat the close): the close
       // handler records why and ends the turn, so the turn stays open for it to see.
-      if (proc.acp.isClosed() || endingByService(proc.phase)) return;
+      if (isGoingAway(proc)) return;
       proc.phase = next(proc.phase, { type: "turnEnded" });
       const code = rpcCode(error);
       safely(agentId, "turn_failed", () => {
@@ -168,8 +170,8 @@ export const createTurns = ({
       const resumed = proc;
       resumed.phase = next(resumed.phase, { type: "turnStarted" });
       // Ending already: its close handler ends the turn.
-      if (endingByService(resumed.phase) && procOf(agentId) === resumed) return;
-      if (procOf(agentId) !== resumed) {
+      if (endingByService(resumed.phase) && isCurrent(resumed)) return;
+      if (!isCurrent(resumed)) {
         // Ended already: its close handler wrote the agent's state, but saw no turn.
         resumed.phase = next(resumed.phase, { type: "turnEnded" });
         if (hasAgent(agentId)) safely(agentId, "turn_stopped", () => storeEntries(agentId, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.stopped }]));

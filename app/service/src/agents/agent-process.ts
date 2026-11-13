@@ -1,16 +1,17 @@
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 
+import type { InitializeResponse } from "@agentclientprotocol/sdk";
 import { AgentErrorCode } from "@wombat/shared/api";
 
 import { startAgentProcess, type AgentScope, type Harness } from "../harness/harness.ts";
 import type { Log } from "../log.ts";
-import { connectAgent, type AgentHandlers } from "./acp-client.ts";
+import { connectAgent, type AgentHandlers, type SessionExtra } from "./acp-client.ts";
 import { ACP_AUTH_REQUIRED, AgentError, rpcCode } from "./errors.ts";
 import type { McpTokens } from "./mcp-tokens.ts";
-import { isClosed, next, STARTING, type AgentPhase } from "./phase.ts";
+import { endingByService, isClosed, next, STARTING, type AgentPhase } from "./phase.ts";
 import type { Proc } from "./proc.ts";
 import type { createScopes } from "./scope.ts";
-import { settleWithin } from "./timeout.ts";
+import { settleWithin, withTimeout } from "./timeout.ts";
 
 export const START_TIMEOUT_MS = 60_000;
 
@@ -54,7 +55,8 @@ export const startFailure = (error: unknown, harness: Harness, proc: Proc) => {
   return new AgentError(AgentErrorCode.enum.agent_failed, `${what}. Check that ${harness.name} is installed and runs, then try again.`);
 };
 
-/** `AgentHandlers` for a given process. */
+export const isGoingAway = (proc: Proc) => proc.acp.isClosed() || endingByService(proc.phase);
+
 export type ProcHandlers = {
   [K in keyof AgentHandlers]: (proc: Proc, ...args: Parameters<AgentHandlers[K]>) => ReturnType<AgentHandlers[K]>;
 };
@@ -79,7 +81,6 @@ export const createAgentProcess = ({ env, log, scopes, readInstructions, mcpServ
 
   const hasProcess = (agentId: string) => procs.has(agentId);
 
-  /** Whether `proc` is its agent's live process. */
   const isCurrent = (proc: Proc) => procs.get(proc.agentId) === proc;
 
   const liveProcs = () => [...procs.values()];
@@ -103,11 +104,9 @@ export const createAgentProcess = ({ env, log, scopes, readInstructions, mcpServ
         permission: (request) => handlers.permission(proc, request),
         ext: (method, params) => handlers.ext(proc, method, params),
       }),
-      tokenKey: undefined,
       closed,
       sessionId: "",
       phase: STARTING,
-      held: [],
       pending: new Map(),
       fold: undefined,
       config: undefined,
@@ -121,7 +120,7 @@ export const createAgentProcess = ({ env, log, scopes, readInstructions, mcpServ
       proc.phase = next(closing, { type: "closed" });
       revokeToken(proc);
       // A resume may already have put a new process in its place.
-      if (procs.get(agentId) === proc) procs.delete(agentId);
+      if (isCurrent(proc)) procs.delete(agentId);
       proc.acp.close();
       onClosed(proc, closing, code, signal);
       log("agent_exited", { agentId, code: code ?? -1, signal: signal ?? "none" });
@@ -189,7 +188,31 @@ export const createAgentProcess = ({ env, log, scopes, readInstructions, mcpServ
     };
   };
 
-  return { spawnAgent, terminate, sessionExtra, procOf, hasProcess, isCurrent, liveProcs };
+  /**
+   * Initializes `proc`, then opens its session with `open`, both within START_TIMEOUT_MS from the start, failing with
+   * `tooSlow` past it. `accept` may refuse the agent by its initialize answer, before the session is asked for.
+   */
+  const openSession = async <S>(
+    proc: Proc,
+    tooSlow: () => Error,
+    open: (extra: SessionExtra) => Promise<S>,
+    accept?: (initialized: InitializeResponse) => void,
+  ) => {
+    const deadline = Date.now() + START_TIMEOUT_MS;
+    const initialized = await withTimeout(proc.acp.initialize(), START_TIMEOUT_MS, tooSlow);
+    accept?.(initialized);
+    const extra = await sessionExtra(proc);
+    const session = await withTimeout(open(extra), Math.max(0, deadline - Date.now()), tooSlow);
+    return { initialized, session };
+  };
+
+  /** Ends the process of a start or resume that failed; its close writes nothing. */
+  const abandon = async (proc: Proc) => {
+    proc.phase = next(proc.phase, { type: "endRequested", why: "remove" });
+    await terminate(proc);
+  };
+
+  return { spawnAgent, terminate, openSession, abandon, procOf, hasProcess, isCurrent, liveProcs };
 };
 
 export type AgentProcess = ReturnType<typeof createAgentProcess>;

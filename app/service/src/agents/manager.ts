@@ -7,18 +7,17 @@ import type { CacheState, Harness } from "../harness/harness.ts";
 import { defaultHarnesses, findHarness } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
-import { createAgentProcess, START_TIMEOUT_MS, startFailure } from "./agent-process.ts";
+import { createAgentProcess, START_TIMEOUT_MS, startFailure, type AgentProcessDeps } from "./agent-process.ts";
 import { createAgentRecord } from "./agent-record.ts";
 import { CONFIG_SET_TIMEOUT_MS, createConfig } from "./config.ts";
-import { AgentError, notRunning, requireAgent } from "./errors.ts";
+import { AgentError, requireAgent } from "./errors.ts";
 import { createHiddenTurn } from "./hidden-turn.ts";
 import { createMcpTokens } from "./mcp-tokens.ts";
 import { createPermissions, pendingPermissions } from "./permissions.ts";
-import { mayRecord, next, type AgentPhase } from "./phase.ts";
+import { next } from "./phase.ts";
 import { now, type Proc } from "./proc.ts";
 import { createResume, folderOf } from "./resume.ts";
 import { createScopes, DEFAULT_SLICE } from "./scope.ts";
-import { withTimeout } from "./timeout.ts";
 import { createTurns } from "./turns.ts";
 
 export { AgentError, notFound, type AgentErrorCodes } from "./errors.ts";
@@ -55,11 +54,12 @@ export const createManager = ({
   configSetTimeoutMs = CONFIG_SET_TIMEOUT_MS,
 }: ManagerOptions) => {
   let shuttingDown: Promise<void> | undefined;
+  const isShuttingDown = () => shuttingDown !== undefined;
   const scopes = createScopes({ slice, env, log });
 
-  // Modules reach names defined further down (`hasProcess`, `isCurrent`, `procOf`, `ensureRunning`, `hasPendingTurn`)
-  // through late-bound arrows. None is called before its name is defined: `markStored` runs after `createAgentProcess`,
-  // the rest only once `createManager` has returned.
+  // Modules reach names defined further down (`hasProcess`, `isCurrent`, `procOf`, `appendConfig`, `ensureRunning`,
+  // `hasPendingTurn`) through late-bound arrows. None is called before its name is defined: `markStored` runs after
+  // `createAgentProcess`, the rest only once `createManager` has returned.
   const {
     emit,
     onCommitted,
@@ -76,17 +76,24 @@ export const createManager = ({
     safely,
     knownCommands,
     handleUpdate,
-    releaseHeld,
+    recordSession,
     recordClosed,
     markStored,
-  } = createAgentRecord({ store, log, hasProcess: (agentId) => hasProcess(agentId) });
+  } = createAgentRecord({
+    store,
+    log,
+    hasProcess: (agentId) => hasProcess(agentId),
+    isCurrent: (proc) => isCurrent(proc),
+    shuttingDown: isShuttingDown,
+    appendConfig: (proc, options) => appendConfig(proc, options),
+  });
   const { mcpServersFor, revokeToken, setMcpUrl, agentForToken } = createMcpTokens({
     isCurrent: (proc) => isCurrent(proc),
-    shuttingDown: () => shuttingDown !== undefined,
+    shuttingDown: isShuttingDown,
   });
 
   const assertOpen = () => {
-    if (shuttingDown) {
+    if (isShuttingDown()) {
       throw new AgentError(
         AgentErrorCode.enum.not_running,
         "The agent service is shutting down and takes no more agent commands. Start the service again.",
@@ -106,7 +113,7 @@ export const createManager = ({
   const { setConfig, appendConfig } = createConfig({
     log,
     configSetTimeoutMs,
-    procOf: (agentId) => procOf(agentId),
+    isCurrent: (proc) => isCurrent(proc),
     hasAgent,
     appendLog,
     ensureRunning: (agentId) => ensureRunning(agentId),
@@ -122,14 +129,14 @@ export const createManager = ({
     hasPendingTurn: (agentId) => hasPendingTurn(agentId),
   });
 
-  const processClosed = (proc: Proc, closing: AgentPhase, code: number | null, signal: NodeJS.Signals | null) => {
+  const processClosed: AgentProcessDeps["closed"] = (proc, closing, code, signal) => {
     // Cancelled before the state is written: the state's pendingPermissions are read from the open requests.
     cancelPending(proc);
     rejectExtWaiters(proc);
     recordClosed(proc, closing, code, signal);
   };
 
-  const { spawnAgent, terminate, sessionExtra, procOf, hasProcess, isCurrent, liveProcs } = createAgentProcess({
+  const { spawnAgent, terminate, openSession, abandon, procOf, hasProcess, isCurrent, liveProcs } = createAgentProcess({
     env,
     log,
     scopes,
@@ -149,18 +156,18 @@ export const createManager = ({
     readLog: store.readLog,
     scopes,
     assertOpen,
-    shuttingDown: () => shuttingDown !== undefined,
     summaryOf,
     hasAgent,
     putSummary,
     setState,
     safely,
-    releaseHeld,
+    recordSession,
     appendConfig,
     spawnAgent,
-    terminate,
-    sessionExtra,
+    openSession,
+    abandon,
     procOf,
+    isCurrent,
     hasProcess,
     hasPendingTurn: (agentId) => hasPendingTurn(agentId),
   });
@@ -178,6 +185,7 @@ export const createManager = ({
     safely,
     cancelPending,
     procOf,
+    isCurrent,
     liveProc,
     canResumeAgent,
     ensureRunning,
@@ -202,43 +210,35 @@ export const createManager = ({
         `${harness.name} didn't start a session within ${START_TIMEOUT_MS / 1000} s. Check that it runs, then try again.`,
       );
     try {
-      const deadline = Date.now() + START_TIMEOUT_MS;
-      const initialized = await withTimeout(proc.acp.initialize(), START_TIMEOUT_MS, tooSlow);
-      const session = await sessionExtra(proc);
-      const { sessionId, configOptions } = await withTimeout(proc.acp.newSession(cwd, session), Math.max(0, deadline - Date.now()), tooSlow);
+      const {
+        initialized,
+        session: { sessionId, configOptions },
+      } = await openSession(proc, tooSlow, (extra) => proc.acp.newSession(cwd, extra));
       const branch = await branchOf(agentId, cwd);
-      // Another live process, or none, means this one ended before its summary could be stored.
-      if (shuttingDown || !mayRecord(proc.phase) || procOf(agentId) !== proc) throw notRunning();
-      proc.sessionId = sessionId;
-      proc.fold = emptyFold(sessionId);
-      const startedAt = now();
-      const summary: Omit<AgentSummary, "hasProcess"> = {
-        id: agentId,
-        harness: harness.id,
-        repo,
-        state: "done",
-        sessionId,
-        capabilities: { loadSession: initialized.agentCapabilities?.loadSession ?? false },
-        startedAt,
-        lastActivityAt: startedAt,
-        ...(branch === undefined ? {} : { branch }),
-        pendingPermissions: pendingPermissions(proc),
-      };
-      const added = putSummary(summary, "agent_added");
-      proc.phase = next(proc.phase, { type: "recorded" });
-      log("agent_started", { agentId, harness: harness.id });
-      if (configOptions.length > 0) {
-        safely(agentId, "config_option_update", () => {
-          appendConfig(proc, configOptions);
-        });
-      }
-      releaseHeld(proc);
+      const added = recordSession(proc, configOptions, false, () => {
+        proc.sessionId = sessionId;
+        proc.fold = emptyFold(sessionId);
+        const startedAt = now();
+        const summary: Omit<AgentSummary, "hasProcess"> = {
+          id: agentId,
+          harness: harness.id,
+          repo,
+          state: "done",
+          sessionId,
+          capabilities: { loadSession: initialized.agentCapabilities?.loadSession ?? false },
+          startedAt,
+          lastActivityAt: startedAt,
+          ...(branch === undefined ? {} : { branch }),
+          pendingPermissions: pendingPermissions(proc),
+        };
+        const stored = putSummary(summary, "agent_added");
+        log("agent_started", { agentId, harness: harness.id });
+        return stored;
+      });
       return summaryOf(agentId) ?? added;
     } catch (error) {
       const failure = startFailure(error, harness, proc);
-      // Nothing was recorded, so the close handler writes nothing.
-      proc.phase = next(proc.phase, { type: "endRequested", why: "remove" });
-      await terminate(proc);
+      await abandon(proc);
       log("agent_start_failed", { agentId, harness: harness.id, code: failure.code });
       throw failure;
     }

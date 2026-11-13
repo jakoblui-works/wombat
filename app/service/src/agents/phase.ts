@@ -6,7 +6,13 @@ export type AgentPhase =
   | { readonly kind: "idle" }
   | { readonly kind: "turn" }
   | { readonly kind: "hidden" }
-  | { readonly kind: "ending"; readonly why: EndReason; readonly turnOpen: boolean; readonly hidden: boolean }
+  | {
+      readonly kind: "ending";
+      readonly why: EndReason;
+      readonly recorded: boolean;
+      readonly turnOpen: boolean;
+      readonly hidden: boolean;
+    }
   | { readonly kind: "closed" };
 
 export type PhaseEvent =
@@ -25,29 +31,31 @@ const TURN: AgentPhase = { kind: "turn" };
 const HIDDEN: AgentPhase = { kind: "hidden" };
 const CLOSED: AgentPhase = { kind: "closed" };
 
-type Live = Extract<AgentPhase, { kind: "idle" | "turn" | "hidden" }>;
+const LIVE_KINDS = ["idle", "turn", "hidden"] as const;
+type Live = Extract<AgentPhase, { kind: (typeof LIVE_KINDS)[number] }>;
 type Ending = Extract<AgentPhase, { kind: "ending" }>;
+
+const isLive = (phase: AgentPhase): phase is Live => (LIVE_KINDS as readonly string[]).includes(phase.kind);
 
 const endingFrom = (phase: Live, why: EndReason): AgentPhase => ({
   kind: "ending",
   why,
+  recorded: true,
   turnOpen: phase.kind === "turn",
   hidden: phase.kind === "hidden",
 });
 
 const changed = (phase: Ending, change: Partial<Omit<Ending, "kind">>): AgentPhase => ({ ...phase, ...change });
 
-/**
- * The phase after `event`; an event the phase has no move for leaves it as it is. A process ended before it was
- * recorded ends as "remove": nothing of it is stored, so its close writes nothing.
- */
+/** The phase after `event`; an event the phase has no move for leaves it as it is. */
 export const next = (phase: AgentPhase, event: PhaseEvent): AgentPhase => {
   if (phase.kind === "closed") return phase;
   if (event.type === "closed") return CLOSED;
   if (phase.kind === "starting") {
     if (event.type === "recorded") return IDLE;
     if (event.type === "endRequested" || event.type === "exited") {
-      return { kind: "ending", why: "remove", turnOpen: false, hidden: false };
+      const why = event.type === "exited" ? "exited" : event.why;
+      return { kind: "ending", why, recorded: false, turnOpen: false, hidden: false };
     }
     return phase;
   }
@@ -64,6 +72,7 @@ export const next = (phase: AgentPhase, event: PhaseEvent): AgentPhase => {
       case "endRequested":
         return event.why === "remove" || phase.why === "exited" ? changed(phase, { why: event.why }) : phase;
       case "recorded":
+        return changed(phase, { recorded: true });
       case "exited":
         return phase;
       default:
@@ -96,16 +105,16 @@ const unhandled = (event: never): never => {
 
 export const isClosed = (phase: AgentPhase) => phase.kind === "closed";
 
-const endingOrClosed = (phase: AgentPhase) => phase.kind === "ending" || phase.kind === "closed";
-
-/** Whether a start or resume under way may record its process; one that exited before it was recorded may not. */
-export const mayRecord = (phase: AgentPhase) => !endingOrClosed(phase);
-
 export const endingByService = (phase: AgentPhase) => phase.kind === "ending" && phase.why !== "exited";
 
+/** Whether a start or resume under way may record its process: not once the service is ending it; one that exited may. */
+export const mayRecord = (phase: AgentPhase) => !endingByService(phase);
+
+/** Whether the agent's summary is stored, so what its process sends is stored too; until then its updates are held. */
+export const recordsAgent = (phase: AgentPhase) => isLive(phase) || (phase.kind === "ending" && phase.recorded);
+
 /** Recorded and not ended by the service: a process that exited still takes messages, settings and cancels until it closes. */
-export const takesCalls = (phase: AgentPhase) =>
-  phase.kind === "idle" || phase.kind === "turn" || phase.kind === "hidden" || (phase.kind === "ending" && phase.why === "exited");
+export const takesCalls = (phase: AgentPhase) => recordsAgent(phase) && !endingByService(phase);
 
 export const isTurnOpen = (phase: AgentPhase) => phase.kind === "turn" || (phase.kind === "ending" && phase.turnOpen);
 
@@ -113,21 +122,14 @@ export const isHidden = (phase: AgentPhase) => phase.kind === "hidden" || (phase
 
 export const isBeingRemoved = (phase: AgentPhase) => phase.kind === "ending" && phase.why === "remove";
 
-/** Whether what the agent sends is stored now; until the agent is recorded, updates are held. */
-export const recordsAgent = (phase: AgentPhase) => takesCalls(phase) || (phase.kind === "ending" && phase.why === "stop");
-
-export const mayMintToken = (phase: AgentPhase) => !endingOrClosed(phase);
+export const mayMintToken = (phase: AgentPhase) => phase.kind === "starting" || isLive(phase);
 
 /** Whether the process closing in `phase` writes the end of its open turn. */
-export const writesTurnEndOnClose = (phase: AgentPhase) => {
-  const closing = next(phase, { type: "exited" });
-  return closing.kind === "ending" && closing.turnOpen && closing.why !== "remove";
-};
+export const writesTurnEndOnClose = (phase: AgentPhase) => recordsAgent(phase) && isTurnOpen(phase) && !isBeingRemoved(phase);
 
 /** The agent's state the process closing in `phase` writes, if any. */
 export const stateOnClose = (phase: AgentPhase): "stopped" | "error" | undefined => {
-  const closing = next(phase, { type: "exited" });
-  if (closing.kind !== "ending") return undefined;
-  if (closing.why === "stop") return "stopped";
-  return closing.why === "exited" ? "error" : undefined;
+  if (!recordsAgent(phase)) return undefined;
+  if (!endingByService(phase)) return "error";
+  return phase.kind === "ending" && phase.why === "stop" ? "stopped" : undefined;
 };
