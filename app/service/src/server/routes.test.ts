@@ -36,4 +36,24 @@ describe("routes", () => {
     },
     TEST_TIMEOUT_MS,
   );
+
+  test(
+    "an unexpected error in a route answers a generic 500 and logs only the method, the route and the error's name",
+    async () => {
+      const quoted = "agent-content-must-not-leave-the-service";
+      class StoreWriteError extends Error {
+        override name = "StoreWriteError";
+      }
+      const s = await serve({ sendFails: new StoreWriteError(`could not store "${quoted}" under /home/someone/workspace`) });
+
+      const response = await s.api("POST", "/agents/agt_1/messages", { text: "Hello" });
+
+      expectError(response, 500, "internal_error", "an unexpected error");
+      expect(response.text).not.toContain(quoted);
+      const failed = s.logs.filter((line) => line.event === "request_failed");
+      expect(failed.map((line) => line.fields)).toEqual([{ method: "POST", route: "/agents/:id/messages", error: "StoreWriteError" }]);
+      expect(JSON.stringify(s.logs)).not.toContain(quoted);
+    },
+    TEST_TIMEOUT_MS,
+  );
 });

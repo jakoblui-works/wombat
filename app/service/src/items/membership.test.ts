@@ -75,4 +75,19 @@ describe("membership", () => {
     expect(docs).not.toContain("BUG-1");
     expect(bugs).toEqual(["BUG-1"]);
   });
+
+  test("a nested structure whose settings are broken keeps its files: a free parent including every .md never lists them", async () => {
+    const root = writeRoot({
+      "_structure.yaml": DOCS_SETTINGS.replace('include: ["architecture.md", "guides/*.md"]', 'include: ["**/*.md"]'),
+      "architecture.md": item("DOC-1", "Architecture"),
+      // Meant to be hidden; the typo makes its settings invalid.
+      "vault/_structure.yaml": ARCHIVE_SETTINGS.replace("access: hidden", "acess: hidden"),
+      "vault/ARC-1-plan.md": item("ARC-1", "A plan nobody else should read"),
+    });
+    const { catalog } = openItems(root);
+
+    const docs = (await catalog.snapshot()).items.filter((loaded) => loaded.structure === "docs").map((loaded) => loaded.path);
+
+    expect(docs).toEqual(["architecture.md"]);
+  });
 });

@@ -235,6 +235,8 @@ export const openStream = (port: number, options: Omit<RequestOptions, "path" | 
 
 export type ServeOptions = SetupOptions & {
   heartbeatMs?: number;
+  /** A send that fails this way, as a broken store or agent below the manager would make it. */
+  sendFails?: Error;
   /**
    * An items root: the server gets a catalog and a writer on it (on the fixture's store), for the items and
    * proposal routes and the agents' /mcp tools; without it they aren't configured.
@@ -259,7 +261,7 @@ export type Served = Setup & {
 };
 
 /** A manager fixture behind a running server; everything is torn down after the test. */
-export const serve = async ({ heartbeatMs, itemsRoot, agentTokens = {}, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
+export const serve = async ({ heartbeatMs, sendFails, itemsRoot, agentTokens = {}, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
   const t = setup(setupOptions);
   const token = randomBytes(24).toString("base64url");
   const harnesses = fixtureHarnesses(t.pidDir);
@@ -270,6 +272,7 @@ export const serve = async ({ heartbeatMs, itemsRoot, agentTokens = {}, ...setup
   let shutdownRequests = 0;
   const manager: Setup["manager"] = {
     ...t.manager,
+    ...(sendFails === undefined ? {} : { send: () => Promise.reject(sendFails) }),
     shutdown: () => {
       shutdownRequests += 1;
       return t.manager.shutdown();
@@ -294,6 +297,7 @@ export const serve = async ({ heartbeatMs, itemsRoot, agentTokens = {}, ...setup
     harnesses,
     workspaceRoot: t.root,
     token,
+    log: (event, fields) => t.logs.push({ event, fields }),
     onShutdown: () => {
       shutdownRequests += 1;
     },

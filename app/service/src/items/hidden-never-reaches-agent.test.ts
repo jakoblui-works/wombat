@@ -423,4 +423,18 @@ describe("hidden never reaches an agent", () => {
     expect(missing, "a path to a missing folder in team is refused").not.toEqual({ accepted: true });
     expect(await outcome("team/secret/x.md"), "a path into the hidden folder in team").toEqual(missing);
   });
+
+  test("a hidden structure sharing a visible one's id hides both: its items are never served under the visible id", async () => {
+    const twinItem = `---\nid: 0196f3c2-9b00-7000-8000-000000000042\nhandle: BUG-90\nrepo: api\n---\n# The ${MARKER} incident\n\nNotes on the ${MARKER} incident.\n`;
+    const { access } = openAccessRoot({
+      ...ACCESS_FILES,
+      // As when a structure's settings are copied to make a hidden variant, and the id is left as it was.
+      "bugs-private/_structure.yaml": (ACCESS_FILES["bugs/_structure.yaml"] ?? "").replace("access: propose", "access: hidden").replace("locked: [repo, body]\n", ""),
+      "bugs-private/BUG-90-incident.md": twinItem,
+    });
+
+    await expectRefused(access.list("bugs"), "not_found", "list of the shared id");
+    await expectRefused(access.get("BUG-90"), "not_found", "get of the hidden twin's item");
+    expect(leaks(JSON.stringify(await access.search(MARKER)))).toEqual([]);
+  });
 });
