@@ -638,3 +638,28 @@ test("the bridge refuses, in main, every command id outside MAIN_COMMAND_IDS, an
   expect(await bridgeCommand(page, "zoom.reset")).toBe("resolved");
   await waitUntil("zoom.reset to bring the level back to 0", WAIT_MS, async () => ((await zoomLevel(app)) === 0 ? true : undefined));
 });
+
+// The page's clipboard commands (edit.cut, edit.copy, edit.paste) run only right after the user's own input to the
+// window, checked in main, so script in the page can't read or write the clipboard on its own. No input has reached
+// the window since launch; the field is the test's own, focused by script.
+test("the page's edit.paste pastes nothing with no user input, and pastes right after a key press", async () => {
+  const { app, page } = opened();
+  const field = page.getByTestId("e2e-clipboard-field");
+  await page.evaluate(() => {
+    const textarea = document.createElement("textarea");
+    textarea.setAttribute("data-testid", "e2e-clipboard-field");
+    textarea.style.cssText = "position:fixed;left:40px;top:40px;width:400px;height:120px;z-index:2147483647";
+    document.body.appendChild(textarea);
+    textarea.focus();
+  });
+  const onClipboard = "pasted-from-main-5d2e";
+  await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), onClipboard);
+
+  const unasked = await bridgeCommand(page, "edit.paste");
+
+  // Control: main runs the two pastes in order, so a first paste that went through shows as the text twice.
+  await page.keyboard.press("End");
+  expect(await bridgeCommand(page, "edit.paste"), "the paste right after a key press").toBe("resolved");
+  await waitUntil("the paste after the key press to reach the field", WAIT_MS, async () => ((await field.inputValue()).includes(onClipboard) ? true : undefined));
+  expect(await field.inputValue(), `edit.paste with no user input went through (it answered ${unasked})`).toBe(onClipboard);
+});

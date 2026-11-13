@@ -77,6 +77,8 @@ export type ManagerOptions = {
   slice?: string;
   /** The instructions file's text for a new session, or undefined when there is none: then nothing is sent. */
   readInstructions: () => Promise<string | undefined>;
+  /** How long a setting change waits for the agent's answer before failing. */
+  configSetTimeoutMs?: number;
 };
 
 type PermissionKind = AnswerPermissionRequest["kind"];
@@ -268,6 +270,7 @@ export const createManager = ({
   env = process.env,
   slice = DEFAULT_SLICE,
   readInstructions,
+  configSetTimeoutMs = CONFIG_SET_TIMEOUT_MS,
 }: ManagerOptions) => {
   const listeners = new Set<(event: Committed) => void>();
   const summaries = new Map(store.listAgents().map((agent) => [agent.id, agent]));
@@ -1201,7 +1204,7 @@ export const createManager = ({
     checkConfigValue(option, value);
     let options: unknown[];
     try {
-      options = await setConfigWithin(proc, configId, value, CONFIG_SET_TIMEOUT_MS);
+      options = await setConfigWithin(proc, configId, value, configSetTimeoutMs);
     } catch (error) {
       if (proc.acp.isClosed() || proc.ending) throw notRunning(canResume(proc.harness));
       if (error instanceof AgentError) {

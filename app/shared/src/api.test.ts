@@ -482,18 +482,23 @@ describe("LogEntry (lenient)", () => {
 
   // Contract "Config options in the log" (lenient): the options come from the agent, so a newer ACP's option type must
   // not make the entry unreadable (the footer would go empty); it's kept, shown read-only, beside the others.
-  test("a config option of a type this app doesn't know is kept with its id, name and value, and so are its neighbours", () => {
+  // A later app reads the same stored log and may know the type, so every field the agent sent is kept, not only ours.
+  test("a config option of a type this app doesn't know is kept with every field it came with, and so are its neighbours", () => {
     const [mode, model, thinking] = configOptionUpdate.configOptions;
-    const newer = { type: "multi_select", id: "tools", name: "Allowed tools", currentValue: ["Read", "Edit"], options: [{ value: "Read", name: "Read" }] };
+    const newer = {
+      type: "multi_select",
+      id: "tools",
+      name: "Allowed tools",
+      currentValue: ["Read", "Edit"],
+      options: [{ value: "Read", name: "Read" }],
+      maxSelected: 3,
+      layout: { columns: 2, compact: true },
+    };
     const parsed = parseLogEntry(logEntry(44, "session_update", { update: { sessionUpdate: "config_option_update", configOptions: [mode, newer, model, thinking] } }));
-    expect(parsed).toMatchObject({
-      update: {
-        sessionUpdate: "config_option_update",
-        configOptions: [mode, { type: "multi_select", id: "tools", name: "Allowed tools", currentValue: ["Read", "Edit"] }, model, thinking],
-      },
-    });
+    expect(parsed).toMatchObject({ update: { sessionUpdate: "config_option_update", configOptions: [mode, newer, model, thinking] } });
     const options = parsed?.type === "session_update" && parsed.update.sessionUpdate === "config_option_update" ? parsed.update.configOptions : [];
     expect(options).toHaveLength(4);
+    expect(options[1]).toEqual(newer);
   });
 
   test("ACP nulls in config options read as absent", () => {

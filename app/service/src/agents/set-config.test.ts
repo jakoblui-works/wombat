@@ -1,13 +1,14 @@
 // manager.setConfig refuses what the agent's latest stored options don't take, before asking the agent: an unknown
 // agent, one without a process, an unknown option, a value the option doesn't offer, or one of the wrong type. A
-// refused set stores nothing. The agent's own refusal (agent_error) is config-options.test.ts's.
-import { readFileSync } from "node:fs";
+// refused set stores nothing; so does one the agent never answers, which fails with agent_error. The agent's own
+// refusal (agent_error) is config-options.test.ts's.
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import type { LogEntry } from "@wombat/shared/api";
 import { expect, test } from "vitest";
 
-import { FAKE_CONFIG, type FakeConfig } from "../../test/fake-agent.ts";
+import { CONFIG_SILENT_FILE, FAKE_CONFIG, type FakeConfig } from "../../test/fake-agent.ts";
 import { NO_RESUME_HARNESS, REPO, setup, TEST_TIMEOUT_MS, type Setup } from "../../test/manager-fixtures.ts";
 
 const configEntries = (t: Setup, agentId: string) =>
@@ -78,6 +79,23 @@ test(
     );
     const latest = Object.fromEntries((options.at(-1) ?? []).map((option) => [option.id, option.currentValue]));
     expect(latest, "what the log, and so the footer, says the agent uses").toEqual(chosen);
+  },
+  TEST_TIMEOUT_MS,
+);
+
+// A set the agent never answers must end in an error the footer can show, not leave the change pending for good, and
+// must not hold up the agent's next message.
+test(
+  "a setting change the agent never answers fails with agent_error, and the agent then takes a following message",
+  async () => {
+    const t = setup({ configSetTimeoutMs: 300 });
+    const { id } = await t.manager.start("fake-reply", REPO);
+    writeFileSync(join(t.root, REPO, CONFIG_SILENT_FILE), "");
+
+    expect(await refusal(t.manager.setConfig(id, FAKE_CONFIG.model.id, "fake-large"))).toMatchObject({ code: "agent_error" });
+
+    await t.manager.send(id, { text: "Still there?" });
+    expect((await t.turnEnded(id)).stopReason).toBe("end_turn");
   },
   TEST_TIMEOUT_MS,
 );

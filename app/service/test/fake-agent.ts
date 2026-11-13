@@ -123,12 +123,14 @@ const AWAIT_FILE_POLL_MS = 10;
  * - NO_RESUME_CAPABILITY_FILE: `initialize` doesn't advertise `sessionCapabilities.resume` (a `session/resume` is
  *   still answered, so only a service that checks the capability notices);
  * - CONFIG_REFUSED_FILE: every `session/set_config_option` is refused with CONFIG_REFUSAL_MESSAGE.
+ * - CONFIG_SILENT_FILE: every `session/set_config_option` is never answered.
  * Without them the agent advertises resume, and `session/resume` accepts any session id (a fresh process has never
  * seen it), answering its config options at their initial values (as claude-agent-acp does for model and effort).
  */
 export const RESUME_REFUSED_FILE = ".fake-refuse-resume";
 export const NO_RESUME_CAPABILITY_FILE = ".fake-no-resume-capability";
 export const CONFIG_REFUSED_FILE = ".fake-refuse-config";
+export const CONFIG_SILENT_FILE = ".fake-silent-config";
 
 /** The agent's JSON-RPC error message when it refuses a resume; tests check it never reaches the service's logs. */
 export const RESUME_REFUSAL_MESSAGE = "resume-refusal-must-not-be-logged";
@@ -402,6 +404,7 @@ const run = (scenario: FakeScenario) => {
       return { configOptions: fakeConfigOptions({ model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial }) };
     })
     .onRequest("session/set_config_option", ({ params }) => {
+      if (existsSync(CONFIG_SILENT_FILE)) return new Promise<never>(() => {});
       if (existsSync(CONFIG_REFUSED_FILE)) throw RequestError.internalError(undefined, CONFIG_REFUSAL_MESSAGE);
       const config = configs.get(params.sessionId);
       if (config === undefined) throw RequestError.invalidParams(undefined, "unknown session");

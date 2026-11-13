@@ -114,6 +114,8 @@ export type SetupOptions = {
   fake?: FakeSystemdOptions;
   /** Passed to every openStore of this setup (the cap, for example). */
   storeOptions?: Omit<StoreOptions, "path">;
+  /** How long a config set waits for the agent (the manager's default when absent). */
+  configSetTimeoutMs?: number;
 };
 
 export type Setup = {
@@ -154,7 +156,7 @@ const killAll = (pids: number[]) => {
 };
 
 /** A manager on a fresh store and workspace, with every fake scenario available as `fake-<scenario>`. */
-export const setup = ({ systemd = "none", fake, storeOptions = {} }: SetupOptions = {}): Setup => {
+export const setup = ({ systemd = "none", fake, storeOptions = {}, configSetTimeoutMs }: SetupOptions = {}): Setup => {
   const base = mkdtempSync(join(tmpdir(), "wombat-manager-"));
   const slice = `wombattest${randomUUID().replaceAll("-", "")}.slice`;
   const emptyBin = join(base, "empty-bin");
@@ -180,6 +182,7 @@ export const setup = ({ systemd = "none", fake, storeOptions = {} }: SetupOption
       env,
       slice,
       readInstructions: () => readInstructions(root),
+      ...(configSetTimeoutMs === undefined ? {} : { configSetTimeoutMs }),
     });
     manager.onCommitted((event: Committed) => committed.push(event));
     return manager;
