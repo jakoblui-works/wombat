@@ -43,6 +43,22 @@ import { connectAgent, type AcpAgent } from "./acp-client.ts";
 import { readBranch } from "./branch.ts";
 import { contextGate } from "./context-gate.ts";
 import { excerpt, keepForExcerpt } from "./excerpt.ts";
+import {
+  endingByService,
+  mayRecord,
+  isBeingRemoved,
+  isClosed,
+  isHidden,
+  isTurnOpen,
+  mayMintToken,
+  next,
+  recordsAgent,
+  STARTING,
+  stateOnClose,
+  takesCalls,
+  writesTurnEndOnClose,
+  type AgentPhase,
+} from "./phase.ts";
 import { createScopes, DEFAULT_SLICE } from "./scope.ts";
 
 /** A manager call's error codes: the agent ones, and `invalid_request` for a config value the option doesn't take. */
@@ -117,16 +133,14 @@ type Proc = {
   tokenKey: string | undefined;
   closed: Promise<void>;
   sessionId: string;
-  /** False until the agent's summary is stored; updates that arrive before are held. */
-  recorded: boolean;
-  held: { sessionId: string; update: unknown }[];
-  /** Why the service is ending the process: "stop" keeps the agent (stopped), "remove" writes nothing. */
-  ending: "stop" | "remove" | undefined;
   /**
-   * True from send until the turn's `turn_ended` is written; once the connection closes or the service is ending the
-   * process, only the close handler clears it.
+   * A turn is open from send until its `turn_ended` is written; once the connection closes or the service is ending
+   * the process, only the close handler ends it. A hidden turn (`contextBreakdown`) is moved only by `hiddenReport`:
+   * meanwhile the agent's updates are dropped, and messages and config changes answer `busy`.
    */
-  turn: boolean;
+  phase: AgentPhase;
+  /** Updates that arrived before the agent's summary was stored. */
+  held: { sessionId: string; update: unknown }[];
   /** Open permission requests by requestId, oldest first; the summary's pendingPermissions mirror it. */
   pending: Map<string, Pending>;
   /**
@@ -139,11 +153,6 @@ type Proc = {
   /** The command names of the latest stored main-session command list (`commandsOf`, kept across the fold's restarts). */
   commands: string[] | undefined;
   skipped: number;
-  /**
-   * True while a hidden turn (`contextBreakdown`) runs: the agent's updates are dropped, and messages and config
-   * changes answer `busy`. Set and cleared only by `hiddenReport`.
-   */
-  hidden: boolean;
   /** The context report being made, which every request meanwhile shares; cleared once it settles. */
   contextReport: Promise<ContextBreakdown> | undefined;
   /**
@@ -306,7 +315,7 @@ export const createManager = ({
    * manager its URL, or once the process has ended.
    */
   const mcpServersFor = (proc: Proc): McpServer[] => {
-    if (mcpUrl === undefined || shuttingDown || procs.get(proc.agentId) !== proc) return [];
+    if (mcpUrl === undefined || shuttingDown || procs.get(proc.agentId) !== proc || !mayMintToken(proc.phase)) return [];
     const token = randomBytes(32).toString("base64url");
     proc.tokenKey = tokenKey(token);
     agentTokens.set(proc.tokenKey, proc.agentId);
@@ -483,13 +492,13 @@ export const createManager = ({
   };
 
   const handleUpdate = (proc: Proc, sessionId: string, update: unknown) => {
-    if (!proc.recorded) {
+    if (!recordsAgent(proc.phase)) {
       proc.held.push({ sessionId, update });
       return;
     }
     const { agentId } = proc;
     const kind = safeName((update as { sessionUpdate?: unknown } | null)?.sessionUpdate);
-    if (proc.hidden) {
+    if (isHidden(proc.phase)) {
       log("update_hidden", { agentId, kind });
       return;
     }
@@ -532,7 +541,7 @@ export const createManager = ({
     if (cache !== undefined && !sameCache(cache, proc.cache)) {
       proc.cache = cache;
       const current = summaries.get(agentId);
-      if (proc.recorded && current) safely(agentId, "cache", () => putSummary({ ...current, cache }, "agent_changed"));
+      if (recordsAgent(proc.phase) && current) safely(agentId, "cache", () => putSummary({ ...current, cache }, "agent_changed"));
     }
     for (const waiter of [...proc.extWaiters]) {
       let matched = false;
@@ -586,7 +595,7 @@ export const createManager = ({
     const { sessionId } = request;
     const requestId = randomUUID();
     // A hidden turn leaves no trace, and nobody could answer: the agent gets `cancelled`.
-    if (proc.hidden) {
+    if (isHidden(proc.phase)) {
       log("permission_hidden", { agentId, requestId });
       return Promise.resolve<RequestPermissionResponse>({ outcome: { outcome: "cancelled" } });
     }
@@ -605,7 +614,7 @@ export const createManager = ({
       toolCall: request.toolCall,
       options: request.options.map((option) => ({ kind: option.kind, name: option.name })),
     });
-    if (!proc.recorded || !parsed.success || parsed.data.type !== "permission_requested" || offered.size === 0) {
+    if (!recordsAgent(proc.phase) || !parsed.success || parsed.data.type !== "permission_requested" || offered.size === 0) {
       log("permission_invalid", { agentId, requestId });
       return Promise.resolve<RequestPermissionResponse>({ outcome: { outcome: "cancelled" } });
     }
@@ -632,7 +641,7 @@ export const createManager = ({
     const { agentId } = proc;
     try {
       const { stopReason } = await proc.acp.prompt(proc.sessionId, text);
-      proc.turn = false;
+      proc.phase = next(proc.phase, { type: "turnEnded" });
       cancelPending(proc);
       safely(agentId, "turn_ended", () => {
         appendLog(proc, [{ type: "turn_ended", stopReason }]);
@@ -644,8 +653,8 @@ export const createManager = ({
       cancelPending(proc);
       // The connection closed, or the service is ending the process (whose answer may beat the close): the close
       // handler records why and ends the turn, so the turn stays open for it to see.
-      if (proc.acp.isClosed() || proc.ending) return;
-      proc.turn = false;
+      if (proc.acp.isClosed() || endingByService(proc.phase)) return;
+      proc.phase = next(proc.phase, { type: "turnEnded" });
       const code = rpcCode(error);
       safely(agentId, "turn_failed", () => {
         appendLog(proc, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.error }]);
@@ -684,26 +693,23 @@ export const createManager = ({
       tokenKey: undefined,
       closed,
       sessionId: "",
-      recorded: false,
+      phase: STARTING,
       held: [],
-      ending: undefined,
-      turn: false,
       pending: new Map(),
       fold: undefined,
       config: undefined,
       commands: undefined,
       skipped: 0,
-      hidden: false,
       contextReport: undefined,
       setting: Promise.resolve(),
       cache: null,
       extWaiters: new Set(),
     };
 
-    let finished = false;
     const finish = (code: number | null, signal: NodeJS.Signals | null) => {
-      if (finished) return;
-      finished = true;
+      if (isClosed(proc.phase)) return;
+      const closing = proc.phase;
+      proc.phase = next(closing, { type: "closed" });
       revokeToken(proc);
       // A resume may already have put a new process in its place.
       if (procs.get(agentId) === proc) procs.delete(agentId);
@@ -711,13 +717,13 @@ export const createManager = ({
       cancelPending(proc);
       for (const waiter of [...proc.extWaiters]) waiter.reject(new Error("The agent's process ended."));
       // A turn the process ended under gets its end in the log too; a removed agent has no log left.
-      if (proc.recorded && proc.turn && proc.ending !== "remove") {
-        proc.turn = false;
+      if (writesTurnEndOnClose(closing)) {
         safely(agentId, "turn_stopped", () => appendLog(proc, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.stopped }]));
       }
-      if (proc.recorded && proc.ending === "stop") {
+      const state = stateOnClose(closing);
+      if (state === "stopped") {
         safely(agentId, "stopped", () => setState(proc, "stopped"));
-      } else if (proc.recorded && proc.ending === undefined) {
+      } else if (state === "error") {
         const how = code === null ? `was killed (${signal ?? "unknown signal"})` : `exited with code ${code}`;
         safely(agentId, "exited", () =>
           setState(proc, "error", {
@@ -744,6 +750,7 @@ export const createManager = ({
     let closeTimer: NodeJS.Timeout | undefined;
     child.once("exit", (code, signal) => {
       proc.exitedAt = Date.now();
+      proc.phase = next(proc.phase, { type: "exited" });
       // An ended agent's token works nowhere, even while its stdio is still being drained.
       revokeToken(proc);
       // Helpers the agent started (claude-agent-acp's native `claude`) share its group and must not outlive it.
@@ -863,7 +870,7 @@ export const createManager = ({
    */
   const liveProc = (agentId: string) => {
     const proc = procs.get(agentId);
-    return proc?.recorded && !proc.ending && !resuming.has(agentId) && !pendingTurns.has(agentId) ? proc : undefined;
+    return proc && takesCalls(proc.phase) && !resuming.has(agentId) && !pendingTurns.has(agentId) ? proc : undefined;
   };
 
   /**
@@ -903,13 +910,13 @@ export const createManager = ({
       const session = await sessionExtra(proc);
       const { configOptions } = await withTimeout(proc.acp.resumeSession(sessionId, cwd, session), Math.max(0, deadline - Date.now()), tooSlow);
       if (!summaries.has(agentId)) throw notFound(agentId);
-      if (shuttingDown || proc.ending || procs.get(agentId) !== proc) throw notRunning(true);
+      if (shuttingDown || !mayRecord(proc.phase) || procs.get(agentId) !== proc) throw notRunning(true);
       proc.sessionId = sessionId;
       proc.fold = foldLog(store.readLog(agentId).entries, sessionId);
       proc.config = configOf(proc.fold);
       proc.commands = commandsOf(proc.fold);
       const stored = proc.config;
-      proc.recorded = true;
+      proc.phase = next(proc.phase, { type: "recorded" });
       if (configOptions.length > 0) {
         safely(agentId, "config_option_update", () => {
           appendConfig(proc, configOptions);
@@ -933,14 +940,14 @@ export const createManager = ({
         }
       }
       // A stop or delete during the restore: the close handler writes the agent's state, not this.
-      const running = !proc.ending && procs.get(agentId) === proc;
+      const running = !endingByService(proc.phase) && procs.get(agentId) === proc;
       if (running && !pendingTurns.has(agentId)) safely(agentId, "resumed", () => setState(proc, "done"));
       log("agent_resumed", { agentId, harness: harness.id });
       return proc;
     } catch (error) {
       const failure = error instanceof AgentError || rpcCode(error) === ACP_AUTH_REQUIRED || proc.acp.isClosed() ? startFailure(error, harness, proc) : refusedResume(error, harness);
       // Nothing was recorded, so the close handler writes nothing.
-      proc.ending ??= "remove";
+      proc.phase = next(proc.phase, { type: "endRequested", why: "remove" });
       await terminate(proc);
       // The summary was written while the attempt's process ran (a message stored meanwhile): it has none now.
       const current = summaries.get(agentId);
@@ -998,18 +1005,18 @@ export const createManager = ({
     const cancelled = cancelledTurns.delete(agentId);
     if (proc !== undefined) {
       const resumed = proc;
-      resumed.turn = true;
+      resumed.phase = next(resumed.phase, { type: "turnStarted" });
       // Ending already: its close handler ends the turn.
-      if (resumed.ending && procs.get(agentId) === resumed) return;
+      if (endingByService(resumed.phase) && procs.get(agentId) === resumed) return;
       if (procs.get(agentId) !== resumed) {
         // Ended already: its close handler wrote the agent's state, but saw no turn.
-        resumed.turn = false;
+        resumed.phase = next(resumed.phase, { type: "turnEnded" });
         if (summaries.has(agentId)) safely(agentId, "turn_stopped", () => storeEntries(agentId, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.stopped }]));
         return;
       }
       if (cancelled) {
         // Cancelled while the agent was starting: the message never reaches it.
-        resumed.turn = false;
+        resumed.phase = next(resumed.phase, { type: "turnEnded" });
         safely(agentId, "turn_cancelled", () => {
           appendLog(resumed, [{ type: "turn_ended", stopReason: "cancelled" }]);
           setState(resumed, "done");
@@ -1058,7 +1065,7 @@ export const createManager = ({
       const { sessionId, configOptions } = await withTimeout(proc.acp.newSession(cwd, session), Math.max(0, deadline - Date.now()), tooSlow);
       const branch = await branchOf(agentId, cwd);
       // procs no longer holding it means the process ended before its summary could be stored.
-      if (shuttingDown || proc.ending || procs.get(agentId) !== proc) throw notRunning();
+      if (shuttingDown || !mayRecord(proc.phase) || procs.get(agentId) !== proc) throw notRunning();
       proc.sessionId = sessionId;
       proc.fold = emptyFold(sessionId);
       const startedAt = now();
@@ -1075,7 +1082,7 @@ export const createManager = ({
         pendingPermissions: pendingPermissions(proc),
       };
       const added = putSummary(summary, "agent_added");
-      proc.recorded = true;
+      proc.phase = next(proc.phase, { type: "recorded" });
       log("agent_started", { agentId, harness: harness.id });
       if (configOptions.length > 0) {
         safely(agentId, "config_option_update", () => {
@@ -1087,7 +1094,7 @@ export const createManager = ({
     } catch (error) {
       const failure = startFailure(error, harness, proc);
       // Nothing was recorded, so the close handler writes nothing.
-      proc.ending ??= "remove";
+      proc.phase = next(proc.phase, { type: "endRequested", why: "remove" });
       await terminate(proc);
       log("agent_start_failed", { agentId, harness: harness.id, code: failure.code });
       throw failure;
@@ -1106,8 +1113,8 @@ export const createManager = ({
     }
     const proc = liveProc(agentId);
     if (!proc) return sendResuming(agentId, text, commandId);
-    if (proc.turn) throw busy(STILL_WORKING);
-    if (proc.hidden) throw busy(HIDDEN_BUSY);
+    if (isTurnOpen(proc.phase)) throw busy(STILL_WORKING);
+    if (isHidden(proc.phase)) throw busy(HIDDEN_BUSY);
     const at = now();
     const [seq = 0] = appendLog(proc, [
       { type: "user_message", at, text, ...(commandId === undefined ? {} : { commandId }) },
@@ -1115,7 +1122,7 @@ export const createManager = ({
     if (commandId !== undefined) knownCommands(agentId).set(commandId, seq);
     // The message is stored, so it is sent even if the state can't be: its turn ending clears `busy`.
     safely(agentId, "turn_started", () => setState(proc, "working", { lastUserAt: at }));
-    proc.turn = true;
+    proc.phase = next(proc.phase, { type: "turnStarted" });
     log("turn_started", { agentId, seq });
     void runTurn(proc, text);
     return { seq };
@@ -1134,7 +1141,7 @@ export const createManager = ({
     const message: NewLogEntry = { type: "user_message", at, text, ...(commandId === undefined ? {} : { commandId }) };
     // A resume that has folded the log already (it is setting the agent's config again) folds the message too.
     const current = procs.get(agentId);
-    const resumed = current?.recorded && !current.ending ? current : undefined;
+    const resumed = current && takesCalls(current.phase) ? current : undefined;
     const [seq = 0] = resumed ? appendLog(resumed, [message]) : storeEntries(agentId, [message]).seqs;
     if (commandId !== undefined) knownCommands(agentId).set(commandId, seq);
     pendingTurns.add(agentId);
@@ -1191,8 +1198,8 @@ export const createManager = ({
   /** One set on a running agent, after the ones before it (`Proc.setting`). */
   const setOne = async (proc: Proc, configId: string, value: string | boolean) => {
     const { agentId } = proc;
-    if (proc.ending || procs.get(agentId) !== proc) throw notRunning(canResume(proc.harness));
-    if (proc.hidden) throw busy(HIDDEN_BUSY);
+    if (endingByService(proc.phase) || procs.get(agentId) !== proc) throw notRunning(canResume(proc.harness));
+    if (isHidden(proc.phase)) throw busy(HIDDEN_BUSY);
     const option = proc.config?.find(({ id }) => id === configId);
     if (option === undefined) {
       const ids = (proc.config ?? []).map(({ id }) => id);
@@ -1206,7 +1213,7 @@ export const createManager = ({
     try {
       options = await setConfigWithin(proc, configId, value, configSetTimeoutMs);
     } catch (error) {
-      if (proc.acp.isClosed() || proc.ending) throw notRunning(canResume(proc.harness));
+      if (proc.acp.isClosed() || endingByService(proc.phase)) throw notRunning(canResume(proc.harness));
       if (error instanceof AgentError) {
         log("config_unanswered", { agentId, configId: safeName(configId) });
         throw error;
@@ -1220,7 +1227,7 @@ export const createManager = ({
           `Pick another value, or try again.${said === undefined || said === "" ? "" : ` The agent said: ${said}`}`,
       );
     }
-    if (proc.ending === "remove" || !summaries.has(agentId)) throw notFound(agentId);
+    if (isBeingRemoved(proc.phase) || !summaries.has(agentId)) throw notFound(agentId);
     if (!appendConfig(proc, options)) {
       throw new AgentError(
         AgentErrorCode.enum.agent_error,
@@ -1241,7 +1248,7 @@ export const createManager = ({
       return;
     }
     const proc = procs.get(agentId);
-    if (!proc?.recorded || proc.ending) throw notRunning(canResumeAgent(summary));
+    if (!proc || !takesCalls(proc.phase)) throw notRunning(canResumeAgent(summary));
     try {
       await proc.acp.cancel(proc.sessionId);
     } catch {
@@ -1249,7 +1256,7 @@ export const createManager = ({
     }
     // ACP: after session/cancel, the client answers the turn's open permission requests with `cancelled`.
     const cancelled = cancelPending(proc);
-    const state = proc.turn ? "working" : summaries.get(agentId)?.state;
+    const state = isTurnOpen(proc.phase) ? "working" : summaries.get(agentId)?.state;
     if (cancelled > 0 && state) safely(agentId, "cancel", () => setState(proc, state));
     log("turn_cancel_sent", { agentId, permissionsCancelled: cancelled });
   };
@@ -1260,8 +1267,7 @@ export const createManager = ({
    */
   const endAgent = async (agentId: string, why: "stop" | "remove") => {
     const end = async (proc: Proc) => {
-      if (why === "remove") proc.ending = "remove";
-      else proc.ending ??= "stop";
+      proc.phase = next(proc.phase, { type: "endRequested", why });
       revokeToken(proc);
       await terminate(proc);
     };
@@ -1296,7 +1302,7 @@ export const createManager = ({
     shuttingDown ??= (async () => {
       const running = [...procs.values()];
       for (const proc of running) {
-        proc.ending ??= "stop";
+        proc.phase = next(proc.phase, { type: "endRequested", why: "stop" });
         revokeToken(proc);
       }
       await Promise.all(running.map(terminate));
@@ -1353,8 +1359,8 @@ export const createManager = ({
       reporting: proc.contextReport !== undefined,
       command,
       commands: proc.commands,
-      turn: proc.turn || pendingTurns.has(agentId),
-      hidden: proc.hidden,
+      turn: isTurnOpen(proc.phase) || pendingTurns.has(agentId),
+      hidden: isHidden(proc.phase),
     });
     if (gate === "join" && proc.contextReport) return proc.contextReport;
     if (gate === "unsupported") {
@@ -1378,13 +1384,13 @@ export const createManager = ({
   /** Runs the harness's `report` as a hidden turn on `proc` (`contextBreakdown`), which has checked it may. */
   const hiddenReport = async (proc: Proc, report: NonNullable<Harness["contextBreakdown"]>): Promise<ContextBreakdown> => {
     const { agentId } = proc;
-    proc.hidden = true;
+    proc.phase = next(proc.phase, { type: "hiddenStarted" });
     // The hidden turn's prompts still unanswered: it stays hidden until the agent has answered them all, even when
     // the harness gave up on one earlier.
     let open = 0;
     let ended = false;
     const unhide = () => {
-      if (ended && open === 0) proc.hidden = false;
+      if (ended && open === 0) proc.phase = next(proc.phase, { type: "hiddenEnded" });
     };
     try {
       return await report({
@@ -1399,7 +1405,7 @@ export const createManager = ({
         home: proc.home,
       });
     } catch (error) {
-      if (proc.acp.isClosed() || proc.ending) throw notRunning(canResume(proc.harness));
+      if (proc.acp.isClosed() || endingByService(proc.phase)) throw notRunning(canResume(proc.harness));
       const code = rpcCode(error);
       log("context_failed", { agentId, code: code ?? -1 });
       const said = rpcMessage(error);
