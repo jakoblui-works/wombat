@@ -17,6 +17,7 @@ Wombat is an agentic development environment (ADE) for multi-repo projects. It s
   - `python/`: the sandbox and the index (the `wombat` CLI), a uv project.
   - `app/`: TypeScript, a pnpm workspace: `service/` (the agent service), `desktop/` (Electron + React), `shared/` (types shared by both).
   - App tests: unit tests beside the code (`*.test.ts`); process and cross-layer tests and shared fixtures in `<package>/test/`. A file mixing both is split when touched.
+  - Run the unit tests one package at a time (`pnpm -r --workspace-concurrency=1 test`); in parallel, some main-process tests time out.
   - `prototype/`: the hand-built sandbox (a NixOS image built with nixos-generators, Lima config, `flake.nix`, `compose.yml`, `process-compose.yaml`, Traefik config, a playbook, a tmux script), before any of it is templated.
   - `docs/`: the docs, later built into the site.
 - The core (`python/`) never refers to `app/`; CI checks it. The app reaches the core only through its public interfaces (the CLI's JSON output, the index's MCP server), never by importing its code.
@@ -24,6 +25,7 @@ Wombat is an agentic development environment (ADE) for multi-repo projects. It s
 ## The app
 
 - Agents run through ACP, the Agent Client Protocol. Each agent tool gets one harness adapter behind one interface; Claude Code (through `claude-agent-acp`) is the first.
+- Every wait on an agent process or an ACP response has a timeout, and what happens when it fires is stated: what the user sees and the state the agent is left in.
 - The agent service owns the agents and keeps them running when the desktop app closes. The desktop app talks only to the agent service, over one port, so it doesn't change when the service moves from the host into the VM.
 - The service runs git through simple-git (the real `git` CLI).
 - The desktop app: Electron + React, Monaco with Shiki for code. Context isolation on, no Node in the renderer; everything goes through the service.
@@ -32,7 +34,7 @@ Wombat is an agentic development environment (ADE) for multi-repo projects. It s
 
 ## Releases and docs
 
-- Every user-facing change gets an entry in `CHANGELOG.md` (Keep a Changelog format) under "Unreleased". Tags per milestone; the CLI is published to PyPI from the sandbox core loop on.
+- Every user-facing change gets an entry in `CHANGELOG.md` (Keep a Changelog format) under "Unreleased". Entries under "Unreleased" describe the end state: edit an existing entry in place, never add a "no longer" or "Changed" line for unreleased work. Tags per milestone; the CLI is published to PyPI from the sandbox core loop on.
 - Every error message says what went wrong and what to do next; spec errors point to the file and line.
 - New commands and spec fields get docs in `docs/` in the same change.
 - Spec fields are added within `version: 1`, never renamed.
