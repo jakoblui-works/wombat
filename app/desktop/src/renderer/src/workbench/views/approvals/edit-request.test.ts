@@ -1,4 +1,4 @@
-// S7 T14 (silent failure): the chat's edit card and the diff tab show the same request. `editRequest` reads it from
+// The chat's edit card and the diff tab show the same request. `editRequest` reads it from
 // the chat model: every diff of the request's own tool call (by toolCallId, not whichever edit came last), in order,
 // and the answer the chat's item has. An edit stays an edit: when a tool_call_update replaces the diffs (several
 // diffs, or text only after the answer), the request still reads as an edit of its file, with the diffs it holds now

@@ -2,7 +2,7 @@
 // structures that differ only in their access level: through the edit tools (create, update, remove) on the
 // `edit` twin, and through propose_* on the `propose` twin. A proposal must be refused exactly when the direct
 // write is, with the same code and problems on the same fields; otherwise a proposal is stored that can only
-// conflict at approval. Messages aren't compared: proposals refuse in the writer's words (D6).
+// conflict at approval. Messages aren't compared: proposals refuse in the writer's words.
 import { describe, expect, test } from "vitest";
 
 import { AccessError, type Access } from "./access.ts";
@@ -33,7 +33,7 @@ const freeSettings = (id: string, prefix: string, access: Level) =>
 /** The handle-named twin's items, by handle number: one sound, and one per way an item can block a change. */
 const ITEMS: Record<number, { file: string; frontmatter: string; text: string }> = {
   1: { file: "sound", frontmatter: "status: open\n", text: "# Ship the search page\n\nInvented.\n" },
-  // Identity problems (D15): an undeclared key, a handle two files share, no title.
+  // Identity problems: an undeclared key, a handle two files share, no title.
   2: { file: "undeclared", frontmatter: "status: open\nstray: left by hand\n", text: "# An undeclared key\n\nInvented.\n" },
   3: { file: "shared-a", frontmatter: "status: open\n", text: "# One of two with this handle\n\nInvented.\n" },
   5: { file: "untitled", frontmatter: "status: open\n", text: "No heading here.\n" },

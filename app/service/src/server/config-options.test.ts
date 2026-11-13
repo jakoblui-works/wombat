@@ -1,4 +1,4 @@
-// Lasting check "Config options round-trip" (contracts "Config options in the log" and "Set a config option", T4): a
+// Lasting check "Config options round-trip" (contracts "Config options in the log" and "Set a config option"): a
 // set through POST /agents/:id/config reaches the agent, and the agent's answer is what `configOf` reads from the
 // log, so the footer never shows a value the agent isn't using. Against the fake ACP agent, which offers a select
 // `model` (fake-small, refuse-large) and a boolean `fast`, refuses any `refuse…` value, refuses a set whose wire shape

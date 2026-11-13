@@ -14,7 +14,7 @@ const CONTEXT_TIMEOUT_MS = 5_000;
 export type FakeHarnessOptions = {
   /** How long `contextBreakdown` waits for the report before it gives up (default CONTEXT_TIMEOUT_MS). */
   contextTimeoutMs?: number;
-  /** Whether the harness says its agents can be resumed (default true, as the fake agent can); false for D28. */
+  /** Whether the harness says its agents can be resumed (default true, as the fake agent can). */
   resume?: boolean;
 };
 
@@ -22,7 +22,7 @@ export type FakeHarnessOptions = {
  * A harness on the scripted fake ACP agent, for tests; never registered. It offers both optional parts the way a
  * real harness would: `contextBreakdown` prompts `/context` and returns the report the agent sends as FAKE_EXT.context
  * (FAKE_BREAKDOWN), and `extNotification` reports the cache state a `cache` replay step sends as FAKE_EXT.cache.
- * It is `resumable` (S2d) unless `resume: false`.
+ * It is `resumable` unless `resume: false`.
  */
 export const fakeHarness = (
   scenario: FakeScenario,

@@ -16,12 +16,12 @@ const refusal = (promise: Promise<unknown>) =>
     (reason: unknown) => reason,
   );
 
-// S2d, T19 (row T19-4): claude-agent-acp answers session/resume with model and effort at their defaults, and the next
+// claude-agent-acp answers session/resume with model and effort at their defaults, and the next
 // prompt runs on them; the service sets the stored values again. Without that the agent quietly changes model. The
 // fake agent does the same (every option back at its initial value), and its mcp-config scenario reports the values
 // its session holds while it runs the prompt.
 test(
-  "T19-4: after a resume, the agent runs on the model, effort, mode and fast mode it had, not on the defaults its resume answered",
+  "after a resume, the agent runs on the model, effort, mode and fast mode it had, not on the defaults its resume answered",
   async () => {
     const t = setup();
     const { id } = await t.manager.start("fake-mcp-config", REPO);

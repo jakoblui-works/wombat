@@ -1,4 +1,4 @@
-// What an agent is doing, its settings and its context use, read from the log fold (interface-S2, T4): `activityOf`,
+// What an agent is doing, its settings and its context use, read from the log fold: `activityOf`,
 // `configOf` and `usageOf`. The service's summary and the chat both call these, so the lasting check "Row and chat
 // agree on activity" (service/src/agents/row-agrees-with-chat.test.ts) can't see them read the log wrongly: only
 // these tables can.

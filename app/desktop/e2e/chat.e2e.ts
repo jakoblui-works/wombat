@@ -6,7 +6,7 @@
 // - a clipped text says how many characters were left out, in digits (group separators allowed);
 // - an open permission has the buttons "Approve" and "Reject" (permissionButtons) and, once answered, says
 //   "approved" or "rejected" (any case) and has no answer buttons;
-// - (S2d, T19) an agent without a process shows "Not running" in the composer footer, with the tooltip "Your next
+// - an agent without a process shows "Not running" in the composer footer, with the tooltip "Your next
 //   message starts it again" on hover; the settings button is a `button` named "Settings: …" that opens a `dialog`
 //   listing a select's values by name, the current one carrying aria-checked, aria-selected or aria-current "true";
 //   the message box is the textbox "Message", and Enter sends.
@@ -166,7 +166,7 @@ test.describe("chat", () => {
     expect(problems).toEqual([]);
   });
 
-  // S2d, T19 (row T19-9, which also took over footer.e2e's T14-8): a stopped agent's chat goes on. Its footer says it
+  // A stopped agent's chat goes on. Its footer says it
   // isn't running (no line between the box and the footer), its settings stay usable and a pick starts it, and a
   // message typed in the chat resumes it: the reply lands in the same chat, under the same agent, on the model it had.
   test("resume: a stopped agent's chat says Not running, a setting picked starts it, and a message typed in it gets its reply in the same chat", async ({ sandbox }) => {

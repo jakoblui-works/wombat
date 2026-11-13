@@ -72,7 +72,7 @@ const startResumable = async () => {
 
 describe("session/resume", () => {
   test(
-    "T19-2: carries the stored session id, the same cwd, _meta and wombat /mcp server as session/new, and the instructions as they are now",
+    "carries the stored session id, the same cwd, _meta and wombat /mcp server as session/new, and the instructions as they are now",
     async () => {
       const { manager, store, harness, instructions, report } = await startResumable();
       const { id } = await manager.start(harness.id, "repo");

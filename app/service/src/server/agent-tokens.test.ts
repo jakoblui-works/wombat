@@ -1,7 +1,7 @@
 // Lasting check (silent failure): agent and app tokens apart. An agent's token opens /mcp only, and acts as that
 // agent; the app's token never opens /mcp; on /mcp a request without the agent token, with an Origin, or with a
 // foreign Host is refused; a token stops working when its agent is stopped, deleted, crashes, is killed, or the
-// service shuts down; a resumed agent gets a new one (S2d). Otherwise an agent could drive other agents or approve
+// service shuts down; a resumed agent gets a new one. Otherwise an agent could drive other agents or approve
 // its own proposals.
 import { describe, expect, test } from "vitest";
 
@@ -126,10 +126,10 @@ describe("agent and app tokens apart", () => {
     TEST_TIMEOUT_MS,
   );
 
-  // S2d, T19 (row T19-3): a token never outlives its process, so a resumed agent gets a new one; with the old one its
+  // A token never outlives its process, so a resumed agent gets a new one; with the old one its
   // Wombat tools would fail, and reviving the old one would let a dead process's token back in.
   test(
-    "T19-3: a resumed agent gets a new token that acts as the same agent; the stopped process's token stays refused, and the new one ends with its process",
+    "a resumed agent gets a new token that acts as the same agent; the stopped process's token stays refused, and the new one ends with its process",
     async () => {
       const { s } = await serveItems();
       const first = await agentConfig(s);

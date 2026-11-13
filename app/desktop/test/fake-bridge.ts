@@ -1,4 +1,4 @@
-// A fake of `window.wombat` for the renderer's data tests (T8): an in-memory agent service behind the bridge's
+// A fake of `window.wombat` for the renderer's data tests: an in-memory agent service behind the bridge's
 // `service` calls. GET /agents lists the agents, GET /proposals the proposals, and GET /agents/:id/log?after=&limit=
 // reads like the service's store.readLog: the query parsed with ListLogQuery (400 with an ErrorBody when it fails),
 // at most `limit` entries above `after` (FAKE_DEFAULT_LIMIT when the read sends none), numbered by one store-wide

@@ -1,5 +1,5 @@
-// S2c, T13 and T16 (rows T13-11, T13-12, T16-5, and T16-2's service half): `contextBreakdownOf` is the one reader of
-// Claude's `context_usage` (SDKContextUsage). Invented reports only. Also T16-1's service half: the harness id the
+// `contextBreakdownOf` is the one reader of
+// Claude's `context_usage` (SDKContextUsage). Invented reports only. Also: the harness id the
 // desktop's Claude module registers under (shared/test/context-cases.ts) is this harness's.
 import { ContextBreakdown } from "@wombat/shared/api";
 import { expect, test } from "vitest";
@@ -7,11 +7,11 @@ import { expect, test } from "vitest";
 import { CLAUDE_HARNESS_ID, SAMPLE_BREAKDOWN, SAMPLE_CONTEXT_USAGE, SAMPLE_HOME } from "../../../shared/test/context-cases.ts";
 import { claudeCode, contextBreakdownOf } from "./claude-code.ts";
 
-test("T16-2 (service half): the shared sample maps to the shared breakdown, list ids and all", () => {
+test("the shared sample maps to the shared breakdown, list ids and all", () => {
   expect(contextBreakdownOf(SAMPLE_CONTEXT_USAGE, SAMPLE_HOME)).toEqual(SAMPLE_BREAKDOWN);
 });
 
-test("T13-12: a report with fields this app doesn't know, an unknown category kind, over_limit and no skills still maps", () => {
+test("a report with fields this app doesn't know, an unknown category kind, over_limit and no skills still maps", () => {
   const newer = {
     ...SAMPLE_CONTEXT_USAGE,
     total_tokens: 210_000,
@@ -30,6 +30,6 @@ test("T13-12: a report with fields this app doesn't know, an unknown category ki
   });
 });
 
-test("T16-1 (service half): the shared fixture's Claude harness id is the Claude harness's", () => {
+test("the shared fixture's Claude harness id is the Claude harness's", () => {
   expect(claudeCode.id).toBe(CLAUDE_HARNESS_ID);
 });

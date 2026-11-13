@@ -1,6 +1,6 @@
-// Lasting checks (S2c, T13, rows T13-8 and T13-9; silent failures): the cache state an agent's harness reports
+// Lasting checks: the cache state an agent's harness reports
 // reaches the app on GET /agents (the summary the desktop's ring reads), stays there after the turn that brought it
-// ends, and is never stored (D19). The fake agent's `cache` replay step sends it as an extension notification, which
+// ends, and is never stored. The fake agent's `cache` replay step sends it as an extension notification, which
 // the fake harness reports as the cache state: so this crosses the acp-client's extension routing, the harness and
 // the manager.
 import { writeFileSync } from "node:fs";
@@ -43,7 +43,7 @@ const cachedTurn = async (s: Served): Promise<string> => {
 };
 
 test(
-  "T13-9: the cache state is never stored: the stored summary has none while GET /agents shows it",
+  "the cache state is never stored: the stored summary has none while GET /agents shows it",
   async () => {
     const s = await serve();
     const id = await cachedTurn(s);
@@ -67,11 +67,11 @@ const listedUntil = async (s: Served, agentId: string, what: string, check: (age
   }
 };
 
-// S2c, T13 (row T13-18; silent): the app refetches GET /agents on an agent_changed event, so a cache change must emit
+// The app refetches GET /agents on an agent_changed event, so a cache change must emit
 // one (nothing else in the turn does while it's held); and a cache belongs to a live process: once it ends, GET /agents
 // shows none. The turn holds (awaitFile) before and after the cache step, so the event can only be the cache's.
 test(
-  "T13-18: a cache change emits agent_changed, and once the agent's process ends GET /agents carries no cache",
+  "a cache change emits agent_changed, and once the agent's process ends GET /agents carries no cache",
   async () => {
     const s = await serve();
     const folder = join(s.root, REPO);

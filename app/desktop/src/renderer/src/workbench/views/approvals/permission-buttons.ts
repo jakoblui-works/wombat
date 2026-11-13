@@ -1,5 +1,5 @@
 // Which of a permission request's options the chat offers as Approve, as Reject and as the rest, and how an answer
-// reads once given. Pure: the chat's cards and the diff tab (T14) both use it.
+// reads once given. Pure: the chat's cards and the diff tab both use it.
 import type { ChatItem } from "../../../data/chat-model.ts";
 
 type PermissionItem = Extract<ChatItem, { kind: "permission" }>;

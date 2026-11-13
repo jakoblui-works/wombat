@@ -456,7 +456,7 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
   };
 
   /**
-   * The problems of a free-named structure's new `file` (D20), checked before anything is written or stored; a
+   * The problems of a free-named structure's new `file`, checked before anything is written or stored; a
    * path in a hidden structure's folder reads exactly like one in a folder that doesn't exist.
    */
   const fileProblems = async (current: View, structure: ValidStructure, file: unknown) => {

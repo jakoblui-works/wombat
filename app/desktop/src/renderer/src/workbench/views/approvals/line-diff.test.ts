@@ -1,4 +1,4 @@
-// S7 T14 (silent failure): what the user approves is what changes. `lineDiff` is a faithful line diff: its context
+// What the user approves is what changes. `lineDiff` is a faithful line diff: its context
 // and removed lines are the old text's lines in order, numbered from 1; its context and added lines are the new
 // text's, numbered from 1; and it marks only what changed (one inserted, deleted or replaced line is one change, not a
 // rewrite of the file). Lines split on "\n"; a trailing "\n" ends the last line, so a difference only in the final

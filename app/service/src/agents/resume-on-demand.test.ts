@@ -1,4 +1,4 @@
-// S2d (T19-8, D26 and D28): a setting picked for an agent without a process starts it, as a message does, and
+// A setting picked for an agent without a process starts it, as a message does, and
 // answers as on a running agent; an agent whose harness can't resume stays stopped, and nothing is spawned for it.
 // A stop or delete while a message's resume is under way ends whatever the resume started (no process nobody can stop).
 import type { LogEntry } from "@wombat/shared/api";
@@ -15,7 +15,7 @@ const latestConfig = (entries: LogEntry[]) => {
 };
 
 test(
-  "T19-8: a setting on a stopped agent resumes it, sets the value and leaves it done and running, with no turn",
+  "a setting on a stopped agent resumes it, sets the value and leaves it done and running, with no turn",
   async () => {
     const t = setup();
     const { id } = await t.manager.start("fake-reply", REPO);

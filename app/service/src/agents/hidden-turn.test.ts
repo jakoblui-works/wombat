@@ -1,4 +1,4 @@
-// Lasting checks (S2c, T13, rows T13-1 to T13-4; silent failures): `manager.contextBreakdown` runs `/context` as a
+// Lasting checks: `manager.contextBreakdown` runs `/context` as a
 // hidden turn. Whatever the agent sends during it never reaches the agent's log, summary or events; nothing else runs
 // beside it, and it never starts beside a running turn; a failed one leaves the agent usable. Against the fake agent,
 // whose `/context` answer sends a message chunk, a usage_update and a title before its report (fake-agent.ts).
@@ -48,7 +48,7 @@ const heldContext = async (t: Setup, agentId: string) => {
 };
 
 test(
-  "T13-1: a /context turn answers the agent's breakdown and leaves the agent's log, summary and events as they were",
+  "a /context turn answers the agent's breakdown and leaves the agent's log, summary and events as they were",
   async () => {
     const t = setup();
     const id = await started(t, "fake-reply");
@@ -68,7 +68,7 @@ test(
   TEST_TIMEOUT_MS,
 );
 
-describe("T13-2: while a hidden turn runs, nothing else does", () => {
+describe("while a hidden turn runs, nothing else does", () => {
   test.each<[string, (t: Setup, agentId: string) => Promise<unknown>]>([
     ["a message", (t, id) => t.manager.send(id, { text: "Are you still there?" })],
   ])(
@@ -91,7 +91,7 @@ describe("T13-2: while a hidden turn runs, nothing else does", () => {
 });
 
 test(
-  "T13-4: a failed /context answers agent_error with the agent's message, logs nothing, and leaves the agent usable",
+  "a failed /context answers agent_error with the agent's message, logs nothing, and leaves the agent usable",
   async () => {
     const t = setup();
     const id = await started(t, "fake-prompt-error");
@@ -123,12 +123,12 @@ const sendWhenIdle = async (t: Setup, agentId: string, text: string): Promise<un
   }
 };
 
-// S2c, T13 (row T13-17; silent): a harness that gives up on the report (a timeout) while the agent still holds the
+// A harness that gives up on the report (a timeout) while the agent still holds the
 // /context prompt. The manager cancels that prompt and stays hidden until the agent answers it: what the agent sends
 // late never reaches the log, and the agent takes messages again afterwards. GIVE_UP_HARNESS gives up after
 // CONTEXT_GIVE_UP_MS; the hang scenario holds /context until a cancel, then sends its updates and answers cancelled.
 test(
-  "T13-17: a hidden turn the harness gave up on is cancelled; its late updates never reach the log, and a send is accepted once the prompt is answered",
+  "a hidden turn the harness gave up on is cancelled; its late updates never reach the log, and a send is accepted once the prompt is answered",
   async () => {
     const t = setup();
     const id = await started(t, GIVE_UP_HARNESS);

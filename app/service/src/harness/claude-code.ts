@@ -56,7 +56,7 @@ export const claudeCode: Harness = {
     cwd,
     env: agentEnv(source, declaredEnv(source)),
   }),
-  // D16: the item tools run without a permission prompt each time. Access levels decide what a call may do, and
+  // The item tools run without a permission prompt each time. Access levels decide what a call may do, and
   // proposals still wait for the user; every other tool still asks.
   // emitRawSDKMessages: claude-agent-acp forwards the SDK's assistant messages as SDK_MESSAGE, for the cache state
   // and the /context report; nothing else is asked for.

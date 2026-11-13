@@ -1,4 +1,4 @@
-// S2d (T19-5): after a resume the agent answers some settings at their defaults (Claude: model and effort); the ones
+// After a resume the agent answers some settings at their defaults (Claude: model and effort); the ones
 // to set again are those whose stored value differs and is still offered, in the stored order.
 import { expect, test } from "vitest";
 

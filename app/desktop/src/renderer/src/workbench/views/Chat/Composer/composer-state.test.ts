@@ -1,4 +1,4 @@
-// s7-14: the message box. Enter sends, Shift+Enter is a new line; Send needs text, no turn under way and a connection;
+// The message box. Enter sends, Shift+Enter is a new line; Send needs text, no turn under way and a connection;
 // a failed send keeps the text and says why; a sent one clears the box.
 import { expect, test } from "vitest";
 

@@ -30,7 +30,7 @@ Invented, and the same in both files.
 export const INSTRUCTIONS_FILES: Record<string, string> = {
   ...ACCESS_FILES,
   "bugs/_structure.yaml": marked(ACCESS_FILES["bugs/_structure.yaml"], "full"),
-  // An edit structure can't be marked (D34: agents could change every later agent's instructions unapproved), so
+  // An edit structure can't be marked (agents could change every later agent's instructions unapproved), so
   // the backlog takes proposals here.
   "backlog/_structure.yaml": marked(ACCESS_FILES["backlog/_structure.yaml"]?.replace("access: edit", "access: propose"), "full"),
   "docs/_structure.yaml": marked(ACCESS_FILES["docs/_structure.yaml"], "index"),

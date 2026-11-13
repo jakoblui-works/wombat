@@ -1,4 +1,4 @@
-// Contract drift between the app's allow-list and the service (interface-S3, T6): `APP_ROUTES` and `MAX_BODY_BYTES`
+// Contract drift between the app's allow-list and the service: `APP_ROUTES` and `MAX_BODY_BYTES`
 // live in @wombat/shared/routes; the desktop app lets the page call only those routes, and only bodies up to that
 // size. Types can't see either side of this, so it's checked here, both directions:
 // - every APP_ROUTES entry is a route the running server serves (it never answers the unknown-route error);

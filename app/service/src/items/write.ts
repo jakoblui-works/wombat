@@ -154,14 +154,14 @@ const writableStructure = (structure: ValidStructure, action: string) => {
 };
 
 /**
- * D15: a problem of a declared property's value, which a write may leave in place (and fix). Every other problem
+ * A problem of a declared property's value, which a write may leave in place (and fix). Every other problem
  * (a duplicate id, handle or alias, no title, an unparseable file, an undeclared key) is about the item's identity.
  */
 const isValueProblem = (settings: StructureSettings, problem: NamedProblem) =>
   problem.field !== undefined && Object.hasOwn(settings.properties, problem.field);
 
 /**
- * D15, compared by field: the problems a write adds, on a field it sets or on a field that had none before. A
+ * Compared by field: the problems a write adds, on a field it sets or on a field that had none before. A
  * problem that names no field is always added.
  */
 const addedProblems = (before: NamedProblem[], after: NamedProblem[], set: readonly string[]) => {
@@ -186,7 +186,7 @@ const checkProperties = (structure: ValidStructure, data: Record<string, unknown
   return values;
 };
 
-/** The item as written, from its text, with the value problems it kept (D15); the write checked that it parses. */
+/** The item as written, from its text, with the value problems it kept; the write checked that it parses. */
 const loadedItem = (structure: ValidStructure, path: string, text: string, links: LinkLookup): LoadedItem =>
   loadItem(structure, path, parseItemFile(text) as ParsedItemFile, versionOf(Buffer.from(text, "utf8")), links).item;
 
@@ -235,7 +235,7 @@ const checkFreeFile = async (root: string, structure: ValidStructure, file: unkn
 };
 
 /**
- * The item named by a handle (or alias) in a fresh read, if it can be written (D15), with its file as it is now:
+ * The item named by a handle (or alias) in a fresh read, if it can be written, with its file as it is now:
  * an update needs an item whose only problems are property values; a delete needs a file that parses and a handle
  * no other file has. Both need the file still at `baseVersion`.
  */

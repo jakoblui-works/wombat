@@ -46,7 +46,7 @@ export const trackedHarness = (scenario: FakeScenario, pidDir: string, options: 
 
 export const ALL_SCENARIOS: readonly FakeScenario[] = SCENARIOS;
 
-/** A harness on the reply scenario that can't resume its agents (no `resumable`; S2d, D28). */
+/** A harness on the reply scenario that can't resume its agents (no `resumable`). */
 export const NO_RESUME_HARNESS = "fake-reply-no-resume";
 
 /**

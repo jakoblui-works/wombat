@@ -131,7 +131,7 @@ describe("no agent content in logs", () => {
   );
 });
 
-// S2c, T13 (row T13-5): a hidden /context turn drops the agent's updates; dropping them must not log what they carry.
+// A hidden /context turn drops the agent's updates; dropping them must not log what they carry.
 test(
   "a hidden /context turn's content never reaches a log line, also when the turn fails",
   async () => {
@@ -147,10 +147,10 @@ test(
   TEST_TIMEOUT_MS,
 );
 
-// S2d, T19 (row T19-10): the resume's own log lines (agent_resuming, agent_resumed, agent_resume_failed,
+// The resume's own log lines (agent_resuming, agent_resumed, agent_resume_failed,
 // config_restore_refused) carry ids and codes; the agent's refusals and the messages that caused them stay out.
 test(
-  "T19-10: a refused resume and a resume whose restore the agent refuses log ids and codes, never the prompts, replies or the agent's messages",
+  "a refused resume and a resume whose restore the agent refuses log ids and codes, never the prompts, replies or the agent's messages",
   async () => {
     const t = setup();
     const folder = join(t.root, REPO);

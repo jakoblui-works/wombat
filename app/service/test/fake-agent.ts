@@ -115,7 +115,7 @@ const AWAIT_FILE_POLL_MS = 10;
 
 /**
  * Files in the agent's working directory (its folder) that change how every scenario answers, so a test can make one
- * process refuse and the next one accept (S2d, T19):
+ * process refuse and the next one accept:
  * - RESUME_REFUSED_FILE: `session/resume` is refused with RESUME_REFUSAL_MESSAGE;
  * - NO_RESUME_CAPABILITY_FILE: `initialize` doesn't advertise `sessionCapabilities.resume` (a `session/resume` is
  *   still answered, so only a service that checks the capability notices);
@@ -306,7 +306,7 @@ const run = (scenario: FakeScenario) => {
   // The last session/new's params as they came over the wire, before the SDK's schema drops fields it doesn't
   // know (the stable v1 schema has no `systemPrompt`), for the mcp-config scenario.
   let sessionNew: unknown = undefined;
-  // The same for the last session/resume (S2d, T19).
+  // The same for the last session/resume.
   let sessionResume: unknown = undefined;
   // The last session/set_config_option's params as they came over the wire (the SDK's union may read a shape the
   // real agent would refuse), and each session's current config values.
@@ -549,7 +549,7 @@ const run = (scenario: FakeScenario) => {
           return { stopReason: "end_turn" };
         case "mcp-config": {
           // The prompt is a file path: the agent writes the mcpServers entries it got, its environment, the raw
-          // session/new and session/resume params (for the instructions drift check and S2d's resume), the session
+          // session/new and session/resume params (for the instructions drift check and the resume check), the session
           // it was prompted in and that session's current config values there rather than into its reply, so the
           // token never enters the service's log through this seam. "crash" instead ends the process as a crash would.
           const [block] = prompt;

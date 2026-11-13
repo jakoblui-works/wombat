@@ -1,4 +1,4 @@
-// T8: the alert-driven cache (interface-S4, "Alerts"), against a fake bridge (test/fake-bridge.ts) standing in for
+// The alert-driven cache ("Alerts"), against a fake bridge (test/fake-bridge.ts) standing in for
 // window.wombat. What would fail silently: an alert reloading a whole log instead of appending, two appends
 // duplicating entries, a new store's entries merged into the old store's, and a reconnect that doesn't catch up
 // (the event stream never replays).

@@ -1,4 +1,4 @@
-// T8: reading an agent's log (interface-S4, `useAgentLog` through its seam `agentLogQueryFn(agentId, cached?)`),
+// Reading an agent's log (`useAgentLog` through its seam `agentLogQueryFn(agentId, cached?)`),
 // against the fake bridge, which pages and caps like the service's readLog. What would fail silently: a long log cut
 // at its first page (or at a page an unknown entry made shorter), a cached log re-read whole, a new store's entries
 // merged into the old store's, and `truncated` read as "more pages" or lost.

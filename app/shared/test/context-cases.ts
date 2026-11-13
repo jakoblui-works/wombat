@@ -1,4 +1,4 @@
-// Drift fixture (S2c, T13/T16): one invented /context report in Claude's shape and the ContextBreakdown the service
+// Drift fixture: one invented /context report in Claude's shape and the ContextBreakdown the service
 // must make of it. The service checks its mapper against the pair (service/src/harness/claude-code-context.test.ts),
 // the desktop's Claude module renders the breakdown (harnesses/claude/claude-ui.test.tsx), so the list ids and the
 // harness id the module matches on can't drift from what the service sends. Invented values only.

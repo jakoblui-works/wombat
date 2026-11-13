@@ -191,7 +191,7 @@ describe("start-up and shutdown", () => {
   );
 });
 
-// S2d, T19: a message to an agent without a process resumes its session (session/resume) in a new process, under the
+// A message to an agent without a process resumes its session (session/resume) in a new process, under the
 // same agent and the same log. What a silent failure here would look like: Claude starting a fresh conversation under
 // the old chat, the history written twice, or a second process nobody stops.
 describe("resume", () => {
@@ -215,7 +215,7 @@ describe("resume", () => {
   };
 
   test(
-    "T19-1: a message to a stopped agent continues the same chat: same agent, its stored session id on every new entry, the history before it untouched, one user message per send",
+    "a message to a stopped agent continues the same chat: same agent, its stored session id on every new entry, the history before it untouched, one user message per send",
     async () => {
       const t = setup();
       const { id, sessionId, history, spawned } = await stoppedAfterOneTurn(t);
@@ -245,12 +245,12 @@ describe("resume", () => {
     TEST_TIMEOUT_MS,
   );
 
-  // D27: never a fresh session under the old chat (Claude would silently forget the conversation).
+  // Never a fresh session under the old chat (Claude would silently forget the conversation).
   test.each([
     ["the agent refuses session/resume", RESUME_REFUSED_FILE],
     ["the agent doesn't offer session/resume at initialize", NO_RESUME_CAPABILITY_FILE],
   ])(
-    "T19-6: when %s, the message stays, its turn ends failed, the agent is in error with its session and log kept and no process left, and the next message tries again",
+    "when %s, the message stays, its turn ends failed, the agent is in error with its session and log kept and no process left, and the next message tries again",
     async (_what, file) => {
       const t = setup();
       const folder = join(t.root, REPO);
@@ -289,7 +289,7 @@ describe("resume", () => {
   );
 
   test(
-    "T19-7: a send and two settings on a stopped agent share one resume (one new process); a second send meanwhile is busy",
+    "a send and two settings on a stopped agent share one resume (one new process); a second send meanwhile is busy",
     async () => {
       const t = setup();
       const { id } = await t.manager.start("fake-reply", REPO);

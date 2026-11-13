@@ -162,7 +162,7 @@ export const renderInstructions = async (catalog: Catalog, { maxBytes = INSTRUCT
   const render = (shortened: boolean) => {
     const sections = marked.map((structure) => {
       const mode = shortened ? "index" : (structure.settings.instructions as "full" | "index");
-      // D28: an item renders when it has a title and a handle, value problems or not; its problems never do.
+      // An item renders when it has a title and a handle, value problems or not; its problems never do.
       const own = items.filter((item) => item.structure === structure.id && item.handle !== null && item.title !== null);
       const lines = [`## ${structure.settings.name}`];
       if (mode === "index") lines.push("", shortened && structure.settings.instructions === "full" ? SHORTENED_NOTE : INDEX_NOTE);

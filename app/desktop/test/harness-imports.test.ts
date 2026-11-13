@@ -1,4 +1,4 @@
-// S2c, T16 (row T16-3; silent): a harness's desktop module is reached only through the footer slots. It is imported in
+// A harness's desktop module is reached only through the footer slots. It is imported in
 // exactly one place, outside the views (where views are registered), and no view imports from harnesses/ itself, so
 // the generic footer and dialogs never hold a tool's own UI.
 import { readdirSync, readFileSync } from "node:fs";

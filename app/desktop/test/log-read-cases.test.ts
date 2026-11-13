@@ -1,4 +1,4 @@
-// Drift check (S4 fix round): the log read-cases table (shared/test/log-read-cases.ts) against the fake bridge the
+// Drift check: the log read-cases table (shared/test/log-read-cases.ts) against the fake bridge the
 // page's data tests use. The service runs the same table against its real store and route
 // (service/test/log-read-cases.test.ts), so the fake can't drift from the service.
 import { describe, expect, test } from "vitest";

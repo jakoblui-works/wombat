@@ -1,16 +1,14 @@
-// Lasting check "Config options round-trip", the desktop half (T6, through S2c's settings dialog, T14-7): the composer
+// Lasting check "Config options round-trip", the desktop half (through the settings dialog): the composer
 // footer shows the options the agent uses, as the log says, never a value it picked locally. Against the built app and
 // the fake agent (app-fixtures.ts), which offers a select "Model" (Fake small, Refuse large; category model), a boolean
 // "Fast mode", a select "Effort" (category thought_level) and a select "Mode" (category mode), and refuses
 // "Refuse large".
-// What this check relies on in the page (roles and names, not looks; interface-S2c "Default settings"):
+// What this check relies on in the page (roles and names, not looks; "Default settings"):
 // - the footer sits in the agent's chat (the editor group with its tab, agent-views.ts `groupWithTab`);
 // - the settings button is a `button` whose name has the current model's and effort's names; it opens a `dialog`;
 // - in the dialog, a select's values are listed by name, a click on one sets it, and the current one carries
 //   aria-checked, aria-selected or aria-current "true"; a boolean is a `switch` named by the option's `name`;
 // - the dialog stays open after a pick.
-// (T14-8, a stopped agent's footer, was replaced in S2d by chat.e2e.ts's resume check, row T19-9: settings stay
-// usable while the agent isn't running, and a pick starts it.)
 import { FAKE_CONFIG, fakeConfigOptions } from "../../service/test/fake-agent.ts";
 import { click, current, expect, openAgent, REPO, startAgent, test, waitForConnection, waitUntil, WAIT_MS, type Sandbox } from "./app-fixtures.ts";
 import { groupWithTab } from "./agent-views.ts";

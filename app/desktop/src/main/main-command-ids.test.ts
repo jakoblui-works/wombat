@@ -1,4 +1,4 @@
-// The main commands' allow-list (interface-S1, "Whether an id is a main command", in src/shared/bridge.ts; tested here, in
+// The main commands' allow-list ("Whether an id is a main command", in src/shared/bridge.ts; tested here, in
 // main's project, because src/shared has no tsconfig of its own): main runs a command from the page
 // only when isMainCommandId says it is one, so it must take exactly the listed ids and nothing that merely looks like,
 // coerces to, or is inherited by one. The trust-boundary e2e checks main's handler uses it.
