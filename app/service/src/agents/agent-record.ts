@@ -8,7 +8,7 @@ import {
   type Alert,
   type ErrorBody,
 } from "@wombat/shared/api";
-import { activityOf, commandsOf, configOf, emptyFold, foldEntry, lastMainMessage, sameActivity } from "@wombat/shared/log-fold";
+import { commandsOf, configOf, sameActivity } from "@wombat/shared/log-fold";
 
 import { canResume } from "../harness/registry.ts";
 import { safeName, type Log } from "../log.ts";
@@ -17,10 +17,10 @@ import type { AgentProcess, AgentProcessDeps } from "./agent-process.ts";
 import { readBranch } from "./branch.ts";
 import type { Config } from "./config.ts";
 import { notRunning } from "./errors.ts";
-import { excerpt, keepForExcerpt } from "./excerpt.ts";
 import { isHidden, mayRecord, next, recordsAgent, stateOnClose, writesTurnEndOnClose } from "./phase.ts";
 import { pendingPermissions } from "./permissions.ts";
 import { now, type Proc } from "./proc.ts";
+import { foldTurn, summaryFromFold } from "./summary-fold.ts";
 
 /** A change committed to the store, told to listeners (the alert stream) once it can be read. */
 type WithoutDbId<T> = T extends unknown ? Omit<T, "dbId"> : never;
@@ -111,34 +111,18 @@ export const createAgentRecord = (deps: AgentRecordDeps) => {
     const { agentId } = proc;
     if (!proc.fold) throw new Error(`Can't log for agent ${agentId} before its session started.`);
     const { stored, seqs } = storeEntries(agentId, entries);
-    let fold = proc.fold;
-    for (const [index, entry] of stored.entries()) {
-      if (entry.type === "user_message") fold = emptyFold(proc.sessionId);
-      foldEntry(fold, { ...entry, seq: seqs[index] ?? 0, agentId }, { keepText: keepForExcerpt });
-    }
+    const fold = foldTurn(
+      proc.fold,
+      proc.sessionId,
+      stored.map((entry, index) => ({ ...entry, seq: seqs[index] ?? 0, agentId })),
+    );
     proc.fold = fold;
     proc.config = configOf(fold) ?? proc.config;
     proc.commands = commandsOf(fold) ?? proc.commands;
     return seqs;
   };
 
-  /** The summary's activity: what the turn's fold says while the agent works, else none. */
-  const activityNow = (proc: Proc | undefined, state: AgentSummary["state"]) => (state === "working" && proc?.fold ? activityOf(proc.fold) : null);
-
-  /**
-   * `current` with what the turn's fold says now: the activity for `state`, and lastText. With no main-session message
-   * in the fold (a new turn), the stored lastText stays.
-   */
-  const fromFold = (proc: Proc | undefined, current: AgentSummary, state: AgentSummary["state"]): AgentSummary => {
-    const next: AgentSummary = { ...current, activity: activityNow(proc, state) };
-    const message = proc?.fold && lastMainMessage(proc.fold);
-    if (message !== undefined) {
-      const text = excerpt(message);
-      delete next.lastText;
-      if (text !== "") next.lastText = text;
-    }
-    return next;
-  };
+  const fromFold = (proc: Proc | undefined, current: AgentSummary, state: AgentSummary["state"]): AgentSummary => summaryFromFold(proc?.fold, current, state);
 
   /**
    * After a stored update: writes the summary when its activity changed (by `sameActivity`), taking the fold's lastText

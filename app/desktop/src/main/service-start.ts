@@ -95,10 +95,10 @@ export class ServiceNotAnswering extends ServiceStartFailed {
  * pid another process may have taken since, so it counts as none running (a start replaces it). Every start, switch
  * and open asks it first.
  */
-export const answeringService = async (path: string): Promise<DiscoveryFile | undefined> => {
+export const answeringService = async (path: string, timeoutMs?: number): Promise<DiscoveryFile | undefined> => {
   const running = runningService(path);
   if (running === undefined) return undefined;
-  const found = await findRunningService(path);
+  const found = await findRunningService(path, timeoutMs === undefined ? {} : { timeoutMs });
   if (found !== undefined) return found;
   if (running.file.processStart === undefined) return undefined;
   throw new ServiceNotAnswering(running.pid);

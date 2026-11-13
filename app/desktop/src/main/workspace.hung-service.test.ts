@@ -55,6 +55,7 @@ test(
       chooseFolder: () => Promise.reject(new Error("the folder dialog wasn't expected")),
       confirmRestart: () => Promise.reject(new Error("the restart box wasn't expected")),
       log: () => undefined,
+      versionTimeoutMs: 100,
     });
 
     const outcome = await control.restart().then(

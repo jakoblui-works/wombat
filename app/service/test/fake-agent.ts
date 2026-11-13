@@ -527,8 +527,9 @@ const run = (scenario: FakeScenario) => {
           return { stopReason: "end_turn" };
         }
         case "detached-holder": {
-          // In a process group of its own, holding the agent's stderr open after the agent is gone.
-          const child = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
+          // In a process group of its own, holding the agent's stderr open after the agent is gone. It ends by itself
+          // after a minute, so a run killed before it can clean up leaves nothing behind for long.
+          const child = spawn(process.execPath, ["-e", "setTimeout(()=>{},60000)"], {
             detached: true,
             stdio: ["ignore", "ignore", "inherit"],
           });
@@ -653,12 +654,13 @@ const run = (scenario: FakeScenario) => {
           await send(client, sessionId, text("Looking into it."));
           throw RequestError.internalError(undefined, "the fake agent fails every turn");
         case "stop-error": {
-          // An agent that answers its open prompt with an error when told to end (SIGTERM) and lingers: the
+          // An agent that answers its open prompt with an error when told to end (SIGTERM) and lingers a moment: the
           // answer reaches the service while it is still ending the process. The handler is set before
           // the message, so a stop sent once the message arrives always meets it.
           const told = new Promise<void>((release) => process.once("SIGTERM", () => release()));
           await send(client, sessionId, text("Working on it."));
           await told;
+          setTimeout(() => process.exit(0), 50);
           throw RequestError.internalError(undefined, "the fake agent was told to end mid-turn");
         }
         case "replay": {

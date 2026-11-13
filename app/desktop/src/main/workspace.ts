@@ -21,6 +21,8 @@ export type WorkspaceDeps = {
    */
   confirmRestart: (workspace: string, running: number | undefined) => Promise<boolean>;
   log?: (line: string) => void;
+  /** How long a running service gets to answer /version before it counts as not answering; the default when absent. */
+  versionTimeoutMs?: number;
 };
 
 export type OpenedWorkspace = {
@@ -76,6 +78,7 @@ export const workspaceControl = ({
   chooseFolder,
   confirmRestart,
   log = console.warn,
+  versionTimeoutMs,
 }: WorkspaceDeps): WorkspaceControl => {
   let settings = loadSettings(settingsFile, log);
   // Saved first: a save that fails leaves the settings in memory as they are in the file.
@@ -86,7 +89,7 @@ export const workspaceControl = ({
   };
   const save = (patch: Partial<Settings>) => updateSettings((current) => ({ ...current, ...patch }));
   // Rejects when ours runs but doesn't answer: nothing then starts a second service next to it.
-  const findRunning = () => answeringService(discoveryPath(env));
+  const findRunning = () => answeringService(discoveryPath(env), versionTimeoutMs);
   const startFor = (workspace: string) =>
     startService({ env, entry: serviceEntry, workspace, itemsRoot: settings.workspaces[workspace]?.itemsRoot });
 

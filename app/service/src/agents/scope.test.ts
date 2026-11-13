@@ -7,6 +7,7 @@ import { describe, expect, onTestFinished, test } from "vitest";
 
 import { killedUnits, option, runs, sliceStops, type FakeSystemd } from "../../test/fake-systemd.ts";
 import { childPidOf, isAlive, REPO, setup, TEST_TIMEOUT_MS, waitFor, type Setup } from "../../test/manager-fixtures.ts";
+import { managerAvailability } from "./scope.ts";
 
 const unitOf = (agentId: string) => `wombat-agent-${agentId}.scope`;
 
@@ -80,6 +81,16 @@ describe("agents in scopes (fake systemd)", () => {
 });
 
 describe("detection", () => {
+  test.each([
+    ["", "manager_unreachable"],
+    ["offline\n", "manager_offline"],
+    ["degraded\n", undefined],
+    ["running\n", undefined],
+    ["starting\nand a second line", undefined],
+  ])("is-system-running printing %j: %s", (stdout, unavailable) => {
+    expect(managerAvailability(stdout)).toBe(unavailable);
+  });
+
   test.each([
     { name: "no systemd tools on PATH", systemd: "none", state: undefined, scoped: false },
     { name: "a degraded user manager still answers", systemd: "fake", state: "degraded", scoped: true },

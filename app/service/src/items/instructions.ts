@@ -243,6 +243,8 @@ export type InstructionsOptions = {
   /** Watched for changes; undefined when the items aren't configured. */
   itemsRoot: string | undefined;
   log?: Log;
+  /** The waits, for a test that can't sit through the real ones; the constants above when absent. */
+  timing?: { debounceMs?: number; rootCheckMs?: number; watchRestartMs?: number };
 };
 
 export type Instructions = {
@@ -264,7 +266,8 @@ const relevant = (filename: string | null) => {
 };
 
 /** The instructions file in the service: renders one at a time, coalesced, and a debounced watcher of the items root. */
-export const openInstructions = ({ catalog, workspaceRoot, itemsRoot, log = logToStderr }: InstructionsOptions): Instructions => {
+export const openInstructions = ({ catalog, workspaceRoot, itemsRoot, log = logToStderr, timing = {} }: InstructionsOptions): Instructions => {
+  const { debounceMs = INSTRUCTIONS_DEBOUNCE_MS, rootCheckMs = ROOT_CHECK_MS, watchRestartMs = WATCH_RESTART_MS } = timing;
   let running: Promise<void> = Promise.resolve();
   let queued: Promise<void> | undefined;
   let closed = false;
@@ -289,12 +292,12 @@ export const openInstructions = ({ catalog, workspaceRoot, itemsRoot, log = logT
 
   const schedule = () => {
     clearTimeout(debounce);
-    debounce = setTimeout(() => void refresh(), INSTRUCTIONS_DEBOUNCE_MS);
+    debounce = setTimeout(() => void refresh(), debounceMs);
   };
 
   // While starting the watcher keeps failing (e.g. the inotify limit), the wait doubles and the failure is logged
   // once, not on every attempt; a start that works resets both.
-  let retryMs = WATCH_RESTART_MS;
+  let retryMs = watchRestartMs;
   let failing = false;
 
   const start = () => {
@@ -314,7 +317,7 @@ export const openInstructions = ({ catalog, workspaceRoot, itemsRoot, log = logT
         if (watcher !== undefined) {
           log("instructions_watch_restarted", {});
           failing = false;
-          retryMs = WATCH_RESTART_MS;
+          retryMs = watchRestartMs;
           // Changes while nothing watched are caught up here; not while the root is missing, which would
           // remove the file for as long as a re-clone takes.
           schedule();
@@ -341,7 +344,7 @@ export const openInstructions = ({ catalog, workspaceRoot, itemsRoot, log = logT
           clearInterval(rootCheck);
           retry(Object.assign(new Error("the items root was moved or replaced"), { code: "ROOT_REPLACED" }));
         }
-      }, ROOT_CHECK_MS);
+      }, rootCheckMs);
       rootCheck.unref();
     } catch (error) {
       retry(error);

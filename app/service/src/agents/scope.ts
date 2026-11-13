@@ -56,15 +56,22 @@ const systemctl = (args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, re
     child.once("close", (code) => resolve({ code, stdout: stdout.trim() }));
   });
 
-const detect = async (env: NodeJS.ProcessEnv): Promise<Unavailable | undefined> => {
-  if (!onPath("systemd-run", env) || !onPath("systemctl", env)) return "tools_missing";
-  // It exits non-zero for any state but `running` (a degraded manager still runs scopes), so only what it
-  // printed counts; a manager it can't reach prints nothing on stdout.
-  const { stdout } = await systemctl(["is-system-running"], env, QUERY_TIMEOUT_MS, true);
+/**
+ * What `systemctl --user is-system-running` printed, as whether scopes can run. It exits non-zero for any state but
+ * `running` (a degraded manager still runs scopes), so only what it printed counts; a manager it can't reach prints
+ * nothing on stdout.
+ */
+export const managerAvailability = (stdout: string): Exclude<Unavailable, "tools_missing"> | undefined => {
   const state = stdout.split("\n")[0]?.trim() ?? "";
   if (state === "") return "manager_unreachable";
   if (state === "offline") return "manager_offline";
   return undefined;
+};
+
+const detect = async (env: NodeJS.ProcessEnv): Promise<Unavailable | undefined> => {
+  if (!onPath("systemd-run", env) || !onPath("systemctl", env)) return "tools_missing";
+  const { stdout } = await systemctl(["is-system-running"], env, QUERY_TIMEOUT_MS, true);
+  return managerAvailability(stdout);
 };
 
 export type ScopeOptions = { slice: string; env: NodeJS.ProcessEnv; log: Log };
