@@ -17,3 +17,6 @@ export const harnessFeatures = (harness: Harness): string[] => [
   ...(harness.contextBreakdown === undefined ? [] : [HARNESS_FEATURE.context]),
   ...(harness.resumable === true ? [HARNESS_FEATURE.resume] : []),
 ];
+
+/** Whether a message can start this harness's agent again after its process ended. */
+export const canResume = (harness: Harness): boolean => harnessFeatures(harness).includes(HARNESS_FEATURE.resume);

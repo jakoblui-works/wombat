@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The settings lists are listboxes (arrows move a highlight, Enter or a click picks); the context dialog asks again by itself once the agent is idle, opens at once with "Loading…" when typed before the tools are known, and shows shares with one decimal ("0.3%", "<0.1%").
 - With Claude Code, `/context` shows Claude's own colour for each category, and `/memory` and `/agents` beside the memory files and custom agents.
 - The agent service reports an agent's context breakdown on request (`POST /agents/:id/context`): the model, tokens used out of the window, the usage by category, and lists of memory files, custom agents, skills and MCP tools (paths in your home shown with `~`). It runs `/context` as a hidden turn that leaves nothing in the chat, the log or the agent list; while a turn runs it answers `busy`, and for a tool that can't report one, `unsupported`. `GET /harnesses` lists each tool's `features` (`context` for Claude Code).
 - The agent service tracks each agent's prompt cache: `GET /agents` shows how long it lives (5 min or 1 h) and when it was last used, so the app can show the time left. It is kept in memory only, never stored.

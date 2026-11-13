@@ -25,7 +25,7 @@ const render = (value: ContextBreakdown | undefined, error?: string) =>
 test("the headline shows the model and the tokens used out of the size, with the share", () => {
   const html = render(breakdown);
   expect(html).toContain("some-model");
-  expect(html).toMatch(/565\.3k \/ 1\.0M tokens \(57%\)/);
+  expect(html).toMatch(/565\.3k \/ 1\.0M tokens \(56\.5%\)/);
 });
 
 test("the bar stacks the used and buffer categories over the size, leaving out free and deferred", () => {
@@ -41,8 +41,8 @@ test("the table leaves deferred out, lists free last, and gives each share of th
   expect(names.every((at) => at > 0)).toBe(true);
   expect(names).toEqual([...names].sort((a, b) => a - b));
   expect(html).not.toContain("Unloaded");
-  expect(html).toContain(">50%</td>");
-  expect(html).toContain(">40%</td>");
+  expect(html).toContain(">50.0%</td>");
+  expect(html).toContain(">40.0%</td>");
 });
 
 test("each list shows its title and its rows, the detail only when there is one", () => {

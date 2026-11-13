@@ -28,7 +28,7 @@ test("the slider is for the thought_level option optionByCategory returns, not a
   const html = renderToStaticMarkup(<SettingsPanel config={[first, second]} setConfig={() => Promise.resolve()} />);
   expect(html.match(/type="range"/g)).toHaveLength(1);
   expect(html).toContain('aria-valuetext="Alpha"');
-  expect(html).toContain('role="radiogroup"');
+  expect(html).toContain('role="listbox"');
 });
 
 test("the failure line is announced, and absent without a failure", () => {

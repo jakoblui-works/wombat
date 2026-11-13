@@ -2,7 +2,7 @@ import type { ContextBreakdown } from "@wombat/shared/api";
 import type { ReactNode } from "react";
 
 import { cn } from "../../../../../../lib/utils";
-import { contextShare, sharePercent } from "../ContextRing/ContextRing.tsx";
+import { contextShare } from "../ContextRing/ContextRing.tsx";
 import type { ContextDialogProps } from "../slots.ts";
 
 type Category = ContextBreakdown["categories"][number];
@@ -10,6 +10,12 @@ type Category = ContextBreakdown["categories"][number];
 /** "565.3k", "1.0M": a token count short enough for a headline. */
 export const compactTokens = (tokens: number): string =>
   tokens >= 1_000_000 ? `${(tokens / 1_000_000).toFixed(1)}M` : tokens >= 1_000 ? `${(tokens / 1_000).toFixed(1)}k` : String(tokens);
+
+/** A share of the window with one decimal ("0.3%"), "<0.1%" for a used but tiny share. */
+export const shareLabel = (tokens: number, size: number): string => {
+  const percent = contextShare({ used: tokens, size }) * 100;
+  return percent > 0 && percent < 0.05 ? "<0.1%" : `${percent.toFixed(1)}%`;
+};
 
 /** The categories the table lists: `deferred` left out (not in the window), `free` last. */
 export const tableCategories = (categories: readonly Category[]): Category[] => [
@@ -47,7 +53,7 @@ export const ContextDialog = ({ breakdown, error, swatchOf = ({ kind }) => SWATC
       <div className="flex flex-col gap-1.5">
         <span className="text-fg-secondary">{model}</span>
         <span className="text-fg-primary tabular-nums">
-          {compactTokens(used)} / {compactTokens(size)} tokens ({sharePercent({ used, size })})
+          {compactTokens(used)} / {compactTokens(size)} tokens ({shareLabel(used, size)})
         </span>
         <div data-slot="context-bar" className="flex h-2 w-full overflow-hidden rounded-full bg-surface-3">
           {barCategories(categories).map((category) => (
@@ -79,7 +85,7 @@ export const ContextDialog = ({ breakdown, error, swatchOf = ({ kind }) => SWATC
                 </span>
               </td>
               <td className="py-1 text-right text-fg-secondary">{compactTokens(category.tokens)}</td>
-              <td className="w-16 py-1 text-right text-fg-tertiary">{sharePercent({ used: category.tokens, size })}</td>
+              <td className="w-16 py-1 text-right text-fg-tertiary">{shareLabel(category.tokens, size)}</td>
             </tr>
           ))}
         </tbody>

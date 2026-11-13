@@ -34,7 +34,7 @@ import {
 import { z } from "zod";
 
 import { MCP_SERVER_NAME, startAgentProcess, type AgentScope, type CacheState, type Harness } from "../harness/harness.ts";
-import { defaultHarnesses, findHarness } from "../harness/registry.ts";
+import { canResume, defaultHarnesses, findHarness } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { NewLogEntry, Store } from "../store/store.ts";
 import { RepoError, resolveRepo } from "../workspace.ts";
@@ -700,7 +700,7 @@ export const createManager = ({
               code: AgentErrorCode.enum.agent_failed,
               message:
                 `The agent process ${how} unexpectedly. ` +
-                (proc.harness.resumable === true
+                (canResume(proc.harness)
                   ? "Send a message to start it again; its history is kept."
                   : "Start a new agent to continue; this one's history is kept."),
             },
@@ -823,7 +823,10 @@ export const createManager = ({
   };
 
   /** Whether the agent's harness can start it again in its stored session; otherwise its chat is closed. */
-  const canResume = (summary: AgentSummary) => findHarness(summary.harness, harnesses)?.resumable === true;
+  const canResumeAgent = (summary: AgentSummary) => {
+    const harness = findHarness(summary.harness, harnesses);
+    return harness !== undefined && canResume(harness);
+  };
 
   /**
    * The agent's process when it can take a message or setting now: recorded, not ending, not being resumed, and no
@@ -935,7 +938,7 @@ export const createManager = ({
     const live = liveProc(agentId);
     if (live) return live;
     const harness = findHarness(summary.harness, harnesses);
-    if (harness?.resumable !== true) throw notResumable();
+    if (harness === undefined || !canResume(harness)) throw notResumable();
     const attempt = resume(summary, harness).finally(() => resuming.delete(agentId));
     resuming.set(agentId, attempt);
     return attempt;
@@ -1087,7 +1090,7 @@ export const createManager = ({
     const summary = summaries.get(agentId);
     if (!summary) throw notFound(agentId);
     if (pendingTurns.has(agentId)) throw busy(STILL_WORKING);
-    if (!canResume(summary)) throw notResumable();
+    if (!canResumeAgent(summary)) throw notResumable();
     const at = now();
     const message: NewLogEntry = { type: "user_message", at, text, ...(commandId === undefined ? {} : { commandId }) };
     // A resume that has folded the log already (it is setting the agent's config again) folds the message too.
@@ -1149,7 +1152,7 @@ export const createManager = ({
   /** One set on a running agent, after the ones before it (`Proc.setting`). */
   const setOne = async (proc: Proc, configId: string, value: string | boolean) => {
     const { agentId } = proc;
-    if (proc.ending || procs.get(agentId) !== proc) throw notRunning(proc.harness.resumable);
+    if (proc.ending || procs.get(agentId) !== proc) throw notRunning(canResume(proc.harness));
     if (proc.hidden) throw busy(HIDDEN_BUSY);
     const option = proc.config?.find(({ id }) => id === configId);
     if (option === undefined) {
@@ -1164,7 +1167,7 @@ export const createManager = ({
     try {
       options = await proc.acp.setConfigOption(proc.sessionId, configId, value);
     } catch (error) {
-      if (proc.acp.isClosed() || proc.ending) throw notRunning(proc.harness.resumable);
+      if (proc.acp.isClosed() || proc.ending) throw notRunning(canResume(proc.harness));
       const code = rpcCode(error);
       log("config_refused", { agentId, configId: safeName(configId), code: code ?? -1 });
       const said = rpcMessage(error);
@@ -1195,7 +1198,7 @@ export const createManager = ({
       return;
     }
     const proc = procs.get(agentId);
-    if (!proc?.recorded || proc.ending) throw notRunning(canResume(summary));
+    if (!proc?.recorded || proc.ending) throw notRunning(canResumeAgent(summary));
     try {
       await proc.acp.cancel(proc.sessionId);
     } catch {
@@ -1324,7 +1327,7 @@ export const createManager = ({
         home: proc.home,
       });
     } catch (error) {
-      if (proc.acp.isClosed() || proc.ending) throw notRunning(proc.harness.resumable);
+      if (proc.acp.isClosed() || proc.ending) throw notRunning(canResume(proc.harness));
       const code = rpcCode(error);
       log("context_failed", { agentId, code: code ?? -1 });
       const said = rpcMessage(error);

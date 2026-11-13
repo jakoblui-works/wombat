@@ -136,9 +136,9 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const answers = useAnswer(agentId);
   const harnesses = useHarnesses();
   const harness = harnesses.data?.find(({ id }) => id === agent?.harness);
-  const features = harness?.features ?? [];
+  const features = harnesses.data === undefined ? undefined : (harness?.features ?? []);
   // While the agent is still loading it counts as running: only a known agent without a process isn't.
-  const access = agent === undefined ? "running" : chatAccess(agent, features);
+  const access = agent === undefined ? "running" : chatAccess(agent, features ?? []);
   const setConfig = useSetConfig();
   const blocks = useMemo(() => (model === undefined ? [] : chatBlocks(model.items)), [model]);
   const edits = useMemo(() => (model === undefined ? new Map<string, EditRequest>() : editRequests(model, blocks)), [model, blocks]);
@@ -244,7 +244,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
           onSet={(configId, value) => setConfig.mutateAsync({ agentId, configId, value })}
         />
       )}
-      {agent === undefined ? null : <ContextDialogHost agent={agent} open={contextOpen} onOpenChange={setContextOpen} />}
+      {agent === undefined ? null : <ContextDialogHost agent={agent} features={features} featuresError={harnesses.isFetching ? null : harnesses.error} refetchFeatures={harnesses.refetch} open={contextOpen} onOpenChange={setContextOpen} />}
     </div>
   );
 };
