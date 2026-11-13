@@ -14,9 +14,19 @@ const BUG = "bugs/BUG-2-hero-caption.md";
 const HAND_CHANGES: { what: string; change: (root: string) => void }[] = [
   { what: "the item was edited by hand", change: (root) => writeAt(root, BUG, `${readAt(root, BUG)}\nAlso seen in Chromium.\n`) },
   {
+    what: "the structure became read",
+    // A read structure can't have locks, so they go too.
+    change: (root) =>
+      writeAt(root, "bugs/_structure.yaml", readAt(root, "bugs/_structure.yaml").replace("access: propose", "access: read").replace("locked: [repo, body]\n", "")),
+  },
+  {
     what: "the structure became hidden",
     change: (root) =>
       writeAt(root, "bugs/_structure.yaml", readAt(root, "bugs/_structure.yaml").replace("access: propose", "access: hidden").replace("locked: [repo, body]\n", "")),
+  },
+  {
+    what: "the field became locked",
+    change: (root) => writeAt(root, "bugs/_structure.yaml", readAt(root, "bugs/_structure.yaml").replace("locked: [repo, body]", "locked: [repo, body, note]")),
   },
 ];
 
