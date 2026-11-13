@@ -15,7 +15,6 @@
 // asked systemd about the real slice.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, test as base, expect, type ElectronApplication, type Locator, type Page } from "@playwright/test";
@@ -94,8 +93,6 @@ export type Sandbox = {
   stateDir: string;
   discoveryPath: string;
   systemd: FakeSystemd;
-  /** Lets a held `systemctl stop` finish (sandboxes made with `holdStop`). */
-  releaseStop: () => void;
   /** `$XDG_CONFIG_HOME/Wombat/settings.json` (contract "Settings file"). */
   settingsPath: (profile?: string) => string;
   /** Writes settings.json (an object as JSON, a string as is) into a profile before a launch. */
@@ -119,8 +116,6 @@ export type Sandbox = {
   agentPids: () => number[];
   /** A call to the running service as the app makes it (token, Origin); the test is the only other client. */
   api: (method: string, pathname: string, body?: unknown) => Promise<{ status: number; json: unknown }>;
-  /** A free port other than `not`. */
-  freePort: (not?: number) => Promise<number>;
 };
 
 const isAlivePid = (pid: number): boolean => {
@@ -202,14 +197,10 @@ const until = async <T>(what: string, timeoutMs: number, probe: () => Promise<T 
   }
 };
 
-export type SandboxOptions = Omit<FakeSystemdOptions, "stopGate"> & {
-  /** Fake `systemctl stop` waits until `Sandbox.releaseStop()` (a gate file under the sandbox root). */
-  holdStop?: boolean;
-};
+export type SandboxOptions = Omit<FakeSystemdOptions, "stopGate">;
 
-const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions): { sandbox: Sandbox; teardown: () => Promise<void> } => {
+const createSandbox = (systemdOptions: SandboxOptions): { sandbox: Sandbox; teardown: () => Promise<void> } => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "wombat-e2e-")));
-  const stopGate = holdStop ? path.join(root, "stop-gate") : undefined;
   const dir = (...parts: string[]): string => {
     const at = path.join(root, ...parts);
     mkdirSync(at, { recursive: true, mode: 0o700 });
@@ -223,7 +214,7 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
   const agentPidDir = dir("pids", "agents");
   const servicePidDir = dir("pids", "services");
   const slice = `wombate2e${String(process.pid)}${String(Date.now())}${String(Math.floor(Math.random() * 1e6))}.slice`;
-  const systemd = fakeSystemd(stopGate === undefined ? systemdOptions : { ...systemdOptions, stopGate });
+  const systemd = fakeSystemd(systemdOptions);
   symlinkSync(process.execPath, path.join(systemd.binDir, "node"));
   symlinkSync(which("sleep"), path.join(systemd.binDir, "sleep"));
 
@@ -379,20 +370,6 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
     return waitForService((file) => file.pid === child.pid);
   };
 
-  const freePort: Sandbox["freePort"] = async (not) => {
-    for (;;) {
-      const port = await new Promise<number>((resolve, reject) => {
-        const server = createServer();
-        server.once("error", reject);
-        server.listen(0, "127.0.0.1", () => {
-          const { port: bound } = server.address() as AddressInfo;
-          server.close(() => resolve(bound));
-        });
-      });
-      if (port !== not) return port;
-    }
-  };
-
   const sandbox: Sandbox = {
     base: root,
     workspace,
@@ -403,10 +380,6 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
     stateDir,
     discoveryPath,
     systemd,
-    releaseStop: () => {
-      if (stopGate === undefined) throw new Error("releaseStop: this sandbox wasn't made with holdStop");
-      writeFileSync(stopGate, "");
-    },
     settingsPath,
     writeSettings: (content, at = profile) => {
       const file = settingsPath(at);
@@ -428,11 +401,9 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
     liveServices: () => [...new Set([...pidsIn(servicePidDir), ...sandboxEntryProcesses(root)])].filter(isAlivePid).sort((a, b) => a - b),
     agentPids: () => pidsIn(agentPidDir),
     api,
-    freePort,
   };
 
   const teardown = async (): Promise<void> => {
-    if (stopGate !== undefined) writeFileSync(stopGate, "");
     // The app's whole process group (Playwright starts Electron as a group leader): Chromium's helpers would
     // otherwise go on writing into the profile while it's being removed.
     for (const launched of apps) {
@@ -528,7 +499,6 @@ export const current = (dialog: Locator, name: string): Locator =>
 type ConnectionWindow = {
   wombat?: { service?: { onConnection?: (cb: (state: { state: string; message?: string }) => void) => unknown; onAlert?: (cb: (alert: unknown) => void) => unknown } };
   __e2eConnection?: { state: string; message?: string }[];
-  __e2eAlerts?: unknown[];
 };
 
 /** Subscribes the page to the bridge's connection states and alerts, recording them in the page. */
@@ -541,18 +511,13 @@ export const watchBridge = async (page: Page): Promise<void> => {
     }
     if (w.__e2eConnection) return;
     w.__e2eConnection = [];
-    w.__e2eAlerts = [];
     service.onConnection((state) => w.__e2eConnection?.push(state));
-    service.onAlert((alert) => w.__e2eAlerts?.push(alert));
   });
 };
 
 /** The connection states the page has seen, in order. */
 export const connectionStates = (page: Page): Promise<string[]> =>
   page.evaluate(() => ((window as unknown as ConnectionWindow).__e2eConnection ?? []).map(({ state }) => state));
-
-/** The alerts the page has received, in order. */
-export const alertsSeen = (page: Page): Promise<unknown[]> => page.evaluate(() => [...((window as unknown as ConnectionWindow).__e2eAlerts ?? [])]);
 
 /** Waits until the page's latest connection state is `state`, after at least `after` states were seen. */
 export const waitForConnection = async (page: Page, state: string, { after = 0, timeoutMs = WAIT_MS } = {}): Promise<void> => {
@@ -668,42 +633,6 @@ export const bridgeCommand = (page: Page, id: unknown): Promise<string> =>
       return `rejected: ${error instanceof Error ? error.message : String(error)}`;
     }
   }, id);
-
-export type ServiceCallSeen = { method: string; path: string };
-type ServiceCallsGlobal = { __e2eServiceCalls?: ServiceCallSeen[]; __e2eReleaseServiceCalls?: () => void };
-
-/**
- * From now on, records every call main makes to the service (method and path, by wrapping main's `fetch`, which
- * service-client.ts calls), so a check can count what the app asked for. A call matching `hold` waits until
- * `releaseServiceCalls`. Calls go out in the order the page makes them, so once a later call is seen, every earlier
- * one has been too.
- */
-export const watchServiceCalls = (app: ElectronApplication, hold?: ServiceCallSeen): Promise<void> =>
-  app.evaluate((_electron, held) => {
-    const g = globalThis as unknown as ServiceCallsGlobal;
-    const calls: ServiceCallSeen[] = [];
-    g.__e2eServiceCalls = calls;
-    const gate = new Promise<void>((resolve) => (g.__e2eReleaseServiceCalls = resolve));
-    const original = globalThis.fetch;
-    globalThis.fetch = async (input, init) => {
-      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
-      const method = init?.method ?? (input instanceof Request ? input.method : "GET");
-      calls.push({ method, path: url.pathname });
-      if (held !== undefined && held.method === method && held.path === url.pathname) await gate;
-      return original(input, init);
-    };
-  }, hold);
-
-/** Lets the calls `watchServiceCalls` holds go on. */
-export const releaseServiceCalls = (app: ElectronApplication): Promise<void> =>
-  app.evaluate(() => (globalThis as unknown as ServiceCallsGlobal).__e2eReleaseServiceCalls?.());
-
-/** How many calls to the service with `method` and `path` main has made since `watchServiceCalls`. */
-export const serviceCallCount = (app: ElectronApplication, method: string, path: string): Promise<number> =>
-  app.evaluate(
-    (_electron, [m, p]) => ((globalThis as unknown as ServiceCallsGlobal).__e2eServiceCalls ?? []).filter((call) => call.method === m && call.path === p).length,
-    [method, path] as const,
-  );
 
 /** The zoom level main has applied to the app's window (webContents.getZoomLevel()). */
 export const zoomLevel = (app: ElectronApplication): Promise<number | undefined> =>

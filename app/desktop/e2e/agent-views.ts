@@ -30,7 +30,3 @@ export const logOf = async (sandbox: Sandbox, agentId: string): Promise<Entry[]>
 
 /** The answers the service recorded, in order (`permission_answered` kinds). */
 export const answersIn = (entries: Entry[]): string[] => entries.flatMap((entry) => (entry.type === "permission_answered" && entry.kind ? [entry.kind] : []));
-
-/** The ids of the permission requests in the log, in order. */
-export const requestsIn = (entries: Entry[]): string[] =>
-  entries.flatMap((entry) => (entry.type === "permission_requested" && entry.requestId ? [entry.requestId] : []));

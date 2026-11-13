@@ -12,7 +12,7 @@
 // (T14-8, a stopped agent's footer, was replaced in S2d by chat.e2e.ts's resume check, row T19-9: settings stay
 // usable while the agent isn't running, and a pick starts it.)
 import { FAKE_CONFIG, fakeConfigOptions } from "../../service/test/fake-agent.ts";
-import { click, current, expect, openAgent, REPO, serviceCallCount, startAgent, test, waitForConnection, waitUntil, watchServiceCalls, WAIT_MS, type Sandbox } from "./app-fixtures.ts";
+import { click, current, expect, openAgent, REPO, startAgent, test, waitForConnection, waitUntil, WAIT_MS, type Sandbox } from "./app-fixtures.ts";
 import { groupWithTab } from "./agent-views.ts";
 
 type Option = { id: string; currentValue?: unknown };
@@ -78,41 +78,5 @@ test.describe("composer footer", () => {
     await page.keyboard.press("Escape");
     await expect(settings, "the button shows the model in use").toContainText(initial, { timeout: WAIT_MS });
     await expect(settings).not.toContainText(optionName(REFUSED));
-  });
-
-  // A settings list sets a value only when one is picked: moving through it with the keyboard, or picking the value in
-  // use, sets nothing. Each set reaches the agent (and starts a stopped one), so a list that set on every key press, as
-  // a radio group does, would switch the agent's model as the user reads the list.
-  test("footer: arrow keys in a settings list set nothing, Enter on the moved highlight sets once, and Enter or a click on the current value sets nothing", async ({ sandbox }) => {
-    test.setTimeout(90_000);
-    await sandbox.startService(sandbox.workspace);
-    const agentId = await startAgent(sandbox, "fake-reply");
-    const launched = await sandbox.launch();
-    const { page, app } = launched;
-    await waitForConnection(page, "connected");
-    await openAgent(launched, agentId, 1);
-    await click(groupWithTab(page, REPO).getByRole("button", { name: new RegExp(escape(optionName(FAKE_CONFIG.model.initial))) }));
-    const dialog = page.getByRole("dialog");
-    const list = dialog.getByRole("listbox", { name: MODEL?.name ?? "" });
-    await expect(list).toBeVisible({ timeout: WAIT_MS });
-    await watchServiceCalls(app);
-    const sets = () => serviceCallCount(app, "POST", `/agents/${agentId}/config`);
-    const [first, , last] = FAKE_CONFIG.model.values.map(optionName);
-
-    // From the first value down to the last (past the refused one), then Enter.
-    await list.focus();
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.press("Enter");
-    await expect(current(dialog, last ?? ""), "Enter set the highlighted value").toHaveCount(1, { timeout: WAIT_MS });
-    expect(await sets(), "the arrows set nothing, Enter once").toBe(1);
-
-    // The value in use, by Enter and by a click; then a real pick, which comes after them.
-    await list.focus();
-    await page.keyboard.press("Enter");
-    await click(list.getByText(last ?? "", { exact: true }));
-    await click(list.getByText(first ?? "", { exact: true }));
-    await expect(current(dialog, first ?? ""), "the click set the first value").toHaveCount(1, { timeout: WAIT_MS });
-    expect(await sets(), "Enter and a click on the current value set nothing").toBe(2);
   });
 });

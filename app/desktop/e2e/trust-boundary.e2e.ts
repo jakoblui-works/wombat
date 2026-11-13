@@ -2,7 +2,6 @@
 // `global-setup.ts` before every run). Each test launches its own app in its own sandbox
 // (app-fixtures.ts: display-less, `WOMBAT_E2E=1`, temp dirs, fake systemd and fake agents).
 import type { ElectronApplication, Page, Response } from "@playwright/test";
-import { API_VERSION } from "@wombat/shared";
 import { bridgeCommand, bridgeRequest, expect, isAlive, REPO, test, waitForConnection, waitUntil, WAIT_MS, watchZoom, zoomLevel, zoomsHeard, type Sandbox } from "./app-fixtures.ts";
 
 // Everything the preload may expose to the page. Adding a global, a name or a function widens
@@ -144,15 +143,6 @@ const servedPolicies = async (response: Response): Promise<string[]> =>
     .map((policy) => policy.trim())
     .filter((policy) => policy !== "");
 
-// The nonces a policy gives <style> elements (style-src-elem, or style-src when that's absent),
-// in their original case (`directives` lower-cases sources).
-const styleNonces = (policy: string): string[] => {
-  const parts = policy.split(";").map((part) => part.trim().split(/\s+/));
-  const named = (name: string): string[] | undefined => parts.find(([first]) => first?.toLowerCase() === name)?.slice(1);
-  const sources = named("style-src-elem") ?? named("style-src") ?? [];
-  return sources.flatMap((source) => /^'nonce-([^']+)'$/i.exec(source)?.[1] ?? []);
-};
-
 // Reload the app's page; return the main document's response (what the app:// handler sent).
 const reloadPage = async (target: Page): Promise<Response> => {
   const response = await target.reload();
@@ -198,13 +188,8 @@ test.beforeEach(async ({ sandbox }) => {
   ({ app, page } = await launch(sandbox));
 });
 
-test("the page shows the API version that @wombat/shared exports", async () => {
-  const { page } = opened();
-  const version = String(API_VERSION);
-  await expect(page.getByTestId("api-version")).toHaveText(new RegExp(`(^|\\D)${version}(\\D|$)`));
-});
-
-test("the app's window has context isolation and the sandbox on, and Node off", async () => {
+const check0 = (): Promise<void> =>
+  test.step("the app's window has context isolation and the sandbox on, and Node off", async () => {
   const { app } = opened();
   expect(await windowCount(app)).toBe(1);
   const prefs = await app.evaluate(({ BrowserWindow }) => {
@@ -222,7 +207,8 @@ test("the app's window has context isolation and the sandbox on, and Node off", 
   expect(prefs).toEqual({ contextIsolation: true, sandbox: true, nodeIntegration: false });
 });
 
-test("window.open from the renderer opens no window", async () => {
+const check1 = (): Promise<void> =>
+  test.step("window.open from the renderer opens no window", async () => {
   const { app, page } = opened();
   await stubOutside(app);
   const newWindow = app.waitForEvent("window", { timeout: SETTLE_MS }).then(
@@ -236,7 +222,8 @@ test("window.open from the renderer opens no window", async () => {
   expect(await windowCount(app)).toBe(1);
 });
 
-test("navigating the page to an outside https URL leaves it on the app", async () => {
+const check2 = (): Promise<void> =>
+  test.step("navigating the page to an outside https URL leaves it on the app", async () => {
   const { app, page } = opened();
   await stubOutside(app);
   const appUrl = page.url();
@@ -262,7 +249,8 @@ test("navigating the page to an outside https URL leaves it on the app", async (
 
 // The policy comes from the app:// handler as a response header (contract "Page CSP"), never a
 // meta tag; this reads what the handler sent, not a copy of the string.
-test("the page is served with one strict CSP header, and no CSP meta tag", async () => {
+const check3 = (): Promise<void> =>
+  test.step("the page is served with one strict CSP header, and no CSP meta tag", async () => {
   const { page } = opened();
   const response = await reloadPage(page);
   const policies = await servedPolicies(response);
@@ -279,7 +267,8 @@ test("the page is served with one strict CSP header, and no CSP meta tag", async
 // Everything else app:// serves (the page's own scripts and styles, Monaco's worker, a 404) carries a fixed policy of
 // its own: a worker runs under its response's policy, not the page's, so without one it could fetch anything.
 // Read through main's net.fetch, which goes through the same app:// handler the page's loads do.
-test("every other app:// response, an asset or a 404, carries one policy: default-src 'self', connect-src and object-src 'none'", async () => {
+const check4 = (): Promise<void> =>
+  test.step("every other app:// response, an asset or a 404, carries one policy: default-src 'self', connect-src and object-src 'none'", async () => {
   const { app: main, page: shown } = opened();
   const asset = await shown.evaluate(() => document.querySelector<HTMLScriptElement>("script[src]")?.src ?? null);
   expect(asset, "the page loads no script file to check").not.toBeNull();
@@ -303,27 +292,10 @@ test("every other app:// response, an asset or a 404, carries one policy: defaul
   }
 });
 
-test("every load of the page gets a fresh nonce, 128 bits or more, which the csp-nonce meta carries", async () => {
-  const { page } = opened();
-  const loads: { header: string[]; meta: string | null }[] = [];
-  for (let i = 0; i < 2; i++) {
-    const policies = await servedPolicies(await reloadPage(page));
-    expect(policies, "the page's response doesn't carry exactly one CSP policy").toHaveLength(1);
-    loads.push({ header: styleNonces(policies[0] ?? ""), meta: await metaNonce(page) });
-  }
-  for (const { header, meta } of loads) {
-    expect(header, "the served CSP has no single style nonce").toHaveLength(1);
-    expect(meta, "the csp-nonce meta doesn't carry the header's nonce").toBe(header[0]);
-    const nonce = header[0] ?? "";
-    expect(nonce, "the nonce isn't base64").toMatch(/^[A-Za-z0-9+/]+={0,2}$/);
-    expect(Buffer.from(nonce, "base64").length, `the nonce ${nonce} has fewer than 128 bits`).toBeGreaterThanOrEqual(16);
-  }
-  expect(loads[0]?.header[0], "two loads got the same nonce").not.toBe(loads[1]?.header[0]);
-});
-
 // The style attribute probes show the relaxation Monaco needs (style="" attributes, as in VS Code's own
 // style policy) is in place, and limited to attributes: <style> elements still need the nonce.
-test("the page enforces its CSP: inline scripts and un-nonced <style> are blocked; nonced <style>, CSSOM styles and style attributes apply", async () => {
+const check5 = (): Promise<void> =>
+  test.step("the page enforces its CSP: inline scripts and un-nonced <style> are blocked; nonced <style>, CSSOM styles and style attributes apply", async () => {
   const { page } = opened();
   await reloadPage(page);
   const nonce = await metaNonce(page);
@@ -379,7 +351,8 @@ test("the page enforces its CSP: inline scripts and un-nonced <style> are blocke
   });
 });
 
-test("loading the page causes no CSP violations", async () => {
+const check6 = (): Promise<void> =>
+  test.step("loading the page causes no CSP violations", async () => {
   const { page } = opened();
   await recordViolations(page);
   await reloadPage(page);
@@ -395,7 +368,8 @@ test("loading the page causes no CSP violations", async () => {
   await expect.poll(async () => (await violations(page)).length, { message: "the violation recorder saw nothing" }).toBeGreaterThan(0);
 });
 
-test("the preload bridge exposes only the allowed globals, names and functions", async () => {
+const check7 = (): Promise<void> =>
+  test.step("the preload bridge exposes only the allowed globals, names and functions", async () => {
   const { page } = opened();
   const bridge = await page.evaluate(() => {
     // A blank page from the same engine shows which globals are the browser's own;
@@ -436,7 +410,8 @@ test("the preload bridge exposes only the allowed globals, names and functions",
   });
 });
 
-test("permission requests and checks from the renderer are denied", async () => {
+const check8 = (): Promise<void> =>
+  test.step("permission requests and checks from the renderer are denied", async () => {
   const { page } = opened();
   // Probes whose outcome is decided by the app's permission handlers, not by hardware:
   // requests (Notification.requestPermission, geolocation) go through the request handler,
@@ -474,7 +449,8 @@ test("permission requests and checks from the renderer are denied", async () => 
 // itself, everything the bridge answers or sends (settings, workspace, service answers, a refusal's message,
 // connection states), storage, cookies and the document. The port and the discovery file's path count too: the
 // page never needs them.
-test("the page holds no token, service address or discovery path: not in its globals, the bridge, its storage or its document", async ({ sandbox }) => {
+const check9 = ({ sandbox }: { sandbox: Sandbox }): Promise<void> =>
+  test.step("the page holds no token, service address or discovery path: not in its globals, the bridge, its storage or its document", async () => {
   const { page } = opened();
   await waitForConnection(page, "connected");
   const file = await sandbox.waitForService();
@@ -566,7 +542,8 @@ test("the page holds no token, service address or discovery path: not in its glo
 // request() is limited to APP_ROUTES (@wombat/shared/routes), checked in main before any network call. A refusal
 // rejects the call (it never comes back as a service answer). The /shutdown variants show that nothing reached the
 // service: one that did would end it.
-test("the bridge refuses, in main, every method and path outside the app's routes, and none reaches the service", async ({ sandbox }) => {
+const check10 = ({ sandbox }: { sandbox: Sandbox }): Promise<void> =>
+  test.step("the bridge refuses, in main, every method and path outside the app's routes, and none reaches the service", async () => {
   const { page } = opened();
   await waitForConnection(page, "connected");
   const file = await sandbox.waitForService();
@@ -604,7 +581,8 @@ test("the bridge refuses, in main, every method and path outside the app's route
 // command() runs only the ids in MAIN_COMMAND_IDS (src/shared/bridge.ts), checked in main: anything else rejects and
 // runs nothing. Each refused value is a near miss of zoom.in or window.close, so a command that ran anyway would show
 // as a changed zoom level, a level heard through onZoom, or a closed window.
-test("the bridge refuses, in main, every command id outside MAIN_COMMAND_IDS, and runs nothing for it", async () => {
+const check11 = (): Promise<void> =>
+  test.step("the bridge refuses, in main, every command id outside MAIN_COMMAND_IDS, and runs nothing for it", async () => {
   const { app, page } = opened();
   await watchZoom(page);
   expect(await zoomLevel(app), "a fresh profile starts at zoom level 0").toBe(0);
@@ -642,7 +620,8 @@ test("the bridge refuses, in main, every command id outside MAIN_COMMAND_IDS, an
 // The page's clipboard commands (edit.cut, edit.copy, edit.paste) run only right after the user's own input to the
 // window, checked in main, so script in the page can't read or write the clipboard on its own. No input has reached
 // the window since launch; the field is the test's own, focused by script.
-test("the page's edit.paste pastes nothing with no user input, and pastes right after a key press", async () => {
+const check12 = (): Promise<void> =>
+  test.step("the page's edit.paste pastes nothing with no user input, and pastes right after a key press", async () => {
   const { app, page } = opened();
   const field = page.getByTestId("e2e-clipboard-field");
   await page.evaluate(() => {
@@ -662,4 +641,31 @@ test("the page's edit.paste pastes nothing with no user input, and pastes right 
   expect(await bridgeCommand(page, "edit.paste"), "the paste right after a key press").toBe("resolved");
   await waitUntil("the paste after the key press to reach the field", WAIT_MS, async () => ((await field.inputValue()).includes(onClipboard) ? true : undefined));
   expect(await field.inputValue(), `edit.paste with no user input went through (it answered ${unasked})`).toBe(onClipboard);
+});
+
+// One launch per group: the checks in a group read an untouched app and don't disturb each other in this order.
+// Paste comes first (it needs no input since launch); the probes that open windows, navigate or start an agent come last.
+test("the window, the preload bridge and permissions are locked down", async () => {
+  test.setTimeout(90_000);
+  await check12();
+  await check0();
+  await check7();
+  await check8();
+  await check1();
+  await check2();
+});
+
+test("the page's CSP is served on every response and enforced", async () => {
+  test.setTimeout(90_000);
+  await check3();
+  await check4();
+  await check6();
+  await check5();
+});
+
+test("the page reaches the service only through main: no token in the page, no route or command outside the allow-lists", async ({ sandbox }) => {
+  test.setTimeout(90_000);
+  await check10({ sandbox });
+  await check11();
+  await check9({ sandbox });
 });

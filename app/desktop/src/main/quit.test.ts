@@ -49,6 +49,15 @@ const quit = (sandbox: ServiceSandbox, choice: QuitChoice, deps: Partial<QuitDep
   return { decided, seen, kept };
 };
 
+test("with no agent process the service stops with the app: no question, no notification, even with Keep remembered", async () => {
+  const sandbox = serviceSandbox();
+  saveSettings(sandbox.settingsFile, { version: 1, workspaces: {}, askOnQuit: false, quitAnswer: "leave" });
+  const { decided, seen, kept } = quit(sandbox, { answer: "cancel", dontAsk: false }, { agents: () => Promise.resolve([{ state: "done", hasProcess: false } as AgentSummary]) });
+  expect(await decided).toBe(true);
+  expect(seen).toEqual({ asked: 0, stopped: 1 });
+  expect(kept).toEqual([]);
+});
+
 test("Cancel keeps the app running: nothing stopped, the settings as they were", async () => {
   const sandbox = serviceSandbox();
   const { decided, seen } = quit(sandbox, { answer: "cancel", dontAsk: false });
