@@ -1,6 +1,6 @@
 import type { RequestPermissionResponse } from "@agentclientprotocol/sdk";
-import type { AgentSummary, AnswerPermissionRequest, ConfigOption, ContextBreakdown } from "@wombat/shared/api";
-import { permissionOf, UNKNOWN_PERMISSION, type FoldState } from "@wombat/shared/log-fold";
+import type { AgentSummary, AnswerPermissionRequest, ConfigOption } from "@wombat/shared/api";
+import type { FoldState } from "@wombat/shared/log-fold";
 
 import type { CacheState, Harness } from "../harness/harness.ts";
 import type { AcpAgent } from "./acp-client.ts";
@@ -17,18 +17,7 @@ export type Pending = Pick<PendingPermission, "at"> & {
   respond: (response: RequestPermissionResponse) => void;
 };
 
-/**
- * The summary rows of the agent's open permission requests: the only source of `pendingPermissions`. Title and kind
- * are the fold's; a request whose entry couldn't be stored has none to read and gets `UNKNOWN_PERMISSION`.
- */
-export const pendingPermissions = (proc: Proc | undefined): PendingPermission[] =>
-  [...(proc?.pending ?? [])].map(([requestId, { at }]) => {
-    const { title, kind } = (proc?.fold && permissionOf(proc.fold, requestId)) ?? UNKNOWN_PERMISSION;
-    return { requestId, at, title, kind };
-  });
-
-/** A harness waiting for one of the agent's extension notifications (see `ContextAgent.nextExt`). */
-export type ExtWaiter = { method: string; match: (params: unknown) => boolean; resolve: (params: unknown) => void; reject: (error: Error) => void };
+export const now = () => new Date().toISOString();
 
 /** One agent process, from spawn until it closed. */
 export type Proc = {
@@ -70,15 +59,6 @@ export type Proc = {
   /** The command names of the latest stored main-session command list (`commandsOf`, kept across the fold's restarts). */
   commands: string[] | undefined;
   skipped: number;
-  /** The context report being made, which every request meanwhile shares; cleared once it settles. */
-  contextReport: Promise<ContextBreakdown> | undefined;
-  /**
-   * The agent's config sets, one after another: each is checked against the options the one before it stored, and a
-   * set's answer never mixes with the next one's request.
-   */
-  setting: Promise<void>;
   /** The prompt cache as the harness last reported it (`AgentSummary.cache`); in memory only. */
   cache: CacheState | null;
-  /** Harnesses waiting for extension notifications; rejected when the process ends. */
-  extWaiters: Set<ExtWaiter>;
 };

@@ -10,6 +10,7 @@ import type { McpTokens } from "./mcp-tokens.ts";
 import { isClosed, next, STARTING, type AgentPhase } from "./phase.ts";
 import type { Proc } from "./proc.ts";
 import type { createScopes } from "./scope.ts";
+import { settleWithin } from "./timeout.ts";
 
 /** How long an agent gets to exit after SIGTERM before its process group is killed. */
 const KILL_GRACE_MS = 2_000;
@@ -23,13 +24,6 @@ const killGroup = (pid: number | undefined, signal: NodeJS.Signals) => {
   } catch {
     // The group is gone already.
   }
-};
-
-/** Waits for `promise`, but no longer than `ms`: it goes on in the background. */
-const settleWithin = async (promise: Promise<void>, ms: number) => {
-  let timer: NodeJS.Timeout | undefined;
-  await Promise.race([promise, new Promise<void>((resolve) => (timer = setTimeout(resolve, ms)))]);
-  clearTimeout(timer);
 };
 
 export const startFailure = (error: unknown, harness: Harness, proc: Proc) => {
@@ -117,10 +111,7 @@ export const createAgentProcess = ({ env, log, scopes, readInstructions, mcpServ
       config: undefined,
       commands: undefined,
       skipped: 0,
-      contextReport: undefined,
-      setting: Promise.resolve(),
       cache: null,
-      extWaiters: new Set(),
     };
 
     const finish = (code: number | null, signal: NodeJS.Signals | null) => {
@@ -199,3 +190,5 @@ export const createAgentProcess = ({ env, log, scopes, readInstructions, mcpServ
 
   return { spawnAgent, terminate, sessionExtra, procOf, hasProcess, isCurrent, liveProcs };
 };
+
+export type AgentProcess = ReturnType<typeof createAgentProcess>;

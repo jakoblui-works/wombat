@@ -7,7 +7,8 @@ import type { NewLogEntry, Store } from "../store/store.ts";
 import { readBranch } from "./branch.ts";
 import { excerpt, keepForExcerpt } from "./excerpt.ts";
 import { stateOnClose, writesTurnEndOnClose, type AgentPhase } from "./phase.ts";
-import { pendingPermissions, type Proc } from "./proc.ts";
+import { pendingPermissions } from "./permissions.ts";
+import { now, type Proc } from "./proc.ts";
 
 /** A change committed to the store, told to listeners (the alert stream) once it can be read. */
 type WithoutDbId<T> = T extends unknown ? Omit<T, "dbId"> : never;
@@ -15,8 +16,6 @@ export type Committed = WithoutDbId<Alert>;
 
 type ErrorDetail = ErrorBody["error"];
 export type StateDetails = { error?: ErrorDetail; lastUserAt?: string };
-
-export const now = () => new Date().toISOString();
 
 export type AgentRecordDeps = {
   store: Store;
