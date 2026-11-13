@@ -13,7 +13,7 @@ export const ResizeHandle = ({ label, onDrag }: { label: string; onDrag: (dx: nu
       role="separator"
       aria-orientation="vertical"
       aria-label={label}
-      className="relative z-10 w-px shrink-0 cursor-col-resize bg-line transition-colors after:absolute after:inset-y-0 after:-left-1 after:w-3 hover:bg-line-strong"
+      className="relative z-10 w-px shrink-0 bg-line transition-colors after:absolute after:inset-y-0 after:-left-1 after:w-3 hover:bg-line-strong"
       onPointerDown={start}
       onPointerMove={move}
     />

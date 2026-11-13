@@ -57,7 +57,7 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "flex cursor-default items-center gap-2 rounded-md py-1.5 pr-2 pl-2 text-base outline-none select-none data-highlighted:bg-surface-3",
+        "flex items-center gap-2 rounded-md py-1.5 pr-2 pl-2 text-base outline-none select-none data-highlighted:bg-surface-3",
         className
       )}
       {...props}

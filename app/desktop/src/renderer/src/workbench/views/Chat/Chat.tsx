@@ -57,8 +57,11 @@ const STOP_REASONS: Readonly<Record<string, string>> = {
   refusal: "The agent refused to go on.",
 };
 
-/** Whether a block renders nothing (a turn that ended without a reason worth saying): there is nothing to animate. */
-const showsNothing = (block: ChatBlock): boolean => block.kind === "item" && block.item.kind === "turn_end" && STOP_REASONS[block.item.stopReason] === undefined;
+/** What a turn's end says, or undefined for one that ended without a reason worth saying (it renders nothing). */
+const turnEndText = (item: { stopReason: string }): string | undefined => STOP_REASONS[item.stopReason];
+
+/** Whether a block renders nothing: there is nothing to animate. */
+const showsNothing = (block: ChatBlock): boolean => block.kind === "item" && block.item.kind === "turn_end" && turnEndText(block.item) === undefined;
 
 /** A sub-agent's item (another ACP session), marked apart from the agent's own. */
 const SubAgent = ({ children }: { children: ReactNode }) => (
@@ -89,7 +92,7 @@ const StaticItemView = ({ item }: { item: StaticItem }): ReactNode => {
     case "reasoning":
       return <Reasoning text={item.text} />;
     case "turn_end": {
-      const said = STOP_REASONS[item.stopReason];
+      const said = turnEndText(item);
       return said === undefined ? null : <p className="text-sm text-fg-tertiary">{said}</p>;
     }
     case "unreadable":

@@ -51,7 +51,7 @@ export const SelectList = ({ option, onPick }: { option: SelectConfig; onPick: (
         aria-selected={current}
         onClick={() => pick(value)}
         onPointerEnter={() => setHighlighted(value)}
-        className={cn("flex w-full items-start gap-2 rounded-md px-2 py-1.5 cursor-default text-left", (value === active || current) && "bg-surface-3")}
+        className={cn("flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left", (value === active || current) && "bg-surface-3")}
       >
         <span className="min-w-0 flex-1">
           <span className="block text-sm text-fg-primary">{name}</span>

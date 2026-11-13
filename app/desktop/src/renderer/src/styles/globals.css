@@ -219,3 +219,36 @@
     scrollbar-color: var(--line-strong) transparent;
   }
 }
+
+@layer base {
+  /*
+   * The cursor rule, VS Code style, written once here (components set no cursor-* classes unless this can't reach them):
+   * pointer on buttons, tabs, rows and links; default on menu items, title-bar menus, the drag strip and empty chrome;
+   * text on inputs and selectable text; not-allowed on disabled controls; col-/row-resize on dockview's sashes and
+   * grabbing on a dragged tab (dockview-theme.css, which must beat dockview's own rules). Every group but the disabled
+   * one is wrapped in :where() (no specificity), so the disabled group wins whatever the element's role.
+   */
+  :where(button, [role="button"], [role="tab"], [role="link"], a[href], summary, select, [role="checkbox"], [role="switch"], [role="radio"]) {
+    cursor: pointer;
+  }
+  :where([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="menubar"], [role="menu"], [role="listbox"]) {
+    cursor: default;
+  }
+  :where(input:not([type="button"], [type="submit"], [type="checkbox"], [type="radio"], [type="range"]), textarea, [contenteditable]:not([contenteditable="false"])) {
+    cursor: text;
+  }
+  /* The workbench's own resize handle (dockview's sashes are in dockview-theme.css). */
+  :where([role="separator"][aria-orientation="vertical"]) {
+    cursor: col-resize;
+  }
+  /* The drag strip (Tailwind's `[app-region:drag]` class) is chrome: an arrow, and its text isn't selectable. */
+  :where(.\[app-region\:drag\]) {
+    cursor: default;
+    user-select: none;
+  }
+  :disabled,
+  [aria-disabled="true"],
+  [data-disabled]:not([data-disabled="false"]) {
+    cursor: not-allowed;
+  }
+}

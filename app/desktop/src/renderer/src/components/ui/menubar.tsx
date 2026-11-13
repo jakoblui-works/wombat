@@ -17,7 +17,7 @@ function MenubarTrigger({ className, ...props }: MenuPrimitive.Trigger.Props) {
     <MenuPrimitive.Trigger
       data-slot="menubar-trigger"
       className={cn(
-        "focus-ring flex h-7 cursor-default items-center rounded-md px-2 text-sm text-fg-secondary outline-none select-none hover:bg-surface-2 hover:text-fg-primary data-popup-open:bg-surface-3 data-popup-open:text-fg-primary",
+        "focus-ring flex h-7 items-center rounded-md px-2 text-sm text-fg-secondary outline-none select-none hover:bg-surface-2 hover:text-fg-primary data-popup-open:bg-surface-3 data-popup-open:text-fg-primary",
         className
       )}
       {...props}
@@ -55,7 +55,7 @@ function MenubarItem({ className, ...props }: MenuPrimitive.Item.Props) {
     <MenuPrimitive.Item
       data-slot="menubar-item"
       className={cn(
-        "flex cursor-default items-center gap-6 rounded-md px-2 py-1.5 text-base text-fg-primary outline-none select-none data-highlighted:bg-surface-3 data-disabled:pointer-events-none data-disabled:opacity-50",
+        "flex items-center gap-6 rounded-md px-2 py-1.5 text-base text-fg-primary outline-none select-none data-highlighted:bg-surface-3 data-disabled:opacity-50",
         className
       )}
       {...props}

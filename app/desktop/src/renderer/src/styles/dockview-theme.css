@@ -74,3 +74,23 @@
 .dockview-theme-wombat .dv-split-view-container.dv-animation .dv-sash {
   transition: none;
 }
+
+/*
+ * The cursor rule (globals.css) for dockview's parts, whose own stylesheet is unlayered and so beats the base layer:
+ * sashes resize across and keep their direction at their limits, the tab strip's empty area is empty chrome, and a
+ * pressed or dragged tab grabs.
+ */
+.dockview-theme-wombat .dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash:is(.dv-enabled, .dv-minimum, .dv-maximum) {
+  cursor: col-resize;
+}
+.dockview-theme-wombat .dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash:is(.dv-enabled, .dv-minimum, .dv-maximum) {
+  cursor: row-resize;
+}
+.dockview-theme-wombat .dv-tabs-and-actions-container .dv-void-container.dv-draggable {
+  cursor: default;
+}
+.dockview-theme-wombat .dv-tab:active,
+.dockview-theme-wombat .dv-tab.dv-tab--dragging,
+.dockview-theme-wombat .dv-tab.dv-tab-dragging {
+  cursor: grabbing;
+}
