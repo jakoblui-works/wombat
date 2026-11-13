@@ -1,4 +1,4 @@
-import { type AgentSummary, agentRunning, HARNESS_FEATURE, isRunning } from "@wombat/shared/api";
+import { type AgentSummary, HARNESS_FEATURE, hasProcess, isRunning } from "@wombat/shared/api";
 import { useEffect, useRef } from "react";
 
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../../../../components/ui/dialog";
@@ -34,7 +34,7 @@ export const ContextDialogHost = ({ agent, features, featuresError, refetchFeatu
   useEffect(() => {
     const finished = wasRunning.current && !running;
     wasRunning.current = running;
-    if (finished && open && supported && busy && agentRunning(agent)) mutate(agent.id);
+    if (finished && open && supported && busy && hasProcess(agent)) mutate(agent.id);
   }, [running, open, supported, busy, agent, mutate]);
   const message =
     supported === false

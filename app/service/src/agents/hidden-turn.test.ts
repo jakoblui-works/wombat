@@ -84,7 +84,8 @@ test(
     expect(t.agent(id)).toMatchObject({ state: "done", hasProcess: true });
     const added = t.entries(id).slice(entries.length);
     expect(added.length, "control: the resume stored the options it answered").toBeGreaterThan(0);
-    expect(added.filter((entry) => !(entry.type === "session_update" && entry.update.sessionUpdate === "config_option_update"))).toEqual([]);
+    const setAside = new Set(["config_option_update", "available_commands_update"]);
+    expect(added.filter((entry) => !(entry.type === "session_update" && setAside.has(entry.update.sessionUpdate)))).toEqual([]);
     expect(t.entries(id).slice(0, entries.length)).toEqual(entries);
   },
   TEST_TIMEOUT_MS,
@@ -131,16 +132,17 @@ describe("T13-3: a hidden turn never starts beside another turn", () => {
   );
 
   test(
-    "a second /context while one runs is busy",
+    "a second /context while one runs gets the same report",
     async () => {
       const t = setup();
       const id = await started(t, "fake-hang");
       const held = await heldContext(t, id);
 
-      expect(await refusal(t.manager.contextBreakdown(id))).toMatchObject({ code: "busy" });
+      const second = t.manager.contextBreakdown(id);
 
       held.release();
       expect(await held.breakdown).toEqual(FAKE_BREAKDOWN);
+      expect(await second).toEqual(FAKE_BREAKDOWN);
     },
     TEST_TIMEOUT_MS,
   );

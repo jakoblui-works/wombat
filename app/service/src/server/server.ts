@@ -146,7 +146,7 @@ export const startServer = async ({
   let boundPort = 0;
   const alerts = createAlertStreams({ onCommitted: manager.onCommitted, dbId: store.dbId, heartbeatMs });
   const app = new Hono();
-  /** A stored summary with the agent's live cache state, which is never stored (D19); the only place it is added. */
+  /** A stored summary with the agent's live cache state, which is never stored; the only place it is added. */
   const withLiveCache = (agent: AgentSummary): AgentSummary => {
     const cache = manager.liveCache(agent.id);
     return cache === undefined ? agent : { ...agent, cache };

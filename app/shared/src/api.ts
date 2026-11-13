@@ -135,8 +135,8 @@ export type RepoErrorCode = z.infer<typeof RepoErrorCode>;
  * - `not_found`: no agent with that id (any `/agents/:id` route), or no open permission request with that id
  *   (`POST /agents/:id/permissions/:requestId`). The app refetches the agents or the log.
  * - `busy`: `POST /agents/:id/messages` while a turn runs. The app waits for the turn to end, or cancels it.
- * - `not_running`: a command to a stopped or exited agent, or to a service shutting down. The app offers a new
- *   agent; the history stays readable.
+ * - `not_running`: a command to an agent without a process whose harness can't resume it, or to a service shutting
+ *   down. The app offers a new agent; the history stays readable.
  * - `kind_not_offered`: a permission answer the agent didn't offer. The app answers with an offered kind.
  * - `unknown_harness` and the RepoErrorCode codes: `POST /agents` with a harness or repo that doesn't exist.
  * - `auth_required`: `POST /agents` when the harness needs a login. The app tells the user to log in.
@@ -337,17 +337,16 @@ export const isWaiting = (agent: Pick<AgentSummary, "state"> | undefined): boole
 export const isRunning = (agent: Pick<AgentSummary, "state"> | undefined): boolean => agent?.state === "working" || agent?.state === "waiting";
 
 /**
+ * Whether the agent's process runs, so it can take a message or a setting and a stop ends it (not "busy", which is
+ * `isRunning`). False for stopped, exited and crashed agents, and for every agent a restarted service loads.
+ */
+export const hasProcess = (agent: Pick<AgentSummary, "hasProcess">): boolean => agent.hasProcess;
+
+/**
  * The agents whose process runs (`hasProcess`, done ones too): the ones a stop or a quit ends. The one rule for the
  * quit, stop and restart questions, the "still running" notification and the status bar.
  */
-export const agentsWithProcess = <T extends Pick<AgentSummary, "hasProcess">>(agents: readonly T[]): T[] => agents.filter((agent) => agent.hasProcess);
-
-/**
- * Whether the agent's process runs, so it can take a message or a setting (not "busy", which is `isRunning`): the one
- * rule behind a stopped agent's composer and footer. False for stopped, exited and crashed agents, and for every agent
- * a restarted service loads.
- */
-export const agentRunning = (agent: Pick<AgentSummary, "hasProcess">): boolean => agent.hasProcess;
+export const agentsWithProcess = <T extends Pick<AgentSummary, "hasProcess">>(agents: readonly T[]): T[] => agents.filter(hasProcess);
 
 /**
  * What a chat may do with its agent: `running` (it has a process), `resumable` (it hasn't, and its harness offers
@@ -358,7 +357,7 @@ export type ChatAccess = "running" | "resumable" | "closed";
 
 /** The chat's access (ChatAccess) from its agent and its harness's `features`: the one rule behind its composer and footer. */
 export const chatAccess = (agent: Pick<AgentSummary, "hasProcess">, features: readonly string[]): ChatAccess =>
-  agentRunning(agent) ? "running" : features.includes(HARNESS_FEATURE.resume) ? "resumable" : "closed";
+  hasProcess(agent) ? "running" : features.includes(HARNESS_FEATURE.resume) ? "resumable" : "closed";
 
 /** "1 agent", "2 agents": how many agents, wherever the app counts them. */
 export const agentCountLabel = (count: number): string => `${String(count)} ${count === 1 ? "agent" : "agents"}`;
@@ -469,26 +468,29 @@ const KNOWN_CONFIG_TYPES = new Set<unknown>(["select", "boolean"]);
 
 /**
  * One of the agent's settings (ACP v1 `SessionConfigOption`): a select (flat values or groups), a boolean, or a type
- * newer than this app, kept with its id, name and value so the app can show it read-only.
+ * newer than this app, kept with every field the agent sent (the app shows its name and value read-only).
  */
-export const ConfigOption = nullsAbsent(
+const knownConfigOptions = [
+  z.object({
+    ...configOptionFields,
+    type: z.literal("select"),
+    currentValue: z.string(),
+    options: z.union([z.array(SelectOption), z.array(SelectGroup)]),
+  }),
+  z.object({ ...configOptionFields, type: z.literal("boolean"), currentValue: z.boolean() }),
+] as const;
+const unknownConfigOptionFields = {
+  ...configOptionFields,
+  type: z.string().refine((type) => !KNOWN_CONFIG_TYPES.has(type)),
+  currentValue: z.unknown().exactOptional(),
+};
+export type ConfigOption = z.infer<z.ZodUnion<[...typeof knownConfigOptions, z.ZodObject<typeof unknownConfigOptionFields>]>>;
+// The type leaves out the fields an unknown type keeps: with them typed, `"options" in option` no longer tells a
+// select apart.
+export const ConfigOption: z.ZodType<ConfigOption> = nullsAbsent(
   ["description", "category"],
-  z.union([
-    z.object({
-      ...configOptionFields,
-      type: z.literal("select"),
-      currentValue: z.string(),
-      options: z.union([z.array(SelectOption), z.array(SelectGroup)]),
-    }),
-    z.object({ ...configOptionFields, type: z.literal("boolean"), currentValue: z.boolean() }),
-    z.object({
-      ...configOptionFields,
-      type: z.string().refine((type) => !KNOWN_CONFIG_TYPES.has(type)),
-      currentValue: z.unknown().exactOptional(),
-    }),
-  ]),
+  z.union([...knownConfigOptions, z.looseObject(unknownConfigOptionFields)]),
 );
-export type ConfigOption = z.infer<typeof ConfigOption>;
 
 type SelectConfigOption = Extract<ConfigOption, { type: "select" }>;
 type SelectValue = z.infer<typeof SelectOption>;
@@ -504,6 +506,9 @@ export const selectValues = (option: Pick<SelectConfigOption, "options">): Selec
  */
 export const optionByCategory = (options: readonly ConfigOption[], category: string): ConfigOption | undefined =>
   options.find((option) => option.category === category);
+
+/** The ACP categories of the options the app gives controls of their own (`optionByCategory`). */
+export const ACP_CATEGORY = { model: "model", thoughtLevel: "thought_level", mode: "mode" } as const;
 
 /**
  * The settings to set again after a resume, in `stored`'s order: each option in both lists whose stored current value

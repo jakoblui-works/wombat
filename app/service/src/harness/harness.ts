@@ -42,6 +42,11 @@ export type Harness = {
    */
   contextBreakdown?: (agent: ContextAgent) => Promise<ContextBreakdown>;
   /**
+   * Optional: the command (without its `/`) the agent must list in its latest `available_commands_update` before
+   * `contextBreakdown` runs; until it does, `POST /agents/:id/context` answers `unsupported`. Without it, no such check.
+   */
+  contextCommand?: string;
+  /**
    * Optional: called for every ACP extension notification the agent sends (any method but `session/update`).
    * `previous` is the agent's current cache state (the manager always passes it; optional so a caller without an
    * agent can ask what a notification alone says): the harness object is shared by every agent and keeps no state.

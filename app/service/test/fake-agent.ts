@@ -205,6 +205,12 @@ export const REPLAY_SUB_SUFFIX = ":sub";
 const NOISY_STDERR_MARKER = "stderr-content-must-not-be-logged";
 const SKIPPED_UPDATE_MARKER = "thought-content-must-not-be-logged";
 
+/**
+ * The command list every scenario but early-update sends before its `session/new` and `session/resume` answers; the
+ * service runs a context report only for an agent that lists `context`. early-update lists only `review`.
+ */
+export const FAKE_COMMANDS = [{ name: "context", description: "Show the context window's use" }];
+
 /** The title the early-update scenario sends before its `session/new` answer. */
 export const EARLY_TITLE = "Title sent while the session starts";
 
@@ -379,14 +385,19 @@ const run = (scenario: FakeScenario) => {
       if (scenario === "early-update") {
         await send(client, sessionId, { sessionUpdate: "available_commands_update", availableCommands: [{ name: "review", description: "Review the diff" }] });
         await send(client, sessionId, { sessionUpdate: "session_info_update", title: EARLY_TITLE });
+      } else {
+        await send(client, sessionId, { sessionUpdate: "available_commands_update", availableCommands: FAKE_COMMANDS });
       }
       configs.set(sessionId, { model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial });
       return { sessionId, configOptions: fakeConfigOptions({ model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial }) };
     })
-    .onRequest("session/resume", ({ params }) => {
+    .onRequest("session/resume", async ({ params, client }) => {
       if (existsSync(RESUME_REFUSED_FILE)) throw RequestError.internalError(undefined, RESUME_REFUSAL_MESSAGE);
       // A fresh process: whatever session id it is given, it continues at the initial values.
       mcpServers = params.mcpServers;
+      if (scenario !== "early-update") {
+        await send(client, params.sessionId, { sessionUpdate: "available_commands_update", availableCommands: FAKE_COMMANDS });
+      }
       configs.set(params.sessionId, { model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial });
       return { configOptions: fakeConfigOptions({ model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial }) };
     })

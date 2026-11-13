@@ -7,6 +7,7 @@ import {
   PROTOCOL_VERSION,
   type InitializeResponse,
   type McpServer,
+  type NewSessionRequest,
   type PromptResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
@@ -31,6 +32,14 @@ export type SessionExtra = {
    */
   params?: Record<string, unknown>;
 };
+
+/** The params `session/new` and `session/resume` share: the harness's fields first, so they never replace these. */
+const sessionParams = (cwd: string, { mcpServers = [], _meta, params = {} }: SessionExtra = {}): NewSessionRequest => ({
+  ...params,
+  cwd,
+  mcpServers,
+  ...(_meta === undefined ? {} : { _meta }),
+});
 
 /** The client side of ACP for one agent process, over its stdio. */
 export type AcpAgent = {
@@ -89,12 +98,12 @@ export const connectAgent = (child: ChildProcessWithoutNullStreams, handlers: Ag
         clientCapabilities: {},
         clientInfo: { name: "wombat-service", version: "0.0.0" },
       }),
-    newSession: async (cwd, { mcpServers = [], _meta, params = {} } = {}) => {
-      const { sessionId, configOptions } = await agent.request("session/new", { ...params, cwd, mcpServers, ...(_meta === undefined ? {} : { _meta }) });
+    newSession: async (cwd, extra) => {
+      const { sessionId, configOptions } = await agent.request("session/new", sessionParams(cwd, extra));
       return { sessionId, configOptions: configOptions ?? [] };
     },
-    resumeSession: async (sessionId, cwd, { mcpServers = [], _meta, params = {} } = {}) => {
-      const { configOptions } = await agent.request("session/resume", { ...params, sessionId, cwd, mcpServers, ...(_meta === undefined ? {} : { _meta }) });
+    resumeSession: async (sessionId, cwd, extra) => {
+      const { configOptions } = await agent.request("session/resume", { ...sessionParams(cwd, extra), sessionId });
       return { configOptions: configOptions ?? [] };
     },
     prompt: (sessionId, text) => agent.request("session/prompt", { sessionId, prompt: [{ type: "text", text }] }),

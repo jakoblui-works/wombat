@@ -137,7 +137,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
       codeId = codeIdOf(APP_ROOT);
     } catch (error) {
       throw new StartRefused(
-        `The service couldn't hash its source to report which code it runs: ${(error as Error).message}. Check that the file is readable and start the service again.`,
+        `The service couldn't hash its source to report which code it runs: ${(error as Error).message}. Check that the folder or file it names exists and is readable, then start the service again.`,
       );
     }
     const identity = { startedAt, codeId };

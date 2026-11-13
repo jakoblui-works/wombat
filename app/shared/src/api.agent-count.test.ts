@@ -2,7 +2,7 @@
 // the same way.
 import { expect, test } from "vitest";
 
-import { agentCountLabel, agentRunning, agentsWithProcess, chatAccess, HARNESS_FEATURE } from "./api.ts";
+import { agentCountLabel, agentsWithProcess, chatAccess, HARNESS_FEATURE, hasProcess } from "./api.ts";
 
 test("only agents with a process count: a done agent with one does, a working one without one doesn't", () => {
   const agents = [
@@ -20,8 +20,8 @@ test("one agent is singular, any other count plural", () => {
 });
 
 test("an agent is running exactly when it has a process, whatever its state", () => {
-  expect(agentRunning({ hasProcess: true })).toBe(true);
-  expect(agentRunning({ hasProcess: false })).toBe(false);
+  expect(hasProcess({ hasProcess: true })).toBe(true);
+  expect(hasProcess({ hasProcess: false })).toBe(false);
 });
 
 // S2d (T19-13): a chat without a process goes on when its harness resumes, and is closed otherwise.

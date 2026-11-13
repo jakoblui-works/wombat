@@ -1,9 +1,10 @@
 // The commands main runs for the page (window.wombat.command), the app's zoom, and the application menu. The keys are
 // the page's (its command registry); main's menu has no accelerator whose key the page also binds, or one key press
 // would run a command twice.
-import { BrowserWindow, Menu } from "electron";
+import { BrowserWindow, Menu, type WebContents } from "electron";
 import { CHANNELS, isMainCommandId, type MainCommandId } from "../shared/bridge.ts";
 import { type TitleBarOverlay } from "./title-bar.ts";
+import { isUserInput, pageMayRun } from "./user-input.ts";
 import { clampZoom, ZOOM_STEP } from "./zoom.ts";
 
 export type MainCommandDeps = {
@@ -26,11 +27,17 @@ export type MainCommands = {
    * window). The bridge handler and anything else in main run commands only through here.
    */
   runMainCommand: (id: MainCommandId, win: BrowserWindow | undefined) => Promise<void>;
-  /** The bridge's command(): `id` is the page's, so anything outside MAIN_COMMAND_IDS is refused and nothing runs. */
+  /**
+   * The bridge's command(): `id` is the page's, so anything outside MAIN_COMMAND_IDS is refused and nothing runs, and
+   * so is a clipboard command without the user's input to `win` just before (`pageMayRun`).
+   */
   fromPage: (id: unknown, win: BrowserWindow | undefined) => Promise<void>;
   /** The zoom level the windows show. */
   zoomLevel: () => number;
-  /** Applies the app's zoom level to `win` on every load: Chromium resets it when the page loads again. */
+  /**
+   * Applies the app's zoom level to `win` on every load (Chromium resets it when the page loads again), and notes the
+   * user's input to it for `fromPage`.
+   */
   watchWindow: (win: BrowserWindow) => void;
   /** The application menu, or null for none. */
   applicationMenu: () => Menu | null;
@@ -39,6 +46,7 @@ export type MainCommands = {
 export const mainCommands = ({ switchWorkspace, stopService, quit, zoom, titleBarOverlay, log = console.error }: MainCommandDeps): MainCommands => {
   // The level the windows show; the saved one is only for the next start, so a failed save doesn't hold it back.
   let level = zoom.level();
+  const lastInputAt = new WeakMap<WebContents, number>();
   const setZoom = (to: number): void => {
     const next = clampZoom(to);
     level = next;
@@ -99,12 +107,21 @@ export const mainCommands = ({ switchWorkspace, stopService, quit, zoom, titleBa
       if (!isMainCommandId(id)) {
         return Promise.reject(new Error("Wombat's main process has no such command; send one of MAIN_COMMAND_IDS (src/shared/bridge.ts)."));
       }
+      if (!pageMayRun(id, win === undefined ? undefined : lastInputAt.get(win.webContents), Date.now())) {
+        return Promise.reject(
+          new Error("Cut, copy and paste run only right after you click or press a key in the window. Use them from the Edit menu or with their keys."),
+        );
+      }
       return runMainCommand(id, win);
     },
     zoomLevel: () => level,
     watchWindow: (win) => {
-      win.webContents.on("did-finish-load", () => {
-        win.webContents.setZoomLevel(level);
+      const contents = win.webContents;
+      contents.on("input-event", (_event, input) => {
+        if (isUserInput(input.type)) lastInputAt.set(contents, Date.now());
+      });
+      contents.on("did-finish-load", () => {
+        contents.setZoomLevel(level);
         if (titleBarOverlay !== undefined) win.setTitleBarOverlay(titleBarOverlay(level));
       });
     },

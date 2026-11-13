@@ -5,6 +5,7 @@ import { agentCountLabel } from "@wombat/shared/api";
 import { discoveryPath, type DiscoveryFile } from "@wombat/shared/discovery";
 import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent, Menu, Notification, protocol, session, shell, type WebContents } from "electron";
 import { CHANNELS, type ConnectionState, type WorkspaceInfo } from "../shared/bridge.ts";
+import { zoomFactor } from "../shared/zoom-factor.ts";
 import { APP_INDEX_URL, APP_SCHEME, contentType, isAppUrl, isBridgeSender, resolveAppFile } from "./app-protocol.ts";
 import { mainCommands } from "./commands.ts";
 import { readE2eSwitches, recordE2eNotification } from "./e2e-switches.ts";
@@ -140,6 +141,7 @@ const createWindow = async (): Promise<void> => {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      zoomFactor: zoomFactor(commands.zoomLevel()),
     },
   });
   commands.watchWindow(window);

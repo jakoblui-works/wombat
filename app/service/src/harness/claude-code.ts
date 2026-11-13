@@ -72,6 +72,7 @@ export const claudeCode: Harness = {
     return { cache: cacheStateOf(message, previous ?? null) };
   },
   contextBreakdown: (agent) => claudeContextBreakdown(agent),
+  contextCommand: "context",
 };
 
 /** The extension notification claude-agent-acp forwards a raw SDK message as: `{ sessionId, message }`. */
@@ -82,18 +83,21 @@ const CONTEXT_UNREADABLE =
 /** How long `contextBreakdown` waits for Claude's /context report. */
 const CONTEXT_TIMEOUT_MS = 15_000;
 
-/** Why the Claude harness couldn't make a breakdown: `promptAnswered` says whether Claude had answered `/context`. */
-export type ContextFailure = { promptAnswered: boolean; reason: "timeout" | "unreadable"; fields?: string[] };
+/**
+ * Why the Claude harness couldn't make a breakdown: `promptAnswered` says whether Claude had answered `/context`,
+ * `timeoutMs` how long it was waited for (default CONTEXT_TIMEOUT_MS).
+ */
+export type ContextFailure = { promptAnswered: boolean; reason: "timeout" | "unreadable"; fields?: string[]; timeoutMs?: number };
 
 /**
  * The message of every error the Claude harness throws for a breakdown, with the step that fixes it: a `/context`
  * still unanswered at the timeout is a busy agent (the manager cancels the prompt), so try again once it is idle; an
  * answer without a report, or a report this app can't read, is a claude-agent-acp this app doesn't read, so update it.
  */
-export const contextFailureMessage = ({ promptAnswered, reason, fields = [] }: ContextFailure): string => {
+export const contextFailureMessage = ({ promptAnswered, reason, fields = [], timeoutMs = CONTEXT_TIMEOUT_MS }: ContextFailure): string => {
   if (reason === "timeout" && !promptAnswered) {
     return (
-      `The agent didn't answer /context within ${CONTEXT_TIMEOUT_MS / 1000} s; it was cancelled. ` +
+      `The agent didn't answer /context within ${timeoutMs / 1000} s; it was cancelled. ` +
       "Try again once it is idle, or stop the agent if it stays busy."
     );
   }
@@ -113,7 +117,7 @@ export const claudeContextBreakdown = async (
 ): Promise<ContextBreakdown> => {
   let promptAnswered = false;
   const report = nextExt(SDK_MESSAGE, (params) => contextUsage(params) !== undefined, timeoutMs).catch(() => {
-    throw new Error(contextFailureMessage({ promptAnswered, reason: "timeout" }));
+    throw new Error(contextFailureMessage({ promptAnswered, reason: "timeout", timeoutMs }));
   });
   const answered = prompt("/context").then((answer) => {
     promptAnswered = true;
@@ -131,8 +135,19 @@ const field = (value: unknown, key: string): unknown =>
 const contextUsage = (params: unknown): unknown => field(field(params, "message"), "context_usage");
 
 // Claude's SDKContextUsage (@anthropic-ai/claude-agent-sdk), read leniently: fields this app doesn't know are dropped,
-// a missing list is an empty one (`skills` is left out when empty).
-const row = <T extends z.ZodRawShape>(shape: T) => z.array(z.looseObject(shape)).catch([]);
+// a missing list is an empty one (`skills` is left out when empty), and a row that doesn't read is dropped alone.
+const row = <T extends z.ZodRawShape>(shape: T) => {
+  const one = z.looseObject(shape);
+  return z
+    .array(z.unknown())
+    .catch([])
+    .transform((rows) =>
+      rows.flatMap((value) => {
+        const parsed = one.safeParse(value);
+        return parsed.success ? [parsed.data] : [];
+      }),
+    );
+};
 const ClaudeContextUsage = z.looseObject({
   model: z.string(),
   total_tokens: z.number(),

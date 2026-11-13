@@ -47,6 +47,7 @@ export const fakeHarness = (
   if (!context) return base;
   return {
     ...base,
+    contextCommand: "context",
     contextBreakdown: async ({ prompt, nextExt }) => {
       // Waiting before prompting: the report arrives before the prompt's answer. Whichever fails first is the answer:
       // a failed prompt never sends the report, and a report that never comes is given up on while the prompt may

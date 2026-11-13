@@ -133,7 +133,7 @@ const rows: Row[] = [
       // A round trip after the prompt: by now the agent has the prompt and must still be holding it.
       await run.newSession(cwd);
       expect(await isSettled(prompt)).toBe(false);
-      expect(updatesOf(run)).toEqual([]);
+      expect(updatesOf(run).filter((update) => update.sessionUpdate !== "available_commands_update")).toEqual([]);
 
       await run.agent.notify("session/cancel", { sessionId });
       expect((await prompt).stopReason).toBe("cancelled");

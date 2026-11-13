@@ -10,6 +10,10 @@ import { chunkTexts, isAlive, REPO, setup, TEST_TIMEOUT_MS, waitFor } from "../.
 const withoutConfig = (entries: LogEntry[]) =>
   entries.filter((entry) => !(entry.type === "session_update" && entry.update.sessionUpdate === "config_option_update"));
 
+/** `withoutConfig`, and without the command list the fake agent sends as its session starts. */
+const withoutConfigOrCommands = (entries: LogEntry[]) =>
+  withoutConfig(entries).filter((entry) => !(entry.type === "session_update" && entry.update.sessionUpdate === "available_commands_update"));
+
 const isZ = (timestamp: string) => timestamp.endsWith("Z") && new Date(timestamp).toISOString() === timestamp;
 
 describe("turns", () => {
@@ -35,7 +39,7 @@ describe("turns", () => {
 
       const entries = t.entries(started.id);
       for (const entry of entries) expect(LogEntry.parse(entry)).toEqual(entry);
-      expect(withoutConfig(entries)[0]).toMatchObject({ type: "user_message", text: "Say hello", commandId: "cmd_1", seq });
+      expect(withoutConfigOrCommands(entries)[0]).toMatchObject({ type: "user_message", text: "Say hello", commandId: "cmd_1", seq });
       expect(chunkTexts(entries).length).toBeGreaterThan(0);
       expect(chunkTexts(entries).every((text) => text !== "")).toBe(true);
       expect(entries.at(-1)?.type).toBe("turn_ended");
@@ -116,7 +120,7 @@ describe("turns", () => {
       await t.manager.send(id, { text: "Plan it first" });
       expect((await t.turnEnded(id)).stopReason).toBe("end_turn");
 
-      const updates = withoutConfig(t.entries(id)).flatMap((entry) => (entry.type === "session_update" ? [entry.update] : []));
+      const updates = withoutConfigOrCommands(t.entries(id)).flatMap((entry) => (entry.type === "session_update" ? [entry.update] : []));
       expect(updates).toEqual([
         { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Weighing where the footer link lives." } },
         {

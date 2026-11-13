@@ -77,6 +77,8 @@ export type FoldState = {
   plan?: PlanEntry[];
   /** The latest main-session `config_option_update`'s options. */
   config?: ConfigOption[];
+  /** The command names of the latest main-session `available_commands_update`. */
+  commands?: string[];
   /** The latest main-session `usage_update`, without its kind. */
   usage?: Usage;
   /** The main session's latest chunk or tool call since the last user message; what `activityOf` reads. */
@@ -228,6 +230,9 @@ const foldUpdate = (state: FoldState, entry: Extract<LogEntry, { type: "session_
     case "config_option_update":
       if (session === undefined) state.config = update.configOptions;
       return;
+    case "available_commands_update":
+      if (session === undefined) state.commands = update.availableCommands.map((command) => command.name);
+      return;
     case "usage_update":
       if (session === undefined) state.usage = { used: update.used, size: update.size, ...(update.cost === undefined ? {} : { cost: update.cost }) };
       return;
@@ -250,8 +255,8 @@ const foldUpdate = (state: FoldState, entry: Extract<LogEntry, { type: "session_
  *    without a sessionId belongs to the main session.
  * 4. A tool call or update: a present field replaces, a null one clears (title to `""`, kind to `"other"`, the others
  *    removed or emptied). An update for an unknown call places the tool item where it stands.
- * 5. Only main-session updates set `config`, `usage` and `latest`; a user message clears `latest` (a new turn starts
- *    from scratch) but keeps `config` and `usage`.
+ * 5. Only main-session updates set `config`, `commands`, `usage` and `latest`; a user message clears `latest` (a new
+ *    turn starts from scratch) but keeps `config`, `commands` and `usage`.
  *
  * `keepText(kept, chunk)` decides what a text item keeps, from its first chunk on (a new item holds
  * `keepText("", chunk)`); it may only drop text, never reorder it. A chunk that starts an item places it even when its
@@ -351,6 +356,9 @@ export const sameActivity = (a: Activity | null, b: Activity | null): boolean =>
  * message doesn't clear them). A sub-agent's never replace them. Undefined before the first.
  */
 export const configOf = (state: FoldState): ConfigOption[] | undefined => state.config;
+
+/** The commands the agent offers now: the latest main-session `available_commands_update`'s names. Undefined before the first. */
+export const commandsOf = (state: FoldState): string[] | undefined => state.commands;
 
 /** The agent's context use now: the latest main-session `usage_update`, kept across turns. Undefined before the first. */
 export const usageOf = (state: FoldState): Usage | undefined => state.usage;
