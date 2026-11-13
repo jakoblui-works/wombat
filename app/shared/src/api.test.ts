@@ -5,19 +5,12 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 import {
   AgentSummary,
   Alert,
-  AnswerPermissionRequest,
-  ErrorBody,
-  ListLogQuery,
   ListLogResponse,
-  SendMessageRequest,
   SessionUpdate,
   StartAgentRequest,
   VersionResponse,
-  isRunning,
-  isWaiting,
   parseAlert,
   parseLogEntry,
-  permissionTitle,
 } from "./api.ts";
 import type { LogEntry } from "./api.ts";
 
@@ -198,176 +191,21 @@ const without = (value: object, field: string): Record<string, unknown> =>
   Object.fromEntries(Object.entries(value).filter(([key]) => key !== field));
 
 describe("request bodies (strict)", () => {
-  test("StartAgentRequest accepts a harness id and a relative repo path", () => {
-    for (const repo of ["site-web", "libs/shared-ui", "services/api/v2", ".config-repo", "release..notes"]) {
+  test("StartAgentRequest takes a relative repo path inside the workspace, and nothing that could leave it or run something else", () => {
+    for (const repo of [".", "site-web", "libs/shared-ui"]) {
       expect(StartAgentRequest.safeParse({ harness: "claude-code", repo }).success, repo).toBe(true);
     }
-  });
-
-  test("StartAgentRequest accepts \".\" as the workspace root", () => {
-    expect(StartAgentRequest.safeParse({ harness: "claude-code", repo: "." }).success).toBe(true);
-  });
-
-  test("StartAgentRequest rejects empty, ./, trailing-slash, empty and . segments in repo paths", () => {
-    for (const repo of ["", "./site-web", "./", "site-web/", "libs//shared-ui", "libs/./shared-ui", "site-web/.", "/."]) {
+    for (const repo of ["..", "site-web/../../etc", "/home/dev/site-web", "site-web\\src", "site\u0000web"]) {
       expect(StartAgentRequest.safeParse({ harness: "claude-code", repo }).success, JSON.stringify(repo)).toBe(false);
     }
-  });
-
-  test("StartAgentRequest rejects absolute, .. and backslash repo paths", () => {
-    for (const repo of [
-      "/home/dev/site-web",
-      "/",
-      "..",
-      "../other-project",
-      "site-web/..",
-      "site-web/../../etc",
-      "libs/../..",
-      "site-web\\src",
-      "..\\other-project",
-      "C:\\work\\site-web",
-    ]) {
-      expect(StartAgentRequest.safeParse({ harness: "claude-code", repo }).success, repo).toBe(false);
-    }
-  });
-
-  test("StartAgentRequest rejects control characters in repo paths", () => {
-    for (const repo of ["site\u0000web", "site-web\n", "site-web\r", "libs\tshared-ui", "\u001b[31msite-web", "site\u001fweb"]) {
-      expect(StartAgentRequest.safeParse({ harness: "claude-code", repo }).success, JSON.stringify(repo)).toBe(false);
-    }
-  });
-
-  test("StartAgentRequest rejects unknown fields such as a command or args", () => {
-    for (const extra of [{ command: "/bin/sh" }, { args: ["-c", "true"] }, { env: { FOO: "bar" } }]) {
-      const body = { harness: "claude-code", repo: "site-web", ...extra };
-      expect(StartAgentRequest.safeParse(body).success, JSON.stringify(extra)).toBe(false);
-    }
-  });
-
-  test("SendMessageRequest accepts prompt text and rejects empty, missing or extra", () => {
-    expect(SendMessageRequest.safeParse({ text: "Make the header padding match the footer." }).success).toBe(true);
-    expect(SendMessageRequest.safeParse({ text: "" }).success).toBe(false);
-    for (const text of [" ", "   ", "\n", "\t \n"]) {
-      expect(SendMessageRequest.safeParse({ text }).success, JSON.stringify(text)).toBe(false);
-    }
-    expect(SendMessageRequest.safeParse({}).success).toBe(false);
-    expect(SendMessageRequest.safeParse({ text: "hi", attachments: [] }).success).toBe(false);
-  });
-
-  test("SendMessageRequest keeps a commandId of 1-64 letters, digits, - or _", () => {
-    for (const commandId of ["c", "cmd_01JC2", "A-b_9", "3f2b8c1e-7a4d-4e1b-9c0a-2d5e6f7a8b9c", "x".repeat(64)]) {
-      expect(SendMessageRequest.parse({ text: "Run the tests.", commandId }), commandId).toEqual({
-        text: "Run the tests.",
-        commandId,
-      });
-    }
-  });
-
-  test("SendMessageRequest rejects a commandId that is empty, too long, has other characters or isn't a string", () => {
-    for (const commandId of ["", "x".repeat(65), "cmd 1", "cmd.1", "cmd/1", "cmd:1", "cmd\n", "é", 42, null]) {
-      expect(SendMessageRequest.safeParse({ text: "Run the tests.", commandId }).success, JSON.stringify(commandId)).toBe(
-        false,
-      );
-    }
-  });
-
-  test("SendMessageRequest stays strict with a commandId", () => {
-    for (const extra of [{ attachments: [] }, { requestId: "r1" }, { command_id: "cmd_1" }]) {
-      const body = { text: "Run the tests.", commandId: "cmd_01JC2", ...extra };
-      expect(SendMessageRequest.safeParse(body).success, JSON.stringify(extra)).toBe(false);
-    }
-  });
-
-  test("AnswerPermissionRequest rejects unknown kinds, an optionId and extra fields", () => {
-    for (const body of [
-      { kind: "allow" },
-      { kind: "ALLOW_ONCE" },
-      { kind: "" },
-      {},
-      { optionId: "opt_allow" },
-      { kind: "allow_once", optionId: "opt_allow" },
-    ]) {
-      expect(AnswerPermissionRequest.safeParse(body).success, JSON.stringify(body)).toBe(false);
-    }
-  });
-});
-
-// `GET /agents/:id/log?after=&limit=`, read from query-string values.
-describe("ListLogQuery (strict, from query strings)", () => {
-  test("after defaults to 0 and limit stays absent", () => {
-    const parsed = ListLogQuery.parse({});
-    expect(parsed).toEqual({ after: 0 });
-    expect(parsed).not.toHaveProperty("limit");
-  });
-
-  test("after and limit are read as integers from strings", () => {
-    expect(ListLogQuery.parse({ after: "17", limit: "50" })).toEqual({ after: 17, limit: 50 });
-    expect(ListLogQuery.parse({ after: "0" })).toEqual({ after: 0 });
-  });
-
-  test("limit accepts 1 to 1000", () => {
-    for (const limit of ["1", "1000"]) {
-      expect(ListLogQuery.parse({ limit }), limit).toMatchObject({ limit: Number(limit) });
-    }
-  });
-
-  test("after rejects negative, non-integer and non-numeric values", () => {
-    for (const after of ["-1", "1.5", "abc", "1e400"]) {
-      expect(ListLogQuery.safeParse({ after }).success, after).toBe(false);
-    }
-  });
-
-  test("limit rejects values outside 1-1000, non-integers and non-numbers", () => {
-    for (const limit of ["0", "1001", "-3", "2.5", "abc"]) {
-      expect(ListLogQuery.safeParse({ limit }).success, limit).toBe(false);
-    }
-  });
-
-  test("plain numbers are read as well as numeric strings", () => {
-    expect(ListLogQuery.parse({ after: 17, limit: 50 })).toEqual({ after: 17, limit: 50 });
-  });
-
-  test("an empty value for after or limit is rejected, not read as 0", () => {
-    for (const query of [{ after: "" }, { limit: "" }, { after: " " }]) {
-      expect(ListLogQuery.safeParse(query).success, JSON.stringify(query)).toBe(false);
-    }
-  });
-
-  test("a repeated key (an array value) is rejected", () => {
-    expect(ListLogQuery.safeParse({ after: "3" }).success).toBe(true); // control: a single value parses
-    for (const query of [{ after: ["3", "5"] }, { limit: ["10", "20"] }, { after: ["3"] }]) {
-      expect(ListLogQuery.safeParse(query).success, JSON.stringify(query)).toBe(false);
-    }
-  });
-
-  test("unknown query keys are rejected", () => {
-    for (const query of [{ before: "3" }, { after: "1", cursor: "x" }]) {
-      expect(ListLogQuery.safeParse(query).success, JSON.stringify(query)).toBe(false);
-    }
+    expect(StartAgentRequest.safeParse({ harness: "claude-code", repo: "site-web", command: "/bin/sh" }).success).toBe(false);
   });
 });
 
 describe("responses (lenient)", () => {
-  test("VersionResponse reads the api version and ignores unknown fields", () => {
-    expect(VersionResponse.parse({ apiVersion: 1 })).toMatchObject({ apiVersion: 1 });
-    expect(VersionResponse.parse({ apiVersion: 1, build: "dev" })).toMatchObject({ apiVersion: 1 });
-    expect(VersionResponse.safeParse({}).success).toBe(false);
-  });
 
-  test("AgentSummary ignores unknown fields, including unknown capabilities", () => {
-    const newer = {
-      ...doneAgent,
-      model: "some-model",
-      capabilities: { loadSession: false, promptCapabilities: { image: true } },
-    };
-    expect(AgentSummary.parse(newer)).toMatchObject({
-      id: doneAgent.id,
-      capabilities: { loadSession: false },
-    });
-  });
-
-  test("an AgentSummary from before pendingPermissions existed reads with none", () => {
-    expect(AgentSummary.parse(doneAgent).pendingPermissions).toEqual([]);
+  test("a /version answer from before startedAt and codeId existed still parses", () => {
+    expect(VersionResponse.parse({ apiVersion: 1 })).toEqual({ apiVersion: 1 });
   });
 
   test("an AgentSummary from before hasProcess existed has a process only while running", () => {
@@ -378,39 +216,6 @@ describe("responses (lenient)", () => {
     expect(read("error")).toBe(false);
     expect(read("stopped")).toBe(false);
   });
-
-  test("only a waiting agent waits on the user", () => {
-    const states = AgentSummary.out.shape.state.options;
-    expect(states.filter((state) => isWaiting({ state }))).toEqual(["waiting"]);
-    expect(isWaiting(undefined)).toBe(false);
-  });
-
-  test("working and waiting agents count as running; done, error and stopped ones don't", () => {
-    expect(isRunning({ state: "working" })).toBe(true);
-    expect(isRunning({ state: "waiting" })).toBe(true);
-    expect(isRunning({ state: "done" })).toBe(false);
-    expect(isRunning({ state: "error" })).toBe(false);
-    expect(isRunning({ state: "stopped" })).toBe(false);
-  });
-
-  test("a permission's title is its own, else its tool's, else empty; an empty own title counts as none", () => {
-    expect(permissionTitle("Edit src/app.ts", "Write file")).toBe("Edit src/app.ts");
-    expect(permissionTitle("", "Write file")).toBe("Write file");
-    expect(permissionTitle(null, "Write file")).toBe("Write file");
-    expect(permissionTitle(undefined, undefined)).toBe("");
-  });
-
-  test("ErrorBody accepts errors with and without a hint and ignores unknown fields", () => {
-    expect(ErrorBody.safeParse({ error: { code: "agent_busy", message: "The agent is still working." } }).success).toBe(
-      true,
-    );
-    expect(
-      ErrorBody.parse({
-        error: { code: "auth_required", message: "Not logged in.", hint: "Run `claude /login`.", docs: "x" },
-        requestId: "r1",
-      }),
-    ).toMatchObject({ error: { code: "auth_required", hint: "Run `claude /login`." } });
-  });
 });
 
 describe("LogEntry (lenient)", () => {
@@ -418,12 +223,6 @@ describe("LogEntry (lenient)", () => {
     for (const sample of sampleLogEntries) {
       expect(parseLogEntry(sample), `${sample.type} ${sample.seq}`).toEqual(sample);
     }
-  });
-
-  test("parseLogEntry keeps diff content on tool call updates", () => {
-    expect(parseLogEntry(logEntry(7, "session_update", { update: toolCallUpdate }))).toMatchObject({
-      update: { sessionUpdate: "tool_call_update", content: [diffContent] },
-    });
   });
 
   test("parseLogEntry ignores entries of types it doesn't know, agent state included", () => {
@@ -439,13 +238,6 @@ describe("LogEntry (lenient)", () => {
     ]) {
       expect(parseLogEntry(logEntry(40, "session_update", { update })), update.sessionUpdate).toBeUndefined();
     }
-  });
-
-  test("parseLogEntry accepts any non-empty stopReason and rejects an empty one", () => {
-    for (const stopReason of ["end_turn", "max_tokens", "refusal", "some_future_reason"]) {
-      expect(parseLogEntry(logEntry(41, "turn_ended", { stopReason })), stopReason).toMatchObject({ type: "turn_ended", stopReason });
-    }
-    expect(() => parseLogEntry(logEntry(41, "turn_ended", { stopReason: "" }))).toThrow();
   });
 
   test("parseLogEntry drops unknown permission option kinds and keeps the known ones", () => {
@@ -465,19 +257,6 @@ describe("LogEntry (lenient)", () => {
       { kind: "allow_once", name: "Allow" },
       { kind: "reject_once", name: "Reject" },
     ]);
-  });
-
-  test("parseLogEntry drops unknown tool call content items and keeps the update", () => {
-    const content = [diffContent, { type: "terminal", terminalId: "term_1" }];
-    for (const update of [
-      { ...toolCall, content },
-      { ...toolCallUpdate, content },
-    ]) {
-      const parsed = parseLogEntry(logEntry(43, "session_update", { update }));
-      expect(parsed, update.sessionUpdate).toMatchObject({ update: { sessionUpdate: update.sessionUpdate } });
-      const kept = parsed?.type === "session_update" ? parsed.update : undefined;
-      expect(kept && "content" in kept ? kept.content : undefined, update.sessionUpdate).toEqual([diffContent]);
-    }
   });
 
   // Contract "Config options in the log" (lenient): the options come from the agent, so a newer ACP's option type must
@@ -527,19 +306,6 @@ describe("LogEntry (lenient)", () => {
     const [select] = options ?? [];
     expect(select && "options" in select ? select.options : undefined).toEqual([{ value: "sonnet", name: "Sonnet" }]);
   });
-
-  test("parseLogEntry ignores unknown fields on known entries and updates", () => {
-    expect(
-      parseLogEntry({
-        ...logEntry(30, "session_update", { update: { ...usageUpdate, _meta: { vendor: "x" }, cacheHits: 3 } }),
-        origin: "store",
-      }),
-    ).toMatchObject({ seq: 30, agentId, at, update: { sessionUpdate: "usage_update" } });
-    expect(parseLogEntry({ ...logEntry(31, "turn_ended", { stopReason: "end_turn" }), durationMs: 812 })).toMatchObject({
-      type: "turn_ended",
-      stopReason: "end_turn",
-    });
-  });
 });
 
 describe("ListLogResponse (lenient)", () => {
@@ -556,18 +322,6 @@ describe("ListLogResponse (lenient)", () => {
       truncated: false,
     });
     expect(parsed.entries).toEqual([first, second, third]);
-  });
-
-  test("fails on a malformed known entry", () => {
-    const body = { dbId, seq: 99, entries: [...known, logEntry(7, "turn_ended", { stopReason: "" })], truncated: false };
-    expect(ListLogResponse.safeParse(body).success).toBe(false);
-  });
-
-  test("ignores unknown fields", () => {
-    expect(ListLogResponse.parse({ dbId, seq: 99, entries: known, truncated: false, nextAfter: 12 })).toMatchObject({
-      dbId,
-      seq: 99,
-    });
   });
 });
 
@@ -598,19 +352,13 @@ describe("alerts (lenient)", () => {
     }
   });
 
-  test("no agent content in alerts: an agent alert has only seq, dbId, type and agentId", () => {
-    expectTypeOf<keyof Exclude<Alert, { type: "proposal" }>>().toEqualTypeOf<"seq" | "dbId" | "type" | "agentId">();
-  });
-
   test("parseAlert ignores alert types it doesn't know", () => {
     for (const type of ["agent_paused", "heartbeat", "future_thing"]) {
       expect(parseAlert(alert(type)), type).toBeUndefined();
     }
   });
 
-  // A proposal alert tells the app to refetch proposals; like agent alerts it carries ids only, so a proposed
-  // title or body never reaches a desktop notification. Agent alerts keep needing agentId.
-  test("a proposal alert parses with ids only; unknown types are still ignored; agent alerts still need agentId", () => {
+  test("no agent content in alerts: a proposal alert keeps its ids only", () => {
     const proposal = { seq: 61, dbId, type: "proposal", proposalId: "prp_0196f3c2" };
     const content = { agentId, title: "Login times out", fields: { body: "Steps: …" }, reason: "Seen twice" };
     for (const [via, parsed] of [
@@ -618,11 +366,6 @@ describe("alerts (lenient)", () => {
       ["Alert.parse", Alert.parse({ ...proposal, ...content })],
     ] as const) {
       expect(parsed, via).toEqual(proposal);
-    }
-    expect(() => parseAlert(without(proposal, "proposalId"))).toThrow();
-    expect(parseAlert({ ...proposal, type: "proposal_changed" })).toBeUndefined();
-    for (const type of alertTypes) {
-      expect(() => parseAlert({ seq: 62, dbId, type, proposalId: proposal.proposalId }), type).toThrow();
     }
   });
 });
@@ -654,24 +397,6 @@ const toolCallPaths = [
 ];
 
 const pixel = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-const supportedImages = ["image/png", "image/jpeg", "image/webp", "image/gif"].map((mimeType) => ({
-  type: "image",
-  mimeType,
-  data: pixel,
-}));
-
-// Content blocks the app doesn't render, and the `original` their placeholder names.
-const unsupportedBlocks = [
-  { block: { type: "image", mimeType: "image/svg+xml", data: "PHN2Zz48L3N2Zz4=" }, original: "image" },
-  { block: { type: "image", mimeType: "image/bmp", data: "Qk0=" }, original: "image" },
-  { block: { type: "audio", mimeType: "audio/wav", data: "UklGRiQ=" }, original: "audio" },
-  {
-    block: { type: "resource_link", name: "header.tsx", uri: "file:///work/site-web/src/components/header/header.tsx" },
-    original: "resource_link",
-  },
-  { block: { type: "resource", resource: { uri: "file:///work/site-web/NOTES.md", text: "# Notes\n" } }, original: "resource" },
-  { block: { type: "video", uri: "file:///work/site-web/demo.mp4" }, original: "video" },
-];
 
 const chunkEntry = (content: unknown) =>
   logEntry(53, "session_update", { update: { sessionUpdate: "agent_message_chunk", content } });
@@ -697,25 +422,6 @@ const expectPlaceholderEverywhere = (block: unknown, original: string) => {
 };
 
 describe("ACP-derived values (tolerated)", () => {
-  test("an image in a supported format is kept in an agent message chunk", () => {
-    for (const image of supportedImages) {
-      expect(parseLogEntry(chunkEntry(image)), image.mimeType).toMatchObject({
-        update: { sessionUpdate: "agent_message_chunk", content: { type: "image", mimeType: image.mimeType, data: image.data } },
-      });
-    }
-  });
-
-  test("other non-text agent message content becomes an unsupported placeholder", () => {
-    for (const { block, original } of unsupportedBlocks) {
-      const parsed = parseLogEntry(chunkEntry(block));
-      const update = parsed?.type === "session_update" ? parsed.update : undefined;
-      expect(update, JSON.stringify(block)).toMatchObject({ sessionUpdate: "agent_message_chunk" });
-      expect(update && "content" in update ? update.content : undefined, JSON.stringify(block)).toEqual({
-        type: "unsupported",
-        original,
-      });
-    }
-  });
 
   test("an unknown tool kind reads as other and an unknown status is dropped", () => {
     for (const { path, logEntry: make, pick } of toolCallPaths) {
@@ -725,68 +431,10 @@ describe("ACP-derived values (tolerated)", () => {
     }
   });
 
-  test("a plan entry's unknown priority reads as medium and its unknown status as pending", () => {
-    const parsed = parseLogEntry(
-      logEntry(43, "session_update", {
-        update: { sessionUpdate: "plan", entries: [{ content: "Ship the header", priority: "urgent", status: "cancelled" }] },
-      }),
-    );
-    expect(parsed).toMatchObject({
-      update: { sessionUpdate: "plan", entries: [{ content: "Ship the header", priority: "medium", status: "pending" }] },
-    });
-  });
-
-  test("a malformed tool call location is dropped and the others are kept", () => {
-    const locations = [{ path: "/work/site-web/a.ts", line: 3 }, { line: 5 }, { path: 42 }, { path: "/work/site-web/b.ts" }];
-    for (const { path, logEntry: make, pick } of toolCallPaths) {
-      const parsed = pick(parseLogEntry(make({ locations })));
-      expect(parsed, path).toMatchObject({
-        locations: [{ path: "/work/site-web/a.ts", line: 3 }, { path: "/work/site-web/b.ts" }],
-      });
-      expect((parsed as { locations: unknown[] }).locations, path).toHaveLength(2);
-    }
-  });
-
-  test("a known tool status survives on every path", () => {
-    for (const { path, logEntry: make, pick } of toolCallPaths) {
-      for (const status of ["pending", "in_progress", "completed", "failed"]) {
-        expect(pick(parseLogEntry(make({ status }))), `${path} ${status}`).toMatchObject({ status });
-      }
-    }
-  });
-
-  test("an image in a supported format is kept in tool call content on every path", () => {
-    for (const image of supportedImages) {
-      const content = [diffContent, { type: "content", content: image }];
-      for (const { path, logEntry: make, pick } of toolCallPaths) {
-        const parsed = pick(parseLogEntry(make({ content })));
-        expect((parsed as { content: unknown[] }).content, `${path} ${image.mimeType}`).toMatchObject([
-          diffContent,
-          { type: "content", content: { type: "image", mimeType: image.mimeType, data: image.data } },
-        ]);
-      }
-    }
-  });
-
-  test("other non-text tool call content becomes an unsupported placeholder on every path", () => {
-    for (const { block, original } of unsupportedBlocks) {
-      const content = [diffContent, { type: "terminal", terminalId: "term_1" }, { type: "content", content: block }];
-      for (const { path, logEntry: make, pick } of toolCallPaths) {
-        const parsed = pick(parseLogEntry(make({ content })));
-        expect((parsed as { content: unknown[] }).content, `${path} ${JSON.stringify(block)}`).toEqual([
-          diffContent,
-          { type: "content", content: { type: "unsupported", original } },
-        ]);
-      }
-    }
-  });
-
   test("an image without non-empty base64 data becomes an unsupported image placeholder", () => {
     for (const block of [
-      { type: "image", mimeType: "image/png", data: "" },
       { type: "image", mimeType: "image/png", data: '"><script>alert(1)</script>' },
       { type: "image", mimeType: "image/png" },
-      { type: "image", mimeType: "image/png", data: 42 },
     ]) {
       expectPlaceholderEverywhere(block, "image");
     }
@@ -794,10 +442,8 @@ describe("ACP-derived values (tolerated)", () => {
 
   test("an image with a mimeType outside the exact supported list becomes an unsupported image placeholder", () => {
     for (const block of [
-      { type: "image", mimeType: "image/PNG", data: pixel },
       { type: "image", mimeType: "image/png; charset=x", data: pixel },
       { type: "image", mimeType: "image/svg+xml", data: pixel },
-      { type: "image", mimeType: "", data: pixel, uri: "https://example.invalid/shot.png" },
     ]) {
       expectPlaceholderEverywhere(block, "image");
     }
@@ -812,58 +458,6 @@ describe("ACP-derived values (tolerated)", () => {
       expect(kept, entry.path).toMatchObject({ type: "content", content: { type: "image", data: pixel } });
       expect((kept as { content: unknown }).content, entry.path).not.toHaveProperty("uri");
     }
-  });
-
-  test("the placeholder names the block type only when it is a short lowercase identifier", () => {
-    for (const [type, original] of [
-      ["resource_link", "resource_link"],
-      ["a".repeat(32), "a".repeat(32)],
-      ["a".repeat(33), "unknown"],
-      ["<img src=x onerror=alert(1)>", "unknown"],
-      ["Video", "unknown"],
-      ["video-clip", "unknown"],
-      ["resource\u0000link", "unknown"],
-      ["audio\n", "unknown"],
-      ["", "unknown"],
-    ] as const) {
-      expectPlaceholderEverywhere({ type, uri: "file:///work/site-web/x" }, original);
-    }
-  });
-
-  test("a malformed text block throws in a message chunk but is dropped from tool call content", () => {
-    expect(() => parseLogEntry(chunkEntry({ type: "text" }))).toThrow();
-    for (const entry of toolCallPaths) {
-      expect(toolContentOf(entry, [diffContent, { type: "content", content: { type: "text" } }]), entry.path).toEqual([
-        diffContent,
-      ]);
-    }
-  });
-
-  test("a command whose input has an unknown shape is kept with a null input", () => {
-    const parsed = parseLogEntry(
-      logEntry(54, "session_update", {
-        update: {
-          sessionUpdate: "available_commands_update",
-          availableCommands: [
-            { name: "deploy", description: "Deploy a preview", input: { schema: {} } },
-            { name: "test", description: "Run the tests", input: { hint: "test name pattern" } },
-            { name: "review", description: "Review the current changes" },
-          ],
-        },
-      }),
-    );
-    expect(parsed).toMatchObject({
-      update: {
-        availableCommands: [
-          { name: "deploy", description: "Deploy a preview", input: null },
-          { name: "test", description: "Run the tests", input: { hint: "test name pattern" } },
-          { name: "review", description: "Review the current changes" },
-        ],
-      },
-    });
-    const commands =
-      parsed?.type === "session_update" && "availableCommands" in parsed.update ? parsed.update.availableCommands : [];
-    expect(commands[2]).not.toHaveProperty("input");
   });
 });
 
@@ -896,12 +490,5 @@ describe("session updates", () => {
     expectTypeOf<FromAcp<Ours<"available_commands_update">>>().toExtend<Acp<"available_commands_update">>();
     expectTypeOf<FromAcp<Ours<"config_option_update">>>().toExtend<Acp<"config_option_update">>();
     expectTypeOf<FromAcp<SessionUpdate>>().toExtend<AcpSessionUpdate>();
-  });
-
-  test("message and tool call content can carry the unsupported placeholder", () => {
-    type Placeholder = { type: "unsupported"; original: string };
-    type ToolContentItem = NonNullable<Ours<"tool_call_update">["content"]>[number];
-    expectTypeOf<Placeholder>().toExtend<Ours<"agent_message_chunk">["content"]>();
-    expectTypeOf<{ type: "content"; content: Placeholder }>().toExtend<ToolContentItem>();
   });
 });

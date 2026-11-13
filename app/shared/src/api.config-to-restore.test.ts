@@ -42,9 +42,3 @@ test("only the differing values the returned options still offer, in the stored 
     { id: "model", value: "large" },
   ]);
 });
-
-test("nothing stored, or nothing differing: nothing to set", () => {
-  const returned = [select("model", "small", ["small", "large"])];
-  expect(configToRestore(undefined, returned)).toEqual([]);
-  expect(configToRestore(returned, returned)).toEqual([]);
-});

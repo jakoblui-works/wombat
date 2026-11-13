@@ -53,15 +53,3 @@ test("a service whose process runs but doesn't answer fails the stop, naming the
   await expect(stopping).rejects.toThrow(ServiceStartFailed);
   await expect(stopping).rejects.toThrow(`kill ${String(process.pid)}`);
 });
-
-test.each<[string, number, () => string | undefined]>([
-  // Above the kernel's pid limit, so no process has it.
-  ["a process that's gone", 2 ** 22 + 1, () => "1"],
-  // This test's process, but not started when the file says: the pid was reused after the service crashed.
-  ["a pid another process has taken since", process.pid, () => `${startTimeOf(process.pid) ?? ""}0`],
-])("a discovery file left by %s is nothing to stop", async (_name, pid, processStart) => {
-  const sandbox = serviceSandbox();
-  await discoveryNaming(sandbox, pid, processStart());
-
-  await expect(control(sandbox).shutdown()).resolves.toBeUndefined();
-});

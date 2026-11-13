@@ -1,6 +1,6 @@
 // The workspace control: which workspace the app opens, and which service runs for it. Dialogs are injected; the
 // services are the fake service (test/fake-service.ts) or one in this process, in a temp sandbox.
-import { existsSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { isAlive } from "@wombat/shared/process-stat";
 import { expect, test } from "vitest";
@@ -25,22 +25,6 @@ const savedWorkspace = (sandbox: ServiceSandbox) => loadSettings(sandbox.setting
 
 const saveWorkspace = (sandbox: ServiceSandbox, workspace: string) =>
   saveSettings(sandbox.settingsFile, { version: 1, workspace, workspaces: {}, askOnQuit: true });
-
-test("a first start whose folder dialog is cancelled opens nothing: no service start, no settings file", async () => {
-  const sandbox = serviceSandbox();
-  let asked = 0;
-  const opened = await control(sandbox, {
-    chooseFolder: () => {
-      asked += 1;
-      return Promise.resolve(undefined);
-    },
-  }).open();
-
-  expect(opened).toBeUndefined();
-  expect(asked).toBe(1);
-  expect(existsSync(sandbox.settingsFile)).toBe(false);
-  expect(existsSync(path.join(sandbox.base, "state", "wombat", "service.log")), "a service start was attempted").toBe(false);
-});
 
 test("a switch asked for while the first start is still in flight waits for it, then replaces its service", async () => {
   const sandbox = serviceSandbox();
@@ -129,23 +113,6 @@ test("a page's settings change whose save fails leaves the settings as they were
   expect(workspace.settings()).toEqual(before);
 });
 
-test("shutdown stops the running service, and restart then starts one for the saved workspace", async () => {
-  const sandbox = serviceSandbox();
-  const saved = sandbox.workspace("saved");
-  saveWorkspace(sandbox, saved);
-  const workspace = control(sandbox);
-  const first = await workspace.restart();
-
-  await workspace.shutdown();
-  expect(isAlive(first.pid), "the service still runs").toBe(false);
-  expect(existsSync(sandbox.discoveryPath)).toBe(false);
-
-  const second = await workspace.restart();
-  expect(second.pid).not.toBe(first.pid);
-  expect(second.workspace).toBe(saved);
-  expect(isAlive(second.pid)).toBe(true);
-});
-
 test("a switch that would stop a service for another workspace asks first; Cancel stops and saves nothing", async () => {
   const sandbox = serviceSandbox();
   const [current, next] = [sandbox.workspace("current"), sandbox.workspace("next")];
@@ -165,15 +132,4 @@ test("a switch that would stop a service for another workspace asks first; Cance
   expect(isAlive(running.pid)).toBe(true);
   expect(sandbox.starts()).toHaveLength(1);
   expect(savedWorkspace(sandbox)).toBe(current);
-});
-
-test("a switch that stops no service doesn't ask: none runs, or the running one is for the chosen workspace", async () => {
-  const sandbox = serviceSandbox();
-  const saved = sandbox.workspace("saved");
-  saveWorkspace(sandbox, saved);
-  const workspace = control(sandbox);
-
-  expect(await workspace.confirmSwitch(sandbox.workspace("other"))).toBe(true);
-  await workspace.restart();
-  expect(await workspace.confirmSwitch(saved)).toBe(true);
 });

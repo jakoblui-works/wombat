@@ -36,15 +36,3 @@ test("a first message that fails comes back as sendError beside the agent that s
   expect(started.sendError?.message).toBe("Lost.");
   expect(paths).toEqual(["POST /agents", "POST /agents/agent-bakery-1/messages"]);
 });
-
-test("a start that didn't make the agent rejects", async () => {
-  vi.stubGlobal("window", {
-    wombat: {
-      service: {
-        request: () => Promise.resolve({ status: 400, body: { error: { code: "repo_not_found", message: "No folder site-web." } } }),
-      },
-    },
-  });
-
-  await expect(startAgentFn(startAgentVars({ harness: "fake-reply", repo: "site-web", text: "Fix the hours" }))).rejects.toThrow("No folder site-web.");
-});

@@ -5,7 +5,6 @@
 //
 //   FAKE_START_DELAY_MS  how long it waits before listening and writing the discovery file
 //   FAKE_EXIT_DELAY_MS   how long it lives on after answering POST /shutdown
-//   FAKE_API_VERSION     the API version it claims (in its discovery file and GET /version); the app's by default
 import { randomBytes } from "node:crypto";
 import { appendFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
@@ -18,7 +17,7 @@ import { writePrivateFile } from "@wombat/shared/private-file";
 const { env } = process;
 const file = discoveryPath(env);
 const token = randomBytes(16).toString("hex");
-const apiVersion = Number(env["FAKE_API_VERSION"] ?? String(API_VERSION));
+const apiVersion = API_VERSION;
 const record = env["FAKE_SERVICE_RECORD"];
 if (record !== undefined) {
   appendFileSync(record, `${JSON.stringify({ pid: process.pid, workspace: env[SERVICE_ENV.workspace], items: env[SERVICE_ENV.items] ?? null })}\n`);

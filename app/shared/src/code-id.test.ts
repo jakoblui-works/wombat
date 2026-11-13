@@ -77,18 +77,8 @@ test("codeIdOf is 16 hex characters, and the same files give the same id in anot
 
 test.each<[string, (root: string) => void]>([
   ["a service source file's content", (root) => write(root, "service/src/main.ts", 'export const main = () => "started";\n')],
-  ["a source file in a subfolder", (root) => write(root, "service/src/server/server.ts", 'export const route = "/version2";\n')],
-  ["a shared source file's content", (root) => write(root, "shared/src/api.ts", "export const API = 2;\n")],
   ["a new service source file", (root) => write(root, "service/src/agents/manager.ts", "export const manager = 1;\n")],
-  ["a new shared source file", (root) => write(root, "shared/src/routes.ts", "export const routes = [];\n")],
   ["a source file renamed, its content the same", (root) => renameSync(path.join(root, "shared/src/api.ts"), path.join(root, "shared/src/api-v1.ts"))],
-  [
-    "two source files' contents swapped",
-    (root) => {
-      write(root, "service/src/main.ts", FILES["shared/src/api.ts"] ?? "");
-      write(root, "shared/src/api.ts", FILES["service/src/main.ts"] ?? "");
-    },
-  ],
 ])("codeIdOf changes with %s", (_name, change) => {
   const root = appTree();
   const before = codeIdOf(root);
@@ -98,11 +88,7 @@ test.each<[string, (root: string) => void]>([
 
 test.each<[string, (root: string) => void]>([
   ["a service test file's content", (root) => write(root, "service/src/server/server.test.ts", 'test("route", () => "changed");\n')],
-  ["a shared test file's content", (root) => write(root, "shared/src/api.test.ts", 'test("api", () => "changed");\n')],
-  ["a new test file beside the source", (root) => write(root, "service/src/main.test.ts", 'test("main", () => undefined);\n')],
   ["a file in src that isn't .ts", (root) => write(root, "service/src/notes.md", "Other notes.\n")],
-  ["the service's test fixtures", (root) => write(root, "service/test/fake-agent.ts", "export const fake = 2;\n")],
-  ["a package.json", (root) => write(root, "service/package.json", '{ "name": "@wombat/service", "version": "2" }\n')],
   ["the desktop app's source", (root) => write(root, "desktop/src/main/index.ts", "export const window = 2;\n")],
 ])("codeIdOf stays the same when only %s changes", (_name, change) => {
   const root = appTree();

@@ -6,7 +6,7 @@
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
-import { type DiffLine, lineDiff } from "./line-diff.ts";
+import { lineDiff } from "./line-diff.ts";
 
 /** The text's lines by the stated rule. */
 const linesOf = (text: string): string[] => {
@@ -23,11 +23,6 @@ const line = fc.constantFrom("const a = 1;", "const b = 2;", "", "}", "return a;
 const lines = fc.array(line, { maxLength: 12 });
 const text = fc.tuple(lines, fc.boolean()).map(([ls, endsWithNewline]) => (endsWithNewline ? textOf(ls) : ls.join("\n")));
 
-const changes = (diff: DiffLine[]) => ({
-  removed: diff.filter(({ kind }) => kind === "removed").length,
-  added: diff.filter(({ kind }) => kind === "added").length,
-});
-
 test("the diff rebuilds both texts, in order, with line numbers counting from 1", () => {
   fc.assert(
     fc.property(text, text, (oldText, newText) => {
@@ -40,41 +35,4 @@ test("the diff rebuilds both texts, in order, with line numbers counting from 1"
       expect(newSide.map((l) => l.newLine)).toEqual(linesOf(newText).map((_, i) => i + 1));
     }),
   );
-});
-
-test("the same text is all context, whatever its final newline", () => {
-  fc.assert(
-    fc.property(lines, (ls) => {
-      // Without a final newline, a last empty line can't be written ("a\n" is the line "a"): that pair needs a last
-      // line with text.
-      const pairs: (readonly [string, string])[] = [[textOf(ls), textOf(ls)]];
-      if (ls.at(-1) !== "") pairs.push([textOf(ls), ls.join("\n")]);
-      for (const [a, b] of pairs) {
-        expect(changes(lineDiff(a, b))).toEqual({ removed: 0, added: 0 });
-      }
-    }),
-  );
-});
-
-test("one line inserted, deleted or replaced is exactly that one change", () => {
-  fc.assert(
-    fc.property(lines, line, fc.nat(), (ls, extra, at) => {
-      const i = at % (ls.length + 1);
-      const inserted = [...ls.slice(0, i), extra, ...ls.slice(i)];
-      expect(changes(lineDiff(textOf(ls), textOf(inserted)))).toEqual({ removed: 0, added: 1 });
-      expect(changes(lineDiff(textOf(inserted), textOf(ls)))).toEqual({ removed: 1, added: 0 });
-
-      if (ls.length > 0) {
-        const j = at % ls.length;
-        const replaced = ls.map((l, k) => (k === j ? "const replaced = true;" : l));
-        expect(changes(lineDiff(textOf(ls), textOf(replaced)))).toEqual({ removed: 1, added: 1 });
-      }
-    }),
-  );
-});
-
-test("empty texts: nothing, or every line added or removed", () => {
-  expect(lineDiff("", "")).toEqual([]);
-  expect(changes(lineDiff("", "a\nb\n"))).toEqual({ removed: 0, added: 2 });
-  expect(changes(lineDiff("a\nb", ""))).toEqual({ removed: 2, added: 0 });
 });

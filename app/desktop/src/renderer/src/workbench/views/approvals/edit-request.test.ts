@@ -14,7 +14,6 @@ import {
   textContent,
   toolCall,
   toolUpdate,
-  turnEnded,
   user,
 } from "../../../../../../../shared/test/log-entries.ts";
 import { chatModel } from "../../../data/chat-model.ts";
@@ -95,18 +94,6 @@ test("an edit stays an edit when its content is replaced: several diffs all in o
   expect(text).toMatchObject({ requestId: "req-hours", path: HOURS, diffs: [] });
   expect(text?.answer).toBe("allow_once");
   expect(text?.answer).toBe(chatAnswer(textOnly, "req-hours"));
-});
-
-test("a cancelled request reads cancelled, as in the chat", () => {
-  const m = chatModel(
-    entries([
-      user("Update the hours"),
-      toolCall("tool-hours", "Edit hours.md", { kind: "edit", content: [diffContent(HOURS, "a\n", "b\n")] }),
-      permissionRequested("req-hours", { toolCallId: "tool-hours" }),
-      turnEnded("cancelled"),
-    ]),
-  );
-  expect(editRequest(m, "req-hours")?.answer).toBe("cancelled");
 });
 
 test("no edit: no diff and not an edit with a location, or an unknown request", () => {

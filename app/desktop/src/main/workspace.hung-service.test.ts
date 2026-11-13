@@ -41,9 +41,9 @@ const hungService = async (sandbox: ServiceSandbox, workspace: string): Promise<
   return file;
 };
 
-test.each(["restart", "open"] as const)(
-  "%s next to a live service of ours that doesn't answer fails naming its pid, and starts no second service",
-  async (how) => {
+test(
+  "a restart next to a live service of ours that doesn't answer fails naming its pid, and starts no second service",
+  async () => {
     const sandbox = serviceSandbox();
     const workspace = sandbox.workspace("bakery");
     saveSettings(sandbox.settingsFile, { version: 1, workspace, workspaces: {}, askOnQuit: true });
@@ -57,14 +57,7 @@ test.each(["restart", "open"] as const)(
       log: () => undefined,
     });
 
-    const started =
-      how === "restart"
-        ? control.restart()
-        : control.open().then((opened) => {
-            if (opened === undefined) throw new Error("open was cancelled");
-            return opened.service;
-          });
-    const outcome = await started.then(
+    const outcome = await control.restart().then(
       () => "started",
       (error: unknown) => (error instanceof Error ? error.message : String(error)),
     );

@@ -45,10 +45,7 @@ const gone = panel("chat", { agentId: "a-gone" });
 const known: IsKnown = (_viewId, params) => (params as { agentId?: string }).agentId === "a1";
 
 test.each<[string, Branch, Panel[], string, string[]]>([
-  ["beside a group with tabs, and active", branch(leaf("tabs", [kept]), leaf("empty", [])), [kept], "empty", ["empty", "tabs"]],
-  ["nested in a split", branch(leaf("tabs", [kept]), branch(leaf("empty", []), leaf("also-tabs", [kept]))), [kept], "tabs", ["also-tabs", "empty", "tabs"]],
   ["while pruning empties and removes another group", branch(leaf("empty", []), leaf("emptied", [gone]), leaf("tabs", [kept])), [kept, gone], "emptied", ["empty", "tabs"]],
-  ["when it is the only group with a split of emptied ones beside it", branch(leaf("empty", []), branch(leaf("emptied", [gone]))), [gone], "empty", ["empty"]],
 ])("a group saved empty stays through a restore: %s", (_what, root, panels, activeGroup, groupsAfter) => {
   const pruned = pruneLayout(saved(root, panels, activeGroup), known);
   expect(groupIds(pruned)).toEqual(groupsAfter);

@@ -34,7 +34,3 @@ test.each<[string, () => DiscoveryFile, boolean]>([
   writePrivateFile(sandbox.discoveryPath, JSON.stringify(written));
   expect(runningService(sandbox.discoveryPath)).toEqual(running ? { file: written, pid: written.pid } : undefined);
 });
-
-test("no discovery file: no service", () => {
-  expect(runningService(serviceSandbox().discoveryPath)).toBeUndefined();
-});

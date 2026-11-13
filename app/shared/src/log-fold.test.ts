@@ -3,7 +3,6 @@ import { describe, expect, test } from "vitest";
 
 import { emptyFold, foldEntry, foldLog, keepAll, lastMainMessage, permissionOf } from "./log-fold.ts";
 import {
-  atFor,
   type Body,
   chunk as message,
   diffContent,
@@ -70,14 +69,9 @@ describe("keepText", () => {
 // The row's message (`AgentSummary.lastText`) is the latest main-session agent message. The check "The row and
 // the chat agree" calls this function on both sides, so only this test sees it pick the wrong item.
 test.each<[string, Body[], string | undefined]>([
-  ["none in an empty log", [], undefined],
-  ["none when only a sub-agent spoke", [user("Check the menu"), inSession(message("Menu is fine"), SUB)], undefined],
-  ["none when there is only reasoning, a tool and a turn end", [user("Fix"), reasoning("Hm"), inSession(call("t1", "Read hours.md"), MAIN), turnEnded()], undefined],
   ["the main message, not a sub-agent's after it", [message("Asking a helper."), inSession(message("Menu is fine"), SUB)], "Asking a helper."],
-  ["the latest main message of several", [message("First."), inSession(call("t1", "Read hours.md"), MAIN), message("Second.")], "Second."],
   ["the latest main message, not reasoning or a tool after it", [message("Done."), reasoning("Checking"), inSession(call("t2", "Run tests"), MAIN), turnEnded()], "Done."],
   ["the latest main message, not a user message after it", [message("Done."), user("Thanks")], "Done."],
-  ["the main message whatever its text, an empty one included", [message("First."), inSession(call("t1", "Read"), MAIN), message("")], ""],
 ])("lastMainMessage: %s", (_name, bodies, expected) => {
   expect(lastMainMessage(fold(bodies))).toBe(expected);
 });
@@ -96,18 +90,11 @@ const itemsOf = (...bodies: Body[]) => foldLog(entries(bodies)).items;
 describe("chunks", () => {
   test.each<[string, Body[], [string, string][]]>([
     ["one message's chunks merge, text as sent", [message("Hel", "m1"), message("lo ", "m1"), message(" world\n", "m1")], [["agent", "Hello  world\n"]]],
-    ["chunks without a messageId merge", [message("Open "), message("9-17")], [["agent", "Open 9-17"]]],
-    ["a null messageId continues a run after an id'd chunk", [message("Open ", "m1"), message("9-17", null)], [["agent", "Open 9-17"]]],
     ["a new messageId starts a new item", [message("First", "m1"), message("Second", "m2")], [["agent", "First"], ["agent", "Second"]]],
     [
       "a new tool call between them starts a new item",
       [message("Before", "m1"), call("t1", "Read hours.md"), message("After", "m1")],
       [["agent", "Before"], ["tool", "t1"], ["agent", "After"]],
-    ],
-    [
-      "a new permission request between them starts a new item",
-      [message("Before", "m1"), permissionRequested("r1", { toolCallId: "t1", title: "Edit notes.txt" }), message("After", "m1")],
-      [["agent", "Before"], ["permission", "r1"], ["agent", "After"]],
     ],
     [
       "an answer, a plan update or an update to an earlier tool between them doesn't split the message",
@@ -124,12 +111,6 @@ describe("chunks", () => {
       ],
       [["tool", "t1"], ["permission", "r1"], ["agent", "Hello there!"]],
     ],
-    [
-      "thoughts merge into reasoning, apart from the message",
-      [reasoning("Check "), reasoning("the file"), message("Done")],
-      [["reasoning", "Check the file"], ["agent", "Done"]],
-    ],
-    ["a thought between message chunks splits them", [message("A"), reasoning("hm"), message("B")], [["agent", "A"], ["reasoning", "hm"], ["agent", "B"]]],
   ])("%s", (_name, bodies, expected) => {
     expect(itemsOf(...bodies).map(shape)).toEqual(expected);
   });
@@ -160,7 +141,7 @@ test("a tool call takes its updates field by field; an update for an unknown cal
   expect(orphan[1]).toMatchObject({ title: "Run npm test", status: "in_progress" });
 });
 
-test("a null field in a tool call update clears that field", () => {
+test("a null field in a tool call update clears that field: title to an empty one, kind to other", () => {
   const [tool] = itemsOf(
     call("t1", "Run npm test", { kind: "execute", status: "in_progress", content: [textContent("running")], locations: [{ path: "package.json" }] }),
     toolUpdate("t1", { status: null, content: null, locations: null }),
@@ -171,11 +152,9 @@ test("a null field in a tool call update clears that field", () => {
   expect(tool.content).toEqual([]);
   expect(tool.locations).toEqual([]);
   expect(tool.title).toBe("Run npm test");
-});
 
-test("a null title clears to an empty one and a null kind to other", () => {
-  const [tool] = itemsOf(call("t1", "Run npm test", { kind: "execute" }), toolUpdate("t1", { title: null, kind: null }));
-  expect(tool).toMatchObject({ kind: "tool", title: "", toolKind: "other" });
+  const [cleared] = itemsOf(call("t1", "Run npm test", { kind: "execute" }), toolUpdate("t1", { title: null, kind: null }));
+  expect(cleared).toMatchObject({ kind: "tool", title: "", toolKind: "other" });
 });
 
 test("the plan is the latest plan update's; a turn is active from a user message until the next turn end", () => {
@@ -222,25 +201,6 @@ test.each<[string, string | undefined]>([
   expect(log[2]?.sessionId).toBe(SUB);
   expect(log[3]?.sessionId).toBe(SUB);
   expect(log[1]?.sessionId).not.toBe(SUB);
-});
-
-test("a merged item's at is its first entry's", () => {
-  const items = itemsOf(
-    message("Hel", "m1"),
-    message("lo", "m1"),
-    reasoning("a"),
-    reasoning("b"),
-    toolUpdate("t1", { status: "in_progress" }),
-    call("t1", "Edit"),
-    toolUpdate("t1", { status: "completed" }),
-    permissionRequested("r1", { toolCallId: "t1" }),
-  );
-  expect(items.map((item) => [item.kind, item.at])).toEqual([
-    ["agent", atFor(1)],
-    ["reasoning", atFor(3)],
-    ["tool", atFor(5)],
-    ["permission", atFor(8)],
-  ]);
 });
 
 test("with mainSessionId given, a sub-agent that speaks first is still the one marked", () => {

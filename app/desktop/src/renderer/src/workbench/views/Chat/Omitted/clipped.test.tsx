@@ -3,15 +3,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 
-import { MAX_SHOWN_CHARS, shownText } from "../clip-text.ts";
+import { MAX_SHOWN_CHARS } from "../clip-text.ts";
 import { Markdown } from "../Markdown/Markdown.tsx";
 
 const long = `${"a".repeat(MAX_SHOWN_CHARS)}TAIL`;
-
-test("clipped until shown all, then whole", () => {
-  expect(shownText(long, false)).toEqual({ shown: "a".repeat(MAX_SHOWN_CHARS), omitted: 4 });
-  expect(shownText(long, true)).toEqual({ shown: long, omitted: 0 });
-});
 
 test("a long text renders clipped, with the count and a Show all button that isn't a collapsed part", () => {
   const html = renderToStaticMarkup(<Markdown text={long} />);

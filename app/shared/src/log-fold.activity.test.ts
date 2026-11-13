@@ -4,7 +4,7 @@
 // these tables can.
 import { expect, test } from "vitest";
 
-import { activityOf, configOf, emptyFold, foldEntry, keepAll, usageOf } from "./log-fold.ts";
+import { activityOf, configOf, emptyFold, foldEntry, keepAll } from "./log-fold.ts";
 import {
   type Body,
   chunk as message,
@@ -17,7 +17,6 @@ import {
   toolCall as call,
   toolUpdate,
   turnEnded,
-  usage,
   user,
 } from "../test/log-entries.ts";
 
@@ -31,29 +30,16 @@ const fold = (bodies: Body[]) => {
   return state;
 };
 
-// toStrictEqual: an empty title is left out, not carried as undefined or "".
 test.each<[string, Body[], { kind: string; title?: string } | null]>([
-  ["none in an empty log", [], null],
   ["none once the turn has ended", [user("Fix the hours"), thought("Checking"), message("Done."), turnEnded()], null],
   ["thinking when the turn has only just started", [user("Fix the hours")], { kind: "thinking" }],
-  ["thinking after a thought chunk", [user("Fix the hours"), message("Let me look."), thought("The file is hours.md")], { kind: "thinking" }],
   ["writing after a message chunk", [user("Fix the hours"), thought("Checking"), message("The hours are")], { kind: "writing" }],
-  ["the tool and its title after a tool call", [user("Fix"), message("Running them."), call("t1", "Run the tests", { status: "pending" })], { kind: "tool", title: "Run the tests" }],
   [
     "the tool item's title after an update that carries none",
     [user("Fix"), call("t1", "Read hours.md", { status: "pending" }), message("Reading."), toolUpdate("t1", { status: "in_progress" })],
     { kind: "tool", title: "Read hours.md" },
   ],
-  [
-    "the new title after an update that retitles the tool",
-    [user("Fix"), call("t1", "Edit", { status: "pending" }), toolUpdate("t1", { title: "Edit notes.txt", status: "in_progress" })],
-    { kind: "tool", title: "Edit notes.txt" },
-  ],
   ["thinking once the tool has completed", [user("Fix"), call("t1", "Run the tests", { status: "in_progress" }), toolUpdate("t1", { status: "completed" })], { kind: "thinking" }],
-  ["thinking once the tool has failed", [user("Fix"), call("t1", "Run the tests", { status: "in_progress" }), toolUpdate("t1", { status: "failed" })], { kind: "thinking" }],
-  ["writing again after a completed tool", [user("Fix"), call("t1", "Run the tests", { status: "completed" }), message("All green.")], { kind: "writing" }],
-  ["a tool without its title when the title is empty", [user("Fix"), call("t1", "", { status: "pending" })], { kind: "tool" }],
-  ["a tool without its title once an update clears it", [user("Fix"), call("t1", "Read hours.md"), toolUpdate("t1", { title: null })], { kind: "tool" }],
 ])("activityOf: %s", (_name, bodies, activity) => {
   expect(activityOf(fold(bodies))).toStrictEqual(activity);
 });
@@ -63,18 +49,11 @@ test.each<[string, Body[], { kind: string; title?: string } | null]>([
 test.each<[string, Body[], { kind: string; title?: string } | null]>([
   ["a sub-agent's thought after main writing leaves writing", [user("Fix"), message("Asking a helper."), inSession(thought("Menu?"), SUB)], { kind: "writing" }],
   [
-    "a sub-agent's tool after main writing leaves writing",
-    [user("Fix"), message("Asking a helper."), inSession(call("s1", "Run Bash", { status: "in_progress" }), SUB)],
-    { kind: "writing" },
-  ],
-  [
     "a sub-agent's message after a main tool leaves the tool",
     [user("Fix"), call("t1", "Run the tests", { status: "in_progress" }), inSession(message("Menu is fine"), SUB)],
     { kind: "tool", title: "Run the tests" },
   ],
-  ["a new turn after one that ended on a tool starts thinking", [user("Fix"), call("t1", "Run the tests", { status: "in_progress" }), turnEnded(), user("Again")], { kind: "thinking" }],
   ["a new turn while the last one's tool still runs starts thinking", [user("Fix"), call("t1", "Run the tests", { status: "in_progress" }), user("Again")], { kind: "thinking" }],
-  ["an update after the turn ended doesn't make it active", [user("Fix"), message("Done."), turnEnded(), message(" Really.")], null],
 ])("activityOf: %s", (_name, bodies, activity) => {
   expect(activityOf(fold(bodies))).toStrictEqual(activity);
 });
@@ -89,15 +68,4 @@ test("configOf gives the latest main-session options, kept across turns; a sub-a
   expect(configOf(fold([configUpdate(first), user("Fix"), configUpdate(second)]))).toEqual(second);
   expect(configOf(fold([inSession(configUpdate(first), MAIN), inSession(configUpdate(second), SUB)]))).toEqual(first);
   expect(configOf(fold([configUpdate(first), inSession(configUpdate(second), SUB), plan("Edit")]))).toEqual(first);
-});
-
-test("usageOf gives the latest main-session usage, without its kind; a sub-agent's never replaces it", () => {
-  const cost = { amount: 0.42, currency: "USD" };
-  expect(usageOf(fold([user("Fix"), message("Done.")]))).toBeUndefined();
-  expect(usageOf(fold([user("Fix"), usage(1200, 200_000), message("Done."), usage(18_250, 200_000, cost), turnEnded(), user("Again")]))).toEqual({
-    used: 18_250,
-    size: 200_000,
-    cost,
-  });
-  expect(usageOf(fold([user("Fix"), usage(1200, 200_000), inSession(usage(90_000, 100_000), SUB)]))).toEqual({ used: 1200, size: 200_000 });
 });

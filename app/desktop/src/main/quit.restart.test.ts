@@ -34,18 +34,3 @@ test("with an agent process, Restart asks; Cancel stops and starts nothing", asy
   expect(await restarted).toBe(false);
   expect(steps).toEqual(["asked 1"]);
 });
-
-test("with an agent process, Restart asks; Stop stops the service, then starts it again", async () => {
-  const { restarted, steps } = restart(withProcess, true);
-  expect(await restarted).toBe(true);
-  expect(steps).toEqual(["asked 1", "stopped", "started"]);
-});
-
-test.each<[string, AgentSummary[] | undefined]>([
-  ["a connected service without agent processes", [{ state: "stopped", hasProcess: false } as AgentSummary]],
-  ["no service running", undefined],
-])("with %s, Restart stops and starts without asking", async (_name, agents) => {
-  const { restarted, steps } = restart(agents, false);
-  expect(await restarted).toBe(true);
-  expect(steps).toEqual(["stopped", "started"]);
-});

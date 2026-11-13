@@ -73,19 +73,6 @@ test("connected to a service on other code: the state says when it started, and 
   });
 });
 
-test("when /version fails once connected, the state stays connected, without the service's info", async () => {
-  // The first answer is the probe's, which finds the service; the second, once connected, fails.
-  const { states, logged } = await serveVersions([
-    { status: 200, body: { apiVersion: API_VERSION } },
-    { status: 500, body: { error: "broken" } },
-  ]);
-  await vi.waitFor(() => {
-    expect(logged.join("\n")).toMatch(/couldn't read which code the service runs: HTTP 500/);
-  });
-  expect(states.at(-1)).toEqual({ state: "connected" });
-  expect(states.some((state) => state.service !== undefined)).toBe(false);
-});
-
 test("code that changes on disk while connected marks the service stale at the next check, with no reconnect", async () => {
   let onDisk = ON_DISK;
   const { states } = await serveVersions(

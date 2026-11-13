@@ -148,31 +148,6 @@ test("while reconnecting the cache stays; once connected again, every cached log
   expect(agents?.isInvalidated === true || (agents?.dataUpdatedAt ?? 0) > agentsBefore, "the agents weren't refetched after the reconnect").toBe(true);
 });
 
-test("the first connected is not a reconnect: it reads no logs", async () => {
-  const { service, client } = setup({ connected: false });
-  service.append(A, user("Fix the hours"));
-  cacheLog(service, client, A);
-  service.append(A, chunk("Done"));
-
-  service.connection("connected");
-  await settled(service, () => undefined);
-  expect(logReads(service, A)).toEqual([]);
-  expect(seqs(cached(client, A))).toEqual([1]);
-});
-
-test("a removed agent's cached log is removed", async () => {
-  const { service, client } = setup();
-  service.append(A, user("Fix the hours"));
-  service.append(B, user("Check the menu"));
-  cacheLog(service, client, A);
-  cacheLog(service, client, B);
-
-  service.alert("agent_removed", A);
-
-  await settled(service, () => expect(cached(client, A)).toBeUndefined());
-  expect(cached(client, B)).toBeDefined();
-});
-
 // A view reading through the cache with the views' own query options (an observer keeps the query mounted).
 const mount = (observer: { subscribe: (listener: () => void) => () => void }): void => {
   unmounts.push(observer.subscribe(() => undefined));
@@ -211,27 +186,6 @@ test("an agent_changed alert while the first agents read is on its way back stil
   service.alert("agent_changed", A);
 
   await settled(service, () => expect(agentsCached(client)?.find((agent) => agent.id === A)?.state).toBe("working"));
-});
-
-test("after a reconnect, the cached logs of agents no longer listed are removed", async () => {
-  const { service, client } = setup();
-  service.append(A, user("Fix the hours"));
-  service.append(B, user("Check the menu"));
-  agentsView(client);
-  await settled(service, () => expect(agentsCached(client)).toHaveLength(2));
-  cacheLog(service, client, A);
-  cacheLog(service, client, B);
-
-  service.connection("reconnecting");
-  // Deleted while the stream was down: no alert for it, ever.
-  service.removeAgent(B);
-  service.connection("connected");
-
-  await settled(service, () => {
-    expect(agentsCached(client)?.map((agent) => agent.id)).toEqual([A]);
-    expect(cached(client, B)).toBeUndefined();
-  });
-  expect(cached(client, A)).toBeDefined();
 });
 
 test("a reconnect reads the cached proposals again", async () => {

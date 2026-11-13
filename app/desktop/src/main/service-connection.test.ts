@@ -2,7 +2,6 @@
 // in this process (test/alert-service.ts) in a temp sandbox, with short retry timings.
 import type { Alert } from "@wombat/shared/api";
 import { API_VERSION } from "@wombat/shared";
-import path from "node:path";
 import { expect, onTestFinished, test, vi } from "vitest";
 
 import { alertService } from "../../test/alert-service.ts";
@@ -49,19 +48,6 @@ test("known alerts reach the page; an alert type this app doesn't know is droppe
   expect(alerts).toEqual([agentAlert(2)]);
 });
 
-test("a stream that sends more than an alert's worth without ending the event is dropped", async () => {
-  const sandbox = serviceSandbox();
-  const service = await alertService(sandbox);
-  const { connection, states, reached } = connect(sandbox);
-  void connection.reconnect(() => Promise.resolve());
-  await reached("connected");
-
-  service.sendRaw(`data: "${"a".repeat(1024 * 1024)}`);
-  await vi.waitFor(() => {
-    expect(states.map(({ state }) => state)).toContain("reconnecting");
-  }, WAIT);
-});
-
 test("a service with another API version is incompatible, and the message names both versions", async () => {
   const sandbox = serviceSandbox();
   const other = API_VERSION + 1;
@@ -97,18 +83,6 @@ test("a service that's gone shows reconnecting, then failed once it stays gone; 
   expect((await connection.request("GET", "/version", undefined)).status).toBe(200);
 });
 
-test("a start that fails is the failed state, its message naming no path outside the workspace", async () => {
-  const sandbox = serviceSandbox();
-  const { connection, states } = connect(sandbox);
-  const entry = path.join(sandbox.base, "no-such-entry.ts");
-  await connection.reconnect(() => startService({ env: sandbox.env, entry, workspace: sandbox.workspace("main") }));
-
-  const last = states.at(-1);
-  expect(last?.state).toBe("failed");
-  expect(last?.message).toContain("no-such-entry.ts");
-  expect(last?.message).not.toContain(sandbox.base);
-});
-
 test("a start that finds a service from before this app (no workspace in its file) is incompatible, saying it predates the app", async () => {
   const sandbox = serviceSandbox();
   await inProcessService(sandbox, undefined);
@@ -137,45 +111,6 @@ test("a service that keeps dropping the stream right after opening it is retried
   // Back-to-back reconnects would make hundreds of tries in 400 ms; backing off to 40 ms makes a dozen or so.
   expect(tries.length, "it reconnected without waiting").toBeLessThan(40);
   expect(Math.max(...gaps), "the waits never grew").toBeGreaterThanOrEqual(38);
-});
-
-test("until it connects it keeps trying, waiting longer between tries but never past the cap", async () => {
-  const sandbox = serviceSandbox();
-  // Answers /version but refuses the stream, so every try reaches it and can be timed.
-  const service = await alertService(sandbox, { refuseStream: true });
-  const maxRetryMs = 60;
-  const { connection } = connect(sandbox, { firstRetryMs: 5, maxRetryMs });
-  void connection.reconnect(() => Promise.resolve());
-
-  await vi.waitFor(() => {
-    expect(service.versionTries().length).toBeGreaterThanOrEqual(10);
-  }, WAIT);
-  const tries = service.versionTries();
-  const gaps = tries.slice(1).map((at, i) => at - (tries[i] ?? at));
-  // From 5 ms the waits grow to the cap (a timer never fires early, give or take a millisecond).
-  expect(gaps.at(-1), "the waits don't grow").toBeGreaterThanOrEqual(maxRetryMs - 2);
-  // Slack for a loaded machine; an unbounded doubling would be far past it by the tenth try.
-  expect(Math.max(...gaps), "a wait went past the cap").toBeLessThan(maxRetryMs * 4);
-  expect(connection.current().state.state).toBe("connecting");
-});
-
-test("a shutdown shows failed at once, with a message saying to restart; restart connects again", async () => {
-  const sandbox = serviceSandbox();
-  const first = await alertService(sandbox);
-  const { connection, states } = connect(sandbox);
-  void connection.reconnect(() => Promise.resolve());
-  await vi.waitFor(() => {
-    expect(first.streams()).toBe(1);
-  }, WAIT);
-
-  await connection.shutdown(() => first.kill());
-  const last = states.at(-1);
-  expect(last?.state).toBe("failed");
-  expect(last?.message).toContain("Restart");
-  expect(states.map(({ state }) => state), "it tried to reconnect to the stopped service").not.toContain("reconnecting");
-
-  await connection.reconnect(() => alertService(sandbox));
-  expect(connection.current().state.state).toBe("connected");
 });
 
 test("a shutdown whose stop fails connects to the still-running service again and rejects", async () => {

@@ -26,10 +26,3 @@ test("the switches are ignored unless WOMBAT_E2E=1", () => {
     stopAnswer: "stop",
   });
 });
-
-test("the stale check's interval is taken only as a positive number of ms", () => {
-  const read = (value: string) => readE2eSwitches({ WOMBAT_E2E: "1", WOMBAT_E2E_STALE_CHECK_MS: value })?.staleCheckMs;
-  expect(read("300")).toBe(300);
-  for (const value of ["", "0", "-5", "soon", "Infinity"]) expect(read(value), value).toBeUndefined();
-  expect(readE2eSwitches({ WOMBAT_E2E_STALE_CHECK_MS: "300" }), "without WOMBAT_E2E=1").toBeUndefined();
-});

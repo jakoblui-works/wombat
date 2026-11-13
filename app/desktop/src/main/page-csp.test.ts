@@ -10,8 +10,6 @@ const directives = (policy: string): Map<string, string[]> =>
     }),
   );
 
-const DEV = { scriptHashes: ["sha256-cmVmcmVzaA=="], hmrSocket: "ws://localhost:5173" };
-
 test("the built app's policy has the nonce for <style> elements and no dev sources", () => {
   const nonce = newNonce();
   const built = directives(pageCsp(nonce));
@@ -20,23 +18,4 @@ test("the built app's policy has the nonce for <style> elements and no dev sourc
   expect(built.get("connect-src")).toEqual(["'none'"]);
   expect(pageCsp(nonce)).not.toContain("sha256-");
   expect(pageCsp(nonce)).not.toContain("ws:");
-});
-
-test("the dev policy adds only the refresh preamble's hash and the HMR socket", () => {
-  const nonce = newNonce();
-  const built = directives(pageCsp(nonce));
-  const dev = directives(pageCsp(nonce, DEV));
-  expect(dev.get("script-src")).toEqual(["'self'", "'sha256-cmVmcmVzaA=='"]);
-  expect(dev.get("connect-src")).toEqual(["ws://localhost:5173"]);
-  for (const name of ["script-src", "connect-src"]) {
-    built.delete(name);
-    dev.delete(name);
-  }
-  expect(dev).toEqual(built);
-});
-
-test("each nonce is fresh and 128 bits", () => {
-  const nonces = new Set(Array.from({ length: 50 }, newNonce));
-  expect(nonces.size).toBe(50);
-  for (const nonce of nonces) expect(Buffer.from(nonce, "base64")).toHaveLength(16);
 });

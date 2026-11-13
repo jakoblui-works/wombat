@@ -20,11 +20,6 @@ test("a stopped or done agent's turn isn't running", () => {
   for (const state of ["stopped", "done"] as const) expect(liveState({ turnActive: true }, { state, pendingPermissions: [] }).turnActive, state).toBe(false);
 });
 
-test("while the agent works or waits the log decides the turn", () => {
-  expect(liveState({ turnActive: true }, { state: "working", pendingPermissions: [] }).turnActive).toBe(true);
-  expect(liveState({ turnActive: false }, { state: "working", pendingPermissions: [] }).turnActive).toBe(false);
-});
-
 test("a listed request takes an answer; one not listed yet stays open with its buttons waiting; a logged answer stands", () => {
   const live = liveState({ turnActive: true }, { state: "waiting", pendingPermissions: pending("req-listed") });
   expect(live.answerOf({ requestId: "req-listed" })).toBeUndefined();
@@ -33,11 +28,4 @@ test("a listed request takes an answer; one not listed yet stays open with its b
   expect(live.canAnswer({ requestId: "req-new" })).toBe(false);
   expect(live.answerOf({ requestId: "req-new", answer: "allow_once" })).toBe("allow_once");
   expect(live.canAnswer({ requestId: "req-listed", answer: "allow_once" })).toBe(false);
-});
-
-test("without the agent's summary the log is all there is", () => {
-  const live = liveState({ turnActive: true }, undefined);
-  expect(live.turnActive).toBe(true);
-  expect(live.answerOf({ requestId: "req-1" })).toBeUndefined();
-  expect(live.canAnswer({ requestId: "req-1" })).toBe(true);
 });

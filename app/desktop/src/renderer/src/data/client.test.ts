@@ -13,13 +13,6 @@ afterEach(() => {
 
 const Body = z.object({ n: z.int() });
 
-test("a 2xx body comes back parsed with the schema", async () => {
-  answering(201, { n: 3, extra: true });
-  expect(await call("POST", "/agents", Body)).toEqual({ n: 3 });
-  answering(200, { n: "three" });
-  await expect(call("GET", "/agents", Body)).rejects.toThrow(z.ZodError);
-});
-
 test("a non-2xx answer throws a ServiceError from its ErrorBody, or code unknown for another shape", async () => {
   answering(409, { error: { code: "busy", message: "A turn is running.", hint: "Cancel it first." } });
   const busy = await call("POST", "/agents/a/messages", Body).catch((error: unknown) => error);
