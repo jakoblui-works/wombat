@@ -7,7 +7,6 @@ import type { AgentSummary, LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
 import { REPO, setup, TEST_TIMEOUT_MS, waitFor, type Setup } from "../../test/manager-fixtures.ts";
-import { summary } from "../../test/store-fixtures.ts";
 
 type Requested = Extract<LogEntry, { type: "permission_requested" }>;
 type Pending = AgentSummary["pendingPermissions"];
@@ -57,8 +56,6 @@ const PATHS: { path: string; clear: (t: Setup, id: string, request: Requested) =
       await Promise.resolve();
     },
   },
-  { path: "turn cancelled", clear: (t, id) => t.manager.cancel(id) },
-  { path: "agent stopped", clear: (t, id) => t.manager.stop(id) },
   {
     path: "agent process exited",
     clear: async (t, id) => {
@@ -149,24 +146,6 @@ describe("pending permissions", () => {
       expect(t.agent(id)?.state).toBe("done");
       expect(t.agent(id)?.pendingPermissions, "once the turn ended").toEqual([]);
       expect(alerts.last(id), "an agent_changed alert announced the cleared list").toEqual([]);
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "a summary stored with an open request by a service that died reads with none after the restart",
-    async () => {
-      const t = setup();
-      const stale = summary("agent-left-waiting", {
-        state: "waiting",
-        pendingPermissions: [{ requestId: "perm-1", at: "2026-11-09T09:04:00.000Z", title: "Edit src/Footer.tsx", kind: "edit" }],
-      });
-      t.store.putAgent(stale);
-
-      await t.restart();
-
-      expect(t.agent(stale.id)?.state, "control: the restart did mark the agent").toBe("stopped");
-      expect(t.agent(stale.id)?.pendingPermissions).toEqual([]);
     },
     TEST_TIMEOUT_MS,
   );

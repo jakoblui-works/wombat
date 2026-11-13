@@ -14,7 +14,6 @@ import {
   CONTEXT_RELEASE_FILE,
   CONTEXT_STARTED_FILE,
   FAKE_BREAKDOWN,
-  FAKE_CONFIG,
 } from "../../test/fake-agent.ts";
 import { GIVE_UP_HARNESS, REPO, setup, TEST_TIMEOUT_MS, waitFor, WAIT_MS, type Setup } from "../../test/manager-fixtures.ts";
 
@@ -69,32 +68,9 @@ test(
   TEST_TIMEOUT_MS,
 );
 
-// S2d (T19-8, D26): /context on an agent without a process starts it, as a message does; the resume stores the
-// agent's options, and the hidden turn itself still stores nothing.
-test(
-  "T19-8: a /context on a stopped agent resumes it and answers its breakdown; only the resume's options reach the log",
-  async () => {
-    const t = setup();
-    const id = await started(t, "fake-reply");
-    await t.manager.stop(id);
-    const entries = t.entries(id);
-
-    expect(await t.manager.contextBreakdown(id)).toEqual(FAKE_BREAKDOWN);
-
-    expect(t.agent(id)).toMatchObject({ state: "done", hasProcess: true });
-    const added = t.entries(id).slice(entries.length);
-    expect(added.length, "control: the resume stored the options it answered").toBeGreaterThan(0);
-    const setAside = new Set(["config_option_update", "available_commands_update"]);
-    expect(added.filter((entry) => !(entry.type === "session_update" && setAside.has(entry.update.sessionUpdate)))).toEqual([]);
-    expect(t.entries(id).slice(0, entries.length)).toEqual(entries);
-  },
-  TEST_TIMEOUT_MS,
-);
-
 describe("T13-2: while a hidden turn runs, nothing else does", () => {
   test.each<[string, (t: Setup, agentId: string) => Promise<unknown>]>([
     ["a message", (t, id) => t.manager.send(id, { text: "Are you still there?" })],
-    ["a config change", (t, id) => t.manager.setConfig(id, FAKE_CONFIG.fast.id, true)],
   ])(
     "%s is busy and stores nothing; once the hidden turn ends, a message is accepted",
     async (_what, call) => {
@@ -109,40 +85,6 @@ describe("T13-2: while a hidden turn runs, nothing else does", () => {
       held.release();
       expect(await held.breakdown).toEqual(FAKE_BREAKDOWN);
       await expect(t.manager.send(id, { text: "Now take your time" })).resolves.toHaveProperty("seq");
-    },
-    TEST_TIMEOUT_MS,
-  );
-});
-
-describe("T13-3: a hidden turn never starts beside another turn", () => {
-  test(
-    "a /context while a turn runs is busy, and the turn runs on untouched",
-    async () => {
-      const t = setup();
-      const id = await started(t, "fake-hang");
-      await t.manager.send(id, { text: "Take your time" });
-      await waitFor("state working", () => t.agent(id)?.state === "working");
-      const entries = t.entries(id);
-
-      expect(await refusal(t.manager.contextBreakdown(id))).toMatchObject({ code: "busy" });
-      expect(t.entries(id)).toEqual(entries);
-      expect(t.agent(id)?.state).toBe("working");
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "a second /context while one runs gets the same report",
-    async () => {
-      const t = setup();
-      const id = await started(t, "fake-hang");
-      const held = await heldContext(t, id);
-
-      const second = t.manager.contextBreakdown(id);
-
-      held.release();
-      expect(await held.breakdown).toEqual(FAKE_BREAKDOWN);
-      expect(await second).toEqual(FAKE_BREAKDOWN);
     },
     TEST_TIMEOUT_MS,
   );

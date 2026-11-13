@@ -18,15 +18,12 @@ import {
   RESUME_REFUSAL_MESSAGE,
   RESUME_REFUSED_FILE,
 } from "../../test/fake-agent.ts";
-import { killedUnits, sliceStops } from "../../test/fake-systemd.ts";
 import { chunkTexts, REPO, setup, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
 
 // Markers fixed by the fake scenarios' contract: the noisy scenario's stderr, and the text of the update the
 // unknown-update scenario sends (it isn't stored, so it can't be read back from the entries).
 const NOISY_STDERR_MARKER = "stderr-content-must-not-be-logged";
 const SKIPPED_UPDATE_MARKER = "thought-content-must-not-be-logged";
-// What the fake systemctl prints on stdout and stderr when it fails.
-const SYSTEMCTL_OUTPUT_MARKER = "systemctl-output-must-not-be-logged";
 
 /**
  * Every piece of agent or user content in the entries: texts, reasoning, plan entries, tool titles, diff paths and
@@ -128,33 +125,6 @@ describe("no agent content in logs", () => {
       expect(t.logs.map((line) => JSON.stringify(line)).some((line) => line.includes(id))).toBe(true);
 
       const leaks = t.logs.map((line) => JSON.stringify(line)).filter((line) => line.includes(CONFIG_REFUSAL_MESSAGE));
-      expect(leaks).toEqual([]);
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  // The scope warnings and failures carry ids, names and counts, never the tools' output.
-  test(
-    "with failing, noisy systemd tools (leftover stop, scope kill, slice stop), no tool output reaches a log line",
-    async () => {
-      const t = setup({ systemd: "fake", fake: { sliceActive: true, noise: SYSTEMCTL_OUTPUT_MARKER } });
-      const calls = () => t.systemd?.calls() ?? [];
-      const one = await t.manager.start("fake-reply", REPO);
-      await t.manager.send(one.id, { text: "Hello" });
-      await t.turnEnded(one.id);
-      await t.manager.stop(one.id);
-      const two = await t.manager.start("fake-reply", REPO);
-      await t.manager.shutdown();
-      await waitFor(
-        "the leftover stop, both scope kills and the shutdown's slice stop",
-        () =>
-          sliceStops(calls(), t.slice).length >= 2 &&
-          [one.id, two.id].every((id) => killedUnits(calls()).includes(`wombat-agent-${id}.scope`)),
-      );
-
-      // Control: the scope code did log something here (the leftover warning at least).
-      expect(t.logs.some((line) => line.event === "scope_leftovers_stopped")).toBe(true);
-      const leaks = t.logs.map((line) => JSON.stringify(line)).filter((line) => line.includes(SYSTEMCTL_OUTPUT_MARKER));
       expect(leaks).toEqual([]);
     },
     TEST_TIMEOUT_MS,

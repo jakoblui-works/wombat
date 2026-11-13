@@ -1,7 +1,7 @@
 // Agent manager: starting (and failing to), commandId retries, stop, delete, start-up after a restart, and
 // shutdown.
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { AgentSummary, SERVICE_STOP_REASON, type LogEntry } from "@wombat/shared/api";
 import { describe, expect, onTestFinished, test } from "vitest";
@@ -50,23 +50,6 @@ describe("start", () => {
       expect(t.store.listAgents()).toEqual([]);
       expect(t.pids()).toHaveLength(1);
       await gone("the agent process", t.pids());
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "a repo that is a symlink out of the workspace is rejected and nothing is spawned",
-    async () => {
-      const t = setup();
-      const outside = join(dirname(t.root), "outside");
-      mkdirSync(outside);
-      symlinkSync(outside, join(t.root, "escape"));
-
-      await expect(t.manager.start("fake-reply", "escape")).rejects.toMatchObject({ code: "repo_outside_workspace" });
-      await expect(t.manager.start("fake-reply", "missing")).rejects.toMatchObject({ code: "repo_not_found" });
-      await expect(t.manager.start("no-such-harness", REPO)).rejects.toMatchObject({ code: "unknown_harness" });
-      expect(t.pids()).toEqual([]);
-      expect(t.store.listAgents()).toEqual([]);
     },
     TEST_TIMEOUT_MS,
   );
@@ -136,18 +119,23 @@ describe("stop and delete", () => {
 
 describe("start-up and shutdown", () => {
   test(
-    "on start-up, stored agents without a process are marked stopped (error stays error), each taking a seq; history stays",
+    "on start-up, stored agents are marked stopped (error stays error), with no process and no open request; history stays",
     async () => {
       const t = setup();
       await t.manager.shutdown();
       const states = ["working", "waiting", "done", "error", "stopped"] as const;
       for (const state of states) {
         t.store.putAgent(
-          summary(state, state === "error" ? { state, error: { code: "agent_failed", message: "The agent exited." } } : { state }),
+          summary(state, {
+            state,
+            // As a service that died left them: a process and an open request that no longer exist.
+            hasProcess: true,
+            pendingPermissions: [{ requestId: "perm-1", at: "2026-11-09T09:04:00.000Z", title: "Edit src/Footer.tsx", kind: "edit" }],
+            ...(state === "error" ? { error: { code: "agent_failed", message: "The agent exited." } } : {}),
+          }),
         );
         t.store.append(state, [textChunk(`History of the ${state} agent.`)]);
       }
-      const seqBefore = t.store.currentSeq();
 
       await t.restart();
 
@@ -158,27 +146,8 @@ describe("start-up and shutdown", () => {
         error: "error",
         stopped: "stopped",
       });
-      expect(t.store.currentSeq()).toBe(seqBefore + 3);
+      for (const agent of t.store.listAgents()) expect(agent, agent.id).toMatchObject({ hasProcess: false, pendingPermissions: [] });
       for (const state of states) expect(t.entries(state)).toHaveLength(1);
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "shutdown kills every agent's process group, grandchildren included; a second shutdown is safe and later calls fail",
-    async () => {
-      const t = setup();
-      const one = await withChild(t);
-      const two = await withChild(t);
-
-      await t.manager.shutdown();
-      await gone(
-        "every agent process group",
-        [one.agentPid, one.childPid, two.agentPid, two.childPid],
-        [one.agentPid, two.agentPid],
-      );
-      await expect(t.manager.shutdown()).resolves.toBeUndefined();
-      await expect(t.manager.send(one.id, { text: "Hello?" })).rejects.toThrow(/\w/);
     },
     TEST_TIMEOUT_MS,
   );

@@ -3,6 +3,8 @@
 // match what changed; the last event reaches the store's current seq.
 import { describe, expect, onTestFinished, test } from "vitest";
 
+import { LogEntry } from "@wombat/shared/api";
+
 import { openStore } from "../store/store.ts";
 import { REPO, setup, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
 
@@ -62,6 +64,13 @@ describe("commit before alert", () => {
       const thinker = await t.manager.start("fake-unknown-update", REPO);
       await t.manager.send(thinker.id, { text: "Think first" });
       await t.turnEnded(thinker.id);
+
+      // What the manager stores is what the shared schema reads, and every timestamp is UTC with Z (the store sorts them as text).
+      const isZ = (timestamp: string) => timestamp.endsWith("Z") && new Date(timestamp).toISOString() === timestamp;
+      for (const entry of [permission, crash, thinker].flatMap((agent) => t.entries(agent.id))) {
+        expect(LogEntry.parse(entry)).toEqual(entry);
+        expect(isZ(entry.at), entry.at).toBe(true);
+      }
 
       await t.manager.delete(first.id);
 

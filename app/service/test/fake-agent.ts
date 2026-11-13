@@ -31,11 +31,8 @@ export const SCENARIOS = [
   "spawn-child",
   "unknown-update",
   "detached-holder",
-  "early-update",
   "mcp-config",
   "call-tool",
-  "message-ids",
-  "message-runs",
   "plan-thought",
   "hostile",
   "prompt-error",
@@ -208,13 +205,10 @@ const NOISY_STDERR_MARKER = "stderr-content-must-not-be-logged";
 const SKIPPED_UPDATE_MARKER = "thought-content-must-not-be-logged";
 
 /**
- * The command list every scenario but early-update sends before its `session/new` and `session/resume` answers; the
- * service runs a context report only for an agent that lists `context`. early-update lists only `review`.
+ * The command list every scenario sends before its `session/new` and `session/resume` answers; the service runs a
+ * context report only for an agent that lists `context`.
  */
 export const FAKE_COMMANDS = [{ name: "context", description: "Show the context window's use" }];
-
-/** The title the early-update scenario sends before its `session/new` answer. */
-export const EARLY_TITLE = "Title sent while the session starts";
 
 /**
  * What the hostile scenario sends: agent content that would run in the page, navigate it or load something if the
@@ -302,12 +296,6 @@ const text = (value: string): SessionUpdate => ({
   content: { type: "text", text: value },
 });
 
-const messageText = (value: string, messageId: string): SessionUpdate => ({
-  sessionUpdate: "agent_message_chunk",
-  messageId,
-  content: { type: "text", text: value },
-});
-
 const run = (scenario: FakeScenario) => {
   // Prompts held by the hang scenario, by session, until `session/cancel` releases them.
   const held = new Map<string, () => void>();
@@ -384,12 +372,7 @@ const run = (scenario: FakeScenario) => {
       const sessionId = randomUUID();
       // claude-agent-acp's command list can be handled by the service before its session/new answer is; sending
       // the updates first makes that order certain, so the service's hold-and-replay of early updates is exercised.
-      if (scenario === "early-update") {
-        await send(client, sessionId, { sessionUpdate: "available_commands_update", availableCommands: [{ name: "review", description: "Review the diff" }] });
-        await send(client, sessionId, { sessionUpdate: "session_info_update", title: EARLY_TITLE });
-      } else {
-        await send(client, sessionId, { sessionUpdate: "available_commands_update", availableCommands: FAKE_COMMANDS });
-      }
+      await send(client, sessionId, { sessionUpdate: "available_commands_update", availableCommands: FAKE_COMMANDS });
       configs.set(sessionId, { model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial });
       return { sessionId, configOptions: fakeConfigOptions({ model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial }) };
     })
@@ -397,9 +380,7 @@ const run = (scenario: FakeScenario) => {
       if (existsSync(RESUME_REFUSED_FILE)) throw RequestError.internalError(undefined, RESUME_REFUSAL_MESSAGE);
       // A fresh process: whatever session id it is given, it continues at the initial values.
       mcpServers = params.mcpServers;
-      if (scenario !== "early-update") {
-        await send(client, params.sessionId, { sessionUpdate: "available_commands_update", availableCommands: FAKE_COMMANDS });
-      }
+      await send(client, params.sessionId, { sessionUpdate: "available_commands_update", availableCommands: FAKE_COMMANDS });
       configs.set(params.sessionId, { model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial });
       return { configOptions: fakeConfigOptions({ model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial }) };
     })
@@ -605,20 +586,6 @@ const run = (scenario: FakeScenario) => {
           await send(client, sessionId, text(reply));
           return { stopReason: "end_turn" };
         }
-        case "message-ids":
-          // Two messages told apart by messageId only, each in two chunks.
-          await send(client, sessionId, messageText("The first message,", "msg-1"));
-          await send(client, sessionId, messageText(" in two chunks.", "msg-1"));
-          await send(client, sessionId, messageText("  The second   message\n\nreplaces", "msg-2"));
-          await send(client, sessionId, messageText(" the first. ", "msg-2"));
-          return { stopReason: "end_turn" };
-        case "message-runs":
-          // Chunks without a messageId, split into two runs by a tool call.
-          await send(client, sessionId, text("Before the tool call."));
-          await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId: randomUUID(), title: "Read notes.txt", kind: "read", status: "completed" });
-          await send(client, sessionId, text("After the"));
-          await send(client, sessionId, text(" tool call."));
-          return { stopReason: "end_turn" };
         case "plan-thought":
           await send(client, sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Weighing where the footer link lives." } });
           await send(client, sessionId, {

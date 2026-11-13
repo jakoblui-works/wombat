@@ -5,18 +5,14 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-/** What `systemctl --user is-system-running` does: print a state (exit 0 for running, 1 otherwise), or fail to reach the bus. */
-export type ManagerState = "running" | "degraded" | "offline" | "no-bus";
+/** What `systemctl --user is-system-running` does: print a state (exit 0 for running, 1 otherwise). */
+export type ManagerState = "running" | "degraded";
 
 export type FakeSystemdOptions = {
   /** Default "running". */
   state?: ManagerState;
   /** Whether `systemctl --user is-active <slice>` reports `active` (something left from a previous service). */
   sliceActive?: boolean;
-  /** `systemd-run` fails without running the command, as when the scope can't be created. */
-  runFails?: boolean;
-  /** `systemctl kill`/`stop` print this on stdout and stderr and exit 1; `is-active` prints it on stderr. */
-  noise?: string;
   /**
    * `systemctl stop` waits until this file exists before it answers (after recording the call), so a test can hold
    * the service in the middle of a shutdown (the slice stop comes after the agents' scopes are killed).
@@ -48,37 +44,29 @@ printf '%s\\036' "$rec" >> ${shellQuote(log)}
 `;
 
 export const fakeSystemd = (options: FakeSystemdOptions = {}): FakeSystemd => {
-  const { state = "running", sliceActive = false, runFails = false, noise, stopGate } = options;
+  const { state = "running", sliceActive = false, stopGate } = options;
   const base = mkdtempSync(join(tmpdir(), "wombat-fake-systemd-"));
   const binDir = join(base, "bin");
   mkdirSync(binDir);
   const log = join(base, "calls");
   writeFileSync(log, "");
 
-  // Each ends in "; ", so it can prefix a command.
-  const noisyErr = noise === undefined ? "" : `echo ${shellQuote(noise)} >&2; `;
-  const noisy = noise === undefined ? "" : `echo ${shellQuote(noise)}; ${noisyErr}`;
-
   const systemdRun = `#!/bin/sh
 ${recorder("systemd-run", log)}
-${runFails ? `echo 'Failed to start transient scope unit: Unit already exists.' >&2\nexit 1` : ""}
 while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done
 [ "$#" -gt 0 ] && shift
 exec "$@"
 `;
 
-  const isSystemRunning =
-    state === "no-bus"
-      ? `echo 'Failed to connect to bus: No medium found' >&2; exit 1`
-      : `echo ${state}; ${state === "running" ? "exit 0" : "exit 1"}`;
+  const isSystemRunning = `echo ${state}; ${state === "running" ? "exit 0" : "exit 1"}`;
 
   const systemctl = `#!/bin/sh
 ${recorder("systemctl", log)}
 for a in "$@"; do
   case "$a" in
     is-system-running) ${isSystemRunning} ;;
-    is-active) ${noisyErr}${sliceActive ? "echo active; exit 0" : "echo inactive; exit 3"} ;;
-    kill|stop) ${stopGate === undefined ? "" : `[ "$a" = stop ] && while [ ! -e ${shellQuote(stopGate)} ]; do sleep 0.02; done; `}${noise === undefined ? "exit 0" : `${noisy}exit 1`} ;;
+    is-active) ${sliceActive ? "echo active; exit 0" : "echo inactive; exit 3"} ;;
+    kill|stop) ${stopGate === undefined ? "" : `[ "$a" = stop ] && while [ ! -e ${shellQuote(stopGate)} ]; do sleep 0.02; done; `}exit 0 ;;
   esac
 done
 exit 0

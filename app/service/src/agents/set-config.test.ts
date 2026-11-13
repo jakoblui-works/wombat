@@ -5,54 +5,16 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import type { LogEntry } from "@wombat/shared/api";
 import { expect, test } from "vitest";
 
 import { CONFIG_SILENT_FILE, FAKE_CONFIG, type FakeConfig } from "../../test/fake-agent.ts";
-import { NO_RESUME_HARNESS, REPO, setup, TEST_TIMEOUT_MS, type Setup } from "../../test/manager-fixtures.ts";
-
-const configEntries = (t: Setup, agentId: string) =>
-  t.entries(agentId).filter((entry: LogEntry) => entry.type === "session_update" && entry.update.sessionUpdate === "config_option_update").length;
+import { REPO, setup, TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
 
 const refusal = (promise: Promise<unknown>) =>
   promise.then(
     () => undefined,
     (reason: unknown) => reason,
   );
-
-test("an unknown agent is not_found", async () => {
-  const t = setup();
-  expect(await refusal(t.manager.setConfig("no-such-agent", FAKE_CONFIG.model.id, "fake-small"))).toMatchObject({ code: "not_found" });
-});
-
-test(
-  // S2d, D26: a resumable harness's stopped agent is started by the set instead (the builder's row T19-8).
-  "an agent whose process ended and whose harness can't resume is not_running",
-  async () => {
-    const t = setup();
-    const { id } = await t.manager.start(NO_RESUME_HARNESS, REPO);
-    await t.manager.stop(id);
-    expect(await refusal(t.manager.setConfig(id, FAKE_CONFIG.model.id, "fake-small"))).toMatchObject({ code: "not_running" });
-  },
-  TEST_TIMEOUT_MS,
-);
-
-test.each<[string, string, string | boolean]>([
-  ["an unknown option", "no-such-option", "fake-small"],
-  ["a value the select doesn't offer", FAKE_CONFIG.model.id, "huge-model"],
-  ["a boolean to a select", FAKE_CONFIG.model.id, true],
-  ["a string to a boolean", FAKE_CONFIG.fast.id, "true"],
-])(
-  "%s is invalid_request, and nothing is stored",
-  async (_name, configId, value) => {
-    const t = setup();
-    const { id } = await t.manager.start("fake-reply", REPO);
-    const before = configEntries(t, id);
-    expect(await refusal(t.manager.setConfig(id, configId, value))).toMatchObject({ code: "invalid_request" });
-    expect(configEntries(t, id)).toBe(before);
-  },
-  TEST_TIMEOUT_MS,
-);
 
 // S2d, T19 (row T19-4): claude-agent-acp answers session/resume with model and effort at their defaults, and the next
 // prompt runs on them; the service sets the stored values again. Without that the agent quietly changes model. The

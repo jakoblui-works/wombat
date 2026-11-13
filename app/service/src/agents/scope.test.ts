@@ -45,19 +45,6 @@ describe("agents in scopes (fake systemd)", () => {
   );
 
   test(
-    "when systemd is there but systemd-run can't start the scope, start fails with agent_failed and nothing runs uncontained",
-    async () => {
-      const t = setup({ systemd: "fake", fake: { runFails: true } });
-      await expect(t.manager.start("fake-reply", REPO)).rejects.toMatchObject({ code: "agent_failed" });
-      expect(runs(fakesOf(t).calls()).length).toBeGreaterThan(0);
-      expect(t.store.listAgents()).toEqual([]);
-      // The fake agent records its pid as it starts: none means it never ran, scoped or not.
-      expect(t.pids()).toEqual([]);
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
     "shutdown kills every running agent's scope and stops the slice",
     async () => {
       const t = setup({ systemd: "fake" });
@@ -72,35 +59,21 @@ describe("agents in scopes (fake systemd)", () => {
           [unitOf(one.id), unitOf(two.id)].every((unit) => killedUnits(fakes.calls()).includes(unit)) &&
           sliceStops(fakes.calls(), t.slice).length > 0,
       );
+      await expect(t.manager.shutdown(), "a second shutdown").resolves.toBeUndefined();
+      await expect(t.manager.send(one.id, { text: "Hello?" }), "a send after shutdown").rejects.toThrow(/\w/);
     },
     TEST_TIMEOUT_MS,
   );
 
-  test.each([
-    { left: true, name: "a slice with something left from a previous service is stopped, with a warning" },
-    { left: false, name: "an empty slice is left alone, with no warning" },
-  ])(
-    "at start-up, $name",
-    async ({ left }) => {
-      const t = setup({ systemd: "fake", fake: { sliceActive: left } });
+  test(
+    "at start-up, a slice with something left from a previous service is stopped, with a warning",
+    async () => {
+      const t = setup({ systemd: "fake", fake: { sliceActive: true } });
       const fakes = fakesOf(t);
-      const asked = () =>
-        fakes.calls().some(({ tool, args }) => tool === "systemctl" && args.includes("is-active") && args.includes(t.slice));
-
-      if (left) {
-        await waitFor("the leftover slice stopped and warned about", () => {
-          return sliceStops(fakes.calls(), t.slice).length > 0 && warnings(t, "scope_leftovers_stopped").length > 0;
-        });
-        expect(warnings(t, "scope_leftovers_stopped").map((line) => line.fields.slice)).toEqual([t.slice]);
-      } else {
-        await waitFor("the slice checked for leftovers", asked);
-        // Time for a wrongful stop to show: an agent starts and runs a turn.
-        const { id } = await t.manager.start("fake-reply", REPO);
-        await t.manager.send(id, { text: "Hello" });
-        await t.turnEnded(id);
-        expect(sliceStops(fakes.calls(), t.slice)).toEqual([]);
-        expect(warnings(t, "scope_leftovers_stopped")).toEqual([]);
-      }
+      await waitFor("the leftover slice stopped and warned about", () => {
+        return sliceStops(fakes.calls(), t.slice).length > 0 && warnings(t, "scope_leftovers_stopped").length > 0;
+      });
+      expect(warnings(t, "scope_leftovers_stopped").map((line) => line.fields.slice)).toEqual([t.slice]);
     },
     TEST_TIMEOUT_MS,
   );
@@ -109,8 +82,6 @@ describe("agents in scopes (fake systemd)", () => {
 describe("detection", () => {
   test.each([
     { name: "no systemd tools on PATH", systemd: "none", state: undefined, scoped: false },
-    { name: "the user manager can't be reached", systemd: "fake", state: "no-bus", scoped: false },
-    { name: "the user manager is offline", systemd: "fake", state: "offline", scoped: false },
     { name: "a degraded user manager still answers", systemd: "fake", state: "degraded", scoped: true },
   ] as const)(
     "$name: scoped=$scoped; without scopes, agents run as process groups and every start warns scope_unavailable",

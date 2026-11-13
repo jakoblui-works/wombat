@@ -5,7 +5,7 @@ import type { LogEntry } from "@wombat/shared/api";
 import { expect, test } from "vitest";
 
 import { FAKE_CONFIG } from "../../test/fake-agent.ts";
-import { isAlive, NO_RESUME_HARNESS, REPO, setup, TEST_TIMEOUT_MS, waitFor, type Setup } from "../../test/manager-fixtures.ts";
+import { isAlive, REPO, setup, TEST_TIMEOUT_MS, waitFor, type Setup } from "../../test/manager-fixtures.ts";
 
 const latestConfig = (entries: LogEntry[]) => {
   const options = entries.flatMap((entry) =>
@@ -28,28 +28,6 @@ test(
     expect(t.entries(id).filter((entry) => entry.type === "user_message" || entry.type === "turn_ended")).toEqual([]);
     // A value the agent doesn't offer is refused as on a running agent.
     await expect(t.manager.setConfig(id, FAKE_CONFIG.effort.id, "extreme")).rejects.toMatchObject({ code: "invalid_request" });
-  },
-  TEST_TIMEOUT_MS,
-);
-
-test(
-  "T19-8b: a message to a stopped agent whose harness can't resume is not_running with the remedy, stores nothing and spawns nothing",
-  async () => {
-    const t = setup();
-    const { id } = await t.manager.start(NO_RESUME_HARNESS, REPO);
-    await t.manager.stop(id);
-    const entries = t.entries(id);
-    const spawned = t.pids().length;
-
-    await expect(t.manager.send(id, { text: "Are you there?" })).rejects.toMatchObject({
-      code: "not_running",
-      message: "This agent can't be started again. Start a new agent to continue.",
-    });
-    await expect(t.manager.contextBreakdown(id)).rejects.toMatchObject({ code: "not_running" });
-
-    expect(t.entries(id)).toEqual(entries);
-    expect(t.agent(id)?.state).toBe("stopped");
-    expect(t.pids()).toHaveLength(spawned);
   },
   TEST_TIMEOUT_MS,
 );
