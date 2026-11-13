@@ -662,6 +662,42 @@ export const bridgeCommand = (page: Page, id: unknown): Promise<string> =>
     }
   }, id);
 
+export type ServiceCallSeen = { method: string; path: string };
+type ServiceCallsGlobal = { __e2eServiceCalls?: ServiceCallSeen[]; __e2eReleaseServiceCalls?: () => void };
+
+/**
+ * From now on, records every call main makes to the service (method and path, by wrapping main's `fetch`, which
+ * service-client.ts calls), so a check can count what the app asked for. A call matching `hold` waits until
+ * `releaseServiceCalls`. Calls go out in the order the page makes them, so once a later call is seen, every earlier
+ * one has been too.
+ */
+export const watchServiceCalls = (app: ElectronApplication, hold?: ServiceCallSeen): Promise<void> =>
+  app.evaluate((_electron, held) => {
+    const g = globalThis as unknown as ServiceCallsGlobal;
+    const calls: ServiceCallSeen[] = [];
+    g.__e2eServiceCalls = calls;
+    const gate = new Promise<void>((resolve) => (g.__e2eReleaseServiceCalls = resolve));
+    const original = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+      calls.push({ method, path: url.pathname });
+      if (held !== undefined && held.method === method && held.path === url.pathname) await gate;
+      return original(input, init);
+    };
+  }, hold);
+
+/** Lets the calls `watchServiceCalls` holds go on. */
+export const releaseServiceCalls = (app: ElectronApplication): Promise<void> =>
+  app.evaluate(() => (globalThis as unknown as ServiceCallsGlobal).__e2eReleaseServiceCalls?.());
+
+/** How many calls to the service with `method` and `path` main has made since `watchServiceCalls`. */
+export const serviceCallCount = (app: ElectronApplication, method: string, path: string): Promise<number> =>
+  app.evaluate(
+    (_electron, [m, p]) => ((globalThis as unknown as ServiceCallsGlobal).__e2eServiceCalls ?? []).filter((call) => call.method === m && call.path === p).length,
+    [method, path] as const,
+  );
+
 /** The zoom level main has applied to the app's window (webContents.getZoomLevel()). */
 export const zoomLevel = (app: ElectronApplication): Promise<number | undefined> =>
   app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.getZoomLevel());
