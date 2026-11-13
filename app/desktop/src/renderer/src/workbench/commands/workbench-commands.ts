@@ -4,7 +4,7 @@ import type { DockviewApi } from "dockview-react";
 import { AGENTS_ACTIVITY } from "../activity-ids.ts";
 import type { ActivityDescriptor } from "../registry.ts";
 import { setNewAgentDialogOpen } from "./new-agent-dialog.ts";
-import { splitEmpty, type SplitDirection } from "../tabs.ts";
+import { closeEmptyGroup, splitEmpty, type SplitDirection } from "../tabs.ts";
 import { commands, registerCommand } from "./registry.ts";
 
 export type WorkbenchCommandDeps = {
@@ -22,7 +22,7 @@ export type WorkbenchCommandDeps = {
 };
 
 /** The ids of the workbench's commands the page's controls and menus name. */
-export const WORKBENCH_COMMAND = { newAgent: "agent.new", closeTab: "view.closeTab", toggleRightSidebar: "view.toggleRightSidebar", restartService: "service.restart" } as const;
+export const WORKBENCH_COMMAND = { newAgent: "agent.new", closeTab: "view.closeTab", closeGroup: "view.closeGroup", toggleRightSidebar: "view.toggleRightSidebar", restartService: "service.restart" } as const;
 
 /** The id of the command that shows activity `id`. */
 export const activityCommandId = (id: string): string => `view.activity.${id}`;
@@ -68,7 +68,17 @@ export const registerWorkbenchCommands = ({ api, activities, showActivity, toggl
         const group = groupId === undefined ? dockview.activeGroup : dockview.getGroup(groupId);
         const panel = group?.activePanel;
         if (panel !== undefined) dockview.removePanel(panel);
-        else if (group !== undefined && group.panels.length === 0 && dockview.groups.length > 1) dockview.removeGroup(group);
+        else if (group !== undefined) closeEmptyGroup(dockview, group.id);
+      },
+    }),
+    registerCommand({
+      id: WORKBENCH_COMMAND.closeGroup,
+      title: "Close Group",
+      when: unblocked,
+      run: ({ groupId }) => {
+        const dockview = api();
+        const group = groupId ?? dockview?.activeGroup?.id;
+        if (dockview !== undefined && group !== undefined) closeEmptyGroup(dockview, group);
       },
     }),
     ...SPLIT_DIRECTIONS.map((direction) =>

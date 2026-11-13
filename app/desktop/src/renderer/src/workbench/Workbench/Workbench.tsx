@@ -24,6 +24,7 @@ import { LiveStatusBar } from "../StatusBar/StatusBar.tsx";
 import { EmptyGroup } from "../EmptyGroup/EmptyGroup.tsx";
 import { SplitButton } from "../TabBar/SplitButton.tsx";
 import { Tab } from "../TabBar/Tab.tsx";
+import { TabBarMenu } from "../TabBar/TabBarMenu.tsx";
 import { ResizeHandle } from "../ResizeHandle/ResizeHandle.tsx";
 import {
   pruneTabs,
@@ -337,14 +338,16 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   </aside>
                   <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
                   <main className="min-w-0 flex-1">
-                    <DockviewReact
-                      className="dockview-theme-wombat"
-                      components={COMPONENTS}
-                      defaultTabComponent={Tab}
-                      rightHeaderActionsComponent={SplitButton}
-                      watermarkComponent={EmptyGroup}
-                      onReady={(event: DockviewReadyEvent) => setApi(event.api)}
-                    />
+                    <TabBarMenu api={api}>
+                      <DockviewReact
+                        className="dockview-theme-wombat"
+                        components={COMPONENTS}
+                        defaultTabComponent={Tab}
+                        rightHeaderActionsComponent={SplitButton}
+                        watermarkComponent={EmptyGroup}
+                        onReady={(event: DockviewReadyEvent) => setApi(event.api)}
+                      />
+                    </TabBarMenu>
                   </main>
                   {!chrome.sidebars.rightCollapsed && (
                     <>
