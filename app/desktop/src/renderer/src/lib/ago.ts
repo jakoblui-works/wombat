@@ -16,12 +16,21 @@ export const ago = (at: string, now: number | Date): string => {
 /** How often the times since ("4m") are worked out again. */
 export const TICK_MS = 60_000;
 
-/** The time now, renewed every TICK_MS: what a list of `ago` times renders from. */
-export const useNow = (): number => {
+/**
+ * The time now, renewed every `intervalMs` (TICK_MS: what a list of `ago` times renders from) while `enabled`, and
+ * read again when it turns on.
+ */
+export const useNow = ({ intervalMs = TICK_MS, enabled = true }: { intervalMs?: number; enabled?: boolean } = {}): number => {
   const [now, setNow] = useState(() => Date.now());
+  const [wasEnabled, setWasEnabled] = useState(enabled);
+  if (enabled !== wasEnabled) {
+    setWasEnabled(enabled);
+    if (enabled) setNow(Date.now());
+  }
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), TICK_MS);
+    if (!enabled) return;
+    const timer = setInterval(() => setNow(Date.now()), intervalMs);
     return () => clearInterval(timer);
-  }, []);
+  }, [enabled, intervalMs]);
   return now;
 };

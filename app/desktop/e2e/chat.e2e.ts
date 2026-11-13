@@ -12,11 +12,11 @@
 //   the message box is the textbox "Message", and Enter sends.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ElectronApplication, Locator, Page } from "@playwright/test";
+import type { ElectronApplication, Page } from "@playwright/test";
 
 import { FAKE_CONFIG, fakeConfigOptions, HOSTILE } from "../../service/test/fake-agent.ts";
 import { MAX_SHOWN_CHARS } from "../src/renderer/src/workbench/views/Chat/clip-text.ts";
-import { agentSummary, click, expect, layoutOf, openAgent, REPO, type Sandbox, startAgent, startWaitingAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import { agentSummary, click, current, expect, layoutOf, openAgent, REPO, type Sandbox, startAgent, startWaitingAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 import { answersIn, groupWithTab, logOf, prompt, waitForState } from "./agent-views.ts";
 
 // Main hands https links to the host's browser through `shell.openExternal`; the check records those calls instead
@@ -366,6 +366,3 @@ const modelName = (value: string): string => {
   return option && "name" in option ? option.name : value;
 };
 
-/** The element marking a select's current value in the dialog, holding `name`. */
-const current = (dialog: Locator, name: string): Locator =>
-  dialog.locator('[aria-checked="true"], [aria-selected="true"], [aria-current="true"]').filter({ hasText: name });

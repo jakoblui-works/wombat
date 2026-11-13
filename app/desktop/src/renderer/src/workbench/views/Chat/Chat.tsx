@@ -1,5 +1,5 @@
 import { chatAccess } from "@wombat/shared/api";
-import { memo, type ReactNode, useEffect, useState, useLayoutEffect, useMemo, useRef } from "react";
+import { memo, type ReactNode, useCallback, useEffect, useState, useLayoutEffect, useMemo, useRef } from "react";
 
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { type ChatItem, type ChatModel } from "../../../data/chat-model.ts";
@@ -15,9 +15,11 @@ import { useReveal } from "../../../lib/use-reveal.ts";
 import { type Arrivals, NO_ARRIVALS, trackArrivals } from "./arrivals.ts";
 import { type ChatBlock, chatBlocks, streamingKey } from "./chat-blocks.ts";
 import { CHAT_VIEW, ChatParams } from "./chat-params.ts";
+import { featuresOrAssumed } from "./harness-features.ts";
 import { type LiveState, liveState } from "../approvals/live-state.ts";
 import { sameBlock } from "./same-item.ts";
 import { useChatModel } from "../approvals/use-chat-model.ts";
+import { caughtUp, followStreaming, NO_PACING, type Pacing, revealDone, stillReveals } from "./pacing.ts";
 import { ChatHeader } from "./ChatHeader/ChatHeader.tsx";
 import { ContextDialogHost } from "./ContextDialogHost/ContextDialogHost.tsx";
 import { Composer } from "./Composer/Composer.tsx";
@@ -75,8 +77,18 @@ type StaticItem = Extract<ChatBlock, { kind: "item" }>["item"];
 
 const AgentText = ({ text }: { text: string }) => <Markdown text={text} className="text-base text-fg-primary" />;
 
-/** The agent message still being written, revealed at an even pace; only it renders again on each frame. */
-const StreamingText = ({ text, fresh }: { text: string; fresh: boolean }) => <AgentText text={safePrefix(useReveal(text, true, fresh))} />;
+/**
+ * An agent message revealed at an even pace (`stillReveals`); only it renders again on each frame. Once it is no
+ * longer being written and shows all of its text it calls `onDone` with its block's key.
+ */
+const StreamingText = ({ blockKey, text, fresh, streaming, onDone }: { blockKey: string; text: string; fresh: boolean; streaming: boolean; onDone: (key: string) => void }) => {
+  const shown = useReveal(text, true, fresh);
+  const done = revealDone(streaming, shown, text);
+  useEffect(() => {
+    if (done) onDone(blockKey);
+  }, [done, onDone, blockKey]);
+  return <AgentText text={safePrefix(shown)} />;
+};
 
 /** An item that shows only what the log says (everything but a permission, whose state is live). */
 const StaticItemView = ({ item }: { item: StaticItem }): ReactNode => {
@@ -125,9 +137,12 @@ type BlockProps = {
   fresh: boolean;
   /** The block is the agent message still being written (`streamingKey`). */
   streaming: boolean;
+  /** The block reveals its text at a pace (`stillReveals`). */
+  paced: boolean;
+  onRevealDone: (key: string) => void;
 };
 
-const Block = ({ block, live, edits, connected, answers, cards, fresh, streaming, onOpenSideBySide }: BlockProps) => {
+const Block = ({ block, live, edits, connected, answers, cards, fresh, streaming, paced, onRevealDone, onOpenSideBySide }: BlockProps) => {
   let shown: ReactNode;
   if (block.kind === "permission") {
     const item = block.item;
@@ -149,7 +164,9 @@ const Block = ({ block, live, edits, connected, answers, cards, fresh, streaming
         }}
       />
     );
-  } else if (streaming && block.kind === "item" && block.item.kind === "agent") shown = <StreamingText text={block.item.text} fresh={fresh} />;
+  } else if (paced && block.kind === "item" && block.item.kind === "agent") {
+    shown = <StreamingText blockKey={block.key} text={block.item.text} fresh={fresh} streaming={streaming} onDone={onRevealDone} />;
+  }
   else shown = <StaticBlock block={block} />;
   const session: ChatItem["sessionId"] = block.kind === "tools" ? block.items[0]?.sessionId : block.item.sessionId;
   const placed = session === undefined ? shown : <SubAgent>{shown}</SubAgent>;
@@ -165,7 +182,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const harness = harnesses.data?.find(({ id }) => id === agent?.harness);
   const features = harnesses.data === undefined ? undefined : (harness?.features ?? []);
   // While the agent is still loading it counts as running: only a known agent without a process isn't.
-  const access = agent === undefined ? "running" : chatAccess(agent, features ?? []);
+  const access = agent === undefined ? "running" : chatAccess(agent, featuresOrAssumed(features));
   const setConfig = useSetConfig();
   const blocks = useMemo(() => (model === undefined ? [] : chatBlocks(model.items)), [model]);
   const [arrivals, setArrivals] = useState<Arrivals>(NO_ARRIVALS);
@@ -177,6 +194,10 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const openSideBySide = (requestId: string) => workbench.openBeside(DIFF_VIEW, { agentId, requestId }, { viewId: CHAT_VIEW, params: { agentId } });
   const live = useMemo(() => (model === undefined ? undefined : liveState(model, agent)), [model, agent]);
   const streamingBlock = streamingKey(blocks, live?.turnActive ?? false);
+  const [pacingState, setPacing] = useState<Pacing>(NO_PACING);
+  const pacing = followStreaming(pacingState, streamingBlock);
+  if (pacing !== pacingState) setPacing(pacing);
+  const onRevealDone = useCallback((key: string) => setPacing((before) => caughtUp(before, key)), []);
 
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -251,6 +272,8 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
                 cards={cards.current}
                 fresh={tracked.fresh.has(block.key)}
                 streaming={block.key === streamingBlock}
+                paced={stillReveals(pacing, block.key)}
+                onRevealDone={onRevealDone}
                 onOpenSideBySide={openSideBySide}
               />
             ))}

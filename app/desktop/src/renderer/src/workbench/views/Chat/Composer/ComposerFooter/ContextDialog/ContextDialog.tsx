@@ -34,6 +34,9 @@ const SWATCH: Record<Category["kind"], string> = {
   deferred: "bg-surface-3",
 };
 
+/** A category's swatch by its kind: the default `swatchOf`. */
+export const defaultSwatch = ({ kind }: Pick<Category, "kind">): string => SWATCH[kind];
+
 const SMALL_CAPS = "text-xs font-medium uppercase tracking-wider text-fg-tertiary";
 
 export type ContextDialogLayoutProps = ContextDialogProps & {
@@ -44,7 +47,7 @@ export type ContextDialogLayoutProps = ContextDialogProps & {
 };
 
 /** The default `contextDialog` body, and the one owner of the layout: the model, the tokens, a bar and table of the categories, then the lists. */
-export const ContextDialog = ({ breakdown, error, swatchOf = ({ kind }) => SWATCH[kind], listAside }: ContextDialogLayoutProps) => {
+export const ContextDialog = ({ breakdown, error, swatchOf = defaultSwatch, listAside }: ContextDialogLayoutProps) => {
   if (error !== undefined) return <p className="text-sm text-danger">{error}</p>;
   if (breakdown === undefined) return <p className="text-sm text-fg-secondary">Loading…</p>;
   const { model, used, size, categories, lists } = breakdown;
@@ -56,9 +59,9 @@ export const ContextDialog = ({ breakdown, error, swatchOf = ({ kind }) => SWATC
           {compactTokens(used)} / {compactTokens(size)} tokens ({shareLabel(used, size)})
         </span>
         <div data-slot="context-bar" className="flex h-2 w-full overflow-hidden rounded-full bg-surface-3">
-          {barCategories(categories).map((category) => (
+          {barCategories(categories).map((category, index) => (
             <div
-              key={category.name}
+              key={`${category.name}:${String(index)}`}
               data-slot="context-bar-segment"
               className={cn("h-full", swatchOf(category))}
               style={{ width: `${contextShare({ used: category.tokens, size }) * 100}%` }}
@@ -76,8 +79,8 @@ export const ContextDialog = ({ breakdown, error, swatchOf = ({ kind }) => SWATC
           </tr>
         </thead>
         <tbody>
-          {tableCategories(categories).map((category) => (
-            <tr key={category.name}>
+          {tableCategories(categories).map((category, index) => (
+            <tr key={`${category.name}:${String(index)}`}>
               <td className="py-1 pr-2">
                 <span className="flex items-center gap-3">
                   <span aria-hidden="true" className={cn("size-2.5 shrink-0 rounded-[3px]", swatchOf(category))} />

@@ -1,5 +1,6 @@
-/** The cache state as AgentSummary.cache carries it. */
-export type CacheState = { ttlSeconds: number; lastRequestAt: string };
+import type { AgentSummary } from "@wombat/shared/api";
+
+export type CacheState = NonNullable<AgentSummary["cache"]>;
 
 /** How long the prompt cache has left at `now` (ms since the epoch), and whether it has expired. */
 export const cacheLeft = (cache: CacheState, now: number): { expired: boolean; seconds: number } => {

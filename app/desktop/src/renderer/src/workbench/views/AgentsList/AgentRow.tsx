@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../../components/ui/dropdown-menu";
 import { activityLabel } from "../../../lib/activity";
+import { AGENT_STATES } from "../../../lib/agent-state";
 import { ago } from "../../../lib/ago";
 import { StateMark } from "../../../lib/state-mark";
 import { cn } from "../../../lib/utils";
@@ -55,8 +56,10 @@ export const AgentRow = ({ agent, workspaceName, now, selected, stateChanged, on
             </>
           )}
         </span>
-        {agent.activity != null ? (
-          <span className="truncate pl-5.5 text-xs text-fg-secondary">Working · {activityLabel(agent.activity)}</span>
+        {agent.state === "working" && agent.activity != null ? (
+          <span className="truncate pl-5.5 text-xs text-fg-secondary">
+            {AGENT_STATES.working.label} · {activityLabel(agent.activity)}
+          </span>
         ) : null}
         {agent.lastText === undefined ? null : <span className="line-clamp-2 pl-5.5 text-sm text-fg-secondary">{agent.lastText}</span>}
       </button>

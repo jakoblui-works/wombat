@@ -11,10 +11,8 @@
 // - the dialog stays open after a pick.
 // (T14-8, a stopped agent's footer, was replaced in S2d by chat.e2e.ts's resume check, row T19-9: settings stay
 // usable while the agent isn't running, and a pick starts it.)
-import type { Locator } from "@playwright/test";
-
 import { FAKE_CONFIG, fakeConfigOptions } from "../../service/test/fake-agent.ts";
-import { click, expect, openAgent, REPO, serviceCallCount, startAgent, test, waitForConnection, waitUntil, watchServiceCalls, WAIT_MS, type Sandbox } from "./app-fixtures.ts";
+import { click, current, expect, openAgent, REPO, serviceCallCount, startAgent, test, waitForConnection, waitUntil, watchServiceCalls, WAIT_MS, type Sandbox } from "./app-fixtures.ts";
 import { groupWithTab } from "./agent-views.ts";
 
 type Option = { id: string; currentValue?: unknown };
@@ -38,10 +36,6 @@ const setFromElsewhere = async (sandbox: Sandbox, agentId: string, configId: str
   const response = await sandbox.api("POST", `/agents/${agentId}/config`, { configId, value });
   expect(response.status, `set ${configId}=${String(value)} through the api`).toBe(204);
 };
-
-/** The element marking a select's current value in the dialog, holding `name`. */
-const current = (dialog: Locator, name: string): Locator =>
-  dialog.locator('[aria-checked="true"], [aria-selected="true"], [aria-current="true"]').filter({ hasText: name });
 
 const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 

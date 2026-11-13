@@ -1,4 +1,4 @@
-import { type ConfigOption, optionByCategory, selectValues } from "@wombat/shared/api";
+import { ACP_CATEGORY, type ConfigOption, optionByCategory, selectValues } from "@wombat/shared/api";
 import { useState } from "react";
 
 import { Button } from "../../../../../../components/ui/button";
@@ -9,9 +9,9 @@ import type { FooterSlotProps } from "../slots.ts";
 export const currentName = (option: ConfigOption | undefined): string | undefined =>
   option?.type === "select" && "options" in option ? selectValues(option).find(({ value }) => value === option.currentValue)?.name : undefined;
 
-/** "Opus 5.5 · High": the model's and the effort's current names; "Settings" when the agent has neither. */
+/** The model's and the effort's current names, joined by " · "; "Settings" when the agent has neither. */
 export const settingsLabel = (config: ConfigOption[] | undefined): string => {
-  const names = [currentName(optionByCategory(config ?? [], "model")), currentName(optionByCategory(config ?? [], "thought_level"))];
+  const names = [currentName(optionByCategory(config ?? [], ACP_CATEGORY.model)), currentName(optionByCategory(config ?? [], ACP_CATEGORY.thoughtLevel))];
   const shown = names.filter((name): name is string => name !== undefined);
   return shown.length === 0 ? "Settings" : shown.join(" · ");
 };
@@ -34,7 +34,7 @@ export const SettingsButton = ({ config, setConfig, failure, access, starting, h
         <span className="truncate">{label}</span>
       </Button>
       <SettingsDialog open={open && !closed} onOpenChange={setOpen} title="Settings" failure={failure}>
-        <SettingsPanel config={config} setConfig={setConfig} hidden={hidden} />
+        <SettingsPanel config={config} setConfig={setConfig} failure={failure} hidden={hidden} />
       </SettingsDialog>
     </>
   );

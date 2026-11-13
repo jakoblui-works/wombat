@@ -9,7 +9,7 @@ export const isSelect = (option: ConfigOption): option is SelectConfig => option
 
 type Entry = ReturnType<typeof selectValues>[number];
 
-/** The values of one select as a listbox: name, description, and a check on the current one. Arrows move a highlight, Enter or a click sets; the selected value is always the option's own, so a refused pick snaps back. One Tab stop. */
+/** The values of one select as a listbox: name, description, and a check on the current one. Arrows move a highlight (ringed while the list has focus), Enter or a click sets; the selected value is always the option's own, so a refused pick snaps back. One Tab stop. */
 export const SelectList = ({ option, onPick }: { option: SelectConfig; onPick: (value: string) => void }) => {
   const groups = selectGroups(option);
   const entries = selectValues(option);
@@ -51,7 +51,11 @@ export const SelectList = ({ option, onPick }: { option: SelectConfig; onPick: (
         aria-selected={current}
         onClick={() => pick(value)}
         onPointerEnter={() => setHighlighted(value)}
-        className={cn("flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left", (value === active || current) && "bg-surface-3")}
+        className={cn(
+          "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left",
+          value === active && "bg-surface-2 group-focus/list:ring-1 group-focus/list:ring-focus group-focus/list:ring-inset",
+          current && "bg-surface-3",
+        )}
       >
         <span className="min-w-0 flex-1">
           <span className="block text-sm text-fg-primary">{name}</span>
@@ -68,7 +72,7 @@ export const SelectList = ({ option, onPick }: { option: SelectConfig; onPick: (
       tabIndex={0}
       aria-activedescendant={idOf(active)}
       onKeyDown={onKeyDown}
-      className="focus-ring flex flex-col rounded-md"
+      className="group/list focus-ring flex flex-col rounded-md"
     >
       {groups === undefined
         ? entries.map(row)

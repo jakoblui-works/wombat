@@ -1,7 +1,7 @@
 import type { AgentSummary } from "@wombat/shared/api";
-import { useEffect, useState } from "react";
 
 import type { Usage } from "../../../../../../data/chat-model.ts";
+import { useNow } from "../../../../../../lib/ago.ts";
 import { cn } from "../../../../../../lib/utils";
 import { cacheLeft, type CacheState } from "../../../../../../lib/cache.ts";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../../../../../components/ui/tooltip";
@@ -46,22 +46,10 @@ export const cacheLine = (cache: CacheState, now: number): string => {
 
 const CACHE_TICK_MS = 30_000;
 
-/** The current time, read again every 30 s while `ticking`. */
-const useNow = (ticking: boolean): number => {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!ticking) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), CACHE_TICK_MS);
-    return () => clearInterval(timer);
-  }, [ticking]);
-  return now;
-};
-
 /** How full the agent's context is, as a ring and a percentage; the tokens and the cache timer show on hover or focus. */
 export const ContextRing = ({ usage, agent }: { usage: Usage; agent?: Pick<AgentSummary, "cache"> }) => {
   const cache = agent?.cache ?? undefined;
-  const now = useNow(cache !== undefined);
+  const now = useNow({ intervalMs: CACHE_TICK_MS, enabled: cache !== undefined });
   const tokens = usageLabel(usage);
   const cacheText = cache === undefined ? undefined : cacheLine(cache, now);
   const expired = cache !== undefined && cacheLeft(cache, now).expired;
@@ -77,11 +65,11 @@ export const ContextRing = ({ usage, agent }: { usage: Usage; agent?: Pick<Agent
             aria-label={cacheText === undefined ? tokens : `${tokens}. ${cacheText}`}
             data-cache-expired={expired ? "" : undefined}
             tabIndex={0}
-            className={cn("focus-ring -my-1 ml-auto inline-flex items-center gap-1.5 rounded-full px-1.5 py-1 text-xs text-fg-secondary tabular-nums", expired && "opacity-50")}
+            className="focus-ring -my-1 ml-auto inline-flex items-center gap-1.5 rounded-full px-1.5 py-1 text-xs text-fg-secondary tabular-nums"
           />
         }
       >
-        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" className={cn(expired && "opacity-50")}>
           <circle cx="9" cy="9" r={RADIUS} fill="none" strokeWidth="3" className="stroke-fg-tertiary/60" />
           <circle
             data-slot="context-ring-used"

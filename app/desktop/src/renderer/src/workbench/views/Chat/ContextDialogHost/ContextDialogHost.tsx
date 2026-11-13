@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../../../../components/ui/dialog";
 import { ServiceError } from "../../../../data/client.ts";
 import { useContextBreakdown } from "../../../../data/commands.ts";
-import { asError } from "../../../../lib/errors.ts";
+import { asError, asSentence } from "../../../../lib/errors.ts";
 import { footerSlot } from "../Composer/ComposerFooter/slots.ts";
 
 const BUSY_MESSAGE = "Available once the agent is idle";
@@ -40,7 +40,7 @@ export const ContextDialogHost = ({ agent, features, featuresError, refetchFeatu
     supported === false
       ? "This agent's tool doesn't report context usage"
       : supported === undefined && featuresError
-        ? `Couldn't read what this agent's tool offers: ${featuresError.message} Close this and open it again to retry.`
+        ? `Couldn't read what this agent's tool offers: ${asSentence(featuresError.message)} Close this and open it again to retry.`
         : error === null
           ? undefined
           : contextErrorMessage(error);

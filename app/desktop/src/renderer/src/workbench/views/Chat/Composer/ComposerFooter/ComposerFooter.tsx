@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Usage } from "../../../../../data/chat-model.ts";
 import { asError } from "../../../../../lib/errors.ts";
 import { NotRunning } from "./NotRunning/NotRunning.tsx";
+import { FailureLine } from "./SettingsDialog/SettingsDialog.tsx";
 import { footerSlot } from "./slots.ts";
 
 type Props = {
@@ -55,11 +56,7 @@ export const ComposerFooter = ({ agent, toolName, options, usage, access = "runn
           <Settings {...slotProps} />
           {access === "running" ? <Context {...slotProps} /> : <NotRunning access={access} />}
         </div>
-        {failure === undefined || closed ? null : (
-          <p role="alert" className="pt-1 text-sm text-danger">
-            {failure}
-          </p>
-        )}
+        <FailureLine failure={closed ? undefined : failure} className="pt-1" />
       </div>
     </div>
   );

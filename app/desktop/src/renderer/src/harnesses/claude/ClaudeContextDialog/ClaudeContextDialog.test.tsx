@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 
 import { SAMPLE_BREAKDOWN } from "../../../../../../../shared/test/context-cases.ts";
 import { summary } from "../../../../../../test/summaries.ts";
+import { defaultSwatch } from "../../../workbench/views/Chat/Composer/ComposerFooter/ContextDialog/ContextDialog.tsx";
 import { ClaudeContextDialog } from "./ClaudeContextDialog.tsx";
 
 test("a category name the module doesn't know still renders, with the default colour", () => {
@@ -14,6 +15,6 @@ test("a category name the module doesn't know still renders, with the default co
     />,
   );
   expect(html).toContain("Sourdough starter");
-  expect(html).toContain("bg-fg-tertiary/60");
+  expect(html).toContain(defaultSwatch({ kind: "used" }));
   expect(html).toContain("bg-[#30c4cc]");
 });

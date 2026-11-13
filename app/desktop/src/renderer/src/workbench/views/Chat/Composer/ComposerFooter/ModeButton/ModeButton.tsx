@@ -1,4 +1,4 @@
-import { optionByCategory } from "@wombat/shared/api";
+import { ACP_CATEGORY, optionByCategory } from "@wombat/shared/api";
 import { useState } from "react";
 
 import { Button } from "../../../../../../components/ui/button";
@@ -13,7 +13,7 @@ import type { FooterSlotProps } from "../slots.ts";
  */
 export const ModeButton = ({ config, setConfig, failure, access, starting }: Pick<FooterSlotProps, "config" | "setConfig" | "failure" | "access" | "starting">) => {
   const [open, setOpen] = useState(false);
-  const mode = optionByCategory(config ?? [], "mode");
+  const mode = optionByCategory(config ?? [], ACP_CATEGORY.mode);
   if (mode === undefined || !isSelect(mode)) return null;
   const closed = access === "closed";
   const label = starting === true ? STARTING_LABEL : (currentName(mode) ?? mode.name);

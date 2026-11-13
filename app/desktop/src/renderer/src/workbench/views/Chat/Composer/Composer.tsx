@@ -1,4 +1,4 @@
-import { type ChatAccess, HARNESS_FEATURE } from "@wombat/shared/api";
+import type { ChatAccess } from "@wombat/shared/api";
 import { ArrowUp, Square } from "lucide-react";
 import { useEffect, useReducer } from "react";
 
@@ -36,7 +36,7 @@ export const Composer = ({ agentId, turnActive, connected, access, features, onO
   const send = () => {
     // Before canSend: the breakdown works while a turn runs (the dialog says if the agent isn't idle), and for an agent
     // without a process that can be started again (the dialog's request starts it).
-    if (appCommand(state.text, access === "closed" ? [] : (features ?? [HARNESS_FEATURE.context])) === "context") {
+    if (appCommand(state.text, access === "closed" ? [] : features) === "context") {
       dispatch({ type: "edit", text: "" });
       onOpenContext();
       return;

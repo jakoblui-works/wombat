@@ -1,6 +1,8 @@
 // The message box's rules, pure: when Send works, what a key does, and what a send's outcome does to the text.
 import { type ChatAccess, HARNESS_FEATURE } from "@wombat/shared/api";
 
+import { featuresOrAssumed } from "../harness-features.ts";
+
 export type ComposerState = {
   text: string;
   /** The text of the send under way (cleared from the box only if it's still what the box holds when it succeeds). */
@@ -44,6 +46,9 @@ export const canSend = (
 export const keyAction = ({ key, shiftKey, isComposing }: { key: string; shiftKey: boolean; isComposing: boolean }): "send" | "type" =>
   key === "Enter" && !shiftKey && !isComposing ? "send" : "type";
 
-/** Whether the text is an app command rather than a message: the whole text `/context`, for a harness that offers it. */
-export const appCommand = (text: string, features: readonly string[]): "context" | undefined =>
-  text.trim() === "/context" && features.includes(HARNESS_FEATURE.context) ? "context" : undefined;
+/**
+ * Whether the text is an app command rather than a message: the whole text `/context`, for a harness that offers it
+ * (`featuresOrAssumed` while its features are unknown).
+ */
+export const appCommand = (text: string, features: readonly string[] | undefined): "context" | undefined =>
+  text.trim() === "/context" && featuresOrAssumed(features).includes(HARNESS_FEATURE.context) ? "context" : undefined;

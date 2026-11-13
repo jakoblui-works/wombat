@@ -148,7 +148,7 @@ export const NewAgentDialog = ({ open, onOpenChange }: { open: boolean; onOpenCh
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>
       <DialogTitle>New agent</DialogTitle>
-      <DialogDescription>Pick where the agent works and tell it what to do.</DialogDescription>
+      <DialogDescription>Pick the tool and where the agent works, and tell it what to do.</DialogDescription>
       <NewAgentForm onDone={() => onOpenChange(false)} />
     </DialogContent>
   </Dialog>

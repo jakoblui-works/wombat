@@ -521,6 +521,10 @@ export const click = async (locator: Locator): Promise<void> => {
   await locator.page().mouse.click(at.x, at.y);
 };
 
+/** The element marking a select's current value in `dialog`, holding `name`. */
+export const current = (dialog: Locator, name: string): Locator =>
+  dialog.locator('[aria-checked="true"], [aria-selected="true"], [aria-current="true"]').filter({ hasText: name });
+
 type ConnectionWindow = {
   wombat?: { service?: { onConnection?: (cb: (state: { state: string; message?: string }) => void) => unknown; onAlert?: (cb: (alert: unknown) => void) => unknown } };
   __e2eConnection?: { state: string; message?: string }[];
