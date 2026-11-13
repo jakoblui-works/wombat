@@ -17,7 +17,7 @@ Wombat is an agentic development environment (ADE) for multi-repo projects. It s
   - `python/`: the sandbox and the index (the `wombat` CLI), a uv project.
   - `app/`: TypeScript, a pnpm workspace: `service/` (the agent service), `desktop/` (Electron + React), `shared/` (types shared by both).
   - App tests: unit tests beside the code (`*.test.ts`); process and cross-layer tests and shared fixtures in `<package>/test/`. A file mixing both is split when touched.
-  - Run the unit tests one package at a time (`pnpm -r --workspace-concurrency=1 test`); in parallel, some main-process tests time out.
+  - Run the unit tests with `pnpm test` from `app/`: one Vitest run over all packages, with one pool of workers.
   - `prototype/`: the hand-built sandbox (a NixOS image built with nixos-generators, Lima config, `flake.nix`, `compose.yml`, `process-compose.yaml`, Traefik config, a playbook, a tmux script), before any of it is templated.
   - `docs/`: the docs, later built into the site.
 - The core (`python/`) never refers to `app/`; CI checks it. The app reaches the core only through its public interfaces (the CLI's JSON output, the index's MCP server), never by importing its code.
