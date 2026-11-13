@@ -10,7 +10,8 @@ import { ServerErrorCode } from "@wombat/shared/api";
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 
-import { AccessError, SEARCH_LIMIT, type Access, type ItemInput } from "../items/access.ts";
+import { SEARCH_LIMIT, type Access } from "../items/access.ts";
+import { AccessError, type ItemInput } from "../items/refusals.ts";
 import { TOOL } from "../items/tools.ts";
 import type { Log } from "../log.ts";
 import { errorResponse, SERVER_STATUS } from "./errors.ts";

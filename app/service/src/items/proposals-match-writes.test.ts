@@ -5,7 +5,8 @@
 // conflict at approval. Messages aren't compared: proposals refuse in the writer's words.
 import { describe, expect, test } from "vitest";
 
-import { AccessError, type Access } from "./access.ts";
+import type { Access } from "./access.ts";
+import { AccessError } from "./refusals.ts";
 import { AGENT, openAccessRoot } from "../../test/access-fixtures.ts";
 
 /** The twins of each kind: `edit` is written directly, `propose` takes proposals; ids, prefixes and folders differ. */

@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 import { describe, expect, onTestFinished, test } from "vitest";
 
-import { AccessError } from "./access.ts";
+import { AccessError } from "./refusals.ts";
 import { ACCESS_FILES, AGENT, HIDDEN, MARKER, expectRefused, extraProblemKeys, leaks, openAccessRoot, refusal } from "../../test/access-fixtures.ts";
 import { UUID } from "../../test/instructions-fixtures.ts";
 
