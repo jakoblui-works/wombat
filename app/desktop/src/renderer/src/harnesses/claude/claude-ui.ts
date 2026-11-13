@@ -7,6 +7,6 @@ import { ClaudeContextDialog } from "./ClaudeContextDialog/ClaudeContextDialog.t
 const hot = import.meta.hot as { data: { registered?: boolean } } | undefined;
 if (hot?.data.registered === true) location.reload();
 else {
-  registerHarnessUi("claude-code", { contextDialog: ClaudeContextDialog });
+  registerHarnessUi("claude-code", { contextDialog: ClaudeContextDialog, hiddenOptions: ["agent"] });
   if (hot) hot.data.registered = true;
 }

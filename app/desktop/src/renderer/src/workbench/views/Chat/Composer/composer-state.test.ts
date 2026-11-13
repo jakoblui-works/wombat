@@ -34,3 +34,9 @@ test("text edited while the send is under way stays when it succeeds: only the s
   const edited = run({ type: "edit", text: "Go on" }, { type: "send" }, { type: "edit", text: "Go on, and add a test" }, { type: "sent" });
   expect(edited.text).toBe("Go on, and add a test");
 });
+
+test("Send is disabled for a stopped agent, even with text", () => {
+  const typed = run({ type: "edit", text: "Go on" });
+  expect(canSend(typed, { ...ready, stopped: true })).toBe(false);
+  expect(canSend(typed, { ...ready, stopped: false })).toBe(true);
+});

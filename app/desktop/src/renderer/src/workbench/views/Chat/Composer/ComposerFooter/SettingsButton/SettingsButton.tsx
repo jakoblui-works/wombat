@@ -17,16 +17,16 @@ export const settingsLabel = (config: ConfigOption[] | undefined): string => {
 };
 
 /** The default `settings` slot's button; hidden when the agent has no option for the dialog to show. */
-export const SettingsButton = ({ config, setConfig, failure }: Pick<FooterSlotProps, "config" | "setConfig" | "failure">) => {
+export const SettingsButton = ({ config, setConfig, failure, stopped, hidden }: Pick<FooterSlotProps, "config" | "setConfig" | "failure" | "stopped"> & { hidden?: readonly string[] | undefined }) => {
   const [open, setOpen] = useState(false);
-  if (panelOptions(config).length === 0) return null;
+  if (panelOptions(config, hidden).length === 0) return null;
   return (
     <>
-      <Button variant="ghost" size="xs" aria-label={`Settings: ${settingsLabel(config)}`} aria-haspopup="dialog" className="max-w-56 text-fg-secondary" onClick={() => setOpen(true)}>
+      <Button variant="ghost" size="xs" aria-label={`Settings: ${settingsLabel(config)}`} aria-haspopup="dialog" disabled={stopped === true} className="max-w-56 text-fg-secondary" onClick={() => setOpen(true)}>
         <span className="truncate">{settingsLabel(config)}</span>
       </Button>
-      <SettingsDialog open={open} onOpenChange={setOpen} title="Settings" failure={failure}>
-        <SettingsPanel config={config} setConfig={setConfig} />
+      <SettingsDialog open={open && stopped !== true} onOpenChange={setOpen} title="Settings" failure={failure}>
+        <SettingsPanel config={config} setConfig={setConfig} hidden={hidden} />
       </SettingsDialog>
     </>
   );

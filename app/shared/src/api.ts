@@ -336,6 +336,13 @@ export const isRunning = (agent: Pick<AgentSummary, "state"> | undefined): boole
  */
 export const agentsWithProcess = <T extends Pick<AgentSummary, "hasProcess">>(agents: readonly T[]): T[] => agents.filter((agent) => agent.hasProcess);
 
+/**
+ * Whether the agent's process runs, so it can take a message or a setting (not "busy", which is `isRunning`): the one
+ * rule behind a stopped agent's composer and footer. False for stopped, exited and crashed agents, and for every agent
+ * a restarted service loads.
+ */
+export const agentRunning = (agent: Pick<AgentSummary, "hasProcess">): boolean => agent.hasProcess;
+
 /** "1 agent", "2 agents": how many agents, wherever the app counts them. */
 export const agentCountLabel = (count: number): string => `${String(count)} ${count === 1 ? "agent" : "agents"}`;
 

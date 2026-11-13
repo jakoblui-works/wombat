@@ -10,12 +10,14 @@ type Props = {
   toolName: string;
   options: ConfigOption[] | undefined;
   usage: Usage | undefined;
+  /** The agent has no process (Chat decides): settings are shown but can't change, and a stale failure is hidden. */
+  stopped?: boolean;
   /** Sets an option; a rejection is shown under the footer. */
   onSet: (configId: string, value: string | boolean) => Promise<unknown> | void;
 };
 
 /** Under the message box: the agent's tool, then the harness's `settings` and `context` slots (its own, else the defaults). */
-export const ComposerFooter = ({ agent, toolName, options, usage, onSet }: Props) => {
+export const ComposerFooter = ({ agent, toolName, options, usage, stopped = false, onSet }: Props) => {
   const [failure, setFailure] = useState<string>();
   // Values shown are always the log's (`options`); only the error of the last set is kept here.
   const setConfig = async (configId: string, value: string | boolean): Promise<void> => {
@@ -28,7 +30,7 @@ export const ComposerFooter = ({ agent, toolName, options, usage, onSet }: Props
   };
   const Settings = footerSlot(agent.harness, "settings");
   const Context = footerSlot(agent.harness, "context");
-  const slotProps = { agent, config: options, usage, setConfig, failure };
+  const slotProps = { agent, config: options, usage, setConfig, failure: stopped ? undefined : failure, stopped };
   return (
     <div className="shrink-0 px-5 pb-2">
       <div className="mx-auto w-full max-w-chat">
@@ -37,7 +39,7 @@ export const ComposerFooter = ({ agent, toolName, options, usage, onSet }: Props
           <Settings {...slotProps} />
           <Context {...slotProps} />
         </div>
-        {failure === undefined ? null : (
+        {failure === undefined || stopped ? null : (
           <p role="alert" className="pt-1 text-sm text-danger">
             {failure}
           </p>

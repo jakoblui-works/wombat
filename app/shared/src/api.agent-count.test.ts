@@ -2,7 +2,7 @@
 // the same way.
 import { expect, test } from "vitest";
 
-import { agentCountLabel, agentsWithProcess } from "./api.ts";
+import { agentCountLabel, agentRunning, agentsWithProcess } from "./api.ts";
 
 test("only agents with a process count: a done agent with one does, a working one without one doesn't", () => {
   const agents = [
@@ -17,4 +17,9 @@ test("one agent is singular, any other count plural", () => {
   expect(agentCountLabel(1)).toBe("1 agent");
   expect(agentCountLabel(2)).toBe("2 agents");
   expect(agentCountLabel(0)).toBe("0 agents");
+});
+
+test("an agent is running exactly when it has a process, whatever its state", () => {
+  expect(agentRunning({ hasProcess: true })).toBe(true);
+  expect(agentRunning({ hasProcess: false })).toBe(false);
 });

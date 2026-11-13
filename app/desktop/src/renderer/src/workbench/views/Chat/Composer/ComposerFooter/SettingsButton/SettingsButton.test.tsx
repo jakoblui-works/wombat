@@ -42,3 +42,17 @@ test("the buttons say what they are and that they open a dialog", () => {
   expect(modeButton).toContain('aria-haspopup="dialog"');
   expect(renderToStaticMarkup(<SettingsButton config={[mode]} setConfig={set} />)).toBe("");
 });
+
+test("both buttons are disabled for a stopped agent and still show their values", () => {
+  const set = () => Promise.resolve();
+  const html = renderToStaticMarkup(
+    <>
+      <SettingsButton config={[model, effort]} setConfig={set} stopped />
+      <ModeButton config={[mode]} setConfig={set} stopped />
+    </>,
+  );
+  expect(html.match(/ disabled=""/g)).toHaveLength(2);
+  expect(html).toContain("Opus 5.5 · High");
+  expect(html).toContain("Ask before edits");
+  expect(renderToStaticMarkup(<SettingsButton config={[model]} setConfig={set} />)).not.toContain(" disabled=");
+});

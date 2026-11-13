@@ -35,3 +35,13 @@ test("the failure line is announced, and absent without a failure", () => {
   expect(renderToStaticMarkup(<FailureLine failure="Model not available" />)).toMatch(/role="alert"[^>]*>Model not available</);
   expect(renderToStaticMarkup(<FailureLine failure={undefined} />)).toBe("");
 });
+
+test("panelOptions leaves out the hidden ids, and the panel shows no heading for them", () => {
+  const model = select("m", "model");
+  const agent = select("agent", "");
+  expect(panelOptions([model, agent], ["agent"])).toEqual([model]);
+  expect(panelOptions([model, agent], [])).toEqual([model, agent]);
+  const html = renderToStaticMarkup(<SettingsPanel config={[model, agent]} setConfig={() => Promise.resolve()} hidden={["agent"]} />);
+  expect(html).toContain("Name of m");
+  expect(html).not.toContain("Name of agent");
+});

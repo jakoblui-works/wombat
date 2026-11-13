@@ -13,6 +13,8 @@ export type FooterSlotProps = {
   setConfig: (configId: string, value: string | boolean) => Promise<void>;
   /** The last set's refusal, until the next set succeeds; a slot's dialog shows it (the footer's own line is behind the scrim). */
   failure?: string | undefined;
+  /** The agent has no process: a set would fail with `not_running`: a settings slot shows its values, offers no change and closes its dialogs (the composer says why). */
+  stopped?: boolean | undefined;
 };
 
 /** The context dialog's body; ContextDialogHost owns the dialog's shell, title and close. */
@@ -22,9 +24,11 @@ export type HarnessUi = {
   settings?: ComponentType<FooterSlotProps>;
   context?: ComponentType<FooterSlotProps>;
   contextDialog?: ComponentType<ContextDialogProps>;
+  /** Ids of options the settings dialog leaves out for this harness. */
+  hiddenOptions?: readonly string[];
 };
 
-type Slots = Required<HarnessUi>;
+type Slots = Required<Omit<HarnessUi, "hiddenOptions">>;
 
 const DEFAULTS: Slots = { settings: DefaultSettings, context: DefaultContext, contextDialog: ContextDialog };
 
@@ -39,3 +43,6 @@ export const registerHarnessUi = (harnessId: string, ui: HarnessUi): void => {
 /** The component that fills `slot` for agents of `harnessId`: the harness's override, else the default. */
 export const footerSlot = <Slot extends keyof Slots>(harnessId: string, slot: Slot): Slots[Slot] =>
   (registry.get(harnessId)?.[slot] ?? DEFAULTS[slot]) as Slots[Slot];
+
+/** The option ids the settings dialog leaves out for agents of `harnessId` (none by default). */
+export const hiddenOptionsFor = (harnessId: string): readonly string[] => registry.get(harnessId)?.hiddenOptions ?? [];

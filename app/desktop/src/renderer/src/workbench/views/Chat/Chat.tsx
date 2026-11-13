@@ -1,3 +1,4 @@
+import { agentRunning } from "@wombat/shared/api";
 import { memo, type ReactNode, useEffect, useState, useLayoutEffect, useMemo, useRef } from "react";
 
 import { ScrollArea } from "../../../components/ui/scroll-area";
@@ -131,6 +132,8 @@ const Block = ({ block, live, edits, connected, answers, cards, onOpenSideBySide
 /** One agent's chat: the plan pinned on top, the conversation, the message box at the bottom. */
 const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | undefined }) => {
   const { model, agent, log } = useChatModel(agentId);
+  // Not while the agent is still loading: only a known agent without a process is stopped.
+  const stopped = agent !== undefined && !agentRunning(agent);
   const connected = useConnection().state === "connected";
   const answers = useAnswer(agentId);
   const harnesses = useHarnesses();
@@ -225,6 +228,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
         agentId={agentId}
         turnActive={live?.turnActive ?? false}
         connected={connected && model !== undefined}
+        stopped={stopped}
         features={harnesses.data?.find(({ id }) => id === agent?.harness)?.features ?? []}
         onOpenContext={() => setContextOpen(true)}
       />
@@ -234,6 +238,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
           toolName={harnesses.data?.find(({ id }) => id === agent.harness)?.name ?? agent.harness}
           options={model?.config}
           usage={model?.usage}
+          stopped={stopped}
           onSet={(configId, value) => setConfig.mutateAsync({ agentId, configId, value })}
         />
       )}

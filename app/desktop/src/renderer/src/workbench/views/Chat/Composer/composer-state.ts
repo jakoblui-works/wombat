@@ -29,9 +29,14 @@ export const composerReducer = (state: ComposerState, event: ComposerEvent): Com
   }
 };
 
-/** Whether Send works: there's text, no send or turn is under way (the service answers `busy`), and the app is connected. */
-export const canSend = (state: ComposerState, { turnActive, connected }: { turnActive: boolean; connected: boolean }): boolean =>
-  state.text.trim() !== "" && state.sending === undefined && !turnActive && connected;
+/**
+ * Whether Send works: there's text, no send or turn is under way (the service answers `busy`), the app is connected,
+ * and the agent has a process (a stopped agent's send would fail with `not_running`).
+ */
+export const canSend = (
+  state: ComposerState,
+  { turnActive, connected, stopped = false }: { turnActive: boolean; connected: boolean; stopped?: boolean },
+): boolean => state.text.trim() !== "" && state.sending === undefined && !turnActive && connected && !stopped;
 
 /** What a key in the message box does: Enter sends; Shift+Enter (and Enter while an IME composes) is a new line. */
 export const keyAction = ({ key, shiftKey, isComposing }: { key: string; shiftKey: boolean; isComposing: boolean }): "send" | "type" =>
