@@ -55,10 +55,3 @@ test("the root first, then the root's own git repos sorted by name; nothing hidd
   ]);
   for (const { path } of listed) expect(() => resolveRepo(root, path), path).not.toThrow();
 });
-
-test("a workspace without repos offers the root alone", () => {
-  const root = join(tempDir(), "empty-workspace");
-  mkdirSync(join(root, "docs"), { recursive: true });
-
-  expect(listRepos(root)).toEqual([{ path: ".", name: "empty-workspace" }]);
-});

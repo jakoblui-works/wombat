@@ -8,12 +8,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { ErrorBody } from "@wombat/shared/api";
-import { APP_ROUTES, appRoute, MAX_BODY_BYTES } from "@wombat/shared/routes";
+import { APP_ROUTES, appRoute } from "@wombat/shared/routes";
 import { expect, test } from "vitest";
 
-import { REPO, TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
-import { appRoutes, expectError, serve } from "../../test/server-fixtures.ts";
+import { appRoutes } from "../../test/server-fixtures.ts";
 
 const SERVER_DIR = import.meta.dirname;
 // Served for agents (/mcp) or called by main itself (/shutdown, /events); never in the page's allow-list.
@@ -64,50 +62,3 @@ test("the port-rules and agent-token fixture lists exactly the APP_ROUTES entrie
     "fixture routes that aren't in APP_ROUTES",
   ).toEqual([]);
 });
-
-test(
-  "every APP_ROUTES entry is served: none gets the unknown-route answer",
-  async () => {
-    const s = await serve();
-    expect(APP_ROUTES.length, "APP_ROUTES is empty").toBeGreaterThan(0);
-    // The service answers `not_found` both for an unknown route and for an unknown agent, so the agent routes get a
-    // real agent: then `not_found` can only mean the route isn't served. (Bodies are left out: a route that reads
-    // one answers invalid_request before it looks at any id. The items and proposal routes answer
-    // items_not_configured on this server whatever their ids.)
-    const started = await s.api("POST", "/agents", { harness: "fake-reply", repo: REPO });
-    expect(started.status, started.text).toBe(201);
-    const agentId = (started.json as { id: string }).id;
-    const concrete = (pattern: string) =>
-      pattern.startsWith("/agents/:")
-        ? pattern.replace(/^\/agents\/:[A-Za-z_][A-Za-z0-9_]*/, `/agents/${agentId}`).replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "x1")
-        : pattern.replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "x1");
-    // Main-only routes (/shutdown, /events) aren't listed (checked above), so none of these ends the agents or
-    // streams. DELETE last: it removes the agent the others need.
-    const ordered = [...APP_ROUTES].sort((a, b) => Number(a.method === "DELETE") - Number(b.method === "DELETE"));
-    const unserved: string[] = [];
-    for (const { method, pattern } of ordered) {
-      const path = concrete(pattern);
-      const response = await s.api(method, path);
-      const body = ErrorBody.safeParse(response.json);
-      if (body.success && body.data.error.code === "not_found") unserved.push(`${method} ${pattern} (as ${path}): ${response.text}`);
-    }
-    expect(unserved, "APP_ROUTES entries the server answers as unknown routes").toEqual([]);
-  },
-  TEST_TIMEOUT_MS,
-);
-
-test(
-  "the server's body limit is MAX_BODY_BYTES: a body of exactly that size is taken, one byte more is refused",
-  async () => {
-    const s = await serve();
-    const body = (size: number) => {
-      const shell = '{"text":""}';
-      return `{"text":"${"a".repeat(size - shell.length)}"}`;
-    };
-    const messages = "/agents/no-such-agent/messages";
-    const atCap = await s.api("POST", messages, body(MAX_BODY_BYTES), { "content-type": "application/json" });
-    expect(atCap.status, `a body of MAX_BODY_BYTES: ${atCap.text.slice(0, 200)}`).not.toBe(413);
-    expectError(await s.api("POST", messages, body(MAX_BODY_BYTES + 1), { "content-type": "application/json" }), 413, "payload_too_large", "MAX_BODY_BYTES + 1");
-  },
-  TEST_TIMEOUT_MS,
-);

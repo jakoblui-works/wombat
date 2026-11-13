@@ -12,8 +12,6 @@ const FAKE_AGENT = fileURLToPath(new URL("fake-agent.ts", import.meta.url));
 const CONTEXT_TIMEOUT_MS = 5_000;
 
 export type FakeHarnessOptions = {
-  /** Whether the harness offers the context breakdown (default true); false makes a harness without the feature. */
-  context?: boolean;
   /** How long `contextBreakdown` waits for the report before it gives up (default CONTEXT_TIMEOUT_MS). */
   contextTimeoutMs?: number;
   /** Whether the harness says its agents can be resumed (default true, as the fake agent can); false for D28. */
@@ -28,7 +26,7 @@ export type FakeHarnessOptions = {
  */
 export const fakeHarness = (
   scenario: FakeScenario,
-  { context = true, contextTimeoutMs = CONTEXT_TIMEOUT_MS, resume = true }: FakeHarnessOptions = {},
+  { contextTimeoutMs = CONTEXT_TIMEOUT_MS, resume = true }: FakeHarnessOptions = {},
 ): Harness => {
   const base: Harness = {
     id: "fake",
@@ -44,7 +42,6 @@ export const fakeHarness = (
       method === FAKE_EXT.cache ? { cache: (params as { cache: CacheState | null }).cache } : undefined,
     ...(resume ? { resumable: true } : {}),
   };
-  if (!context) return base;
   return {
     ...base,
     contextCommand: "context",

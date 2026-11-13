@@ -235,7 +235,6 @@ export const openStream = (port: number, options: Omit<RequestOptions, "path" | 
 
 export type ServeOptions = SetupOptions & {
   heartbeatMs?: number;
-  defaultLogLimit?: number;
   /**
    * An items root: the server gets a catalog and a writer on it (on the fixture's store), for the items and
    * proposal routes and the agents' /mcp tools; without it they aren't configured.
@@ -248,8 +247,6 @@ export type ServeOptions = SetupOptions & {
 export type Served = Setup & {
   port: number;
   token: string;
-  /** The harness ids the server was given. */
-  harnessIds: string[];
   /** A request with the token, the app's Origin and the right Host, unless the options override them. */
   api: (method: string, path: string, body?: unknown, headers?: Record<string, string>) => Promise<Response>;
   request: (options: RequestOptions) => Promise<Response>;
@@ -262,7 +259,7 @@ export type Served = Setup & {
 };
 
 /** A manager fixture behind a running server; everything is torn down after the test. */
-export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentTokens = {}, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
+export const serve = async ({ heartbeatMs, itemsRoot, agentTokens = {}, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
   const t = setup(setupOptions);
   const token = randomBytes(24).toString("base64url");
   const harnesses = fixtureHarnesses(t.pidDir);
@@ -301,7 +298,6 @@ export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentToke
       shutdownRequests += 1;
     },
     ...(heartbeatMs === undefined ? {} : { heartbeatMs }),
-    ...(defaultLogLimit === undefined ? {} : { defaultLogLimit }),
     ...(itemsRoot === undefined
       ? {}
       : { items: openCatalog({ root: itemsRoot, store: t.store }), writer: openWriter({ root: itemsRoot, store: t.store }) }),
@@ -326,7 +322,6 @@ export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentToke
     token,
     subscriptions: () => live,
     shutdownRequests: () => shutdownRequests,
-    harnessIds: harnesses.map((harness) => harness.id),
     api: (method: string, path: string, body?: unknown, headers?: Record<string, string>) =>
       rawRequest(server.port, { method, path, body, headers: authorized(headers) }),
     request: (options: RequestOptions) => rawRequest(server.port, options),

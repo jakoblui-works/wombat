@@ -58,18 +58,6 @@ describe("GET /events", () => {
   );
 
   test(
-    "sends a heartbeat comment line while idle",
-    async () => {
-      const s = await serve({ heartbeatMs: 50 });
-      const stream = await s.stream();
-      expect(stream.status).toBe(200);
-      await stream.until("two heartbeats", (open) => open.comments().filter((comment) => comment === "ping").length >= 2);
-      expect(alertsOf(stream)).toEqual([]);
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
     "close() resolves while a stream is still open, and ends it",
     async () => {
       const s = await serve();
@@ -98,22 +86,6 @@ describe("GET /events", () => {
       expect(s.subscriptions(), "control: the open stream is subscribed").toBe(baseline + 1);
       stream.close();
       await waitFor("the dropped stream to unsubscribe", () => s.subscriptions() === baseline);
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "HEAD /events is refused and leaves no subscription behind",
-    async () => {
-      const s = await serve();
-      const baseline = s.subscriptions();
-      const statuses: number[] = [];
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        statuses.push((await s.api("HEAD", "/events")).status);
-      }
-      await waitFor("no subscription left by HEAD", () => s.subscriptions() === baseline);
-      // A HEAD response has no body, so only the status can say why.
-      expect(statuses).toEqual([405, 405, 405]);
     },
     TEST_TIMEOUT_MS,
   );

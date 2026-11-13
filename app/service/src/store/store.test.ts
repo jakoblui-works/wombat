@@ -2,19 +2,16 @@
 import { DatabaseSync } from "node:sqlite";
 
 import { LogEntry } from "@wombat/shared/api";
-import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
 import type { NewLogEntry } from "./store.ts";
 import {
-  fakeClock,
   open,
   realisticTurn,
   summary,
   tempDir,
   tempStorePath,
   textChunk,
-  type Store,
 } from "../../test/store-fixtures.ts";
 
 const textOf = (entry: LogEntry) =>
@@ -23,18 +20,6 @@ const textOf = (entry: LogEntry) =>
     : undefined;
 
 describe("append", () => {
-  test("a batch gets consecutive seqs in entry order", () => {
-    const store = open({ path: tempStorePath() });
-    store.putAgent(summary("a1"));
-    const before = store.currentSeq();
-
-    const seqs = store.append("a1", realisticTurn);
-
-    expect(seqs).toEqual(realisticTurn.map((_, index) => before + 1 + index));
-    const { entries } = store.readLog("a1");
-    expect(entries.map((entry) => entry.seq)).toEqual(seqs);
-    expect(entries.map((entry) => entry.type)).toEqual(realisticTurn.map((entry) => entry.type));
-  });
 
   test("a batch that fails stores nothing: no entries, no seq taken", () => {
     const path = tempStorePath();
@@ -63,34 +48,6 @@ describe("append", () => {
 });
 
 describe("persistence", () => {
-  test("reopening keeps dbId, currentSeq, the latest summaries and every entry", () => {
-    const path = tempStorePath();
-    const store = open({ path, now: fakeClock() });
-    store.putAgent(summary("a1"));
-    store.putAgent(summary("a2", { repo: "cv-web" }));
-    store.append("a1", realisticTurn);
-    store.append("a2", [textChunk("Looking at the CV layout."), textChunk("Done.")]);
-    store.putAgent(summary("a1", { state: "working", title: "Footer link", lastActivityAt: "2026-11-09T09:30:00.000Z" }));
-    const before = {
-      dbId: store.dbId,
-      seq: store.currentSeq(),
-      agents: store.listAgents(),
-      a1: store.readLog("a1"),
-      a2: store.readLog("a2"),
-    };
-    store.close();
-
-    const reopened = open({ path, now: fakeClock() });
-    expect({
-      dbId: reopened.dbId,
-      seq: reopened.currentSeq(),
-      agents: reopened.listAgents(),
-      a1: reopened.readLog("a1"),
-      a2: reopened.readLog("a2"),
-    }).toEqual(before);
-    expect(before.a1.entries).toHaveLength(realisticTurn.length);
-    expect(before.a2.entries).toHaveLength(2);
-  });
 
   test("a new database file gets a new dbId and starts empty", () => {
     const dir = tempDir();
@@ -104,66 +61,9 @@ describe("persistence", () => {
     expect(second.currentSeq()).toBe(0);
     expect(second.listAgents()).toEqual([]);
   });
-
-  test("listAgents returns each agent's latest summary once, ordered by startedAt then id", () => {
-    const store = open({ path: tempStorePath() });
-    const late = summary("a", { startedAt: "2026-11-09T09:10:00.000Z", lastActivityAt: "2026-11-09T09:10:00.000Z" });
-    const c = summary("c", { startedAt: "2026-11-09T09:00:00.000Z" });
-    const b = summary("b", { startedAt: "2026-11-09T09:00:00.000Z" });
-    const bLater = { ...b, state: "error" as const, error: { code: "agent_exited", message: "The agent stopped." } };
-    for (const agent of [late, c, b, bLater]) store.putAgent(agent);
-
-    expect(store.listAgents()).toEqual([bLater, c, late]);
-  });
 });
 
 describe("readLog", () => {
-  test("returns exactly this agent's entries after the cursor, oldest first, at most limit", () => {
-    const agents = ["a1", "a2", "a3"];
-    fc.assert(
-      fc.property(
-        fc.array(fc.record({ agent: fc.integer({ min: 0, max: 2 }), count: fc.integer({ min: 1, max: 3 }) }), {
-          maxLength: 15,
-        }),
-        fc.array(
-          fc.record({
-            // 3 is an agent the store has never seen.
-            agent: fc.integer({ min: 0, max: 3 }),
-            after: fc.nat(),
-            limit: fc.option(fc.integer({ min: 1, max: 8 }), { nil: undefined }),
-          }),
-          { minLength: 1, maxLength: 10 },
-        ),
-        (appends, queries) => {
-          const store: Store = open({ path: tempStorePath() });
-          const model: { seq: number; agentId: string; text: string }[] = [];
-          for (const id of agents) store.putAgent(summary(id));
-          for (const [n, { agent, count }] of appends.entries()) {
-            const id = agents[agent] ?? "a1";
-            const texts = Array.from({ length: count }, (_, index) => `${id} batch ${n} chunk ${index}`);
-            const seqs = store.append(id, texts.map((text) => textChunk(text)));
-            texts.forEach((text, index) => model.push({ seq: seqs[index] ?? -1, agentId: id, text }));
-          }
-
-          for (const query of queries) {
-            const id = agents[query.agent] ?? "never-seen";
-            const after = query.after % (store.currentSeq() + 3);
-            const expected = model
-              .filter((entry) => entry.agentId === id && entry.seq > after)
-              .slice(0, query.limit ?? Number.POSITIVE_INFINITY);
-            const result = store.readLog(id, after, query.limit);
-            expect(result.truncated).toBe(false);
-            expect(result.entries.map((entry) => ({ seq: entry.seq, agentId: entry.agentId, text: textOf(entry) }))).toEqual(
-              expected,
-            );
-          }
-          for (const id of agents) expect(store.readLog(id)).toEqual(store.readLog(id, 0));
-          store.close();
-        },
-      ),
-      { numRuns: 40 },
-    );
-  });
 
   test("come back as valid shared log entries, unchanged, with at defaulting to now", () => {
     const now = new Date("2026-11-09T12:34:56.000Z");

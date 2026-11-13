@@ -13,7 +13,9 @@ import { join } from "node:path";
 
 import { API_VERSION } from "@wombat/shared";
 import { VersionResponse } from "@wombat/shared/api";
+import { codeIdOf } from "@wombat/shared/code-id";
 import { DiscoveryFile } from "@wombat/shared/discovery";
+import { startTimeOf } from "@wombat/shared/process-stat";
 import { expect, onTestFinished, test } from "vitest";
 
 import { openStore } from "../src/store/store.ts";
@@ -165,6 +167,11 @@ test(
     const version = await api(file, "GET", "/version");
     expect(version.status).toBe(200);
     expect(VersionResponse.parse(version.json).apiVersion).toBe(API_VERSION);
+    // The app tells a reused pid from the service by the start time, and a stale service by the code id of its checkout.
+    expect(file.processStart, "the discovery file's processStart").toBe(startTimeOf(file.pid));
+    const identity = version.json as { startedAt?: string; codeId?: string };
+    expect(identity.codeId, "codeId isn't codeIdOf the checkout the service runs from").toBe(codeIdOf(join(SERVICE_DIR, "..")));
+    expect(Date.parse(identity.startedAt ?? ""), "startedAt isn't a time").not.toBeNaN();
 
     const started = await api(file, "POST", "/agents", { harness: "fake-reply", repo: REPO });
     expect(started.status, started.text).toBeLessThan(300);
@@ -184,7 +191,9 @@ test(
     expect(secondSystemd.calls(), "a refused second start must not touch systemd").toEqual([]);
     expect(existsSync(secondState), "a refused second start must not open a store").toBe(false);
     expect(readFileSync(at.discoveryPath, "utf8"), "the first instance's file is untouched").toBe(text);
-    expect((await api(file, "GET", "/version")).status).toBe(200);
+    const again = await api(file, "GET", "/version");
+    expect(again.status).toBe(200);
+    expect(again.json, "startedAt or codeId moved: computed per request, not once at start").toEqual(version.json);
 
     service.child.kill("SIGTERM");
     expect(await service.exited()).toEqual({ code: 0, signal: null });

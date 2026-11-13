@@ -22,12 +22,6 @@ export const tempDir = () => {
 /** A database path inside a folder that doesn't exist yet, as on a first start. */
 export const tempStorePath = (dir = tempDir()) => join(dir, "state", "wombat", "service.db");
 
-/** A clock that moves one second per call. */
-export const fakeClock = (start = "2026-11-09T10:00:00.000Z") => {
-  let time = Date.parse(start);
-  return () => new Date((time += 1000));
-};
-
 /** Opens a store and closes it after the test, unless the test closed it already. */
 export const open = (options: StoreOptions): Store => {
   const store = openStore(options);

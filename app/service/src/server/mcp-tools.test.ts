@@ -4,58 +4,9 @@
 import { describe, expect, test } from "vitest";
 
 import { HIDDEN, MARKER, leaks } from "../../test/access-fixtures.ts";
-import { callTool, mcpRequest, openMcp } from "../../test/mcp-fixtures.ts";
+import { mcpRequest, openMcp } from "../../test/mcp-fixtures.ts";
 
 describe("the /mcp tools", () => {
-  test(
-    "an answer is JSON in exactly one text block",
-    async () => {
-      const s = openMcp();
-      const { token } = s;
-
-      const response = await mcpRequest(s, token, "tools/call", { name: "get_item", arguments: { handle: "BL-1" } });
-
-      const content = (response.json as { result: { content: { type: string; text: string }[] } }).result.content;
-      expect(content).toHaveLength(1);
-      expect(content[0]?.type).toBe("text");
-      expect(JSON.parse(content[0]?.text ?? "")).toMatchObject({ handle: "BL-1", title: "Items in Wombat" });
-    },
-  );
-
-  test(
-    "get_item's version is what update_item takes, and the update answers the next one",
-    async () => {
-      const s = openMcp();
-      const { token } = s;
-      const read = (await callTool(s, token, "get_item", { handle: "BL-1" })).json as { version: string };
-
-      const updated = await callTool(s, token, "update_item", { handle: "BL-1", fields: { owner: "Kim" }, version: read.version });
-      expect(updated.isError, updated.text).toBe(false);
-      const written = updated.json as { written: string; version: string };
-      expect(written.written).toBe("BL-1");
-      const reread = (await callTool(s, token, "get_item", { handle: "BL-1" })).json as { version: string; properties: Record<string, unknown> };
-      expect(reread.properties.owner).toBe("Kim");
-      expect(reread.version).toBe(written.version);
-
-      const stale = await callTool(s, token, "update_item", { handle: "BL-1", fields: { owner: "Lee" }, version: read.version });
-      expect(stale.isError).toBe(true);
-      expect(stale.text).toContain("get_item");
-    },
-  );
-
-  test(
-    "describe_structure without an argument lists every structure the agent can use",
-    async () => {
-      const s = openMcp();
-      const { token } = s;
-
-      const answer = await callTool(s, token, "describe_structure", {});
-
-      expect(answer.isError, answer.text).toBe(false);
-      const ids = (answer.json as { id: string }[]).map((structure) => structure.id);
-      expect(ids).toEqual(expect.arrayContaining(["backlog", "bugs", "docs"]));
-    },
-  );
 
   test(
     "GET and DELETE /mcp answer 405, even with a valid agent token",

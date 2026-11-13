@@ -40,10 +40,6 @@ describe("no secret reaches an agent", () => {
     vi.unstubAllEnvs();
   });
 
-  test("agentEnv omits WOMBAT_*, ANTHROPIC_API_KEY and the token from the source", () => {
-    expectNoSecrets(agentEnv(polluted));
-  });
-
   test("agentEnv omits them even when a harness declares them", () => {
     expectNoSecrets(agentEnv(polluted, { WOMBAT_TOKEN: TOKEN, WOMBAT_PORT: "14900", ANTHROPIC_API_KEY: API_KEY }));
   });

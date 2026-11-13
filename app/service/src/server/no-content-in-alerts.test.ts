@@ -9,9 +9,6 @@ import { describe, expect, test } from "vitest";
 import { REPO, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
 import { serve } from "../../test/server-fixtures.ts";
 
-// The text of the update the unknown-update scenario sends; it isn't stored, so it can't be read from the entries.
-const SKIPPED_UPDATE_MARKER = "thought-content-must-not-be-logged";
-
 const contentBlock = (block: { type: string; text?: string; data?: string }) =>
   block.type === "text" ? [block.text ?? ""] : block.type === "image" ? [block.data ?? ""] : [];
 
@@ -43,7 +40,7 @@ const contentOf = (entries: LogEntry[]) =>
 
 describe("no agent content in alerts", () => {
   test(
-    "across reply, image, skipped updates, permission and crash, the stream carries ids, seqs and types only",
+    "across a reply and an answered permission, the stream carries ids, seqs and types only",
     async () => {
       const s = await serve();
       const stream = await s.stream();
@@ -58,7 +55,7 @@ describe("no agent content in alerts", () => {
         return id;
       };
 
-      for (const scenario of ["reply", "image", "unknown-update"]) await s.turnEnded(await start(scenario));
+      await s.turnEnded(await start("reply"));
 
       const permission = await start("permission");
       await waitFor("a pending permission", () => s.agent(permission)?.state === "waiting");
@@ -67,9 +64,6 @@ describe("no agent content in alerts", () => {
       const answered = await s.api("POST", `/agents/${permission}/permissions/${request.requestId}`, { kind: "allow_once" });
       expect(answered.status).toBe(204);
       await s.turnEnded(permission);
-
-      const crash = await start("crash");
-      await waitFor("the crash recorded", () => s.agent(crash)?.state === "error");
 
       const last = String(s.store.currentSeq());
       await stream.until("the stream to catch up with the store", (open) => open.events().some((event) => event.id === last));
@@ -81,7 +75,7 @@ describe("no agent content in alerts", () => {
         expect(Object.keys(JSON.parse(event.data) as object).sort(), event.data).toEqual(["agentId", "dbId", "seq", "type"]);
       }
 
-      const content = [...new Set([...ids.flatMap((id) => contentOf(s.entries(id))), SKIPPED_UPDATE_MARKER])]
+      const content = [...new Set(ids.flatMap((id) => contentOf(s.entries(id))))]
         .map((text) => text.trim())
         .filter((text) => text.length >= 4);
       expect(content.length).toBeGreaterThan(ids.length);

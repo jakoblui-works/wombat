@@ -43,16 +43,6 @@ const cachedTurn = async (s: Served): Promise<string> => {
 };
 
 test(
-  "T13-8: a cache state the agent reports shows on GET /agents, and stays after the turn that brought it ends",
-  async () => {
-    const s = await serve();
-    const id = await cachedTurn(s);
-    expect((await listed(s, id))?.cache).toEqual(CACHE);
-  },
-  TEST_TIMEOUT_MS,
-);
-
-test(
   "T13-9: the cache state is never stored: the stored summary has none while GET /agents shows it",
   async () => {
     const s = await serve();

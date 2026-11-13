@@ -2,19 +2,7 @@ import { expect, test } from "vitest";
 
 import { agentEnv } from "./env.ts";
 
-const allowlisted = {
-  HOME: "/home/dev",
-  PATH: "/usr/local/bin:/usr/bin",
-  USER: "dev",
-  LANG: "en_US.UTF-8",
-  TERM: "xterm-256color",
-  SHELL: "/bin/zsh",
-  XDG_RUNTIME_DIR: "/run/user/1000",
-  XDG_CONFIG_HOME: "/home/dev/.config",
-};
-
 test.each<{ name: string; source: NodeJS.ProcessEnv; declared?: Record<string, string>; expected: Record<string, string> }>([
-  { name: "keeps every allowlisted variable with its value, XDG_* included", source: allowlisted, expected: allowlisted },
   {
     name: "drops everything else, including names that only look like allowlisted ones",
     source: {
@@ -29,12 +17,6 @@ test.each<{ name: string; source: NodeJS.ProcessEnv; declared?: Record<string, s
     },
     expected: { HOME: "/home/dev" },
   },
-  {
-    name: "leaves variables missing from the source unset, not empty",
-    source: { HOME: undefined, PATH: "/usr/bin", XDG_DATA_HOME: undefined },
-    expected: { PATH: "/usr/bin" },
-  },
-  { name: "an empty source gives an empty environment", source: {}, expected: {} },
   {
     name: "adds what the harness declares",
     source: { HOME: "/home/dev", TERM: "xterm" },

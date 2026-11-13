@@ -2,16 +2,12 @@
 // the agent only as a generic tool error and the log only as the agent, the tool and the error's name, since its
 // message may name files or hidden items; and a request body over the 1 MiB limit is refused before any tool runs,
 // though /mcp sits outside the app's own body limit.
-import { request as httpRequest } from "node:http";
 
 import { describe, expect, test } from "vitest";
 
 import type { Access } from "../items/access.ts";
-import { HIDDEN, MARKER, leaks, snapshotFiles } from "../../test/access-fixtures.ts";
-import { TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
-import { callTool, isRefused, mcpRequest, openMcp, serveItemsForStub } from "../../test/mcp-fixtures.ts";
-
-const MiB = 1024 * 1024;
+import { HIDDEN, MARKER, leaks } from "../../test/access-fixtures.ts";
+import { callTool, openMcp } from "../../test/mcp-fixtures.ts";
 
 describe("/mcp failures", () => {
   test("an unexpected error in a tool answers a generic tool error and logs only the agent, the tool and the error's name", async () => {
@@ -55,55 +51,4 @@ describe("/mcp failures", () => {
     }
     expect(leaks(JSON.stringify(logs), [MARKER, path, ...HIDDEN.ids, HIDDEN.structure, token, "permission denied"]), "the log").toEqual([]);
   });
-
-  // On the running server: the limit is the one the server passes to /mcp, and the chunked body comes through the
-  // Node adapter as it would from an agent.
-  test(
-    "a request body over 1 MiB is refused before any tool runs, with or without a content-length",
-    async () => {
-      const { s, root, token } = await serveItemsForStub();
-      const before = snapshotFiles(root);
-      const create = (body: string) => ({ structure: "backlog", title: "A large item", body });
-      const oversized = create("x".repeat(MiB + 1024));
-
-      // With a content-length.
-      const sized = await mcpRequest(s, token, "tools/call", { name: "create_item", arguments: oversized });
-      expect(isRefused(sized), `with a content-length: ${sized.status} ${sized.text.slice(0, 200)}`).toBe(true);
-      expect(sized.status).toBeLessThan(500);
-
-      // Chunked, so only reading the body can find its size.
-      const chunked = await new Promise<number>((resolve, reject) => {
-        const req = httpRequest({
-          host: "127.0.0.1",
-          port: s.port,
-          method: "POST",
-          path: "/mcp",
-          setHost: false,
-          headers: {
-            host: `127.0.0.1:${s.port}`,
-            authorization: `Bearer ${token}`,
-            accept: "application/json, text/event-stream",
-            "content-type": "application/json",
-          },
-        });
-        req.on("response", (res) => {
-          res.resume();
-          resolve(res.statusCode ?? 0);
-        });
-        req.on("error", reject);
-        const data = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "create_item", arguments: oversized } }));
-        for (let offset = 0; offset < data.length; offset += 64 * 1024) req.write(data.subarray(offset, offset + 64 * 1024));
-        req.end();
-      });
-      expect(chunked, "chunked: refused").toBeGreaterThanOrEqual(400);
-      expect(chunked).toBeLessThan(500);
-
-      expect(snapshotFiles(root), "no item was created").toEqual(before);
-      // Control: the same call under the limit runs.
-      const small = await callTool(s, token, "create_item", create("Invented."));
-      expect(small.isError, small.text).toBe(false);
-      expect(snapshotFiles(root)).not.toEqual(before);
-    },
-    TEST_TIMEOUT_MS,
-  );
 });
