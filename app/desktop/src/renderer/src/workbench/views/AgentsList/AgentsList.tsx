@@ -1,4 +1,5 @@
 import { Plus } from "lucide-react";
+import { useDeferredValue, useState, ViewTransition } from "react";
 
 import { Button } from "../../../components/ui/button";
 import { ScrollArea } from "../../../components/ui/scroll-area";
@@ -14,6 +15,7 @@ import { CHAT_VIEW, ChatParams } from "../Chat/chat-params.ts";
 import { AgentsError } from "../approvals/LogError/LogError.tsx";
 import { AgentRow } from "./AgentRow.tsx";
 import { groupAgents } from "./group-agents.ts";
+import { NO_STATE_CHANGES, type StateChanges, trackStates } from "./state-changes.ts";
 import { NewAgentDialog } from "./NewAgentDialog.tsx";
 
 /** The Agents sidebar: every agent, grouped by state with what needs me first. */
@@ -29,6 +31,12 @@ export const AgentsList = () => {
 
   const activeAgentId = active?.viewId === CHAT_VIEW ? ChatParams.safeParse(active.params).data?.agentId : undefined;
   const list = agents.data?.agents;
+  // The groups follow the list a render later, as a transition: a row moving to another group then slides there.
+  // Only that pairing animates (`share`); content changes and re-sorts within a group start no view transition.
+  const grouped = useDeferredValue(list);
+  const [states, setStates] = useState<StateChanges>(NO_STATE_CHANGES);
+  const tracked = trackStates(states, grouped ?? []);
+  if (tracked !== states) setStates(tracked);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -55,21 +63,23 @@ export const AgentsList = () => {
       ) : (
         <ScrollArea className="min-h-0 flex-1">
           <div className="flex flex-col gap-1 px-1.5 pt-1 pb-3">
-            {groupAgents(list).map(({ state, agents: inGroup }) => (
+            {groupAgents(grouped ?? list).map(({ state, agents: inGroup }) => (
               <section key={state} aria-label={AGENT_STATES[state].label}>
                 <h3 className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 text-xs font-medium text-fg-tertiary">
                   <span>{AGENT_STATES[state].label}</span>
                   <span className="tabular-nums">{inGroup.length}</span>
                 </h3>
                 {inGroup.map((agent) => (
-                  <AgentRow
-                    key={agent.id}
-                    agent={agent}
-                    workspaceName={workspaceName}
-                    now={now}
-                    selected={agent.id === activeAgentId}
-                    onOpen={() => openTab(CHAT_VIEW, { agentId: agent.id })}
-                  />
+                  <ViewTransition key={agent.id} name={`agent-${agent.id}`} default="none" share="agent-row">
+                    <AgentRow
+                      agent={agent}
+                      workspaceName={workspaceName}
+                      now={now}
+                      selected={agent.id === activeAgentId}
+                      stateChanged={tracked.changed.has(agent.id)}
+                      onOpen={() => openTab(CHAT_VIEW, { agentId: agent.id })}
+                    />
+                  </ViewTransition>
                 ))}
               </section>
             ))}

@@ -161,6 +161,48 @@
   }
 }
 
+/*
+ * The one place reduced motion is handled: every animation and transition runs for no time, view transitions
+ * included (their pseudo-elements aren't reached by the universal selector). Nothing else checks the preference.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after,
+  ::view-transition-group(*),
+  ::view-transition-image-pair(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * A row that moves to another group in the agents list slides there (React's <ViewTransition>, AgentsList). The page
+ * itself doesn't cross-fade under it, and the row's old and new look blend while it travels.
+ */
+::view-transition {
+  pointer-events: none;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+::view-transition-group(.agent-row) {
+  animation-duration: var(--duration-enter);
+  animation-timing-function: var(--ease-out);
+}
+::view-transition-old(.agent-row),
+::view-transition-new(.agent-row) {
+  animation-duration: var(--duration-enter);
+  animation-timing-function: var(--ease-out);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

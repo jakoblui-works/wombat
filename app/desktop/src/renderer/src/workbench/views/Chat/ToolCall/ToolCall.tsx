@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { Collapse } from "../../../../components/ui/collapse";
 import type { ChatItem, ToolCallContent, ToolCallStatus, ToolKind } from "../../../../data/chat-model.ts";
 import { cn } from "../../../../lib/utils";
 import { EditDiff } from "../../approvals/EditDiff/EditDiff.tsx";
@@ -115,7 +116,9 @@ const ToolRow = ({ item }: { item: ToolItem }) => {
           </span>
         )}
       </button>
-      {expanded ? <ToolDetails item={item} /> : null}
+      <Collapse open={expanded}>
+        <ToolDetails item={item} />
+      </Collapse>
     </li>
   );
 };

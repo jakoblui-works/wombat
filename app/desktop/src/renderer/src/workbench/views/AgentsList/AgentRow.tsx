@@ -18,11 +18,13 @@ type Props = {
   workspaceName: string;
   now: number;
   selected: boolean;
+  /** The agent changed state in the last update (`trackStates`). */
+  stateChanged: boolean;
   onOpen: () => void;
 };
 
 /** One agent: the row opens its chat; the menu beside it stops or deletes the agent. */
-export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props) => {
+export const AgentRow = ({ agent, workspaceName, now, selected, stateChanged, onOpen }: Props) => {
   const title = agentTitle(agent.id, agent);
   const actions = useAgentActions(agent.id);
   const [confirming, setConfirming] = useState(false);
@@ -40,7 +42,7 @@ export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props)
         )}
       >
         <span className="flex w-full items-center gap-2">
-          <StateMark state={agent.state} />
+          <StateMark state={agent.state} entering={stateChanged} />
           <span className="min-w-0 flex-1 truncate text-base font-medium text-fg-primary">{title}</span>
           <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{ago(agent.lastUserAt ?? agent.startedAt, now)}</span>
         </span>

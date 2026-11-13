@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { lastPathPart } from "@/lib/path";
+import { openedByPointer as byPointer } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarSeparator, MenubarShortcut, MenubarTrigger } from "@/components/ui/menubar";
 import { runLogged } from "../commands/registry.ts";
@@ -77,9 +78,7 @@ export const TitleBar = ({
       return;
     }
     openMenus.current.add(label);
-    // A click with no pointer behind it (detail 0) is the keyboard's Enter or Space on the trigger.
-    const pointer = event.type.startsWith("pointer") || event.type.startsWith("mouse") || (event.type === "click" && (event as MouseEvent).detail > 0);
-    openedByPointer.current.set(label, pointer);
+    openedByPointer.current.set(label, byPointer(event));
   };
   /**
    * Runs `id` once focus has left the menu's popup, if it landed where the menu was to put it (`expected`; null when

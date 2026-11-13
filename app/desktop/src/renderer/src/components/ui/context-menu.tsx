@@ -1,8 +1,10 @@
 import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu"
 import { cn } from "../../lib/utils"
+import { POPUP_MOTION, useOpenInput, useOpenTracking } from "./popup-motion"
 
-function ContextMenu(props: ContextMenuPrimitive.Root.Props) {
-  return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />
+function ContextMenu({ onOpenChange, ...props }: ContextMenuPrimitive.Root.Props) {
+  const tracking = useOpenTracking(onOpenChange)
+  return tracking.provide(<ContextMenuPrimitive.Root data-slot="context-menu" onOpenChange={tracking.onOpenChange} {...props} />)
 }
 
 function ContextMenuTrigger(props: ContextMenuPrimitive.Trigger.Props) {
@@ -13,13 +15,16 @@ function ContextMenuContent({
   className,
   ...props
 }: ContextMenuPrimitive.Popup.Props) {
+  const input = useOpenInput()
   return (
     <ContextMenuPrimitive.Portal>
       <ContextMenuPrimitive.Positioner className="isolate z-50 outline-none">
         <ContextMenuPrimitive.Popup
           data-slot="context-menu-content"
+          data-input={input}
           className={cn(
             "min-w-40 origin-(--transform-origin) rounded-lg border border-line-strong bg-popover p-1 text-base text-popover-foreground shadow-lg outline-none",
+            POPUP_MOTION,
             className
           )}
           {...props}

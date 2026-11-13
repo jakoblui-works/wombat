@@ -1,9 +1,11 @@
 import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { Check, ChevronsUpDown } from "lucide-react"
 import { cn } from "../../lib/utils"
+import { POPUP_MOTION, useOpenInput, useOpenTracking } from "./popup-motion"
 
-function Select<Value>(props: SelectPrimitive.Root.Props<Value>) {
-  return <SelectPrimitive.Root data-slot="select" {...props} />
+function Select<Value>({ onOpenChange, ...props }: SelectPrimitive.Root.Props<Value>) {
+  const tracking = useOpenTracking(onOpenChange)
+  return tracking.provide(<SelectPrimitive.Root data-slot="select" onOpenChange={tracking.onOpenChange} {...props} />)
 }
 
 function SelectTrigger({ className, children, ...props }: SelectPrimitive.Trigger.Props) {
@@ -29,13 +31,16 @@ function SelectValue(props: SelectPrimitive.Value.Props) {
 }
 
 function SelectContent({ className, children, ...props }: SelectPrimitive.Popup.Props) {
+  const input = useOpenInput()
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Positioner alignItemWithTrigger={false} sideOffset={4} className="isolate z-[60] outline-none">
         <SelectPrimitive.Popup
           data-slot="select-content"
+          data-input={input}
           className={cn(
             "min-w-(--anchor-width) rounded-lg border border-line-strong bg-popover p-1 text-base text-popover-foreground shadow-lg outline-none",
+            POPUP_MOTION,
             className
           )}
           {...props}

@@ -362,6 +362,9 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
       for (const window of BrowserWindow.getAllWindows()) window.setContentSize(width, height);
     }, VIEWPORT);
     await launched.page.waitForLoadState("domcontentloaded");
+    // The hidden window draws no frames, so a transition never finishes and a closing popup would stay in the DOM.
+    // Checks run with motion off; the motion proof turns it on itself (and has the window draw).
+    await launched.page.emulateMedia({ reducedMotion: "reduce" });
     return launched;
   };
 

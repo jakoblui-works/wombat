@@ -10,6 +10,8 @@ import { useWorkbench } from "../../workbench-context.ts";
 import { DIFF_VIEW } from "../Diff/diff-params.ts";
 import { type EditRequest, editRequest } from "../approvals/edit-request.ts";
 import { useAnswer } from "../approvals/answer.ts";
+import { usePlay } from "../../../lib/motion.ts";
+import { type Arrivals, NO_ARRIVALS, trackArrivals } from "./arrivals.ts";
 import { type ChatBlock, chatBlocks } from "./chat-blocks.ts";
 import { CHAT_VIEW, ChatParams } from "./chat-params.ts";
 import { type LiveState, liveState } from "../approvals/live-state.ts";
@@ -53,6 +55,9 @@ const STOP_REASONS: Readonly<Record<string, string>> = {
   refusal: "The agent refused to go on.",
 };
 
+/** Whether a block renders nothing (a turn that ended without a reason worth saying): there is nothing to animate. */
+const showsNothing = (block: ChatBlock): boolean => block.kind === "item" && block.item.kind === "turn_end" && STOP_REASONS[block.item.stopReason] === undefined;
+
 /** A sub-agent's item (another ACP session), marked apart from the agent's own. */
 const SubAgent = ({ children }: { children: ReactNode }) => (
   <div className="flex flex-col gap-1 border-l-2 border-line pl-3">
@@ -92,6 +97,12 @@ const StaticBlock = memo(
 );
 StaticBlock.displayName = "StaticBlock";
 
+/** A block that arrived live: it fades and slides in once, if it is shown when it arrives (`usePlay`). */
+const Arrival = ({ children }: { children: ReactNode }) => {
+  const enter = usePlay<HTMLDivElement>("motion-enter", true, { onMount: true });
+  return <div ref={enter}>{children}</div>;
+};
+
 type BlockProps = {
   block: ChatBlock;
   live: LiveState;
@@ -100,9 +111,11 @@ type BlockProps = {
   onOpenSideBySide: (requestId: string) => void;
   answers: ReturnType<typeof useAnswer>;
   cards: Map<string, HTMLElement>;
+  /** The block arrived while the chat was open (`trackArrivals`): it fades and slides in. */
+  fresh: boolean;
 };
 
-const Block = ({ block, live, edits, connected, answers, cards, onOpenSideBySide }: BlockProps) => {
+const Block = ({ block, live, edits, connected, answers, cards, fresh, onOpenSideBySide }: BlockProps) => {
   let shown: ReactNode;
   if (block.kind === "permission") {
     const item = block.item;
@@ -126,7 +139,8 @@ const Block = ({ block, live, edits, connected, answers, cards, onOpenSideBySide
     );
   } else shown = <StaticBlock block={block} />;
   const session: ChatItem["sessionId"] = block.kind === "tools" ? block.items[0]?.sessionId : block.item.sessionId;
-  return session === undefined ? shown : <SubAgent>{shown}</SubAgent>;
+  const placed = session === undefined ? shown : <SubAgent>{shown}</SubAgent>;
+  return fresh && !showsNothing(block) ? <Arrival>{placed}</Arrival> : placed;
 };
 
 /** One agent's chat: the plan pinned on top, the conversation, the message box at the bottom. */
@@ -141,6 +155,9 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const access = agent === undefined ? "running" : chatAccess(agent, features ?? []);
   const setConfig = useSetConfig();
   const blocks = useMemo(() => (model === undefined ? [] : chatBlocks(model.items)), [model]);
+  const [arrivals, setArrivals] = useState<Arrivals>(NO_ARRIVALS);
+  const tracked = trackArrivals(arrivals, blocks.map((block) => block.key), { loaded: model !== undefined, connected, reading: log.isFetching, readAt: log.dataUpdatedAt });
+  if (tracked !== arrivals) setArrivals(tracked);
   const edits = useMemo(() => (model === undefined ? new Map<string, EditRequest>() : editRequests(model, blocks)), [model, blocks]);
   const [contextOpen, setContextOpen] = useState(false);
   const workbench = useWorkbench();
@@ -218,6 +235,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
                 connected={connected}
                 answers={answers}
                 cards={cards.current}
+                fresh={tracked.fresh.has(block.key)}
                 onOpenSideBySide={openSideBySide}
               />
             ))}

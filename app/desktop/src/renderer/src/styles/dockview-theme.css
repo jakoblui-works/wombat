@@ -20,8 +20,9 @@
   --dv-tab-margin: 0;
   --dv-sash-color: transparent;
   --dv-active-sash-color: transparent;
-  --dv-active-sash-transition-duration: var(--duration-base);
-  --dv-active-sash-transition-delay: var(--duration-fast);
+  --dv-active-sash-transition-duration: var(--duration-instant);
+  --dv-active-sash-transition-delay: 0ms;
+  --dv-transition-duration: 0ms;
   --dv-spacing-padding: 0px;
   --dv-tab-border-radius: 0px;
   --dv-sash-border-radius: 0px;
@@ -60,4 +61,16 @@
 /* The close mark shows on the active tab, on hover and for the keyboard. */
 .dockview-theme-wombat .dv-tab.dv-inactive-tab .dv-default-tab:focus-within .dv-default-tab-action {
   visibility: visible;
+}
+
+/*
+ * Nothing in the editor area moves on its own: no scrollbar fade, no drop-target slide while a tab is dragged, no
+ * sliding of views or sashes. The selectors repeat dockview's own, so these win over its stylesheet.
+ */
+.dockview-theme-wombat .dv-scrollable .dv-scrollbar,
+.dockview-theme-wombat .dv-drop-target-container .dv-drop-target-anchor,
+.dockview-theme-wombat .dv-drop-target > .dv-drop-target-dropzone > .dv-drop-target-selection,
+.dockview-theme-wombat .dv-split-view-container.dv-animation .dv-view,
+.dockview-theme-wombat .dv-split-view-container.dv-animation .dv-sash {
+  transition: none;
 }
