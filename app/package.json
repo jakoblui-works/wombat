@@ -9,7 +9,7 @@
   "scripts": {
     "build": "pnpm -r --if-present run build",
     "lint": "eslint .",
-    "test": "pnpm -r --if-present run test",
+    "test": "vitest run",
     "test:e2e": "pnpm -r --if-present run test:e2e",
     "typecheck": "tsc --noEmit -p . && pnpm -r --if-present run typecheck"
   },

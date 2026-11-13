@@ -350,11 +350,15 @@ const createSandbox = (systemdOptions: SandboxOptions): { sandbox: Sandbox; tear
     launched.page = await app.firstWindow();
     if (onWindow) await onWindow(app);
     await app.evaluate(({ BrowserWindow }, { width, height }) => {
-      for (const window of BrowserWindow.getAllWindows()) window.setContentSize(width, height);
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.setContentSize(width, height);
+        // A window that was never shown draws about one frame a second, and every mouse move, menu close and
+        // transition waits for frames. On the headless platform there is no display, so showing it puts nothing on screen.
+        window.showInactive();
+      }
     }, VIEWPORT);
     await launched.page.waitForLoadState("domcontentloaded");
-    // The hidden window draws no frames, so a transition never finishes and a closing popup would stay in the DOM.
-    // Checks run with motion off; the motion proof turns it on itself (and has the window draw).
+    // Checks run with motion off, so none waits for a transition to finish.
     await launched.page.emulateMedia({ reducedMotion: "reduce" });
     return launched;
   };
