@@ -1,4 +1,4 @@
-// Lasting check (silent failure): approving never overwrites. A proposal applies only to the item as the agent
+// Approving never overwrites. A proposal applies only to the item as the agent
 // read it and under the structure's settings as they are now: when the file changed (edited, its handle changed,
 // or deleted by hand) or the settings changed (the structure became read or hidden, the field became locked),
 // approving marks the proposal `conflict` with a problem and leaves every file as it is. A proposal sent with a

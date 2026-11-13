@@ -1,4 +1,4 @@
-// Lasting check (silent failure): invalid items stay visible. A file the catalog can't parse or
+// Invalid items stay visible. A file the catalog can't parse or
 // validate is listed as invalid with a reason naming the field or line, never dropped, and never takes the
 // valid items or the list down with it. The HTTP half is server/items-invalid-visible.test.ts.
 import { describe, expect, test } from "vitest";

@@ -1,4 +1,4 @@
-// Lasting check "Agent content stays inert" at the component that owns it: whatever an agent
+// Whatever an agent
 // writes, the chat renders it as text. Raw HTML (scripts, frames, event handlers) shows as its own text; a link is an
 // <a> only for an https: URL, and opens in a new window without a referrer; any other URL, in any link syntax, shows
 // as its text with no href; an image never loads (no src anywhere) and shows its alt text.

@@ -1,4 +1,4 @@
-// Which code a service runs (contract "Service identity"): codeIdOf is the one function both the service (on the
+// Which code a service runs: codeIdOf is the one function both the service (on the
 // checkout it was started from) and main (on the checkout it starts the service from) hash the source with, and
 // isStale is the one rule main reads a running service's /version by. Each test builds a small invented app tree.
 import { execFileSync } from "node:child_process";

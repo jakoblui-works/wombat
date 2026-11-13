@@ -1,4 +1,4 @@
-// Lasting checks (silent failures) at /mcp's edges: an unexpected error inside a tool (not an Access refusal) reaches
+// An unexpected error inside a tool (not an Access refusal) reaches
 // the agent only as a generic tool error and the log only as the agent, the tool and the error's name, since its
 // message may name files or hidden items; and a request body over the 1 MiB limit is refused before any tool runs,
 // though /mcp sits outside the app's own body limit.

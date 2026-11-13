@@ -1,4 +1,4 @@
-// Lasting check (silent failure): agent and app tokens apart. An agent's token opens /mcp only, and acts as that
+// Agent and app tokens apart. An agent's token opens /mcp only, and acts as that
 // agent; the app's token never opens /mcp; on /mcp a request without the agent token, with an Origin, or with a
 // foreign Host is refused; a token stops working when its agent is stopped, deleted, crashes, is killed, or the
 // service shuts down; a resumed agent gets a new one. Otherwise an agent could drive other agents or approve

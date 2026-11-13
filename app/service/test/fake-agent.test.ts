@@ -61,7 +61,7 @@ describe.each(rows)("fake agent, scenario $scenario", ({ scenario, answer, play 
   );
 });
 
-// Lasting check (silent failure): no secret reaches a spawned agent, through the real spawn path.
+// No secret reaches a spawned agent, through the real spawn path.
 describe("no secret reaches a spawned agent", () => {
   test(
     "the env scenario reports only allowlisted variable names",

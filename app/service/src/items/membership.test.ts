@@ -1,4 +1,4 @@
-// Lasting check (silent failure): which files belong to which structure. An item counted in the wrong
+// Which files belong to which structure. An item counted in the wrong
 // structure gets that structure's access level for agents (a hidden child's file readable through its
 // parent), with nothing showing it. Items are the .md files directly in a structure's folder, or a free
 // structure's `include` matches; never a file inside another structure's folder; dot folders and node_modules

@@ -1,4 +1,4 @@
-// Lasting check (silent failure), the writer's half of "Approve never overwrites": every write takes
+// Every write takes
 // the version it was based on and is refused when the file changed since, leaving the file exactly as it is.
 // Without it a hand edit (or a parallel write) is lost with nothing showing it. Approving a proposal relies on it.
 import { existsSync } from "node:fs";

@@ -1,4 +1,4 @@
-// Lasting check (silent failure): no secret reaches an agent. Every harness's environment omits WOMBAT_*,
+// No secret reaches an agent. Every harness's environment omits WOMBAT_*,
 // ANTHROPIC_API_KEY and the service token, however they got into the source or the harness's declaration.
 import { tmpdir } from "node:os";
 

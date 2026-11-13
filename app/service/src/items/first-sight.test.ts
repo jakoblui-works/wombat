@@ -1,4 +1,4 @@
-// Lasting check (silent failure): the first read of a hand-made file writes only what the service owns, and
+// The first read of a hand-made file writes only what the service owns, and
 // never leaves a file it can't read back. A file without an id and handle gets both and keeps every other byte
 // (a BOM, CRLF, comments, key order, blank lines, a missing final newline); a file with no title, or a
 // fence-like line where frontmatter would start, isn't written and is listed invalid; a hand-typed handle or

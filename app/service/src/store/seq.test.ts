@@ -1,4 +1,4 @@
-// Lasting check (silent failure): seq never skips. One counter across all agents goes up by exactly one
+// Seq never skips. One counter across all agents goes up by exactly one
 // per change (entry, summary change, delete), is never reused, and carries on across a reopen. The app
 // relies on it to notice gaps.
 import { mkdtempSync, rmSync } from "node:fs";

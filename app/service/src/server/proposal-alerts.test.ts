@@ -1,4 +1,4 @@
-// Lasting check (silent failure): proposal alerts keep the alert rules agent alerts follow. Every proposal change
+// Proposal alerts keep the alert rules agent alerts follow. Every proposal change
 // (stored, approved, conflict, rejected) takes the next seq and is announced only after it is committed, so the
 // app reading on another connection sees the new status; on the wire the alert carries ids only (seq, dbId, type,
 // proposalId), never the reason, the fields, a title or a handle.

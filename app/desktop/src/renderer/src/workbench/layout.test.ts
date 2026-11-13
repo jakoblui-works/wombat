@@ -1,4 +1,4 @@
-// The saved layout ("Saved layout"). Lasting check "Layout restore drops what's gone": a saved
+// The saved layout: a saved
 // layout with unknown views or deleted agents restores without them, and one that can't be read gives the default.
 import type { SerializedDockview } from "dockview-react";
 import fc from "fast-check";

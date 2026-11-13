@@ -1,4 +1,4 @@
-// Lasting check (silent failure): a deleted item's handle number is never given again, also after a
+// A deleted item's handle number is never given again, also after a
 // restart. Otherwise a new BL-4 silently takes over every reference to the deleted BL-4.
 import { existsSync } from "node:fs";
 import { join } from "node:path";

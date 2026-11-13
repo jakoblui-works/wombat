@@ -1,6 +1,6 @@
 // The service as a process: spawned for real, found through the discovery file as the app will find it (parsed
 // with the shared schema, so the writer can't drift from the reader), one instance per runtime dir even when two
-// start at once (lasting check "One service per runtime dir"), and ending cleanly on SIGTERM or POST /shutdown. Every spawned service gets recording fakes of
+// start at once, and ending cleanly on SIGTERM or POST /shutdown. Every spawned service gets recording fakes of
 // systemd-run and systemctl as its whole PATH, so no run can ever stop the real wombat-agents.slice.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -246,7 +246,7 @@ const readDiscovery = (path: string): DiscoveryFile | undefined => {
   }
 };
 
-// Lasting check "One service per runtime dir" (silent failure): without the start lock, starts racing
+// Without the start lock, starts racing
 // past the discovery check both open the store, both stop the slice (ending each other's agents) and both listen,
 // and the app talks to whichever wrote the file last.
 test(

@@ -1,4 +1,4 @@
-// The log fold (contract "The log fold"): what a text item keeps, and which item is the row's message.
+// The log fold: what a text item keeps, and which item is the row's message.
 import { describe, expect, test } from "vitest";
 
 import { emptyFold, foldEntry, foldLog, keepAll, lastMainMessage, permissionOf } from "./log-fold.ts";

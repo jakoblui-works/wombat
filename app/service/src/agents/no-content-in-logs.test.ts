@@ -1,4 +1,4 @@
-// Lasting check (silent failure): service logs hold ids, states and counts only: no prompt, reply, diff,
+// Service logs hold ids, states and counts only: no prompt, reply, diff,
 // tool content or agent stderr ever reaches a log line.
 import { randomUUID } from "node:crypto";
 import { rmSync, writeFileSync } from "node:fs";

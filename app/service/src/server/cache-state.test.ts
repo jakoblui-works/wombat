@@ -1,4 +1,4 @@
-// Lasting checks: the cache state an agent's harness reports
+// The cache state an agent's harness reports
 // reaches the app on GET /agents (the summary the desktop's ring reads), stays there after the turn that brought it
 // ends, and is never stored. The fake agent's `cache` replay step sends it as an extension notification, which
 // the fake harness reports as the cache state: so this crosses the acp-client's extension routing, the harness and

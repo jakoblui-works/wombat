@@ -1,4 +1,4 @@
-// Lasting checks: `manager.contextBreakdown` runs `/context` as a
+// `manager.contextBreakdown` runs `/context` as a
 // hidden turn. Whatever the agent sends during it never reaches the agent's log, summary or events; nothing else runs
 // beside it, and it never starts beside a running turn; a failed one leaves the agent usable. Against the fake agent,
 // whose `/context` answer sends a message chunk, a usage_update and a title before its report (fake-agent.ts).

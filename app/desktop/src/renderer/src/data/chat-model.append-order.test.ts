@@ -1,4 +1,4 @@
-// Lasting check "Chat model is append-order-free": the chat shows the same thing however the log reached the
+// The chat shows the same thing however the log reached the
 // cache: in one read, in appends split anywhere, out of order, or with entries delivered twice (a reconnect re-reads
 // from a cursor and may overlap what an alert already brought). And an item's key never changes as more of the log
 // arrives, so React keeps each item's identity.

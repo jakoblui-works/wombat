@@ -1,6 +1,6 @@
 // Whether a saved tab still applies is the registry's to say (`isKnown(ctx)`: the view is registered, its
 // paramsSchema passes, its resolves is true), and for a chat tab that's what lets a restore drop a deleted agent's
-// tab (lasting check "Layout restore drops what's gone"). While the agents are still loading, a tab is kept.
+// tab. While the agents are still loading, a tab is kept.
 import { expect, test } from "vitest";
 
 import { summary } from "../../../../test/summaries.ts";

@@ -1,4 +1,4 @@
-// Lasting check (silent failure): proposals refuse what writes refuse. Each change runs twice on twin
+// Proposals refuse what writes refuse. Each change runs twice on twin
 // structures that differ only in their access level: through the edit tools (create, update, remove) on the
 // `edit` twin, and through propose_* on the `propose` twin. A proposal must be refused exactly when the direct
 // write is, with the same code and problems on the same fields; otherwise a proposal is stored that can only

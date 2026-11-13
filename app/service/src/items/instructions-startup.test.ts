@@ -1,4 +1,4 @@
-// Lasting check (silent failure): the service renders AGENTS.md before it can take agents. With the start-up
+// The service renders AGENTS.md before it can take agents. With the start-up
 // render held back on the filesystem (instructions-startup-entry.ts), the instructions file is already in place
 // when the discovery file lands (the moment the app can find the service), and the first agent started gets
 // exactly that file as its system prompt.

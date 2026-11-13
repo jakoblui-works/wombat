@@ -1,4 +1,4 @@
-// Lasting check (silent failure): the port rules. Every route, the stream and unknown paths included, needs the
+// The port rules. Every route, the stream and unknown paths included, needs the
 // token; an Origin, when present, must be the app's; the Host must name the loopback address and the bound port
 // (DNS rebinding); no response ever carries CORS headers; the server listens on 127.0.0.1 only.
 import { connect } from "node:net";

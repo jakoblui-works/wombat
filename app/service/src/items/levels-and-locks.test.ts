@@ -1,4 +1,4 @@
-// Lasting check (silent failure): levels and locks at the boundary. A write in a `read` structure, a call of the
+// Levels and locks at the boundary. A write in a `read` structure, a call of the
 // wrong family (a direct write in `propose`, a proposal in `edit`), or a change touching a locked field is refused
 // with the code that says what to do (naming the tool or the field), and changes no file and stores no proposal.
 // A create may set a locked title or body (every item needs them), never a locked property.

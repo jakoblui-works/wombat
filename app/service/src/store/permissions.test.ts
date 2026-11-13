@@ -1,4 +1,4 @@
-// Lasting check (silent failure): chat history is readable by its owner only. The database folder is
+// Chat history is readable by its owner only. The database folder is
 // 0700; the database and SQLite's -wal and -shm side files are 0600, whatever the umask, and looser
 // modes found on open are tightened.
 import { spawn } from "node:child_process";

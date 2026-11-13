@@ -41,7 +41,7 @@ const OUTSIDE_PATTERN = "https://example.com/**";
 // How long a blocked action gets to take effect before we look.
 const SETTLE_MS = 2_000;
 
-// The only sources the page's CSP (contract "Page CSP") may use: 'self' and 'none' anywhere, the
+// The only sources the page's CSP may use: 'self' and 'none' anywhere, the
 // style nonce only where <style> elements are governed, data: only for images, 'unsafe-inline' only
 // for style="" attributes (VS Code's own style policy; Monaco draws its lines with them). Anything
 // else (a host, a scheme, a hash, a dev nonce, any other 'unsafe-*', 'strict-dynamic') is a relaxation.
@@ -247,7 +247,7 @@ const check2 = (): Promise<void> =>
   expect(after).toEqual({ url: appUrl, loading: false, appContent: true });
 });
 
-// The policy comes from the app:// handler as a response header (contract "Page CSP"), never a
+// The policy comes from the app:// handler as a response header, never a
 // meta tag; this reads what the handler sent, not a copy of the string.
 const check3 = (): Promise<void> =>
   test.step("the page is served with one strict CSP header, and no CSP meta tag", async () => {

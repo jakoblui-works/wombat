@@ -93,7 +93,7 @@ export type Sandbox = {
   stateDir: string;
   discoveryPath: string;
   systemd: FakeSystemd;
-  /** `$XDG_CONFIG_HOME/Wombat/settings.json` (contract "Settings file"). */
+  /** `$XDG_CONFIG_HOME/Wombat/settings.json`. */
   settingsPath: (profile?: string) => string;
   /** Writes settings.json (an object as JSON, a string as is) into a profile before a launch. */
   writeSettings: (content: unknown, profile?: string) => void;

@@ -1,4 +1,4 @@
-// Lasting check (silent failure): which invalid items the writer may change. An item whose only problems are
+// Which invalid items the writer may change. An item whose only problems are
 // property values can be updated (to fix them, or another field) as long as no field that was fine gets a problem;
 // an item with an identity problem (duplicate handle or id, no title, unparseable) is never updated; a delete needs
 // a file that parses and a handle no other file has, whichever of the files' versions is sent, through the writer and

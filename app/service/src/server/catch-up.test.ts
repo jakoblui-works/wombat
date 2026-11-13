@@ -1,4 +1,4 @@
-// Lasting check (silent failure): a lost stream loses nothing. Dropping the stream mid-turn and catching up
+// A lost stream loses nothing. Dropping the stream mid-turn and catching up
 // through the log route, page by page from the cursor, gives the full history: no gap, no duplicate. The
 // dropped stream leaves no listener behind that fails on the next change.
 import { describe, expect, test } from "vitest";

@@ -1,4 +1,4 @@
-// Lasting checks (silent failures) on the instructions file itself: nothing of a hidden structure is ever in it
+// The instructions file itself: nothing of a hidden structure is ever in it
 // (a link to a hidden item reads like a missing one), it carries handles and never ids; an item that is invalid on
 // disk neither breaks it nor brings problem text into it, nor leaves an empty heading; it is written atomically,
 // read-only, rewritable, and kept as it was when a render fails; and an approved create or delete is in it before

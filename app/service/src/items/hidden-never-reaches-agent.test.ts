@@ -1,4 +1,4 @@
-// Lasting check (silent failure): hidden never reaches an agent. Nothing from a hidden structure (its id, name,
+// Hidden never reaches an agent. Nothing from a hidden structure (its id, name,
 // handles, ids, titles, bodies or values) is in any read an agent makes, any search hit, any link value, describe's
 // output or any refusal; a link to a hidden item reads null like a missing one, and a hidden handle or structure is
 // refused exactly like a missing one, and a link to a hidden item gives the same problems as a link to a missing

@@ -1,4 +1,4 @@
-// Lasting check (silent failure): commit before alert. Every onCommitted event's seq is already readable,
+// Commit before alert. Every onCommitted event's seq is already readable,
 // through a second connection that sees committed data only, when the listener runs; seqs increase; types
 // match what changed; the last event reaches the store's current seq.
 import { describe, expect, onTestFinished, test } from "vitest";

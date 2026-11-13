@@ -1,4 +1,4 @@
-// Lasting check (contract "AgentSummary additions", store schema v3, silent failure): a store written by the
+// A store written by the
 // previous version (schema 2) opens in place as schema 3, keeping every agent, log entry, seq, handle counter and
 // proposal; its agents read with `pendingPermissions: []` and no branch, lastText or lastUserAt; and the new
 // summary fields survive a close and reopen. Without it, an upgrade would lose history or proposals, or the new

@@ -1,4 +1,4 @@
-// Lasting check (silent failure): IDs never change. Once an item has an id, no read and no write changes it,
+// IDs never change. Once an item has an id, no read and no write changes it,
 // and links, which store ids, stay resolvable after a file rename or a hand-made handle change. Without it,
 // links point nowhere and nothing shows it.
 import { renameSync } from "node:fs";

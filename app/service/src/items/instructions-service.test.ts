@@ -1,4 +1,4 @@
-// Lasting checks (silent failures and the instructions-file contract) through the service as a process: an
+// The instructions file through the service as a process: an
 // agent started as soon as the service is up gets exactly `<workspace>/.wombat/AGENTS.md` as the top-level
 // `systemPrompt` (mode append) of its session/new, and a harness that doesn't ask gets nothing; a hand edit shows
 // in the file within the debounce (a change that leaves its text as it is doesn't rewrite it), and an approval

@@ -1,4 +1,4 @@
-// Lasting check (contract "AgentSummary additions", silent failure): an agent's `pendingPermissions` lists exactly
+// An agent's `pendingPermissions` lists exactly
 // its open permission requests. A request shows from the moment it's asked, and leaves the summary when it's
 // answered, when the turn is cancelled, when the agent is stopped, when its process exits, and when the service
 // restarts after dying with one open; an `agent_changed` alert follows each change, so the app refetches. Without
@@ -121,7 +121,7 @@ describe("pending permissions", () => {
     TEST_TIMEOUT_MS,
   );
 
-  // Lasting check "A permission left open at a normal turn end": the agent ends its prompt (end_turn) while its
+  // The agent ends its prompt (end_turn) while its
   // request is still open. Only the manager's own cancel at the turn's end clears it; no answer, cancel or exit does.
   test(
     "a request still open when the agent ends its turn normally leaves pendingPermissions as the turn ends, and an agent_changed alert says so",

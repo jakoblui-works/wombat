@@ -1,4 +1,4 @@
-// Lasting check "Config options round-trip", the desktop half (through the settings dialog): the composer
+// The composer
 // footer shows the options the agent uses, as the log says, never a value it picked locally. Against the built app and
 // the fake agent (app-fixtures.ts), which offers a select "Model" (Fake small, Refuse large; category model), a boolean
 // "Fast mode", a select "Effort" (category thought_level) and a select "Mode" (category mode), and refuses

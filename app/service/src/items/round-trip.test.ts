@@ -1,4 +1,4 @@
-// Lasting check (contract "Item file", silent failure): what the writer writes, the catalog reads
+// What the writer writes, the catalog reads
 // back. Updating one field changes only that field's bytes (comments, key order and every other line kept) and
 // never renames a file; a created item reads back with the title, body and properties it was given.
 import fc from "fast-check";

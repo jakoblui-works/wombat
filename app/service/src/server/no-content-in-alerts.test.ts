@@ -1,4 +1,4 @@
-// Lasting check (silent failure): alerts never carry agent content. Read off the raw stream, before parseAlert
+// Alerts never carry agent content. Read off the raw stream, before parseAlert
 // strips unknown fields: every alert has only seq, dbId, type and agentId, and no prompt, reply, tool title,
 // diff, option name or image data appears anywhere on the stream.
 import { randomUUID } from "node:crypto";

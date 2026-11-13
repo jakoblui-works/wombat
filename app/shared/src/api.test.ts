@@ -329,7 +329,7 @@ describe("alerts (lenient)", () => {
   const alert = (type: string, seq = 60) => ({ seq, dbId, type, agentId });
 
   // Lasting invariant: desktop notifications are built from alerts, so an alert must never carry agent
-  // content, even when the service (by a bug) sends some. Mutation check: make Alert pass unknown fields through.
+  // content, even when the service (by a bug) sends some.
   test("no agent content in alerts: content fields sent with an alert are stripped", () => {
     const content = {
       update: agentMessageChunk,

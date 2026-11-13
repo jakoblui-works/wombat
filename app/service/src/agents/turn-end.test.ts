@@ -1,4 +1,4 @@
-// Lasting check (silent failure): every turn in an agent's stored log ends with exactly one turn_ended, so a
+// Every turn in an agent's stored log ends with exactly one turn_ended, so a
 // reader of the log alone sees each turn end. A successful turn keeps ACP's stopReason; a turn the agent fails
 // (the prompt is rejected while the connection stays open) ends with "error"; a turn whose process ends under it
 // (crash, kill, stop, service shutdown) ends with "stopped". A failed turn whose process then ends gets no second
