@@ -26,7 +26,7 @@ export const createMcpTokens = ({ isCurrent, shuttingDown }: McpTokensDeps) => {
 
   /**
    * Mints the agent's /mcp token (32 random bytes) and its `mcpServers` entry; none before the server told the
-   * manager its URL, or once the process has ended.
+   * manager its URL, or once its process is ending.
    */
   const mcpServersFor = (proc: Proc): McpServer[] => {
     if (mcpUrl === undefined || shuttingDown() || !isCurrent(proc) || !mayMintToken(proc.phase)) return [];

@@ -6,7 +6,7 @@ import type { Log } from "../log.ts";
 import { isGoingAway } from "./agent-process.ts";
 import type { AgentRecord } from "./agent-record.ts";
 import { contextGate } from "./context-gate.ts";
-import { AgentError, busy, notRunning, requireAgent, rpcCode, rpcMessage } from "./errors.ts";
+import { AgentError, busy, notRunning, requireAgent, rpcCode, rpcMessage, type AssertOpen } from "./errors.ts";
 import { isHidden, isTurnOpen, next, recordsAgent } from "./phase.ts";
 import type { Proc } from "./proc.ts";
 import type { Resume } from "./resume.ts";
@@ -25,8 +25,7 @@ const sameCache = (a: CacheState | null, b: CacheState | null) =>
 export type HiddenTurnDeps = {
   log: Log;
   harnesses: readonly Harness[];
-  /** Throws once the service is shutting down. */
-  assertOpen: () => void;
+  assertOpen: AssertOpen;
   summaryOf: AgentRecord["summaryOf"];
   putSummary: AgentRecord["putSummary"];
   safely: AgentRecord["safely"];

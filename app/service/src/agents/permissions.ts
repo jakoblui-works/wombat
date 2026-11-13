@@ -7,7 +7,7 @@ import { permissionOf, UNKNOWN_PERMISSION } from "@wombat/shared/log-fold";
 import type { Log } from "../log.ts";
 import type { AgentProcess } from "./agent-process.ts";
 import type { AgentRecord } from "./agent-record.ts";
-import { AgentError, requireAgent } from "./errors.ts";
+import { AgentError, requireAgent, type AssertOpen } from "./errors.ts";
 import { isHidden, recordsAgent } from "./phase.ts";
 import { now, type PendingPermission, type PermissionKind, type Proc } from "./proc.ts";
 
@@ -23,8 +23,7 @@ export const pendingPermissions = (proc: Proc | undefined): PendingPermission[] 
 
 export type PermissionsDeps = {
   log: Log;
-  /** Throws once the service is shutting down. */
-  assertOpen: () => void;
+  assertOpen: AssertOpen;
   summaryOf: AgentRecord["summaryOf"];
   procOf: AgentProcess["procOf"];
   appendLog: AgentRecord["appendLog"];

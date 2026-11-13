@@ -1,6 +1,8 @@
 /** Why an agent's process is ending: "stop" keeps the agent (stopped), "remove" writes nothing, "exited" on its own. */
 export type EndReason = "stop" | "remove" | "exited";
 
+export type EndRequest = Exclude<EndReason, "exited">;
+
 export type AgentPhase =
   | { readonly kind: "starting" }
   | { readonly kind: "idle" }
@@ -21,7 +23,7 @@ export type PhaseEvent =
   | { readonly type: "turnEnded" }
   | { readonly type: "hiddenStarted" }
   | { readonly type: "hiddenEnded" }
-  | { readonly type: "endRequested"; readonly why: "stop" | "remove" }
+  | { readonly type: "endRequested"; readonly why: EndRequest }
   | { readonly type: "exited" }
   | { readonly type: "closed" };
 

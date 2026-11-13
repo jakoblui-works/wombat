@@ -16,6 +16,9 @@ export class AgentError extends Error {
   }
 }
 
+/** Throws once the service is shutting down. */
+export type AssertOpen = () => void;
+
 export const ACP_AUTH_REQUIRED = -32000;
 
 /** A JSON-RPC error's message: the agent's own text, so it goes back to the app and never to a log line. */

@@ -14,13 +14,13 @@ import { AgentError, requireAgent } from "./errors.ts";
 import { createHiddenTurn } from "./hidden-turn.ts";
 import { createMcpTokens } from "./mcp-tokens.ts";
 import { createPermissions, pendingPermissions } from "./permissions.ts";
-import { next } from "./phase.ts";
+import { next, type EndRequest } from "./phase.ts";
 import { now, type Proc } from "./proc.ts";
 import { createResume, folderOf } from "./resume.ts";
 import { createScopes, DEFAULT_SLICE } from "./scope.ts";
 import { createTurns } from "./turns.ts";
 
-export { AgentError, notFound, type AgentErrorCodes } from "./errors.ts";
+export { AgentError } from "./errors.ts";
 export type { Committed } from "./agent-record.ts";
 
 export type ManagerOptions = {
@@ -39,10 +39,6 @@ export type ManagerOptions = {
   configSetTimeoutMs?: number;
 };
 
-/**
- * Starts agents through their harness and records everything they do in the store before telling listeners,
- * so an alert never announces something that can't be read yet.
- */
 export const createManager = ({
   store,
   workspaceRoot,
@@ -244,21 +240,22 @@ export const createManager = ({
     }
   };
 
+  const end = (proc: Proc, why: EndRequest) => {
+    proc.phase = next(proc.phase, { type: "endRequested", why });
+    revokeToken(proc);
+    return terminate(proc);
+  };
+
   /**
    * Ends the agent's process and, when a resume is under way, the process it produces: a stop or delete never leaves
    * one running that nothing can stop. False when there was neither.
    */
-  const endAgent = async (agentId: string, why: "stop" | "remove") => {
-    const end = async (proc: Proc) => {
-      proc.phase = next(proc.phase, { type: "endRequested", why });
-      revokeToken(proc);
-      await terminate(proc);
-    };
+  const endAgent = async (agentId: string, why: EndRequest) => {
     const proc = procOf(agentId);
-    if (proc) await end(proc);
+    if (proc) await end(proc, why);
     const attempt = resumeOf(agentId);
     const resumed = attempt && (await attempt.catch(() => undefined));
-    if (resumed && resumed !== proc) await end(resumed);
+    if (resumed && resumed !== proc) await end(resumed, why);
     return proc !== undefined || attempt !== undefined;
   };
 
@@ -283,11 +280,7 @@ export const createManager = ({
   const shutdown = () => {
     shuttingDown ??= (async () => {
       const running = liveProcs();
-      for (const proc of running) {
-        proc.phase = next(proc.phase, { type: "endRequested", why: "stop" });
-        revokeToken(proc);
-      }
-      await Promise.all(running.map(terminate));
+      await Promise.all(running.map((proc) => end(proc, "stop")));
       await scopes.stopSlice();
       log("shutdown", { agents: running.length });
     })();

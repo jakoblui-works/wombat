@@ -4,7 +4,7 @@ import { safeName, type Log } from "../log.ts";
 import type { NewLogEntry } from "../store/store.ts";
 import { isGoingAway, type AgentProcess } from "./agent-process.ts";
 import type { AgentRecord } from "./agent-record.ts";
-import { AgentError, busy, notResumable, notRunning, requireAgent, rpcCode } from "./errors.ts";
+import { AgentError, busy, notResumable, notRunning, requireAgent, rpcCode, type AssertOpen } from "./errors.ts";
 import { HIDDEN_BUSY } from "./hidden-turn.ts";
 import type { Permissions } from "./permissions.ts";
 import { endingByService, isHidden, isTurnOpen, next, takesCalls } from "./phase.ts";
@@ -15,8 +15,7 @@ const STILL_WORKING = "The agent is still working on the last message. Wait for 
 
 export type TurnsDeps = {
   log: Log;
-  /** Throws once the service is shutting down. */
-  assertOpen: () => void;
+  assertOpen: AssertOpen;
   summaryOf: AgentRecord["summaryOf"];
   hasAgent: AgentRecord["hasAgent"];
   storeEntries: AgentRecord["storeEntries"];
@@ -103,6 +102,14 @@ export const createTurns = ({
     }
   };
 
+  const storeMessage = (agentId: string, proc: Proc | undefined, text: string, commandId: string | undefined) => {
+    const at = now();
+    const message: NewLogEntry = { type: "user_message", at, text, ...(commandId === undefined ? {} : { commandId }) };
+    const [seq = 0] = proc ? appendLog(proc, [message]) : storeEntries(agentId, [message]).seqs;
+    if (commandId !== undefined) knownCommands(agentId).set(commandId, seq);
+    return { seq, at };
+  };
+
   const sendNow = (agentId: string, { text, commandId }: SendMessageRequest): { seq: number } => {
     assertOpen();
     requireAgent(agentId, summaryOf);
@@ -117,11 +124,7 @@ export const createTurns = ({
     if (!proc) return sendResuming(agentId, text, commandId);
     if (isTurnOpen(proc.phase)) throw busy(STILL_WORKING);
     if (isHidden(proc.phase)) throw busy(HIDDEN_BUSY);
-    const at = now();
-    const [seq = 0] = appendLog(proc, [
-      { type: "user_message", at, text, ...(commandId === undefined ? {} : { commandId }) },
-    ]);
-    if (commandId !== undefined) knownCommands(agentId).set(commandId, seq);
+    const { seq, at } = storeMessage(agentId, proc, text, commandId);
     // The message is stored, so it is sent even if the state can't be: its turn ending clears `busy`.
     safely(agentId, "turn_started", () => setState(proc, "working", { lastUserAt: at }));
     proc.phase = next(proc.phase, { type: "turnStarted" });
@@ -138,13 +141,10 @@ export const createTurns = ({
     const summary = requireAgent(agentId, summaryOf);
     if (pendingTurns.has(agentId)) throw busy(STILL_WORKING);
     if (!canResumeAgent(summary)) throw notResumable();
-    const at = now();
-    const message: NewLogEntry = { type: "user_message", at, text, ...(commandId === undefined ? {} : { commandId }) };
     // A resume that has folded the log already (it is setting the agent's config again) folds the message too.
     const current = procOf(agentId);
     const resumed = current && takesCalls(current.phase) ? current : undefined;
-    const [seq = 0] = resumed ? appendLog(resumed, [message]) : storeEntries(agentId, [message]).seqs;
-    if (commandId !== undefined) knownCommands(agentId).set(commandId, seq);
+    const { seq, at } = storeMessage(agentId, resumed, text, commandId);
     pendingTurns.add(agentId);
     safely(agentId, "turn_started", () => agentState(agentId, resumed, "working", { lastUserAt: at }));
     log("turn_started", { agentId, seq });

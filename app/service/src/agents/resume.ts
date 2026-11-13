@@ -10,7 +10,7 @@ import { RepoError, resolveRepo } from "../workspace.ts";
 import { START_TIMEOUT_MS, startFailure, type AgentProcess } from "./agent-process.ts";
 import type { AgentRecord } from "./agent-record.ts";
 import { ConfigOptions, setConfigWithin, type Config } from "./config.ts";
-import { ACP_AUTH_REQUIRED, AgentError, notFound, notResumable, requireAgent, rpcCode } from "./errors.ts";
+import { ACP_AUTH_REQUIRED, AgentError, notFound, notResumable, requireAgent, rpcCode, type AssertOpen } from "./errors.ts";
 import { endingByService, takesCalls } from "./phase.ts";
 import type { Proc } from "./proc.ts";
 import type { createScopes } from "./scope.ts";
@@ -42,8 +42,7 @@ export type ResumeDeps = {
   log: Log;
   readLog: Store["readLog"];
   scopes: Pick<ReturnType<typeof createScopes>, "scopeFor">;
-  /** Throws once the service is shutting down. */
-  assertOpen: () => void;
+  assertOpen: AssertOpen;
   summaryOf: AgentRecord["summaryOf"];
   hasAgent: AgentRecord["hasAgent"];
   putSummary: AgentRecord["putSummary"];
@@ -89,11 +88,13 @@ export const createResume = (deps: ResumeDeps) => {
 
   const resumeOf = (agentId: string) => resuming.get(agentId);
 
-  /** Whether the agent's harness can start it again in its stored session; otherwise its chat is closed. */
-  const canResumeAgent = (summary: AgentSummary) => {
+  const resumableHarness = (summary: AgentSummary) => {
     const harness = findHarness(summary.harness, harnesses);
-    return harness !== undefined && canResume(harness);
+    return harness !== undefined && canResume(harness) ? harness : undefined;
   };
+
+  /** Whether the agent's harness can start it again in its stored session; otherwise its chat is closed. */
+  const canResumeAgent = (summary: AgentSummary) => resumableHarness(summary) !== undefined;
 
   /**
    * The agent's process when it can take a message or setting now: recorded, not ending, not being resumed, and no
@@ -193,8 +194,8 @@ export const createResume = (deps: ResumeDeps) => {
     if (pending) return pending;
     const live = liveProc(agentId);
     if (live) return live;
-    const harness = findHarness(summary.harness, harnesses);
-    if (harness === undefined || !canResume(harness)) throw notResumable();
+    const harness = resumableHarness(summary);
+    if (harness === undefined) throw notResumable();
     const attempt = resume(summary, harness).finally(() => resuming.delete(agentId));
     resuming.set(agentId, attempt);
     return attempt;

@@ -37,11 +37,7 @@ export type Proc = {
   acp: AcpAgent;
   closed: Promise<void>;
   sessionId: string;
-  /**
-   * A turn is open from send until its `turn_ended` is written; once the connection closes or the service is ending
-   * the process, only the close handler ends it. A hidden turn (`contextBreakdown`) is moved only by `hiddenReport`:
-   * meanwhile the agent's updates are dropped, and messages and config changes answer `busy`.
-   */
+  /** Built only by `phase.ts`'s `next`. */
   phase: AgentPhase;
   /** Open permission requests by requestId, oldest first; the summary's pendingPermissions mirror it. */
   pending: Map<string, Pending>;

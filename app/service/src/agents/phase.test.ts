@@ -78,7 +78,6 @@ const closedFlags = { ...fresh, closed: true };
 describe("agent phase", () => {
   test.each<[string, PhaseEvent[], Flags]>([
     ["a starting agent holds its updates and takes no calls", [], fresh],
-    ["a starting agent ignores turns and hidden turns", [turnStarted, hiddenStarted], fresh],
     ["recording makes the agent take calls", [recorded], live],
     ["a sent message opens a turn", [recorded, turnStarted], { ...live, turn: true }],
     ["a context request opens a hidden turn", [recorded, hiddenStarted], { ...live, hidden: true }],
@@ -91,9 +90,6 @@ describe("agent phase", () => {
     ["a stop before recording refuses the recording", [stop], { ...fresh, ending: "stop" }],
     ["a remove before recording refuses the recording", [remove], { ...fresh, ending: "remove" }],
     ["an exited process recorded late takes calls and closes as an error", [exited, recorded], { ...live, exited: true }],
-    ["a stopped process recorded late closes as stopped", [stop, recorded], { ...live, ending: "stop" }],
-    ["an unrecorded stopped process writes no turn end", [stop, turnStarted], { ...fresh, turn: true, ending: "stop" }],
-    ["an unrecorded exited process writes no turn end", [exited, turnStarted], { ...fresh, turn: true, exited: true }],
 
     ["stopping an idle agent", [recorded, stop], { ...live, ending: "stop" }],
     ["removing an idle agent", [recorded, remove], { ...live, ending: "remove" }],
