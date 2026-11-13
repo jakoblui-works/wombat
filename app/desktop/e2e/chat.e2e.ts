@@ -10,6 +10,8 @@
 //   message starts it again" on hover; the settings button is a `button` named "Settings: …" that opens a `dialog`
 //   listing a select's values by name, the current one carrying aria-checked, aria-selected or aria-current "true";
 //   the message box is the textbox "Message", and Enter sends.
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ElectronApplication, Locator, Page } from "@playwright/test";
 
 import { FAKE_CONFIG, fakeConfigOptions, HOSTILE } from "../../service/test/fake-agent.ts";
@@ -70,6 +72,44 @@ const activeContent = (page: Page): Promise<string[]> =>
     }
     return found;
   }, HOSTILE.marker);
+
+type Motion = { what: string; text: string; moves: boolean };
+type MotionWindow = { e2eMotion: { what: string; target?: Element; moves: boolean }[] };
+
+/**
+ * Records, from now on, every CSS animation that starts (and whether it moves: a duration above zero) and every view
+ * transition (whether any of its `::view-transition` pseudo-elements moves). The reduced-motion reset leaves
+ * animations running at zero duration, so "moves" is what tells motion on from off.
+ */
+const recordMotion = (page: Page): Promise<void> =>
+  page.evaluate(() => {
+    const seen: MotionWindow["e2eMotion"] = [];
+    (window as unknown as MotionWindow).e2eMotion = seen;
+    const longest = (durations: string): number => Math.max(...durations.split(",").map((value) => parseFloat(value)));
+    document.addEventListener(
+      "animationstart",
+      (event) => {
+        const target = event.target as Element;
+        seen.push({ what: "animation", target, moves: longest(getComputedStyle(target, event.pseudoElement || null).animationDuration) > 0 });
+      },
+      true,
+    );
+    const start = document.startViewTransition.bind(document);
+    document.startViewTransition = ((update?: ViewTransitionUpdateCallback | StartViewTransitionOptions) => {
+      const transition = start(update as ViewTransitionUpdateCallback);
+      transition.ready.then(
+        () => {
+          const pseudo = document.getAnimations().filter((animation) => ((animation.effect as KeyframeEffect | null)?.pseudoElement ?? "").startsWith("::view-transition"));
+          seen.push({ what: "view transition", moves: pseudo.some((animation) => Number(animation.effect?.getComputedTiming().duration) > 0) });
+        },
+        () => seen.push({ what: "view transition skipped", moves: false }),
+      );
+      return transition;
+    }) as typeof document.startViewTransition;
+  });
+/** What was recorded, with each animated element's text as it is now (a revealed message has grown since). */
+const motionSeen = (page: Page): Promise<Motion[]> =>
+  page.evaluate(() => (window as unknown as MotionWindow).e2eMotion.map(({ what, target, moves }) => ({ what, text: (target?.textContent ?? "").slice(0, 80), moves })));
 
 test.describe("chat", () => {
   test("agent content stays inert: HTML, scripts and non-https links in every part of the chat render as text; a huge output is clipped", async ({ sandbox }) => {
@@ -255,6 +295,48 @@ test.describe("chat", () => {
     expect(await loggedModel(sandbox, agentId), "the model it had, after the resume").toBe("fake-large");
     await expect(settings, "the footer shows it").toContainText(large);
     expect(problems).toEqual([]);
+  });
+
+  test("motion: a message arriving in an open chat moves in; with reduced motion neither it nor the agent's row moving to another group moves", async ({ sandbox }) => {
+    test.setTimeout(90_000);
+    const title = "Opening hours";
+    const say = (text: string) => ({ send: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } });
+    await sandbox.startService(sandbox.workspace);
+    const started = await sandbox.api("POST", "/agents", { harness: "fake-replay", repo: REPO });
+    expect(started.status).toBe(201);
+    const agentId = (started.json as { id: string }).id;
+    await prompt(sandbox, agentId, JSON.stringify([{ send: { sessionUpdate: "session_info_update", title } }, say("The hours live in hours.md.")]));
+    await waitForState(sandbox, agentId, "done");
+
+    const launched = await sandbox.launch();
+    const { page } = launched;
+    await waitForConnection(page, "connected");
+    await openAgent(launched, agentId, 1);
+    const log = groupWithTab(page, title).getByRole("log", { name: "Conversation" });
+    await expect(log.getByText("The hours live in hours.md.", { exact: true })).toBeVisible({ timeout: WAIT_MS });
+    await recordMotion(page);
+
+    // One turn per setting: a message arrives in the open chat while the agent's row moves from Done to Working. Each
+    // waits for the message's animation to start and the row's view transition (run or skipped) before it's judged.
+    const turn = async (reducedMotion: "no-preference" | "reduce", text: string): Promise<Motion[]> => {
+      await page.emulateMedia({ reducedMotion });
+      const from = (await motionSeen(page)).length;
+      const release = join(sandbox.base, `release-${reducedMotion}`);
+      await prompt(sandbox, agentId, JSON.stringify([say(text), { awaitFile: release }]));
+      await expect(log.getByText(text, { exact: true })).toBeVisible({ timeout: WAIT_MS });
+      const seen = await waitUntil(`the arriving message's animation and the row's view transition (${reducedMotion})`, WAIT_MS, async () => {
+        const since = (await motionSeen(page)).slice(from);
+        const arrived = since.some((motion) => motion.what === "animation" && motion.text === text && (reducedMotion === "reduce" || motion.moves));
+        return arrived && since.some((motion) => motion.what.startsWith("view transition")) ? since : undefined;
+      });
+      writeFileSync(release, "");
+      await waitForState(sandbox, agentId, "done");
+      return seen;
+    };
+
+    await turn("no-preference", "I moved the hours into the footer.");
+    const reduced = await turn("reduce", "The footer now reads them from hours.md.");
+    expect(reduced.filter((motion) => motion.moves), "with reduced motion, nothing moves").toEqual([]);
   });
 });
 
