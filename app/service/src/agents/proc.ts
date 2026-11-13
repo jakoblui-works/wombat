@@ -58,7 +58,6 @@ export type Proc = {
   config: ConfigOption[] | undefined;
   /** The command names of the latest stored main-session command list (`commandsOf`, kept across the fold's restarts). */
   commands: string[] | undefined;
-  skipped: number;
   /** The prompt cache as the harness last reported it (`AgentSummary.cache`); in memory only. */
   cache: CacheState | null;
 };

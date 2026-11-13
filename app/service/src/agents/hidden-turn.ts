@@ -8,6 +8,8 @@ import { contextGate } from "./context-gate.ts";
 import { AgentError, busy, notRunning, requireAgent, rpcCode, rpcMessage } from "./errors.ts";
 import { endingByService, isHidden, isTurnOpen, next, recordsAgent } from "./phase.ts";
 import type { Proc } from "./proc.ts";
+import type { Resume } from "./resume.ts";
+import type { Turns } from "./turns.ts";
 
 /** Why a message or config change is refused while the agent reports its context. */
 export const HIDDEN_BUSY =
@@ -27,10 +29,8 @@ export type HiddenTurnDeps = {
   summaryOf: AgentRecord["summaryOf"];
   putSummary: AgentRecord["putSummary"];
   safely: AgentRecord["safely"];
-  /** The agent's process, resumed first when it has none. */
-  ensureRunning: (agentId: string) => Promise<Proc>;
-  /** Whether a message waits for the agent's resume to run its turn. */
-  hasPendingTurn: (agentId: string) => boolean;
+  ensureRunning: Resume["ensureRunning"];
+  hasPendingTurn: Turns["hasPendingTurn"];
 };
 
 /** The agents' context reports, made by hidden turns, and the extension notifications their harnesses read. */

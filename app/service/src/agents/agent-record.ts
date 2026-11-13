@@ -1,12 +1,21 @@
-import { AgentErrorCode, PROPOSAL_ALERT, SERVICE_STOP_REASON, type AgentSummary, type Alert, type ErrorBody } from "@wombat/shared/api";
+import {
+  AgentErrorCode,
+  LogEntry,
+  parseLogEntry,
+  PROPOSAL_ALERT,
+  SERVICE_STOP_REASON,
+  type AgentSummary,
+  type Alert,
+  type ErrorBody,
+} from "@wombat/shared/api";
 import { activityOf, commandsOf, configOf, emptyFold, foldEntry, lastMainMessage, sameActivity } from "@wombat/shared/log-fold";
 
 import { canResume } from "../harness/registry.ts";
-import type { Log } from "../log.ts";
+import { safeName, type Log } from "../log.ts";
 import type { NewLogEntry, Store } from "../store/store.ts";
 import { readBranch } from "./branch.ts";
 import { excerpt, keepForExcerpt } from "./excerpt.ts";
-import { stateOnClose, writesTurnEndOnClose, type AgentPhase } from "./phase.ts";
+import { isHidden, recordsAgent, stateOnClose, writesTurnEndOnClose, type AgentPhase } from "./phase.ts";
 import { pendingPermissions } from "./permissions.ts";
 import { now, type Proc } from "./proc.ts";
 
@@ -30,6 +39,7 @@ export const createAgentRecord = ({ store, log, hasProcess }: AgentRecordDeps) =
   const summaries = new Map(store.listAgents().map((agent) => [agent.id, agent]));
   // commandId → seq of its user_message, per agent; loaded from the store on first use.
   const commandIds = new Map<string, Map<string, number>>();
+  const skippedUpdates = new WeakMap<Proc, number>();
 
   const emit = (event: Committed) => {
     for (const listener of [...listeners]) {
@@ -129,6 +139,46 @@ export const createAgentRecord = ({ store, log, hasProcess }: AgentRecordDeps) =
     const next = fromFold(proc, current, current.state);
     if (sameActivity(next.activity ?? null, current.activity ?? null)) return;
     putSummary(next, "agent_changed");
+  };
+
+  const handleUpdate = (proc: Proc, sessionId: string, update: unknown) => {
+    if (!recordsAgent(proc.phase)) {
+      proc.held.push({ sessionId, update });
+      return;
+    }
+    const { agentId } = proc;
+    const kind = safeName((update as { sessionUpdate?: unknown } | null)?.sessionUpdate);
+    if (isHidden(proc.phase)) {
+      log("update_hidden", { agentId, kind });
+      return;
+    }
+    let entry: LogEntry | undefined;
+    try {
+      entry = parseLogEntry({ type: "session_update", seq: 0, agentId, at: now(), sessionId, update });
+    } catch {
+      log("update_invalid", { agentId, kind });
+      return;
+    }
+    if (entry?.type !== "session_update") {
+      const skipped = (skippedUpdates.get(proc) ?? 0) + 1;
+      skippedUpdates.set(proc, skipped);
+      log("update_skipped", { agentId, kind, count: skipped });
+      return;
+    }
+    const parsed = entry.update;
+    safely(agentId, "session_update", () => {
+      appendLog(proc, [{ type: "session_update", sessionId, update: parsed }]);
+      if (parsed.sessionUpdate === "session_info_update" && typeof parsed.title === "string") {
+        const current = summaryOf(agentId);
+        if (current) putSummary({ ...current, title: parsed.title, lastActivityAt: now() }, "agent_changed");
+      }
+      refreshFromFold(proc);
+    });
+  };
+
+  /** Records the updates that arrived before the agent was; call once it is. */
+  const releaseHeld = (proc: Proc) => {
+    for (const { sessionId, update } of proc.held.splice(0)) handleUpdate(proc, sessionId, update);
   };
 
   /**
@@ -265,6 +315,8 @@ export const createAgentRecord = ({ store, log, hasProcess }: AgentRecordDeps) =
     refreshBranch,
     safely,
     knownCommands,
+    handleUpdate,
+    releaseHeld,
     recordClosed,
     markStored,
   };

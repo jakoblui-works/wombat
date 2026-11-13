@@ -9,6 +9,7 @@ import { AgentError, busy, notFound, notRunning, rpcCode, rpcMessage } from "./e
 import { HIDDEN_BUSY } from "./hidden-turn.ts";
 import { endingByService, isBeingRemoved, isHidden } from "./phase.ts";
 import type { Proc } from "./proc.ts";
+import type { Resume } from "./resume.ts";
 import { withTimeout } from "./timeout.ts";
 
 /** How long a config set the user asked for waits for the agent; under the desktop's request timeout, so its answer arrives. */
@@ -49,8 +50,7 @@ export type ConfigDeps = {
   procOf: AgentProcess["procOf"];
   hasAgent: AgentRecord["hasAgent"];
   appendLog: AgentRecord["appendLog"];
-  /** The agent's process, resumed first when it has none. */
-  ensureRunning: (agentId: string) => Promise<Proc>;
+  ensureRunning: Resume["ensureRunning"];
 };
 
 /** The agents' config options: set by the user one after another, and stored as the agent reports them. */
@@ -126,3 +126,5 @@ export const createConfig = ({ log, configSetTimeoutMs, procOf, hasAgent, append
 
   return { setConfig, appendConfig };
 };
+
+export type Config = ReturnType<typeof createConfig>;

@@ -111,3 +111,5 @@ export const createPermissions = ({ log, assertOpen, summaryOf, procOf, appendLo
 
   return { requestPermission, cancelPending, answer };
 };
+
+export type Permissions = ReturnType<typeof createPermissions>;

@@ -12,6 +12,8 @@ import type { Proc } from "./proc.ts";
 import type { createScopes } from "./scope.ts";
 import { settleWithin } from "./timeout.ts";
 
+export const START_TIMEOUT_MS = 60_000;
+
 /** How long an agent gets to exit after SIGTERM before its process group is killed. */
 const KILL_GRACE_MS = 2_000;
 /** How long after an agent exits its stdio may stay open (still being read) before the service drops it. */
@@ -110,7 +112,6 @@ export const createAgentProcess = ({ env, log, scopes, readInstructions, mcpServ
       fold: undefined,
       config: undefined,
       commands: undefined,
-      skipped: 0,
       cache: null,
     };
 
