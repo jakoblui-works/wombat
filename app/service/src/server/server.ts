@@ -38,7 +38,8 @@ import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { z } from "zod";
 
-import { AgentError, notFound, type Manager } from "../agents/manager.ts";
+import { requireAgent } from "../agents/errors.ts";
+import { AgentError, type Manager } from "../agents/manager.ts";
 import { openAccess, ProposalError } from "../items/access.ts";
 import { handlesById, summarize, withLinks } from "../items/api-view.ts";
 import { findByHandle, type Catalog } from "../items/catalog.ts";
@@ -202,9 +203,7 @@ export const startServer = async ({
       );
     }
     const agentId = c.req.param("id");
-    if (!store.listAgents().some((agent) => agent.id === agentId)) {
-      throw notFound(agentId);
-    }
+    requireAgent(agentId, (id) => store.listAgents().find((agent) => agent.id === id));
     const { after, limit = defaultLogLimit } = query.data;
     const { entries, truncated } = store.readLog(agentId, after, limit);
     return c.json({ dbId: store.dbId, seq: store.currentSeq(), entries, truncated } satisfies ListLogResponse);

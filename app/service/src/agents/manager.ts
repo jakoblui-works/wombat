@@ -1,7 +1,6 @@
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
-import type { McpServer, RequestPermissionRequest, RequestPermissionResponse } from "@agentclientprotocol/sdk";
+import type { RequestPermissionRequest, RequestPermissionResponse } from "@agentclientprotocol/sdk";
 import {
   AgentErrorCode,
   AnswerPermissionRequest,
@@ -11,75 +10,50 @@ import {
   PROPOSAL_ALERT,
   SERVICE_STOP_REASON,
   type AgentSummary,
-  type Alert,
-  type ErrorBody,
   type SendMessageRequest,
-  type ServerErrorCode,
   configToRestore,
   selectValues,
   type ContextBreakdown,
 } from "@wombat/shared/api";
-import {
-  activityOf,
-  commandsOf,
-  configOf,
-  emptyFold,
-  foldEntry,
-  foldLog,
-  lastMainMessage,
-  permissionOf,
-  sameActivity,
-  UNKNOWN_PERMISSION,
-  type FoldState,
-} from "@wombat/shared/log-fold";
+import { commandsOf, configOf, emptyFold, foldLog } from "@wombat/shared/log-fold";
 import { z } from "zod";
 
-import { MCP_SERVER_NAME, startAgentProcess, type AgentScope, type CacheState, type Harness } from "../harness/harness.ts";
+import type { CacheState, Harness } from "../harness/harness.ts";
 import { canResume, defaultHarnesses, findHarness } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { NewLogEntry, Store } from "../store/store.ts";
 import { RepoError, resolveRepo } from "../workspace.ts";
-import { connectAgent, type AcpAgent } from "./acp-client.ts";
-import { readBranch } from "./branch.ts";
+import { createAgentProcess, startFailure } from "./agent-process.ts";
+import { createAgentRecord, now } from "./agent-record.ts";
 import { contextGate } from "./context-gate.ts";
-import { excerpt, keepForExcerpt } from "./excerpt.ts";
+import {
+  ACP_AUTH_REQUIRED,
+  AgentError,
+  busy,
+  notFound,
+  notResumable,
+  notRunning,
+  requireAgent,
+  rpcCode,
+  rpcMessage,
+} from "./errors.ts";
+import { createMcpTokens } from "./mcp-tokens.ts";
 import {
   endingByService,
   mayRecord,
   isBeingRemoved,
-  isClosed,
   isHidden,
   isTurnOpen,
-  mayMintToken,
   next,
   recordsAgent,
-  STARTING,
-  stateOnClose,
   takesCalls,
-  writesTurnEndOnClose,
   type AgentPhase,
 } from "./phase.ts";
+import { pendingPermissions, type ExtWaiter, type PermissionKind, type Proc } from "./proc.ts";
 import { createScopes, DEFAULT_SLICE } from "./scope.ts";
 
-/** A manager call's error codes: the agent ones, and `invalid_request` for a config value the option doesn't take. */
-export type AgentErrorCodes = AgentErrorCode | typeof ServerErrorCode.enum.invalid_request;
-
-/** A failed manager call; the server maps `code` to its HTTP status. */
-export class AgentError extends Error {
-  readonly code: AgentErrorCodes;
-  readonly hint: string | undefined;
-
-  constructor(code: AgentErrorCodes, message: string, hint?: string) {
-    super(message);
-    this.name = "AgentError";
-    this.code = code;
-    this.hint = hint;
-  }
-}
-
-/** A change committed to the store, told to listeners (the alert stream) once it can be read. */
-type WithoutDbId<T> = T extends unknown ? Omit<T, "dbId"> : never;
-export type Committed = WithoutDbId<Alert>;
+export { AgentError, notFound, type AgentErrorCodes } from "./errors.ts";
+export type { Committed } from "./agent-record.ts";
 
 export type ManagerOptions = {
   store: Store;
@@ -97,75 +71,6 @@ export type ManagerOptions = {
   configSetTimeoutMs?: number;
 };
 
-type PermissionKind = AnswerPermissionRequest["kind"];
-type ErrorDetail = ErrorBody["error"];
-type StateDetails = { error?: ErrorDetail; lastUserAt?: string };
-type PendingPermission = AgentSummary["pendingPermissions"][number];
-
-type Pending = Pick<PendingPermission, "at"> & {
-  /** Option kind → the agent's optionId, for the kinds it offered. */
-  offered: Map<PermissionKind, string>;
-  /** The ACP session that asked; its answer is recorded under the same one. */
-  sessionId: string;
-  respond: (response: RequestPermissionResponse) => void;
-};
-
-/** A harness waiting for one of the agent's extension notifications (see `ContextAgent.nextExt`). */
-type ExtWaiter = { method: string; match: (params: unknown) => boolean; resolve: (params: unknown) => void; reject: (error: Error) => void };
-
-/** One agent process, from spawn until it closed. */
-type Proc = {
-  agentId: string;
-  harness: Harness;
-  /** The agent's HOME from its spawn environment, for its harness (`ContextAgent.home`). */
-  home: string | undefined;
-  /** The agent's folder. */
-  cwd: string;
-  pid: number | undefined;
-  /** The agent's systemd scope, when it runs in one. */
-  unit: string | undefined;
-  /** Set once the process exited: killing its scope, which ends what outlived it there. */
-  scopeKilled: Promise<void> | undefined;
-  /** When the process exited (ms since the epoch); the close grace counts from here. */
-  exitedAt: number | undefined;
-  acp: AcpAgent;
-  /** The key of the agent's /mcp token in the live token map, once minted; deleted when the token is revoked. */
-  tokenKey: string | undefined;
-  closed: Promise<void>;
-  sessionId: string;
-  /**
-   * A turn is open from send until its `turn_ended` is written; once the connection closes or the service is ending
-   * the process, only the close handler ends it. A hidden turn (`contextBreakdown`) is moved only by `hiddenReport`:
-   * meanwhile the agent's updates are dropped, and messages and config changes answer `busy`.
-   */
-  phase: AgentPhase;
-  /** Updates that arrived before the agent's summary was stored. */
-  held: { sessionId: string; update: unknown }[];
-  /** Open permission requests by requestId, oldest first; the summary's pendingPermissions mirror it. */
-  pending: Map<string, Pending>;
-  /**
-   * The current turn's entries folded as stored, for the summary's lastText and request titles and kinds; made once
-   * the session id is known (the main session must be the real one), anew at each user message.
-   */
-  fold: FoldState | undefined;
-  /** The latest stored main-session config options (`configOf`, kept across the fold's restarts); what a set is checked against. */
-  config: ConfigOption[] | undefined;
-  /** The command names of the latest stored main-session command list (`commandsOf`, kept across the fold's restarts). */
-  commands: string[] | undefined;
-  skipped: number;
-  /** The context report being made, which every request meanwhile shares; cleared once it settles. */
-  contextReport: Promise<ContextBreakdown> | undefined;
-  /**
-   * The agent's config sets, one after another: each is checked against the options the one before it stored, and a
-   * set's answer never mixes with the next one's request.
-   */
-  setting: Promise<void>;
-  /** The prompt cache as the harness last reported it (`AgentSummary.cache`); in memory only. */
-  cache: CacheState | null;
-  /** Harnesses waiting for extension notifications; rejected when the process ends. */
-  extWaiters: Set<ExtWaiter>;
-};
-
 const START_TIMEOUT_MS = 60_000;
 /** How long a config set the user asked for waits for the agent; under the desktop's request timeout, so its answer arrives. */
 const CONFIG_SET_TIMEOUT_MS = 30_000;
@@ -173,47 +78,11 @@ const CONFIG_SET_TIMEOUT_MS = 30_000;
 const STILL_WORKING = "The agent is still working on the last message. Wait for it to finish, or cancel it.";
 const HIDDEN_BUSY =
   "The agent is reporting its context. Try again in a moment; if it stays busy, stop the agent, then try again: it keeps its conversation.";
-/** How long an agent gets to exit after SIGTERM before its process group is killed. */
-const KILL_GRACE_MS = 2_000;
-/** How long after an agent exits its stdio may stay open (still being read) before the service drops it. */
-const CLOSE_GRACE_MS = 500;
-const ACP_AUTH_REQUIRED = -32000;
-/** The token map's key: a hash, so a lookup's timing says nothing about the token itself. */
-const tokenKey = (token: string) => createHash("sha256").update(token).digest("base64url");
-
-const now = () => new Date().toISOString();
 
 /** A protocol name (an update kind, a stop reason) fit for a log line; anything else is "unknown". */
 const safeName = (value: unknown) => (typeof value === "string" && /^[A-Za-z0-9_]{1,64}$/.test(value) ? value : "unknown");
 
-const killGroup = (pid: number | undefined, signal: NodeJS.Signals) => {
-  if (pid === undefined) return;
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    // The group is gone already.
-  }
-};
-
 const ConfigOptions = z.array(ConfigOption);
-
-/** A JSON-RPC error's message: the agent's own text, so it goes back to the app and never to a log line. */
-const rpcMessage = (error: unknown) =>
-  typeof error === "object" && error !== null && typeof (error as { message?: unknown }).message === "string"
-    ? (error as { message: string }).message
-    : undefined;
-
-const rpcCode = (error: unknown) =>
-  typeof error === "object" && error !== null && typeof (error as { code?: unknown }).code === "number"
-    ? (error as { code: number }).code
-    : undefined;
-
-/** Waits for `promise`, but no longer than `ms`: it goes on in the background. */
-const settleWithin = async (promise: Promise<void>, ms: number) => {
-  let timer: NodeJS.Timeout | undefined;
-  await Promise.race([promise, new Promise<void>((resolve) => (timer = setTimeout(resolve, ms)))]);
-  clearTimeout(timer);
-};
 
 const withTimeout = <T>(promise: Promise<T>, ms: number, error: () => Error): Promise<T> => {
   let timer: NodeJS.Timeout | undefined;
@@ -246,26 +115,8 @@ const configUnanswered = (configId: string, timeoutMs: number) =>
       "Try again; if it still doesn't answer, stop the agent and send a message to start it again (it keeps its conversation).",
   );
 
-export const notFound = (agentId: string) =>
-  new AgentError(AgentErrorCode.enum.not_found, `There's no agent ${agentId}. List the agents to see which exist.`);
-
-const busy = (message: string) => new AgentError(AgentErrorCode.enum.busy, message);
-
 const sameCache = (a: CacheState | null, b: CacheState | null) =>
   a === b || (a !== null && b !== null && a.ttlSeconds === b.ttlSeconds && a.lastRequestAt === b.lastRequestAt);
-
-/** Why a call found no process to act on; `resumable` (its harness's) says whether a message starts it again. */
-const notRunning = (resumable = false) =>
-  new AgentError(
-    AgentErrorCode.enum.not_running,
-    `The agent isn't running (it was stopped or its process ended). ${
-      resumable ? "Send a message to start it again" : "Start a new agent to continue"
-    }; its history is kept.`,
-  );
-
-/** Why an agent without a process stays so: its harness can't resume it, so its chat is closed. */
-const notResumable = () =>
-  new AgentError(AgentErrorCode.enum.not_running, "This agent can't be started again. Start a new agent to continue.");
 
 /**
  * Starts agents through their harness and records everything they do in the store before telling listeners,
@@ -281,17 +132,8 @@ export const createManager = ({
   readInstructions,
   configSetTimeoutMs = CONFIG_SET_TIMEOUT_MS,
 }: ManagerOptions) => {
-  const listeners = new Set<(event: Committed) => void>();
-  const summaries = new Map(store.listAgents().map((agent) => [agent.id, agent]));
-  const procs = new Map<string, Proc>();
-  // commandId → seq of its user_message, per agent; loaded from the store on first use.
-  const commandIds = new Map<string, Map<string, number>>();
   let shuttingDown: Promise<void> | undefined;
   const scopes = createScopes({ slice, env, log });
-  // Token key → agentId for every agent with a live /mcp token. The tokens themselves are held nowhere: each one
-  // only passes through its agent's session/new.
-  const agentTokens = new Map<string, string>();
-  let mcpUrl: string | undefined;
   // The one resume under way per agent (`ensureRunning`): every caller waiting for the agent's process shares it.
   const resuming = new Map<string, Promise<Proc>>();
   // Agents whose message is stored while their process is being resumed: the turn runs once it is (`resumeTurn`).
@@ -299,176 +141,29 @@ export const createManager = ({
   // Agents whose waiting message was cancelled before its resume finished: the turn ends without being sent.
   const cancelledTurns = new Set<string>();
 
-  const emit = (event: Committed) => {
-    for (const listener of [...listeners]) {
-      try {
-        listener(event);
-      } catch {
-        const subject = event.type === PROPOSAL_ALERT ? { proposalId: event.proposalId } : { agentId: event.agentId };
-        log("listener_failed", { ...subject, seq: event.seq, type: event.type });
-      }
-    }
-  };
-
-  /**
-   * Mints the agent's /mcp token (32 random bytes) and its `mcpServers` entry; none before the server told the
-   * manager its URL, or once the process has ended.
-   */
-  const mcpServersFor = (proc: Proc): McpServer[] => {
-    if (mcpUrl === undefined || shuttingDown || procs.get(proc.agentId) !== proc || !mayMintToken(proc.phase)) return [];
-    const token = randomBytes(32).toString("base64url");
-    proc.tokenKey = tokenKey(token);
-    agentTokens.set(proc.tokenKey, proc.agentId);
-    return [{ type: "http", name: MCP_SERVER_NAME, url: mcpUrl, headers: [{ name: "Authorization", value: `Bearer ${token}` }] }];
-  };
-
-  const revokeToken = (proc: Proc) => {
-    if (proc.tokenKey === undefined) return;
-    agentTokens.delete(proc.tokenKey);
-    proc.tokenKey = undefined;
-  };
-
-  /**
-   * Stores the summary with `hasProcess` derived from the live processes, its only source. `cache` stays on the
-   * in-memory summary and is never stored.
-   */
-  const putSummary = (fields: Omit<AgentSummary, "hasProcess">, type: "agent_added" | "agent_changed") => {
-    const summary: AgentSummary = { ...fields, hasProcess: procs.has(fields.id) };
-    const stored = { ...summary };
-    delete stored.cache;
-    const seq = store.putAgent(stored);
-    summaries.set(summary.id, summary);
-    emit({ seq, agentId: summary.id, type });
-    return summary;
-  };
-
-  /**
-   * Stores the entries and tells listeners; every entry of the agent's log is written through here. Only for an agent
-   * without a process (a message that resumes it, the end of a turn whose resume failed); otherwise `appendLog`.
-   */
-  const storeEntries = (agentId: string, entries: NewLogEntry[]) => {
-    const stored = entries.map((entry) => ({ ...entry, at: entry.at ?? now() }));
-    const seqs = store.append(agentId, stored);
-    const last = seqs.at(-1);
-    if (last !== undefined) emit({ seq: last, agentId, type: "log" });
-    return { stored, seqs };
-  };
-
-  /** Stores the entries (`storeEntries`) and folds each one as stored. */
-  const appendLog = (proc: Proc, entries: NewLogEntry[]) => {
-    const { agentId } = proc;
-    if (!proc.fold) throw new Error(`Can't log for agent ${agentId} before its session started.`);
-    const { stored, seqs } = storeEntries(agentId, entries);
-    let fold = proc.fold;
-    for (const [index, entry] of stored.entries()) {
-      if (entry.type === "user_message") fold = emptyFold(proc.sessionId);
-      foldEntry(fold, { ...entry, seq: seqs[index] ?? 0, agentId }, { keepText: keepForExcerpt });
-    }
-    proc.fold = fold;
-    proc.config = configOf(fold) ?? proc.config;
-    proc.commands = commandsOf(fold) ?? proc.commands;
-    return seqs;
-  };
-
-  /**
-   * The summary rows of the agent's open permission requests: the only source of `pendingPermissions`. Title and kind
-   * are the fold's; a request whose entry couldn't be stored has none to read and gets `UNKNOWN_PERMISSION`.
-   */
-  const pendingPermissions = (proc: Proc | undefined): PendingPermission[] =>
-    [...(proc?.pending ?? [])].map(([requestId, { at }]) => {
-      const { title, kind } = (proc?.fold && permissionOf(proc.fold, requestId)) ?? UNKNOWN_PERMISSION;
-      return { requestId, at, title, kind };
-    });
-
-  /** The summary's activity: what the turn's fold says while the agent works, else none. */
-  const activityNow = (proc: Proc | undefined, state: AgentSummary["state"]) => (state === "working" && proc?.fold ? activityOf(proc.fold) : null);
-
-  /**
-   * `current` with what the turn's fold says now: the activity for `state`, and lastText. With no main-session message
-   * in the fold (a new turn), the stored lastText stays.
-   */
-  const fromFold = (proc: Proc | undefined, current: AgentSummary, state: AgentSummary["state"]): AgentSummary => {
-    const next: AgentSummary = { ...current, activity: activityNow(proc, state) };
-    const message = proc?.fold && lastMainMessage(proc.fold);
-    if (message !== undefined) {
-      const text = excerpt(message);
-      delete next.lastText;
-      if (text !== "") next.lastText = text;
-    }
-    return next;
-  };
-
-  /**
-   * After a stored update: writes the summary when its activity changed (by `sameActivity`), taking the fold's lastText
-   * along. A change to lastText alone writes nothing; it is current at least at each turn's end.
-   */
-  const refreshFromFold = (proc: Proc) => {
-    const current = summaries.get(proc.agentId);
-    if (!current) return;
-    const next = fromFold(proc, current, current.state);
-    if (sameActivity(next.activity ?? null, current.activity ?? null)) return;
-    putSummary(next, "agent_changed");
-  };
-
-  /**
-   * Writes the agent's state with its pendingPermissions derived anew and its activity and lastText from its fold
-   * (`fromFold`), so every change to the open requests is followed by one of these. `agentState` is for an agent
-   * without a process (no requests, no activity).
-   */
-  const setState = (proc: Proc, state: AgentSummary["state"], details: StateDetails = {}) => {
-    agentState(proc.agentId, proc, state, details);
-  };
-
-  const agentState = (
-    agentId: string,
-    proc: Proc | undefined,
-    state: AgentSummary["state"],
-    { error, lastUserAt }: StateDetails = {},
-  ) => {
-    const current = summaries.get(agentId);
-    if (!current) return;
-    const next: AgentSummary = {
-      ...fromFold(proc, current, state),
-      state,
-      lastActivityAt: now(),
-      pendingPermissions: pendingPermissions(proc),
-    };
-    delete next.error;
-    if (error) next.error = error;
-    if (lastUserAt !== undefined) next.lastUserAt = lastUserAt;
-    putSummary(next, "agent_changed");
-    log("agent_state", { agentId, state });
-  };
-
-  /** Reads the branch of the agent's folder; undefined (and one log line) when that fails. */
-  const branchOf = async (agentId: string, cwd: string) => {
-    try {
-      return await readBranch(cwd);
-    } catch {
-      log("branch_unreadable", { agentId });
-      return undefined;
-    }
-  };
-
-  /** Re-reads the agent's branch and writes it when it changed, unless the agent was removed meanwhile. */
-  const refreshBranch = async (agentId: string, cwd: string) => {
-    const branch = await branchOf(agentId, cwd);
-    const current = summaries.get(agentId);
-    if (!current || current.branch === branch) return;
-    const next: AgentSummary = { ...current };
-    delete next.branch;
-    if (branch !== undefined) next.branch = branch;
-    safely(agentId, "branch", () => putSummary(next, "agent_changed"));
-  };
-
-  /** For writes driven by the agent rather than a caller: a failure is logged, not thrown into the ACP layer. */
-  const safely = (agentId: string, what: string, write: () => void) => {
-    try {
-      write();
-    } catch {
-      log("store_write_failed", { agentId, what });
-    }
-  };
+  const {
+    emit,
+    onCommitted,
+    summaryOf,
+    hasAgent,
+    forget,
+    putSummary,
+    storeEntries,
+    appendLog,
+    refreshFromFold,
+    setState,
+    agentState,
+    branchOf,
+    refreshBranch,
+    safely,
+    knownCommands,
+    recordClosed,
+    markStored,
+  } = createAgentRecord({ store, log, hasProcess: (agentId) => hasProcess(agentId) });
+  const { mcpServersFor, revokeToken, setMcpUrl, agentForToken } = createMcpTokens({
+    isCurrent: (proc) => isCurrent(proc),
+    shuttingDown: () => shuttingDown !== undefined,
+  });
 
   const assertOpen = () => {
     if (shuttingDown) {
@@ -477,18 +172,6 @@ export const createManager = ({
         "The agent service is shutting down and takes no more agent commands. Start the service again.",
       );
     }
-  };
-
-  const knownCommands = (agentId: string) => {
-    let known = commandIds.get(agentId);
-    if (!known) {
-      known = new Map();
-      for (const entry of store.readLog(agentId).entries) {
-        if (entry.type === "user_message" && entry.commandId !== undefined) known.set(entry.commandId, entry.seq);
-      }
-      commandIds.set(agentId, known);
-    }
-    return known;
   };
 
   const handleUpdate = (proc: Proc, sessionId: string, update: unknown) => {
@@ -518,7 +201,7 @@ export const createManager = ({
     safely(agentId, "session_update", () => {
       appendLog(proc, [{ type: "session_update", sessionId, update: parsed }]);
       if (parsed.sessionUpdate === "session_info_update" && typeof parsed.title === "string") {
-        const current = summaries.get(agentId);
+        const current = summaryOf(agentId);
         if (current) putSummary({ ...current, title: parsed.title, lastActivityAt: now() }, "agent_changed");
       }
       refreshFromFold(proc);
@@ -540,7 +223,7 @@ export const createManager = ({
     const cache = result?.cache;
     if (cache !== undefined && !sameCache(cache, proc.cache)) {
       proc.cache = cache;
-      const current = summaries.get(agentId);
+      const current = summaryOf(agentId);
       if (recordsAgent(proc.phase) && current) safely(agentId, "cache", () => putSummary({ ...current, cache }, "agent_changed"));
     }
     for (const waiter of [...proc.extWaiters]) {
@@ -578,6 +261,10 @@ export const createManager = ({
       );
       proc.extWaiters.add(waiter);
     });
+
+  const rejectExtWaiters = (proc: Proc) => {
+    for (const waiter of [...proc.extWaiters]) waiter.reject(new Error("The agent's process ended."));
+  };
 
   /** Stores the agent's main-session options as a config_option_update; false when they don't parse. */
   const appendConfig = (proc: Proc, options: unknown[]) => {
@@ -672,181 +359,30 @@ export const createManager = ({
     }
   };
 
-  const spawnAgent = (agentId: string, harness: Harness, cwd: string, scope: AgentScope | undefined): Proc => {
-    const spec = harness.spawn(cwd, env);
-    const child: ChildProcessWithoutNullStreams = startAgentProcess(spec, scope ? { scope } : {});
-    const { promise: closed, resolve: markClosed } = Promise.withResolvers<void>();
-    const proc: Proc = {
-      agentId,
-      harness,
-      home: spec.env.HOME,
-      cwd,
-      pid: child.pid,
-      unit: scope?.unit,
-      scopeKilled: undefined,
-      exitedAt: undefined,
-      acp: connectAgent(child, {
-        update: (sessionId, update) => handleUpdate(proc, sessionId, update),
-        permission: (request) => requestPermission(proc, request),
-        ext: (method, params) => handleExt(proc, method, params),
-      }),
-      tokenKey: undefined,
-      closed,
-      sessionId: "",
-      phase: STARTING,
-      held: [],
-      pending: new Map(),
-      fold: undefined,
-      config: undefined,
-      commands: undefined,
-      skipped: 0,
-      contextReport: undefined,
-      setting: Promise.resolve(),
-      cache: null,
-      extWaiters: new Set(),
-    };
-
-    const finish = (code: number | null, signal: NodeJS.Signals | null) => {
-      if (isClosed(proc.phase)) return;
-      const closing = proc.phase;
-      proc.phase = next(closing, { type: "closed" });
-      revokeToken(proc);
-      // A resume may already have put a new process in its place.
-      if (procs.get(agentId) === proc) procs.delete(agentId);
-      proc.acp.close();
-      cancelPending(proc);
-      for (const waiter of [...proc.extWaiters]) waiter.reject(new Error("The agent's process ended."));
-      // A turn the process ended under gets its end in the log too; a removed agent has no log left.
-      if (writesTurnEndOnClose(closing)) {
-        safely(agentId, "turn_stopped", () => appendLog(proc, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.stopped }]));
-      }
-      const state = stateOnClose(closing);
-      if (state === "stopped") {
-        safely(agentId, "stopped", () => setState(proc, "stopped"));
-      } else if (state === "error") {
-        const how = code === null ? `was killed (${signal ?? "unknown signal"})` : `exited with code ${code}`;
-        safely(agentId, "exited", () =>
-          setState(proc, "error", {
-            error: {
-              code: AgentErrorCode.enum.agent_failed,
-              message:
-                `The agent process ${how} unexpectedly. ` +
-                (canResume(proc.harness)
-                  ? "Send a message to start it again; its history is kept."
-                  : "Start a new agent to continue; this one's history is kept."),
-            },
-          }),
-        );
-      }
-      log("agent_exited", { agentId, code: code ?? -1, signal: signal ?? "none" });
-      markClosed();
-    };
-
-    child.on("error", (error: NodeJS.ErrnoException) => {
-      log("agent_process_error", { agentId, code: error.code ?? "unknown" });
-      // A process that never started emits no close.
-      if (child.pid === undefined) finish(null, null);
-    });
-    let closeTimer: NodeJS.Timeout | undefined;
-    child.once("exit", (code, signal) => {
-      proc.exitedAt = Date.now();
-      proc.phase = next(proc.phase, { type: "exited" });
-      // An ended agent's token works nowhere, even while its stdio is still being drained.
-      revokeToken(proc);
-      // Helpers the agent started (claude-agent-acp's native `claude`) share its group and must not outlive it.
-      killGroup(child.pid, "SIGKILL");
-      // The scope also holds helpers that left the group or session; collected once empty, so this ends it.
-      if (proc.unit !== undefined) proc.scopeKilled = scopes.kill(agentId, proc.unit);
-      // `close` waits for every holder of the agent's stdio, and a helper in a group of its own may hold it for
-      // good: past the grace period the pipes are dropped and the agent counts as ended.
-      closeTimer = setTimeout(() => {
-        child.stdin.destroy();
-        child.stdout.destroy();
-        child.stderr.destroy();
-        finish(code, signal);
-      }, CLOSE_GRACE_MS);
-    });
-    child.once("close", (code, signal) => {
-      clearTimeout(closeTimer);
-      finish(code, signal);
-    });
-    return proc;
+  const processClosed = (proc: Proc, closing: AgentPhase, code: number | null, signal: NodeJS.Signals | null) => {
+    // Cancelled before the state is written: the state's pendingPermissions are read from the open requests.
+    cancelPending(proc);
+    rejectExtWaiters(proc);
+    recordClosed(proc, closing, code, signal);
   };
 
-  const terminate = async (proc: Proc) => {
-    killGroup(proc.pid, "SIGTERM");
-    const timer = setTimeout(() => killGroup(proc.pid, "SIGKILL"), KILL_GRACE_MS);
-    try {
-      await proc.closed;
-    } finally {
-      clearTimeout(timer);
-    }
-    // A user manager that doesn't answer must not hang a stop: the kill goes on in the background.
-    if (proc.scopeKilled) {
-      const left = (proc.exitedAt ?? Date.now()) + CLOSE_GRACE_MS - Date.now();
-      await settleWithin(proc.scopeKilled, Math.max(0, left));
-    }
-  };
-
-  /**
-   * What a session starts or resumes with: the harness's `_meta`, the instructions as they are now (a
-   * running agent keeps the ones it started with) and the process's own /mcp token.
-   */
-  const sessionExtra = async (proc: Proc) => {
-    const { harness } = proc;
-    const instructions = harness.sessionParams === undefined ? undefined : await readInstructions();
-    return {
-      mcpServers: mcpServersFor(proc),
-      ...(harness.sessionMeta === undefined ? {} : { _meta: harness.sessionMeta }),
-      ...(instructions === undefined || harness.sessionParams === undefined ? {} : { params: harness.sessionParams(instructions) }),
-    };
-  };
-
-  const startFailure = (error: unknown, harness: Harness, proc: Proc) => {
-    if (error instanceof AgentError) return error;
-    const code = rpcCode(error);
-    if (code === ACP_AUTH_REQUIRED) {
-      return new AgentError(
-        AgentErrorCode.enum.auth_required,
-        `${harness.name} needs a login before it can start a session. Log in, then start the agent again.`,
-        harness.loginHint,
-      );
-    }
-    if (proc.acp.isClosed() && proc.unit !== undefined) {
-      // systemd-run exits without running the agent when it can't create the scope; from here that looks
-      // like an agent that ended at once, so both are named.
-      return new AgentError(
-        AgentErrorCode.enum.agent_failed,
-        `The agent process ended before its session started: either its systemd scope (${proc.unit}) couldn't be ` +
-          `created, or ${harness.name} failed. Check that \`systemctl --user\` works and that ${harness.name} is ` +
-          "installed and runs, then try again.",
-      );
-    }
-    const what = proc.acp.isClosed()
-      ? "The agent process ended before its session started"
-      : `The agent refused to start a session${code === undefined ? "" : ` (ACP error ${code})`}`;
-    return new AgentError(AgentErrorCode.enum.agent_failed, `${what}. Check that ${harness.name} is installed and runs, then try again.`);
-  };
+  // The record and the tokens above reach these through late-bound arrows: they call them only once processes run.
+  const { spawnAgent, terminate, sessionExtra, procOf, hasProcess, isCurrent, liveProcs } = createAgentProcess({
+    env,
+    log,
+    scopes,
+    readInstructions,
+    mcpServersFor,
+    revokeToken,
+    handlers: { update: handleUpdate, permission: requestPermission, ext: handleExt },
+    closed: processClosed,
+  });
 
   /** Sets one config option, failing with `configUnanswered` when the agent doesn't answer within `timeoutMs`. */
   const setConfigWithin = (proc: Proc, configId: string, value: string | boolean, timeoutMs: number) =>
     withTimeout(proc.acp.setConfigOption(proc.sessionId, configId, value), timeoutMs, () => configUnanswered(configId, timeoutMs));
 
-  // Agents stored by an earlier run have no process any more, so no open requests either; an error agent may still
-  // be stored as having one (a failed turn) by a service that died.
-  let marked = 0;
-  for (const agent of [...summaries.values()]) {
-    const live = agent.state === "working" || agent.state === "waiting" || agent.state === "done";
-    if (live || agent.pendingPermissions.length > 0 || agent.hasProcess) {
-      const state = live ? "stopped" : agent.state;
-      putSummary({ ...agent, state, pendingPermissions: pendingPermissions(procs.get(agent.id)), activity: null }, "agent_changed");
-    }
-    if (live) {
-      log("agent_state", { agentId: agent.id, state: "stopped" });
-      marked += 1;
-    }
-  }
-  log("agents_loaded", { count: summaries.size, markedStopped: marked });
+  markStored();
 
   /** The agent's folder for `repo`, which must resolve inside the workspace. */
   const folderOf = (repo: string) => {
@@ -869,7 +405,7 @@ export const createManager = ({
    * message waiting for a resume to run.
    */
   const liveProc = (agentId: string) => {
-    const proc = procs.get(agentId);
+    const proc = procOf(agentId);
     return proc && takesCalls(proc.phase) && !resuming.has(agentId) && !pendingTurns.has(agentId) ? proc : undefined;
   };
 
@@ -882,8 +418,8 @@ export const createManager = ({
   const resume = async (summary: AgentSummary, harness: Harness): Promise<Proc> => {
     const { id: agentId, sessionId } = summary;
     // A process still ending (a stop just asked for) writes its end first; a delete meanwhile ends the attempt.
-    await procs.get(agentId)?.closed;
-    if (!summaries.has(agentId)) {
+    await procOf(agentId)?.closed;
+    if (!hasAgent(agentId)) {
       log("agent_resume_failed", { agentId, harness: harness.id, code: AgentErrorCode.enum.not_found });
       throw notFound(agentId);
     }
@@ -891,7 +427,6 @@ export const createManager = ({
     const scope = await scopes.scopeFor(agentId);
     assertOpen();
     const proc = spawnAgent(agentId, harness, cwd, scope);
-    procs.set(agentId, proc);
     log("agent_resuming", { agentId, harness: harness.id });
     const tooSlow = () =>
       new AgentError(
@@ -909,8 +444,8 @@ export const createManager = ({
       }
       const session = await sessionExtra(proc);
       const { configOptions } = await withTimeout(proc.acp.resumeSession(sessionId, cwd, session), Math.max(0, deadline - Date.now()), tooSlow);
-      if (!summaries.has(agentId)) throw notFound(agentId);
-      if (shuttingDown || !mayRecord(proc.phase) || procs.get(agentId) !== proc) throw notRunning(true);
+      requireAgent(agentId, summaryOf);
+      if (shuttingDown || !mayRecord(proc.phase) || procOf(agentId) !== proc) throw notRunning(true);
       proc.sessionId = sessionId;
       proc.fold = foldLog(store.readLog(agentId).entries, sessionId);
       proc.config = configOf(proc.fold);
@@ -940,7 +475,7 @@ export const createManager = ({
         }
       }
       // A stop or delete during the restore: the close handler writes the agent's state, not this.
-      const running = !endingByService(proc.phase) && procs.get(agentId) === proc;
+      const running = !endingByService(proc.phase) && procOf(agentId) === proc;
       if (running && !pendingTurns.has(agentId)) safely(agentId, "resumed", () => setState(proc, "done"));
       log("agent_resumed", { agentId, harness: harness.id });
       return proc;
@@ -950,8 +485,8 @@ export const createManager = ({
       proc.phase = next(proc.phase, { type: "endRequested", why: "remove" });
       await terminate(proc);
       // The summary was written while the attempt's process ran (a message stored meanwhile): it has none now.
-      const current = summaries.get(agentId);
-      if (current?.hasProcess && !procs.has(agentId)) safely(agentId, "resume_failed", () => putSummary(current, "agent_changed"));
+      const current = summaryOf(agentId);
+      if (current?.hasProcess && !hasProcess(agentId)) safely(agentId, "resume_failed", () => putSummary(current, "agent_changed"));
       log("agent_resume_failed", { agentId, harness: harness.id, code: failure.code });
       throw failure;
     }
@@ -975,8 +510,7 @@ export const createManager = ({
    */
   const ensureRunning = async (agentId: string): Promise<Proc> => {
     assertOpen();
-    const summary = summaries.get(agentId);
-    if (!summary) throw notFound(agentId);
+    const summary = requireAgent(agentId, summaryOf);
     const pending = resuming.get(agentId);
     if (pending) return pending;
     const live = liveProc(agentId);
@@ -1007,11 +541,11 @@ export const createManager = ({
       const resumed = proc;
       resumed.phase = next(resumed.phase, { type: "turnStarted" });
       // Ending already: its close handler ends the turn.
-      if (endingByService(resumed.phase) && procs.get(agentId) === resumed) return;
-      if (procs.get(agentId) !== resumed) {
+      if (endingByService(resumed.phase) && procOf(agentId) === resumed) return;
+      if (procOf(agentId) !== resumed) {
         // Ended already: its close handler wrote the agent's state, but saw no turn.
         resumed.phase = next(resumed.phase, { type: "turnEnded" });
-        if (summaries.has(agentId)) safely(agentId, "turn_stopped", () => storeEntries(agentId, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.stopped }]));
+        if (hasAgent(agentId)) safely(agentId, "turn_stopped", () => storeEntries(agentId, [{ type: "turn_ended", stopReason: SERVICE_STOP_REASON.stopped }]));
         return;
       }
       if (cancelled) {
@@ -1028,7 +562,7 @@ export const createManager = ({
       await runTurn(resumed, text);
       return;
     }
-    if (!summaries.has(agentId)) return;
+    if (!hasAgent(agentId)) return;
     const stopped = failure instanceof AgentError && failure.code === AgentErrorCode.enum.not_running;
     const message = failure instanceof AgentError ? failure.message : "The agent couldn't be started again. Send the message again to retry.";
     safely(agentId, "turn_failed", () => {
@@ -1051,7 +585,6 @@ export const createManager = ({
     // Shutdown may have begun while the scopes were being set up.
     assertOpen();
     const proc = spawnAgent(agentId, harness, cwd, scope);
-    procs.set(agentId, proc);
     log("agent_starting", { agentId, harness: harness.id });
     const tooSlow = () =>
       new AgentError(
@@ -1064,8 +597,8 @@ export const createManager = ({
       const session = await sessionExtra(proc);
       const { sessionId, configOptions } = await withTimeout(proc.acp.newSession(cwd, session), Math.max(0, deadline - Date.now()), tooSlow);
       const branch = await branchOf(agentId, cwd);
-      // procs no longer holding it means the process ended before its summary could be stored.
-      if (shuttingDown || !mayRecord(proc.phase) || procs.get(agentId) !== proc) throw notRunning();
+      // Another live process, or none, means this one ended before its summary could be stored.
+      if (shuttingDown || !mayRecord(proc.phase) || procOf(agentId) !== proc) throw notRunning();
       proc.sessionId = sessionId;
       proc.fold = emptyFold(sessionId);
       const startedAt = now();
@@ -1090,7 +623,7 @@ export const createManager = ({
         });
       }
       for (const { sessionId: from, update } of proc.held.splice(0)) handleUpdate(proc, from, update);
-      return summaries.get(agentId) ?? added;
+      return summaryOf(agentId) ?? added;
     } catch (error) {
       const failure = startFailure(error, harness, proc);
       // Nothing was recorded, so the close handler writes nothing.
@@ -1103,7 +636,7 @@ export const createManager = ({
 
   const sendNow = (agentId: string, { text, commandId }: SendMessageRequest): { seq: number } => {
     assertOpen();
-    if (!summaries.has(agentId)) throw notFound(agentId);
+    requireAgent(agentId, summaryOf);
     if (commandId !== undefined) {
       const seq = knownCommands(agentId).get(commandId);
       if (seq !== undefined) {
@@ -1133,14 +666,13 @@ export const createManager = ({
    * background (`resumeTurn`); the caller gets the message's seq at once.
    */
   const sendResuming = (agentId: string, text: string, commandId: string | undefined): { seq: number } => {
-    const summary = summaries.get(agentId);
-    if (!summary) throw notFound(agentId);
+    const summary = requireAgent(agentId, summaryOf);
     if (pendingTurns.has(agentId)) throw busy(STILL_WORKING);
     if (!canResumeAgent(summary)) throw notResumable();
     const at = now();
     const message: NewLogEntry = { type: "user_message", at, text, ...(commandId === undefined ? {} : { commandId }) };
     // A resume that has folded the log already (it is setting the agent's config again) folds the message too.
-    const current = procs.get(agentId);
+    const current = procOf(agentId);
     const resumed = current && takesCalls(current.phase) ? current : undefined;
     const [seq = 0] = resumed ? appendLog(resumed, [message]) : storeEntries(agentId, [message]).seqs;
     if (commandId !== undefined) knownCommands(agentId).set(commandId, seq);
@@ -1157,8 +689,8 @@ export const createManager = ({
 
   const answer = (agentId: string, requestId: string, kind: PermissionKind) => {
     assertOpen();
-    if (!summaries.has(agentId)) throw notFound(agentId);
-    const proc = procs.get(agentId);
+    requireAgent(agentId, summaryOf);
+    const proc = procOf(agentId);
     const pending = proc?.pending.get(requestId);
     if (!proc || !pending) {
       throw new AgentError(
@@ -1198,7 +730,7 @@ export const createManager = ({
   /** One set on a running agent, after the ones before it (`Proc.setting`). */
   const setOne = async (proc: Proc, configId: string, value: string | boolean) => {
     const { agentId } = proc;
-    if (endingByService(proc.phase) || procs.get(agentId) !== proc) throw notRunning(canResume(proc.harness));
+    if (endingByService(proc.phase) || procOf(agentId) !== proc) throw notRunning(canResume(proc.harness));
     if (isHidden(proc.phase)) throw busy(HIDDEN_BUSY);
     const option = proc.config?.find(({ id }) => id === configId);
     if (option === undefined) {
@@ -1227,7 +759,7 @@ export const createManager = ({
           `Pick another value, or try again.${said === undefined || said === "" ? "" : ` The agent said: ${said}`}`,
       );
     }
-    if (isBeingRemoved(proc.phase) || !summaries.has(agentId)) throw notFound(agentId);
+    if (isBeingRemoved(proc.phase) || !hasAgent(agentId)) throw notFound(agentId);
     if (!appendConfig(proc, options)) {
       throw new AgentError(
         AgentErrorCode.enum.agent_error,
@@ -1239,15 +771,14 @@ export const createManager = ({
 
   const cancel = async (agentId: string) => {
     assertOpen();
-    const summary = summaries.get(agentId);
-    if (!summary) throw notFound(agentId);
+    const summary = requireAgent(agentId, summaryOf);
     if (pendingTurns.has(agentId)) {
       // The message waits for the agent to start: it is ended there, before it is sent (`resumeTurn`).
       cancelledTurns.add(agentId);
       log("turn_cancel_sent", { agentId, permissionsCancelled: 0 });
       return;
     }
-    const proc = procs.get(agentId);
+    const proc = procOf(agentId);
     if (!proc || !takesCalls(proc.phase)) throw notRunning(canResumeAgent(summary));
     try {
       await proc.acp.cancel(proc.sessionId);
@@ -1256,7 +787,7 @@ export const createManager = ({
     }
     // ACP: after session/cancel, the client answers the turn's open permission requests with `cancelled`.
     const cancelled = cancelPending(proc);
-    const state = isTurnOpen(proc.phase) ? "working" : summaries.get(agentId)?.state;
+    const state = isTurnOpen(proc.phase) ? "working" : summaryOf(agentId)?.state;
     if (cancelled > 0 && state) safely(agentId, "cancel", () => setState(proc, state));
     log("turn_cancel_sent", { agentId, permissionsCancelled: cancelled });
   };
@@ -1271,7 +802,7 @@ export const createManager = ({
       revokeToken(proc);
       await terminate(proc);
     };
-    const proc = procs.get(agentId);
+    const proc = procOf(agentId);
     if (proc) await end(proc);
     const attempt = resuming.get(agentId);
     const resumed = attempt && (await attempt.catch(() => undefined));
@@ -1281,18 +812,17 @@ export const createManager = ({
 
   const stop = async (agentId: string) => {
     assertOpen();
-    if (!summaries.has(agentId)) throw notFound(agentId);
+    requireAgent(agentId, summaryOf);
     if (!(await endAgent(agentId, "stop"))) return;
     log("agent_stopped", { agentId });
   };
 
   const remove = async (agentId: string) => {
     assertOpen();
-    if (!summaries.has(agentId)) throw notFound(agentId);
+    requireAgent(agentId, summaryOf);
     await endAgent(agentId, "remove");
     const seq = store.deleteAgent(agentId);
-    summaries.delete(agentId);
-    commandIds.delete(agentId);
+    forget(agentId);
     if (seq !== undefined) emit({ seq, agentId, type: "agent_removed" });
     log("agent_deleted", { agentId });
   };
@@ -1300,7 +830,7 @@ export const createManager = ({
   /** Ends every agent's process group and scope, then the slice; later calls fail. Agents it ends are recorded as stopped. */
   const shutdown = () => {
     shuttingDown ??= (async () => {
-      const running = [...procs.values()];
+      const running = liveProcs();
       for (const proc of running) {
         proc.phase = next(proc.phase, { type: "endRequested", why: "stop" });
         revokeToken(proc);
@@ -1311,21 +841,6 @@ export const createManager = ({
     })();
     return shuttingDown;
   };
-
-  const onCommitted = (listener: (event: Committed) => void) => {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
-  };
-
-  /** Where agents reach the service's /mcp endpoint; agents started from now on get a token and this URL. */
-  const setMcpUrl = (url: string) => {
-    mcpUrl = url;
-  };
-
-  /** The agent a /mcp bearer token belongs to, while that agent's process runs; undefined for any other string. */
-  const agentForToken = (token: string): string | undefined => agentTokens.get(tokenKey(token));
 
   /** Tells the listeners about a committed proposal change (stored, approved, rejected, conflict). */
   const proposalCommitted = (proposalId: string, seq: number) => emit({ seq, type: PROPOSAL_ALERT, proposalId });
@@ -1339,8 +854,7 @@ export const createManager = ({
    */
   const contextBreakdown = async (agentId: string): Promise<ContextBreakdown> => {
     assertOpen();
-    const summary = summaries.get(agentId);
-    if (!summary) throw notFound(agentId);
+    const summary = requireAgent(agentId, summaryOf);
     const harness = findHarness(summary.harness, harnesses);
     const report = harness?.contextBreakdown;
     if (harness === undefined || report === undefined) {
@@ -1431,7 +945,7 @@ export const createManager = ({
   };
 
   /** The agent's live cache state (`AgentSummary.cache`): undefined without a process, null when none is known. */
-  const liveCache = (agentId: string): CacheState | null | undefined => procs.get(agentId)?.cache;
+  const liveCache = (agentId: string): CacheState | null | undefined => procOf(agentId)?.cache;
 
   return {
     start,
