@@ -17,4 +17,6 @@ export const SWITCH = {
   restartAnswer: "WOMBAT_E2E_RESTART_ANSWER",
   /** The answer to the menu's "Stop the service and its agents?": stop | cancel. */
   stopAnswer: "WOMBAT_E2E_STOP_ANSWER",
+  /** How often, in ms, main rehashes the code on disk while connected (instead of STALE_CHECK_MS), so a check needn't wait a minute. */
+  staleCheckMs: "WOMBAT_E2E_STALE_CHECK_MS",
 } as const;

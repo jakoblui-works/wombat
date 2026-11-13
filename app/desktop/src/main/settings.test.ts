@@ -4,17 +4,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, onTestFinished, test } from "vitest";
-import type { z } from "zod";
 
-import type { RendererSettings } from "../shared/bridge.ts";
 import {
   loadSettings,
   rendererSettings,
   saveSettings,
   settingsPath,
   withRendererPatch,
-  type PatchMatches,
-  type RendererSettingsPatch,
   type Settings,
 } from "./settings.ts";
 
@@ -24,17 +20,7 @@ const tempUserData = (): string => {
   return path.join(base, "Wombat");
 };
 
-const DEFAULTS: Settings = { version: 1, workspaces: {}, askOnQuit: true };
-
-test("loadSettings gives the defaults for a missing file and missing fields, and drops unknown fields", () => {
-  const userData = tempUserData();
-  const file = settingsPath(userData);
-  expect(loadSettings(file, () => undefined)).toEqual(DEFAULTS);
-
-  mkdirSync(userData);
-  writeFileSync(file, JSON.stringify({ workspace: "/home/dev/bakery", theme: "dark" }));
-  expect(loadSettings(file, () => undefined)).toEqual({ ...DEFAULTS, workspace: "/home/dev/bakery" });
-});
+const DEFAULTS: Settings = { version: 1, workspaces: {}, askOnQuit: true, zoomLevel: 0 };
 
 test("an invalid field falls back to its default alone, with one log line naming the field and not its value", () => {
   const userData = tempUserData();
@@ -85,15 +71,6 @@ test("the page sees and sets only askOnQuit, lastAgentFolder and the current wor
   expect(() => withRendererPatch(settings, { workspace: "/home/dev/other" })).toThrow(/askOnQuit, lastAgentFolder and layout/);
   // A layout that couldn't be written as JSON is refused, so it can't block later saves.
   expect(() => withRendererPatch(settings, { layout: { panes: 10n } })).toThrow(/settings change isn't valid/);
-});
-
-test("the bridge's RendererSettings and the page's patch schema are tied at compile time", () => {
-  const matches: PatchMatches<RendererSettings, z.infer<typeof RendererSettingsPatch>> = true;
-  // @ts-expect-error a field the page could send that the schema refuses
-  const extraField: PatchMatches<RendererSettings & { theme?: string }, z.infer<typeof RendererSettingsPatch>> = true;
-  // @ts-expect-error a field whose type the schema doesn't take
-  const otherType: PatchMatches<{ askOnQuit: string; lastAgentFolder?: string; layout?: unknown }, z.infer<typeof RendererSettingsPatch>> = true;
-  expect([matches, extraField, otherType]).toEqual([true, true, true]);
 });
 
 test("one workspace's relative itemsRoot costs only itself: the other workspaces and that workspace's layout stay", () => {

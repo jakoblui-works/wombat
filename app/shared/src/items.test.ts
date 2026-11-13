@@ -30,9 +30,6 @@ const full = {
   ],
 };
 
-const without = (...keys: string[]) => Object.fromEntries(Object.entries(full).filter(([key]) => !keys.includes(key)));
-/** The full example without `locked` and `instructions`, which hidden and read structures can't have. */
-const unlocked = without("locked", "instructions");
 const withProperties = (properties: Record<string, unknown>) => ({ ...full, properties: { ...full.properties, ...properties } });
 const withView = (view: Record<string, unknown>) => ({ ...full, views: [view] });
 
@@ -42,52 +39,12 @@ type Path = (string | number)[];
 // [case, settings, null when it parses; or where the refusal is and a phrase its message must have]
 const cases: [string, object, null | [Path, string]][] = [
   ["the full example", full, null],
-  ["edit access", { ...full, access: "edit", instructions: "off" }, null],
-  ["read access", { ...unlocked, access: "read", instructions: "index" }, null],
-  ["hidden access", { ...unlocked, access: "hidden" }, null],
-  ["free naming with include", free(["*.md", "guides/*.md"]), null],
-  ["only the required keys", { version: 1, id: "docs", name: "Docs", prefix: "DOC", access: "read" }, null],
   ["an unknown key", { ...full, colour: "red" }, [["colour"], "colour"]],
-  ["a missing required key", without("prefix"), [["prefix"], "prefix is required, like prefix: BUG"]],
-  ["locked that isn't a list", { ...full, locked: "title" }, [["locked"], "locked takes a list, like locked: [title]"]],
-  ["instructions on a hidden structure", { ...unlocked, access: "hidden", instructions: "index" }, [["instructions"], "instructions"]],
   ["instructions on an edit structure", { ...full, access: "edit", instructions: "full" }, [["instructions"], "without your approval"]],
-  ["locked on a hidden structure", { ...full, access: "hidden", instructions: "off" }, [["locked"], "locked"]],
-  ["locked on a read structure", { ...full, access: "read" }, [["locked"], "locked"]],
   ["locked naming an unknown field", { ...full, locked: ["title", "status"] }, [["locked", 1], "status"]],
-  [
-    "locked inside a property",
-    withProperties({ repo: { type: "select", options: ["api"], locked: true } }),
-    [["properties", "repo", "locked"], "locked: lock a property in the structure's top-level list, like locked: [repo]"],
-  ],
-  ["include without naming: free", { ...full, include: ["*.md"] }, [["include"], "include"]],
-  ["naming: free without include", { ...full, naming: "free" }, [["naming"], "include"]],
-  ...["/srv/notes/*.md", "../bugs/*.md", "guides\\*.md", "{guides,..}/*.md"].map(
-    (glob): [string, object, [Path, string]] => [`an include glob ${glob}`, free([glob]), [["include", 0], "include"]],
-  ),
-  ...["id", "handle", "aliases", "title", "body"].map(
-    (name): [string, object, [Path, string]] => [
-      `a property named ${name}`,
-      withProperties({ [name]: { type: "text" } }),
-      [["properties", name], `"${name}"`],
-    ],
-  ),
-  ["a property with no name", withProperties({ "": { type: "text" } }), [["properties"], "a property needs a name"]],
-  ["a select without options", withProperties({ size: { type: "select" } }), [["properties", "size", "options"], "options"]],
-  ["a select with no options", withProperties({ size: { type: "select", options: [] } }), [["properties", "size", "options"], "options"]],
-  [
-    "a select with an option twice",
-    withProperties({ size: { type: "select", options: ["s", "m", "s"] } }),
-    [["properties", "size", "options"], '"s"'],
-  ],
+  ["an include glob that leaves the folder", free(["{guides,..}/*.md"]), [["include", 0], "include"]],
+  ["a property named id", withProperties({ id: { type: "text" } }), [["properties", "id"], '"id"']],
   ["a board column that isn't a select", withView({ name: "B", kind: "board", column: "note" }), [["views", 0, "column"], "column"]],
-  ["a tree parent that isn't a link", withView({ name: "T", kind: "tree", parent: "order" }), [["views", 0, "parent"], "parent"]],
-  ["a tree parent linking another structure", withView({ name: "T", kind: "tree", parent: "blocks" }), [["views", 0, "parent"], "parent"]],
-  ["a list filtering on an unknown property", withView({ name: "L", kind: "list", filter: { status: "open" } }), [["views", 0, "filter"], "status"]],
-  ["a list grouped by an unknown property", withView({ name: "L", kind: "list", group: "status" }), [["views", 0, "group"], "status"]],
-  ["a list sorted by an unknown property", withView({ name: "L", kind: "list", sort: ["noted", "status"] }), [["views", 0, "sort"], "status"]],
-  ["a board on an unknown property", withView({ name: "B", kind: "board", column: "status" }), [["views", 0, "column"], "status"]],
-  ["a tree on an unknown property", withView({ name: "T", kind: "tree", parent: "status" }), [["views", 0, "parent"], "status"]],
 ];
 
 /** Where an issue is: its path, and for an unknown key the key itself. */

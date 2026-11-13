@@ -1,4 +1,4 @@
-// Lasting check (silent failure): proposal alerts keep the alert rules agent alerts follow. Every proposal change
+// Proposal alerts keep the alert rules agent alerts follow. Every proposal change
 // (stored, approved, conflict, rejected) takes the next seq and is announced only after it is committed, so the
 // app reading on another connection sees the new status; on the wire the alert carries ids only (seq, dbId, type,
 // proposalId), never the reason, the fields, a title or a handle.
@@ -31,7 +31,7 @@ describe("proposal alerts", () => {
           // Already closed.
         }
       });
-      // The store's proposal read (interface-S2.md, "Store"), synchronous like the rest of the store.
+      // The store's proposal read, synchronous like the rest of the store.
       const getProposal = (id: string) => (reader as Store & { getProposal?: (id: string) => Proposal | undefined }).getProposal?.(id);
 
       const problems: string[] = [];

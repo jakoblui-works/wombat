@@ -84,28 +84,16 @@
   --size-chat: 760px;
   --size-empty-state: 280px;
 
-  /* Motion: short and quiet; off under prefers-reduced-motion (below). */
-  --duration-fast: 100ms;
-  --duration-base: 160ms;
-  --duration-slow: 240ms;
+  /*
+   * Motion: only where something changes, quiet, and off under prefers-reduced-motion (globals.css). Instant is for
+   * hover and press colours, enter for things appearing, exit (shorter) for things leaving and for menus.
+   */
+  --duration-instant: 80ms;
+  --duration-enter: 160ms;
+  --duration-exit: 100ms;
   /* The connection's waiting marks: a pulse and a spin, each a full cycle. */
   --duration-pulse: 1600ms;
   --duration-spin: 1000ms;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --duration-fast: 0ms;
-    --duration-base: 0ms;
-    --duration-slow: 0ms;
-  }
-  *,
-  *::before,
-  *::after {
-    animation: none !important;
-    transition: none !important;
-    scroll-behavior: auto !important;
-  }
 }
 
 @keyframes wombat-pulse {
@@ -121,8 +109,27 @@
 @utility dimmed {
   opacity: var(--dim-opacity);
 }
+@keyframes wombat-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes wombat-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--space) * 2));
+  }
+}
 @utility motion-pulse {
-  animation: wombat-pulse var(--duration-pulse) var(--ease-standard) infinite;
+  animation: wombat-pulse var(--duration-pulse) var(--ease-out) infinite;
+}
+/* A thing that replaced another (a state mark, the working line's label) fades in. */
+@utility motion-fade {
+  animation: wombat-fade-in var(--duration-enter) var(--ease-out);
+}
+/* A chat message that arrived while the chat was open. */
+@utility motion-enter {
+  animation: wombat-slide-in var(--duration-enter) var(--ease-out);
 }
 @utility motion-spin {
   animation: wombat-spin var(--duration-spin) linear infinite;
@@ -184,8 +191,8 @@
   --container-chat: var(--size-chat);
   --container-empty-state: var(--size-empty-state);
 
-  --default-transition-duration: var(--duration-fast);
-  --default-transition-timing-function: var(--ease-standard);
+  --default-transition-duration: var(--duration-instant);
+  --default-transition-timing-function: var(--ease-out);
 }
 
 /*
@@ -202,5 +209,5 @@
   --font-weight-normal: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
-  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
 }

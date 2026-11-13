@@ -12,13 +12,13 @@ import { expect, onTestFinished } from "vitest";
 import { openCatalog } from "../src/items/catalog.ts";
 import { openWriter } from "../src/items/write.ts";
 import { startServer } from "../src/server/server.ts";
-import { ALL_SCENARIOS, REPO, setup, trackedHarness, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
+import { fixtureHarnesses, REPO, setup, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
 
 export { APP_ORIGIN };
 
 /**
  * Every route of the app's contract, on a real agent and request id, plus a path no route has: the port rules
- * apply to each, and an agent token opens none of them.
+ * apply to each, and an agent token opens none of them. app-routes.test.ts checks it covers every APP_ROUTES entry.
  */
 export const appRoutes = (agentId: string): { method: string; path: string; body?: unknown }[] => [
   { method: "GET", path: "/version" },
@@ -29,6 +29,8 @@ export const appRoutes = (agentId: string): { method: string; path: string; body
   { method: "GET", path: `/agents/${agentId}/log` },
   { method: "POST", path: `/agents/${agentId}/messages`, body: { text: "Refused prompt" } },
   { method: "POST", path: `/agents/${agentId}/permissions/req_1`, body: { kind: "allow_once" } },
+  { method: "POST", path: `/agents/${agentId}/config`, body: { configId: "model", value: "fake-small" } },
+  { method: "POST", path: `/agents/${agentId}/context` },
   { method: "POST", path: `/agents/${agentId}/cancel` },
   { method: "POST", path: `/agents/${agentId}/stop` },
   { method: "DELETE", path: `/agents/${agentId}` },
@@ -233,7 +235,8 @@ export const openStream = (port: number, options: Omit<RequestOptions, "path" | 
 
 export type ServeOptions = SetupOptions & {
   heartbeatMs?: number;
-  defaultLogLimit?: number;
+  /** A send that fails this way, as a broken store or agent below the manager would make it. */
+  sendFails?: Error;
   /**
    * An items root: the server gets a catalog and a writer on it (on the fixture's store), for the items and
    * proposal routes and the agents' /mcp tools; without it they aren't configured.
@@ -246,8 +249,6 @@ export type ServeOptions = SetupOptions & {
 export type Served = Setup & {
   port: number;
   token: string;
-  /** The harness ids the server was given. */
-  harnessIds: string[];
   /** A request with the token, the app's Origin and the right Host, unless the options override them. */
   api: (method: string, path: string, body?: unknown, headers?: Record<string, string>) => Promise<Response>;
   request: (options: RequestOptions) => Promise<Response>;
@@ -260,10 +261,10 @@ export type Served = Setup & {
 };
 
 /** A manager fixture behind a running server; everything is torn down after the test. */
-export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentTokens = {}, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
+export const serve = async ({ heartbeatMs, sendFails, itemsRoot, agentTokens = {}, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
   const t = setup(setupOptions);
   const token = randomBytes(24).toString("base64url");
-  const harnesses = ALL_SCENARIOS.map((scenario) => trackedHarness(scenario, t.pidDir));
+  const harnesses = fixtureHarnesses(t.pidDir);
   // The server gets the manager with onCommitted counted, so tests can see subscriptions it leaves behind, and with
   // the stub agent tokens.
   let live = 0;
@@ -271,6 +272,7 @@ export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentToke
   let shutdownRequests = 0;
   const manager: Setup["manager"] = {
     ...t.manager,
+    ...(sendFails === undefined ? {} : { send: () => Promise.reject(sendFails) }),
     shutdown: () => {
       shutdownRequests += 1;
       return t.manager.shutdown();
@@ -295,11 +297,11 @@ export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentToke
     harnesses,
     workspaceRoot: t.root,
     token,
+    log: (event, fields) => t.logs.push({ event, fields }),
     onShutdown: () => {
       shutdownRequests += 1;
     },
     ...(heartbeatMs === undefined ? {} : { heartbeatMs }),
-    ...(defaultLogLimit === undefined ? {} : { defaultLogLimit }),
     ...(itemsRoot === undefined
       ? {}
       : { items: openCatalog({ root: itemsRoot, store: t.store }), writer: openWriter({ root: itemsRoot, store: t.store }) }),
@@ -324,7 +326,6 @@ export const serve = async ({ heartbeatMs, defaultLogLimit, itemsRoot, agentToke
     token,
     subscriptions: () => live,
     shutdownRequests: () => shutdownRequests,
-    harnessIds: harnesses.map((harness) => harness.id),
     api: (method: string, path: string, body?: unknown, headers?: Record<string, string>) =>
       rawRequest(server.port, { method, path, body, headers: authorized(headers) }),
     request: (options: RequestOptions) => rawRequest(server.port, options),

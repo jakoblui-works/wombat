@@ -1,16 +1,22 @@
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
-import { discoveryPath, readDiscovery } from "@wombat/shared/discovery";
-import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, protocol, session, shell, type WebContents } from "electron";
-import { CHANNELS, type WorkspaceInfo } from "../shared/bridge.ts";
+import { codeIdOf } from "@wombat/shared/code-id";
+import { agentCountLabel } from "@wombat/shared/api";
+import { discoveryPath, type DiscoveryFile } from "@wombat/shared/discovery";
+import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent, Menu, Notification, protocol, session, shell, type WebContents } from "electron";
+import { CHANNELS, type ConnectionState, type WorkspaceInfo } from "../shared/bridge.ts";
+import { zoomFactor } from "../shared/zoom-factor.ts";
 import { APP_INDEX_URL, APP_SCHEME, contentType, isAppUrl, isBridgeSender, resolveAppFile } from "./app-protocol.ts";
+import { mainCommands } from "./commands.ts";
 import { readE2eSwitches, recordE2eNotification } from "./e2e-switches.ts";
 import { noticeSink } from "./notice-sink.ts";
 import { NONCE_PLACEHOLDER, newNonce, pageCsp, withNonce } from "./page-csp.ts";
 import { decideQuit, restartService, stopIfConfirmed, type QuitChoice } from "./quit.ts";
+import { keptNotice, quitChoice, quitQuestion } from "./quit-question.ts";
 import { listAgents } from "./service-client.ts";
 import { serviceConnection } from "./service-connection.ts";
-import { ofThisApp } from "./service-start.ts";
+import { ofThisApp, runningService } from "./service-start.ts";
+import { titleBarOverlayAt } from "./title-bar.ts";
 import { settingsPath } from "./settings.ts";
 import { waitingNotices } from "./waiting-notice.ts";
 import { workspaceControl } from "./workspace.ts";
@@ -24,6 +30,11 @@ const rendererRoot = path.join(import.meta.dirname, "../renderer");
 const serviceEntry = path.join(import.meta.dirname, "../../../service/src/main.ts");
 
 const e2e = readE2eSwitches(process.env);
+
+/** The entry the app starts the service from: the checkout whose code a service it starts runs. */
+const serviceEntryInUse = e2e?.serviceEntry ?? serviceEntry;
+/** That checkout's `app/` folder: the entry is `app/<package>/<folder>/<file>`. */
+const serviceAppRoot = path.join(serviceEntryInUse, "..", "..", "..");
 
 // Before anything reads userData (Chromium takes its profile from it at startup): `<appData>/Wombat`, whatever the
 // package is called.
@@ -114,18 +125,26 @@ const denyPermissions = (): void => {
   session.defaultSession.setPermissionCheckHandler(() => false);
 };
 
+// The window controls' overlay, or none: Chromium's headless platform (the e2e window) crashes the app at launch when
+// a window has one. The one place that decides; main's commands re-apply it as the zoom changes.
+const overlayAt = e2e === undefined ? titleBarOverlayAt : undefined;
+
 const createWindow = async (): Promise<void> => {
   const window = new BrowserWindow({
     width: 1200,
     height: 800,
     show: false,
+    titleBarStyle: "hidden",
+    ...(overlayAt === undefined ? {} : { titleBarOverlay: overlayAt(commands.zoomLevel()) }),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      zoomFactor: zoomFactor(commands.zoomLevel()),
     },
   });
+  commands.watchWindow(window);
   // Under the e2e checks the window never shows.
   if (e2e === undefined) {
     window.once("ready-to-show", () => {
@@ -174,9 +193,6 @@ const messageBox = (options: Electron.MessageBoxOptions): Promise<Electron.Messa
   return window === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(window, options);
 };
 
-/** "3 running agents", "1 running agent". */
-const runningAgents = (running: number): string => `${String(running)} running ${running === 1 ? "agent" : "agents"}`;
-
 const confirmRestart = async (workspace: string, running: number | undefined): Promise<boolean> => {
   if (e2e !== undefined) return e2e.restartAnswer === "restart";
   const { response } = await messageBox({
@@ -185,7 +201,7 @@ const confirmRestart = async (workspace: string, running: number | undefined): P
     defaultId: 1,
     cancelId: 1,
     message: `Restart the service for ${workspace}?`,
-    detail: running === undefined ? "Its agents stop." : `Its agents stop (${runningAgents(running)}).`,
+    detail: running === undefined ? "Its agents stop." : `Its agents stop (${agentCountLabel(running)} with a process).`,
   });
   return response === 0;
 };
@@ -200,7 +216,7 @@ const reportError = (title: string, error: unknown): void => {
 const workspace = workspaceControl({
   env: process.env,
   settingsFile: settingsPath(app.getPath("userData")),
-  serviceEntry: e2e?.serviceEntry ?? serviceEntry,
+  serviceEntry: serviceEntryInUse,
   chooseFolder,
   confirmRestart,
 });
@@ -231,12 +247,24 @@ const appFocused = (): boolean => e2e === undefined && BrowserWindow.getFocusedW
 
 const notices = waitingNotices({ agents: () => connection.agents(), show: showNotice, openAgent, focused: appFocused });
 
+let previousState: ConnectionState["state"] | undefined;
+
+/** The service this launch found already running (workspace.open's `found`), set once at launch; undefined if it started one. */
+let foundAtLaunch: DiscoveryFile | undefined;
+
 // The page's way to the service: main holds the token, the page sees the states and alerts.
 const connection = serviceConnection({
   discoveryFile: () => discoveryPath(process.env),
+  // Hashed on each connect and each stale check: the code on disk may change while the app runs.
+  codeIdOnDisk: () => codeIdOf(serviceAppRoot),
+  // The token is new with every start, so a service started since (a Restart, a switch) is never taken for it.
+  foundAtLaunch: (file) => file.token === foundAtLaunch?.token && file.pid === foundAtLaunch.pid,
+  ...(e2e?.staleCheckMs === undefined ? {} : { timing: { staleCheckMs: e2e.staleCheckMs } }),
   onState: (update) => {
     broadcast(CHANNELS.connection, update);
-    if (update.state.state === "connected") notices.onConnected();
+    // Only on the way into connected: the service's info arrives in a later `connected` update of the same connection.
+    if (update.state.state === "connected" && previousState !== "connected") notices.onConnected();
+    previousState = update.state.state;
   },
   onAlert: (alert) => {
     broadcast(CHANNELS.alert, alert);
@@ -245,10 +273,10 @@ const connection = serviceConnection({
 });
 
 /** The bridge's calls; only the app's own page may make them. */
-const handleBridge = (channel: string, listener: (...args: unknown[]) => unknown): void => {
+const handleBridge = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown): void => {
   ipcMain.handle(channel, (event, ...args: unknown[]) => {
     if (!isBridgeSender(event.senderFrame?.url, devServerUrl())) throw new Error("Only Wombat's own page may use its bridge.");
-    return listener(...args);
+    return listener(event, ...args);
   });
 };
 
@@ -258,7 +286,7 @@ const currentWorkspace = (): string => {
   return root;
 };
 
-handleBridge(CHANNELS.request, (method, pathname, body) => connection.request(method, pathname, body));
+handleBridge(CHANNELS.request, (_event, method, pathname, body) => connection.request(method, pathname, body));
 handleBridge(CHANNELS.connectionNow, () => connection.current());
 handleBridge(CHANNELS.workspaceGet, (): WorkspaceInfo => ({ root: currentWorkspace() }));
 /**
@@ -279,12 +307,12 @@ const switchWorkspace = async (): Promise<void> => {
 const stopServiceAndAgents = (): Promise<void> => connection.shutdown(() => workspace.shutdown());
 
 /**
- * The running service's agents, for the quit and stop questions: undefined when there's no discovery file; rejects
- * when there is one but its service doesn't answer, so the question is still asked.
+ * The running service's agents, for the quit, stop and restart questions: undefined when no service runs
+ * (runningService); rejects when its process runs but doesn't answer, so the question is still asked.
  */
 const serviceAgents = async () => {
-  const file = readDiscovery(discoveryPath(process.env));
-  return file === undefined ? undefined : listAgents(file);
+  const running = runningService(discoveryPath(process.env));
+  return running === undefined ? undefined : listAgents(running.file);
 };
 
 const confirmStop = async (running: number | undefined): Promise<boolean> => {
@@ -294,67 +322,62 @@ const confirmStop = async (running: number | undefined): Promise<boolean> => {
     buttons: ["Stop", "Cancel"],
     defaultId: 1,
     cancelId: 1,
-    message: running === undefined ? "Stop the service and its agents?" : `Stop the service and its ${runningAgents(running)}?`,
+    message: running === undefined ? "Stop the service and its agents?" : `Stop the service and its ${agentCountLabel(running)} with a process?`,
     detail: "Agents stop mid-task. Restart starts the service again, without them.",
   });
   return response === 0;
 };
 
+// A failed Restart is reported here, in any state, as the menu's Stop is: the page may show anything by then. It still
+// rejects, so the page's Restart settles as failed.
 handleBridge(CHANNELS.restart, async () => {
-  await restartService({
-    incompatible: () => connection.current().state.state === "incompatible",
-    agents: serviceAgents,
-    confirm: confirmStop,
-    stop: stopServiceAndAgents,
-    start: () => connection.reconnect(() => workspace.restart()),
-  });
+  try {
+    await restartService({
+      agents: serviceAgents,
+      confirm: confirmStop,
+      stop: stopServiceAndAgents,
+      start: () => connection.reconnect(() => workspace.restart()),
+    });
+  } catch (error) {
+    reportError("Wombat couldn't restart the service", error);
+    throw error;
+  }
 });
 handleBridge(CHANNELS.workspaceSwitch, switchWorkspace);
 handleBridge(CHANNELS.settingsGet, () => workspace.pageSettings());
-handleBridge(CHANNELS.settingsSet, (patch) => {
+handleBridge(CHANNELS.settingsSet, (_event, patch) => {
   workspace.setPageSettings(patch);
 });
 
-const menu = (): Menu =>
-  Menu.buildFromTemplate([
-    {
-      label: "File",
-      submenu: [
-        {
-          label: "Switch Workspace…",
-          click: () => {
-            switchWorkspace().catch((error: unknown) => reportError("Wombat couldn't switch the workspace", error));
-          },
-        },
-        {
-          label: "Stop Service and Agents",
-          click: () => {
-            stopIfConfirmed({ agents: serviceAgents, confirm: confirmStop, stop: stopServiceAndAgents }).catch((error: unknown) => {
-              reportError("Wombat couldn't stop the service", error);
-            });
-          },
-        },
-        { type: "separator" },
-        { role: "quit" },
-      ],
-    },
-    { role: "editMenu" },
-    { role: "windowMenu" },
-  ]);
+const commands = mainCommands({
+  switchWorkspace: () => switchWorkspace().catch((error: unknown) => reportError("Wombat couldn't switch the workspace", error)),
+  stopService: () =>
+    stopIfConfirmed({ agents: serviceAgents, confirm: confirmStop, stop: stopServiceAndAgents }).then(
+      () => undefined,
+      (error: unknown) => reportError("Wombat couldn't stop the service", error),
+    ),
+  quit: () => app.quit(),
+  titleBarOverlay: overlayAt,
+  zoom: {
+    level: () => workspace.settings().zoomLevel,
+    save: (zoomLevel) => workspace.updateSettings((current) => ({ ...current, zoomLevel })),
+  },
+});
+handleBridge(CHANNELS.command, (event, id) => commands.fromPage(id, BrowserWindow.fromWebContents(event.sender) ?? undefined));
 
 const askOnQuit = async (running: number | undefined): Promise<QuitChoice> => {
   if (e2e !== undefined) return { answer: e2e.quitAnswer, dontAsk: e2e.quitDontAsk };
-  const answers = ["stop", "leave", "cancel"] as const;
-  const { response, checkboxChecked } = await messageBox({
-    type: "question",
-    buttons: ["Stop agents", "Leave running", "Cancel"],
-    defaultId: 1,
-    cancelId: 2,
-    message: running === undefined ? "Agents may still be running." : `${String(running)} ${running === 1 ? "agent is" : "agents are"} still running.`,
-    detail: "Stop them before Wombat quits, or leave them running in the service: they keep working, and Wombat shows them again when it opens.",
-    checkboxLabel: "Don't ask again",
-  });
-  return { answer: answers[response] ?? "cancel", dontAsk: checkboxChecked };
+  const { response, checkboxChecked } = await messageBox(quitQuestion(running));
+  return quitChoice(response, checkboxChecked);
+};
+
+/** How long a quit waits for the desktop to take the "still running" notification. */
+const KEPT_NOTICE_WAIT_MS = 1_000;
+
+/** Settles when `promise` does or after `ms`, whichever is first. */
+const untilOrAfter = (promise: Promise<void>, ms: number): Promise<void> => {
+  let timer: NodeJS.Timeout | undefined;
+  return Promise.race([promise, new Promise<void>((resolve) => (timer = setTimeout(resolve, ms)))]).finally(() => clearTimeout(timer));
 };
 
 // Set once the quit is decided; the next before-quit then lets it through.
@@ -391,6 +414,9 @@ app.on("before-quit", (event) => {
     agents: serviceAgents,
     ask: askOnQuit,
     stop: stopServiceAndAgents,
+    // No click action: the app has quit by the time it could be clicked. The quit waits (a little) until the desktop
+    // has the notification, as the process exiting right after could otherwise drop it.
+    notifyKept: (running) => untilOrAfter(showNotice(keptNotice(running)).shown, KEPT_NOTICE_WAIT_MS),
   })
     .then(
       (quit) => {
@@ -412,6 +438,7 @@ const openWorkspace = async (): Promise<boolean> => {
   try {
     const opened = await workspace.open();
     if (opened === undefined) return false;
+    foundAtLaunch = opened.found;
     // A start that fails shows as the `failed` state, and a service from before this app as `incompatible`; both with Restart.
     void connection.reconnect(() => opened.service.then(ofThisApp));
     return true;
@@ -427,7 +454,7 @@ app
   .then(async () => {
     denyPermissions();
     protocol.handle(APP_SCHEME, serveRenderer);
-    Menu.setApplicationMenu(menu());
+    Menu.setApplicationMenu(commands.applicationMenu());
     if (!(await openWorkspace())) {
       // Nothing opened, so nothing to ask about (a service left running is another workspace's).
       quitNow();

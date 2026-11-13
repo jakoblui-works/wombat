@@ -1,4 +1,4 @@
-// s7-17: an open edit's card shows the changed lines with CONTEXT_LINES of context around them and the answer
+// An open edit's card shows the changed lines with CONTEXT_LINES of context around them and the answer
 // buttons; past MAX_DIFF_LINES it shows no lines and offers only "Open side by side"; several diffs (hunks) each show.
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";

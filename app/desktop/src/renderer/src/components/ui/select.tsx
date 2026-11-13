@@ -1,9 +1,11 @@
 import { Select as SelectPrimitive } from "@base-ui/react/select"
 import { Check, ChevronsUpDown } from "lucide-react"
 import { cn } from "../../lib/utils"
+import { POPUP_MOTION, useOpenInput, useOpenTracking } from "./popup-motion"
 
-function Select<Value>(props: SelectPrimitive.Root.Props<Value>) {
-  return <SelectPrimitive.Root data-slot="select" {...props} />
+function Select<Value>({ onOpenChange, ...props }: SelectPrimitive.Root.Props<Value>) {
+  const tracking = useOpenTracking(onOpenChange)
+  return tracking.provide(<SelectPrimitive.Root data-slot="select" onOpenChange={tracking.onOpenChange} {...props} />)
 }
 
 function SelectTrigger({ className, children, ...props }: SelectPrimitive.Trigger.Props) {
@@ -29,13 +31,16 @@ function SelectValue(props: SelectPrimitive.Value.Props) {
 }
 
 function SelectContent({ className, children, ...props }: SelectPrimitive.Popup.Props) {
+  const input = useOpenInput()
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Positioner alignItemWithTrigger={false} sideOffset={4} className="isolate z-[60] outline-none">
         <SelectPrimitive.Popup
           data-slot="select-content"
+          data-input={input}
           className={cn(
             "min-w-(--anchor-width) rounded-lg border border-line-strong bg-popover p-1 text-base text-popover-foreground shadow-lg outline-none",
+            POPUP_MOTION,
             className
           )}
           {...props}
@@ -52,7 +57,7 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "flex cursor-default items-center gap-2 rounded-md py-1.5 pr-2 pl-2 text-base outline-none select-none data-highlighted:bg-surface-3",
+        "flex items-center gap-2 rounded-md py-1.5 pr-2 pl-2 text-base outline-none select-none data-highlighted:bg-surface-3",
         className
       )}
       {...props}
@@ -65,4 +70,12 @@ function SelectItem({ className, children, ...props }: SelectPrimitive.Item.Prop
   )
 }
 
-export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue }
+function SelectGroup(props: SelectPrimitive.Group.Props) {
+  return <SelectPrimitive.Group data-slot="select-group" {...props} />
+}
+
+function SelectLabel({ className, ...props }: SelectPrimitive.GroupLabel.Props) {
+  return <SelectPrimitive.GroupLabel data-slot="select-label" className={cn("px-2 py-1 text-sm text-fg-tertiary", className)} {...props} />
+}
+
+export { Select, SelectGroup, SelectLabel, SelectContent, SelectItem, SelectTrigger, SelectValue }

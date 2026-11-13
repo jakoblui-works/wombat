@@ -1,10 +1,21 @@
 // A scripted ACP v1 agent for tests, run as `node fake-agent.ts <scenario>`. Stdout carries ACP only.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { writeFileSync, writeSync } from "node:fs";
+import { existsSync, writeFileSync, writeSync } from "node:fs";
 import { Readable, Transform, Writable } from "node:stream";
 
-import { agent, ndJsonStream, RequestError, type AgentContext, type PermissionOption, type RequestPermissionResponse, type SessionUpdate } from "@agentclientprotocol/sdk";
+import type { ContextBreakdown } from "@wombat/shared/api";
+
+import {
+  agent,
+  ndJsonStream,
+  RequestError,
+  type AgentContext,
+  type PermissionOption,
+  type RequestPermissionResponse,
+  type SessionConfigOption,
+  type SessionUpdate,
+} from "@agentclientprotocol/sdk";
 
 export const SCENARIOS = [
   "reply",
@@ -20,11 +31,8 @@ export const SCENARIOS = [
   "spawn-child",
   "unknown-update",
   "detached-holder",
-  "early-update",
   "mcp-config",
   "call-tool",
-  "message-ids",
-  "message-runs",
   "plan-thought",
   "hostile",
   "prompt-error",
@@ -42,13 +50,152 @@ type SdkToolCall = Extract<SessionUpdate, { sessionUpdate: "tool_call" }>;
 /**
  * One step of the replay scenario, whose prompt is a JSON array of them (one turn): `send` sends a session update,
  * `ask` asks for a permission without waiting for the answer, `awaitAnswers` waits until every request asked so far is
- * answered. `sub` sends in the sub-agent session `<sessionId>` + REPLAY_SUB_SUFFIX instead of the main one. Requests
+ * answered, `awaitFile` holds the turn (the agent stays working, nothing asked of the user) until a file exists at that
+ * path. `cache` sends the cache state as the extension notification FAKE_EXT.cache, which the fake harness reports as the
+ * agent's cache state (the `fake-cache` step). `sub` sends in the sub-agent session `<sessionId>` + REPLAY_SUB_SUFFIX instead of the main one. Requests
  * still open when the steps run out stay open; the turn ends with end_turn either way.
  */
 export type ReplayStep =
   | { send: SessionUpdate; sub?: boolean }
+  | { cache: FakeCacheState | null }
   | { ask: { toolCallId: string; title?: string; kind?: SdkToolCall["kind"] }; sub?: boolean }
-  | { awaitAnswers: true };
+  | { awaitAnswers: true }
+  | { awaitFile: string };
+
+/** A cache state as the `cache` replay step sends it (the shape of `AgentSummary["cache"]`). */
+export type FakeCacheState = { ttlSeconds: number; lastRequestAt: string };
+
+/** The extension notifications the fake agent sends and the fake harness reads (ACP extension methods start `_`). */
+export const FAKE_EXT = { context: "_fake/context", cache: "_fake/cache" } as const;
+
+/**
+ * The fixed breakdown every scenario reports for a `/context` prompt (sent as FAKE_EXT.context `{ sessionId,
+ * breakdown }`): every category kind, and one list. Invented values.
+ */
+export const FAKE_BREAKDOWN: ContextBreakdown = {
+  model: "fake-small",
+  used: 61_000,
+  size: 200_000,
+  categories: [
+    { name: "Fake instructions", tokens: 4_000, kind: "used" },
+    { name: "Fake conversation", tokens: 42_000, kind: "used" },
+    { name: "Fake unloaded tools", tokens: 6_000, kind: "deferred" },
+    { name: "Fake reserve", tokens: 15_000, kind: "buffer" },
+    { name: "Fake free space", tokens: 133_000, kind: "free" },
+  ],
+  lists: [{ id: "fake_notes", title: "Fake notes", rows: [{ name: "opening-hours.md", detail: "Project", tokens: 900 }] }],
+};
+
+/**
+ * What a `/context` prompt sends before its report, in every scenario: a message chunk carrying this marker, a
+ * usage_update and a session_info_update with HIDDEN_TITLE. A hidden turn must drop all three, and no log line may
+ * carry the marker.
+ */
+export const HIDDEN_UPDATE_MARKER = "hidden-turn-content-must-not-be-logged";
+export const HIDDEN_TITLE = "Title sent during the hidden turn";
+
+/** The prompt-error scenario answers `/context` with its chunk, then fails with this message. */
+export const CONTEXT_FAILURE_MESSAGE = "the fake agent fails its context report";
+
+/**
+ * The hang scenario holds a `/context` prompt open: it writes CONTEXT_STARTED_FILE in its working directory (the
+ * agent's folder) when the prompt arrives, and answers once CONTEXT_RELEASE_FILE exists there.
+ */
+export const CONTEXT_STARTED_FILE = ".fake-context-started";
+export const CONTEXT_RELEASE_FILE = ".fake-context-release";
+
+/**
+ * When a `session/cancel` arrives while the hang scenario holds a `/context` prompt, it writes this file in its working
+ * directory, then sends the same updates as a report would (late, as a real agent may) and answers `cancelled`.
+ */
+export const CONTEXT_CANCELLED_FILE = ".fake-context-cancelled";
+
+/** How often an `awaitFile` step looks for its file. */
+const AWAIT_FILE_POLL_MS = 10;
+
+/**
+ * Files in the agent's working directory (its folder) that change how every scenario answers, so a test can make one
+ * process refuse and the next one accept:
+ * - RESUME_REFUSED_FILE: `session/resume` is refused with RESUME_REFUSAL_MESSAGE;
+ * - NO_RESUME_CAPABILITY_FILE: `initialize` doesn't advertise `sessionCapabilities.resume` (a `session/resume` is
+ *   still answered, so only a service that checks the capability notices);
+ * - CONFIG_REFUSED_FILE: every `session/set_config_option` is refused with CONFIG_REFUSAL_MESSAGE.
+ * - CONFIG_SILENT_FILE: every `session/set_config_option` is never answered.
+ * Without them the agent advertises resume, and `session/resume` accepts any session id (a fresh process has never
+ * seen it), answering its config options at their initial values (as claude-agent-acp does for model and effort).
+ */
+export const RESUME_REFUSED_FILE = ".fake-refuse-resume";
+export const NO_RESUME_CAPABILITY_FILE = ".fake-no-resume-capability";
+export const CONFIG_REFUSED_FILE = ".fake-refuse-config";
+export const CONFIG_SILENT_FILE = ".fake-silent-config";
+
+/** The agent's JSON-RPC error message when it refuses a resume; tests check it never reaches the service's logs. */
+export const RESUME_REFUSAL_MESSAGE = "resume-refusal-must-not-be-logged";
+
+/**
+ * The config options every scenario offers (ACP v1 `SessionConfigOption`): a select `model` (category model), a
+ * boolean `fast` (no category), a select `effort` (category thought_level) and a select `mode` (category mode).
+ * A model value starting with `refuse` is offered but refused when set, so a test can see the agent say no to a value
+ * the service accepts.
+ */
+export const FAKE_CONFIG = {
+  model: { id: "model", values: ["fake-small", "refuse-large", "fake-large"] as const, initial: "fake-small" },
+  fast: { id: "fast", initial: false },
+  effort: { id: "effort", values: ["low", "medium", "high"] as const, initial: "medium" },
+  mode: { id: "mode", values: ["ask", "plan"] as const, initial: "ask" },
+} as const;
+
+/** The agent's JSON-RPC error message when it refuses a set; tests check it never reaches the service's logs. */
+export const CONFIG_REFUSAL_MESSAGE = "config-refusal-must-not-be-logged";
+
+export type FakeConfig = { model: string; fast: boolean; effort?: string; mode?: string };
+
+/** The options as the fake sends them for the given values, in the agent's order (model, fast, effort, mode). */
+export const fakeConfigOptions = ({
+  model,
+  fast,
+  effort = FAKE_CONFIG.effort.initial,
+  mode = FAKE_CONFIG.mode.initial,
+}: FakeConfig): SessionConfigOption[] => [
+  {
+    type: "select",
+    id: FAKE_CONFIG.model.id,
+    name: "Model",
+    description: "Which model the fake agent pretends to run",
+    category: "model",
+    currentValue: model,
+    options: [
+      { value: "fake-small", name: "Fake small" },
+      { value: "refuse-large", name: "Refuse large", description: "Offered, but the agent refuses it" },
+      { value: "fake-large", name: "Fake large" },
+    ],
+  },
+  { type: "boolean", id: FAKE_CONFIG.fast.id, name: "Fast mode", currentValue: fast },
+  {
+    type: "select",
+    id: FAKE_CONFIG.effort.id,
+    name: "Effort",
+    description: "How hard the fake agent pretends to think",
+    category: "thought_level",
+    currentValue: effort,
+    options: [
+      { value: "low", name: "Low" },
+      { value: "medium", name: "Medium" },
+      { value: "high", name: "High" },
+    ],
+  },
+  {
+    type: "select",
+    id: FAKE_CONFIG.mode.id,
+    name: "Mode",
+    category: "mode",
+    currentValue: mode,
+    options: [
+      { value: "ask", name: "Ask first", description: "Asks before every edit" },
+      { value: "plan", name: "Plan only" },
+    ],
+  },
+];
 
 /** Appended to the main session's id to make the replay scenario's sub-agent session. */
 export const REPLAY_SUB_SUFFIX = ":sub";
@@ -57,8 +204,11 @@ export const REPLAY_SUB_SUFFIX = ":sub";
 const NOISY_STDERR_MARKER = "stderr-content-must-not-be-logged";
 const SKIPPED_UPDATE_MARKER = "thought-content-must-not-be-logged";
 
-/** The title the early-update scenario sends before its `session/new` answer. */
-export const EARLY_TITLE = "Title sent while the session starts";
+/**
+ * The command list every scenario sends before its `session/new` and `session/resume` answers; the service runs a
+ * context report only for an agent that lists `context`.
+ */
+export const FAKE_COMMANDS = [{ name: "context", description: "Show the context window's use" }];
 
 /**
  * What the hostile scenario sends: agent content that would run in the page, navigate it or load something if the
@@ -146,22 +296,22 @@ const text = (value: string): SessionUpdate => ({
   content: { type: "text", text: value },
 });
 
-const messageText = (value: string, messageId: string): SessionUpdate => ({
-  sessionUpdate: "agent_message_chunk",
-  messageId,
-  content: { type: "text", text: value },
-});
-
 const run = (scenario: FakeScenario) => {
   // Prompts held by the hang scenario, by session, until `session/cancel` releases them.
   const held = new Map<string, () => void>();
   // Sessions a `session/cancel` arrived for while a permission request was open.
   const cancelled = new Set<string>();
-  // The mcpServers entries the last session/new carried, for the mcp-config scenario.
+  // The mcpServers entries the last session/new or session/resume carried, for the mcp-config and call-tool scenarios.
   let mcpServers: unknown = undefined;
   // The last session/new's params as they came over the wire, before the SDK's schema drops fields it doesn't
   // know (the stable v1 schema has no `systemPrompt`), for the mcp-config scenario.
   let sessionNew: unknown = undefined;
+  // The same for the last session/resume.
+  let sessionResume: unknown = undefined;
+  // The last session/set_config_option's params as they came over the wire (the SDK's union may read a shape the
+  // real agent would refuse), and each session's current config values.
+  let lastSet: Record<string, unknown> | undefined = undefined;
+  const configs = new Map<string, FakeConfig>();
   let pending = "";
   const recorder = new Transform({
     transform(chunk: Buffer, _encoding, done) {
@@ -172,6 +322,8 @@ const run = (scenario: FakeScenario) => {
         try {
           const message = JSON.parse(line) as { method?: unknown; params?: unknown };
           if (message.method === "session/new") sessionNew = message.params;
+          if (message.method === "session/resume") sessionResume = message.params;
+          if (message.method === "session/set_config_option") lastSet = message.params as Record<string, unknown>;
         } catch {
           // Not JSON: the SDK reports it.
         }
@@ -183,10 +335,34 @@ const run = (scenario: FakeScenario) => {
   const send = (client: AgentContext, sessionId: string, update: SessionUpdate) =>
     client.notify("session/update", { sessionId, update });
 
+  // A `/context` prompt, in every scenario: updates a hidden turn must drop, then the report (see FAKE_BREAKDOWN).
+  const answerContext = async (client: AgentContext, sessionId: string) => {
+    if (scenario === "hang") {
+      cancelled.delete(sessionId);
+      writeFileSync(CONTEXT_STARTED_FILE, "");
+      while (!existsSync(CONTEXT_RELEASE_FILE) && !cancelled.has(sessionId)) {
+        await new Promise((resolve) => setTimeout(resolve, AWAIT_FILE_POLL_MS));
+      }
+      if (cancelled.delete(sessionId)) {
+        writeFileSync(CONTEXT_CANCELLED_FILE, "");
+        await send(client, sessionId, text(`${HIDDEN_UPDATE_MARKER}: late output after the cancel`));
+        await send(client, sessionId, { sessionUpdate: "usage_update", used: FAKE_BREAKDOWN.used, size: FAKE_BREAKDOWN.size });
+        await send(client, sessionId, { sessionUpdate: "session_info_update", title: HIDDEN_TITLE });
+        return { stopReason: "cancelled" as const };
+      }
+    }
+    await send(client, sessionId, text(`${HIDDEN_UPDATE_MARKER}: the context report as markdown`));
+    if (scenario === "prompt-error") throw RequestError.internalError(undefined, CONTEXT_FAILURE_MESSAGE);
+    await send(client, sessionId, { sessionUpdate: "usage_update", used: FAKE_BREAKDOWN.used, size: FAKE_BREAKDOWN.size });
+    await send(client, sessionId, { sessionUpdate: "session_info_update", title: HIDDEN_TITLE });
+    await client.notify(FAKE_EXT.context, { sessionId, breakdown: FAKE_BREAKDOWN });
+    return { stopReason: "end_turn" as const };
+  };
+
   const app = agent({ name: "wombat-fake-agent" })
     .onRequest("initialize", () => ({
       protocolVersion: 1,
-      agentCapabilities: { loadSession: false },
+      agentCapabilities: { loadSession: false, ...(existsSync(NO_RESUME_CAPABILITY_FILE) ? {} : { sessionCapabilities: { resume: {} } }) },
       agentInfo: { name: "wombat-fake-agent", version: "0.0.0" },
       authMethods: [],
     }))
@@ -196,17 +372,52 @@ const run = (scenario: FakeScenario) => {
       const sessionId = randomUUID();
       // claude-agent-acp's command list can be handled by the service before its session/new answer is; sending
       // the updates first makes that order certain, so the service's hold-and-replay of early updates is exercised.
-      if (scenario === "early-update") {
-        await send(client, sessionId, { sessionUpdate: "available_commands_update", availableCommands: [{ name: "review", description: "Review the diff" }] });
-        await send(client, sessionId, { sessionUpdate: "session_info_update", title: EARLY_TITLE });
+      await send(client, sessionId, { sessionUpdate: "available_commands_update", availableCommands: FAKE_COMMANDS });
+      configs.set(sessionId, { model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial });
+      return { sessionId, configOptions: fakeConfigOptions({ model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial }) };
+    })
+    .onRequest("session/resume", async ({ params, client }) => {
+      if (existsSync(RESUME_REFUSED_FILE)) throw RequestError.internalError(undefined, RESUME_REFUSAL_MESSAGE);
+      // A fresh process: whatever session id it is given, it continues at the initial values.
+      mcpServers = params.mcpServers;
+      await send(client, params.sessionId, { sessionUpdate: "available_commands_update", availableCommands: FAKE_COMMANDS });
+      configs.set(params.sessionId, { model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial });
+      return { configOptions: fakeConfigOptions({ model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial }) };
+    })
+    .onRequest("session/set_config_option", ({ params }) => {
+      if (existsSync(CONFIG_SILENT_FILE)) return new Promise<never>(() => {});
+      if (existsSync(CONFIG_REFUSED_FILE)) throw RequestError.internalError(undefined, CONFIG_REFUSAL_MESSAGE);
+      const config = configs.get(params.sessionId);
+      if (config === undefined) throw RequestError.invalidParams(undefined, "unknown session");
+      const raw = lastSet ?? {};
+      if (params.configId === FAKE_CONFIG.model.id) {
+        // ACP v1: a select's value is sent bare, without a type.
+        if ("type" in raw || typeof raw.value !== "string") throw RequestError.invalidParams(undefined, "model takes a bare string value");
+        if (!(FAKE_CONFIG.model.values as readonly string[]).includes(raw.value)) throw RequestError.invalidParams(undefined, "unknown model");
+        if (raw.value.startsWith("refuse")) throw RequestError.internalError(undefined, CONFIG_REFUSAL_MESSAGE);
+        config.model = raw.value;
+      } else if (params.configId === FAKE_CONFIG.effort.id || params.configId === FAKE_CONFIG.mode.id) {
+        const option = params.configId === FAKE_CONFIG.effort.id ? FAKE_CONFIG.effort : FAKE_CONFIG.mode;
+        if ("type" in raw || typeof raw.value !== "string") throw RequestError.invalidParams(undefined, `${option.id} takes a bare string value`);
+        if (!(option.values as readonly string[]).includes(raw.value)) throw RequestError.invalidParams(undefined, `unknown ${option.id}`);
+        if (option === FAKE_CONFIG.effort) config.effort = raw.value;
+        else config.mode = raw.value;
+      } else if (params.configId === FAKE_CONFIG.fast.id) {
+        // ACP v1: a boolean is sent as { type: "boolean", value }.
+        if (raw.type !== "boolean" || typeof raw.value !== "boolean") throw RequestError.invalidParams(undefined, "fast takes { type: \"boolean\", value }");
+        config.fast = raw.value;
+      } else {
+        throw RequestError.invalidParams(undefined, "unknown config option");
       }
-      return { sessionId };
+      return { configOptions: fakeConfigOptions(config) };
     })
     .onNotification("session/cancel", ({ params }) => {
       cancelled.add(params.sessionId);
       held.get(params.sessionId)?.();
     })
     .onRequest("session/prompt", async ({ params: { sessionId, prompt }, client }) => {
+      const [only] = prompt;
+      if (prompt.length === 1 && only?.type === "text" && only.text === "/context") return answerContext(client, sessionId);
       switch (scenario) {
         case "reply":
           await send(client, sessionId, text("Hello"));
@@ -316,8 +527,9 @@ const run = (scenario: FakeScenario) => {
           return { stopReason: "end_turn" };
         }
         case "detached-holder": {
-          // In a process group of its own, holding the agent's stderr open after the agent is gone.
-          const child = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
+          // In a process group of its own, holding the agent's stderr open after the agent is gone. It ends by itself
+          // after a minute, so a run killed before it can clean up leaves nothing behind for long.
+          const child = spawn(process.execPath, ["-e", "setTimeout(()=>{},60000)"], {
             detached: true,
             stdio: ["ignore", "ignore", "inherit"],
           });
@@ -336,13 +548,14 @@ const run = (scenario: FakeScenario) => {
           await send(client, sessionId, text(" Here is the answer."));
           return { stopReason: "end_turn" };
         case "mcp-config": {
-          // The prompt is a file path: the agent writes the mcpServers entries it got, its environment and the raw
-          // session/new params (for the instructions drift check) there rather than into its reply, so the token
-          // never enters the service's log through this seam. "crash" instead ends the process as a crash would.
+          // The prompt is a file path: the agent writes the mcpServers entries it got, its environment, the raw
+          // session/new and session/resume params (for the instructions drift check and the resume check), the session
+          // it was prompted in and that session's current config values there rather than into its reply, so the
+          // token never enters the service's log through this seam. "crash" instead ends the process as a crash would.
           const [block] = prompt;
           const path = block?.type === "text" ? block.text : "";
           if (path === "crash") process.exit(3);
-          writeFileSync(path, JSON.stringify({ mcpServers, env: process.env, sessionNew }));
+          writeFileSync(path, JSON.stringify({ mcpServers, env: process.env, sessionNew, sessionResume, sessionId, config: configs.get(sessionId) }));
           await send(client, sessionId, text("Reported the MCP config."));
           return { stopReason: "end_turn" };
         }
@@ -374,20 +587,6 @@ const run = (scenario: FakeScenario) => {
           await send(client, sessionId, text(reply));
           return { stopReason: "end_turn" };
         }
-        case "message-ids":
-          // Two messages told apart by messageId only, each in two chunks.
-          await send(client, sessionId, messageText("The first message,", "msg-1"));
-          await send(client, sessionId, messageText(" in two chunks.", "msg-1"));
-          await send(client, sessionId, messageText("  The second   message\n\nreplaces", "msg-2"));
-          await send(client, sessionId, messageText(" the first. ", "msg-2"));
-          return { stopReason: "end_turn" };
-        case "message-runs":
-          // Chunks without a messageId, split into two runs by a tool call.
-          await send(client, sessionId, text("Before the tool call."));
-          await send(client, sessionId, { sessionUpdate: "tool_call", toolCallId: randomUUID(), title: "Read notes.txt", kind: "read", status: "completed" });
-          await send(client, sessionId, text("After the"));
-          await send(client, sessionId, text(" tool call."));
-          return { stopReason: "end_turn" };
         case "plan-thought":
           await send(client, sessionId, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Weighing where the footer link lives." } });
           await send(client, sessionId, {
@@ -455,12 +654,13 @@ const run = (scenario: FakeScenario) => {
           await send(client, sessionId, text("Looking into it."));
           throw RequestError.internalError(undefined, "the fake agent fails every turn");
         case "stop-error": {
-          // An agent that answers its open prompt with an error when told to end (SIGTERM) and lingers: the
+          // An agent that answers its open prompt with an error when told to end (SIGTERM) and lingers a moment: the
           // answer reaches the service while it is still ending the process. The handler is set before
           // the message, so a stop sent once the message arrives always meets it.
           const told = new Promise<void>((release) => process.once("SIGTERM", () => release()));
           await send(client, sessionId, text("Working on it."));
           await told;
+          setTimeout(() => process.exit(0), 250);
           throw RequestError.internalError(undefined, "the fake agent was told to end mid-turn");
         }
         case "replay": {
@@ -471,6 +671,14 @@ const run = (scenario: FakeScenario) => {
             if ("awaitAnswers" in step) {
               await Promise.all(open);
               open = [];
+              continue;
+            }
+            if ("awaitFile" in step) {
+              while (!existsSync(step.awaitFile)) await new Promise((resolve) => setTimeout(resolve, AWAIT_FILE_POLL_MS));
+              continue;
+            }
+            if ("cache" in step) {
+              await client.notify(FAKE_EXT.cache, { sessionId, cache: step.cache });
               continue;
             }
             const session = step.sub === true ? `${sessionId}${REPLAY_SUB_SUFFIX}` : sessionId;

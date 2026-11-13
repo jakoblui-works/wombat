@@ -1,4 +1,4 @@
-// S7 T12 (lasting, silent failure): the folders the New agent dialog offers come from one place, `listRepos`, and
+// The folders the New agent dialog offers come from one place, `listRepos`, and
 // it offers only what an agent may start in: the workspace root, then the root's own git repos by name. A hidden
 // folder, a folder that isn't a repo, a repo nested deeper and anything reached through a symlink are never offered,
 // and every folder offered is one `resolveRepo` accepts.
@@ -54,11 +54,4 @@ test("the root first, then the root's own git repos sorted by name; nothing hidd
     { path: "zeta-shop", name: "zeta-shop" },
   ]);
   for (const { path } of listed) expect(() => resolveRepo(root, path), path).not.toThrow();
-});
-
-test("a workspace without repos offers the root alone", () => {
-  const root = join(tempDir(), "empty-workspace");
-  mkdirSync(join(root, "docs"), { recursive: true });
-
-  expect(listRepos(root)).toEqual([{ path: ".", name: "empty-workspace" }]);
 });

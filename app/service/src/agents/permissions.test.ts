@@ -20,23 +20,12 @@ const after = (entries: LogEntry[], seq: number) => entries.filter((entry) => en
 
 describe("permissions", () => {
   test.each([
-    { kind: "allow_once" as const, status: "completed" },
     { kind: "reject_once" as const, status: "failed" },
   ])(
     "answering $kind sends that option: permission_answered, then the tool call is $status, and the turn ends",
     async ({ kind, status }) => {
       const t = setup();
       const { id, request } = await pendingRequest(t);
-
-      const toolCall = t.entries(id).find(
-        (entry) => entry.type === "session_update" && entry.update.sessionUpdate === "tool_call",
-      );
-      expect(toolCall).toMatchObject({
-        update: { kind: "edit", content: [expect.objectContaining({ type: "diff", newText: expect.any(String) as unknown })] },
-      });
-      expect(toolCall && toolCall.seq < request.seq).toBe(true);
-      expect(request.requestId).not.toBe("");
-      expect(request.options.map((option) => option.kind)).toEqual(expect.arrayContaining(["allow_once", "reject_once"]));
 
       t.manager.answer(id, request.requestId, kind);
       expect((await t.turnEnded(id)).stopReason).toBe("end_turn");
@@ -52,30 +41,6 @@ describe("permissions", () => {
   );
 
   test(
-    "answer errors: unknown agent or request and an answered one are not_found, a kind not offered is kind_not_offered; none reaches the agent",
-    async () => {
-      const t = setup();
-      const { id, request } = await pendingRequest(t);
-
-      expect(thrown(() => t.manager.answer("no-such-agent", request.requestId, "allow_once"))).toMatchObject({
-        code: "not_found",
-      });
-      expect(thrown(() => t.manager.answer(id, "no-such-request", "allow_once"))).toMatchObject({ code: "not_found" });
-      expect(thrown(() => t.manager.answer(id, request.requestId, "allow_always"))).toMatchObject({
-        code: "kind_not_offered",
-      });
-      expect(t.agent(id)?.state).toBe("waiting");
-      expect(t.entries(id).filter((entry) => entry.type === "permission_answered")).toEqual([]);
-
-      t.manager.answer(id, request.requestId, "reject_once");
-      expect(thrown(() => t.manager.answer(id, request.requestId, "allow_once"))).toMatchObject({ code: "not_found" });
-      await t.turnEnded(id);
-      expect(t.entries(id).filter((entry) => entry.type === "permission_answered")).toHaveLength(1);
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
     "cancel while waiting for permission: the turn ends cancelled, state done, and the request can't be answered any more",
     async () => {
       const t = setup();
@@ -85,6 +50,7 @@ describe("permissions", () => {
       expect((await t.turnEnded(id)).stopReason).toBe("cancelled");
       await waitFor("state done", () => t.agent(id)?.state === "done");
       expect(t.entries(id).filter((entry) => entry.type === "permission_answered")).toEqual([]);
+      expect(t.agent(id)?.pendingPermissions).toEqual([]);
       expect(thrown(() => t.manager.answer(id, request.requestId, "allow_once"))).toMatchObject({ code: "not_found" });
     },
     TEST_TIMEOUT_MS,

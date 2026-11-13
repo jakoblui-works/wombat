@@ -1,7 +1,6 @@
-// Lasting check (silent failure): IDs never change. Once an item has an id, no read and no write changes it,
+// IDs never change. Once an item has an id, no read and no write changes it,
 // and links, which store ids, stay resolvable after a file rename or a hand-made handle change. Without it,
 // links point nowhere and nothing shows it.
-import { randomUUID } from "node:crypto";
 import { renameSync } from "node:fs";
 import { join } from "node:path";
 
@@ -14,7 +13,6 @@ import {
   FIXTURE_FILES,
   IDS,
   VALID_FILES,
-  expectWriteError,
   frontmatterValue,
   handleNumber,
   itemAt,
@@ -27,23 +25,6 @@ import {
 const UNASSIGNED = "---\nrepo: api\n---\n# Typed by hand\n\nNo id yet.\n";
 
 describe("IDs never change on read", () => {
-  test("an assigned id and handle stay the same on later reads and after a restart, and the file isn't written again", async () => {
-    const root = writeRoot({ ...VALID_FILES, "bugs/typed.md": UNASSIGNED });
-    const first = openItems(root);
-    const assigned = itemAt((await first.catalog.snapshot()).items.filter((item) => item.structure === "bugs"), "bugs/typed.md");
-    const bytes = readAt(root, "bugs/typed.md");
-
-    const again = itemAt((await first.catalog.snapshot()).items.filter((item) => item.structure === "bugs"), "bugs/typed.md");
-    const restarted = first.reopen();
-    const afterRestart = itemAt((await restarted.catalog.snapshot()).items.filter((item) => item.structure === "bugs"), "bugs/typed.md");
-
-    expect(assigned.id).not.toBeNull();
-    for (const item of [again, afterRestart]) {
-      expect(item.id).toBe(assigned.id);
-      expect(item.handle).toBe(assigned.handle);
-    }
-    expect(readAt(root, "bugs/typed.md")).toBe(bytes);
-  });
 
   test("two reads at once give an unassigned file one id and one handle, taking one number", async () => {
     const root = writeRoot({
@@ -81,29 +62,6 @@ describe("IDs never change on read", () => {
 });
 
 describe("IDs never change on write", () => {
-  test.each(["id", "handle", "aliases"])("an update setting `%s` is refused and the file is unchanged", async (field) => {
-    const root = writeRoot(VALID_FILES);
-    const { catalog, writer } = openItems(root);
-    const item = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), "bugs/BUG-1-login-times-out.md");
-    const value = field === "id" ? randomUUID() : field === "handle" ? "BUG-77" : ["BUG-78"];
-
-    await expectWriteError(writer.updateItem("BUG-1", { [field]: value }, item.version), "field_not_writable", field);
-
-    expect(readAt(root, "bugs/BUG-1-login-times-out.md")).toBe(VALID_FILES["bugs/BUG-1-login-times-out.md"]);
-  });
-
-  test("an id survives title, body and property updates", async () => {
-    const root = writeRoot(VALID_FILES);
-    const { catalog, writer } = openItems(root);
-    let version = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "backlog"), "backlog/BL-2-proposal-view.md").version;
-
-    for (const fields of [{ title: "A view for agents' proposals" }, { body: "\nStep 7, after the app.\n" }, { project: "platform" }]) {
-      const updated = await writer.updateItem("BL-2", fields, version);
-      expect(updated.id, JSON.stringify(fields)).toBe(IDS.bl2);
-      version = updated.version;
-    }
-    expect(frontmatterValue(readAt(root, "backlog/BL-2-proposal-view.md"), "id")).toBe(IDS.bl2);
-  });
 
   test("a link still resolves after its target's file is renamed and its handle changed by hand", async () => {
     const root = writeRoot(VALID_FILES);

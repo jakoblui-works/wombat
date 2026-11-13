@@ -1,4 +1,4 @@
-// Lasting check (silent failure): an agent never starts outside the workspace. A repo path resolves to its
+// An agent never starts outside the workspace. A repo path resolves to its
 // real path under the workspace root, or is rejected; symlinks can't lead out.
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

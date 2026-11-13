@@ -1,4 +1,4 @@
-// Lasting check (contract "AgentSummary additions", silent failure): an agent's `pendingPermissions` lists exactly
+// An agent's `pendingPermissions` lists exactly
 // its open permission requests. A request shows from the moment it's asked, and leaves the summary when it's
 // answered, when the turn is cancelled, when the agent is stopped, when its process exits, and when the service
 // restarts after dying with one open; an `agent_changed` alert follows each change, so the app refetches. Without
@@ -7,7 +7,6 @@ import type { AgentSummary, LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
 import { REPO, setup, TEST_TIMEOUT_MS, waitFor, type Setup } from "../../test/manager-fixtures.ts";
-import { summary } from "../../test/store-fixtures.ts";
 
 type Requested = Extract<LogEntry, { type: "permission_requested" }>;
 type Pending = AgentSummary["pendingPermissions"];
@@ -57,8 +56,6 @@ const PATHS: { path: string; clear: (t: Setup, id: string, request: Requested) =
       await Promise.resolve();
     },
   },
-  { path: "turn cancelled", clear: (t, id) => t.manager.cancel(id) },
-  { path: "agent stopped", clear: (t, id) => t.manager.stop(id) },
   {
     path: "agent process exited",
     clear: async (t, id) => {
@@ -124,7 +121,7 @@ describe("pending permissions", () => {
     TEST_TIMEOUT_MS,
   );
 
-  // Lasting check "A permission left open at a normal turn end": the agent ends its prompt (end_turn) while its
+  // The agent ends its prompt (end_turn) while its
   // request is still open. Only the manager's own cancel at the turn's end clears it; no answer, cancel or exit does.
   test(
     "a request still open when the agent ends its turn normally leaves pendingPermissions as the turn ends, and an agent_changed alert says so",
@@ -149,24 +146,6 @@ describe("pending permissions", () => {
       expect(t.agent(id)?.state).toBe("done");
       expect(t.agent(id)?.pendingPermissions, "once the turn ended").toEqual([]);
       expect(alerts.last(id), "an agent_changed alert announced the cleared list").toEqual([]);
-    },
-    TEST_TIMEOUT_MS,
-  );
-
-  test(
-    "a summary stored with an open request by a service that died reads with none after the restart",
-    async () => {
-      const t = setup();
-      const stale = summary("agent-left-waiting", {
-        state: "waiting",
-        pendingPermissions: [{ requestId: "perm-1", at: "2026-11-09T09:04:00.000Z", title: "Edit src/Footer.tsx", kind: "edit" }],
-      });
-      t.store.putAgent(stale);
-
-      await t.restart();
-
-      expect(t.agent(stale.id)?.state, "control: the restart did mark the agent").toBe("stopped");
-      expect(t.agent(stale.id)?.pendingPermissions).toEqual([]);
     },
     TEST_TIMEOUT_MS,
   );

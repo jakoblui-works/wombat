@@ -1,4 +1,4 @@
-// A fake of `window.wombat` for the renderer's data tests (T8): an in-memory agent service behind the bridge's
+// A fake of `window.wombat` for the renderer's data tests: an in-memory agent service behind the bridge's
 // `service` calls. GET /agents lists the agents, GET /proposals the proposals, and GET /agents/:id/log?after=&limit=
 // reads like the service's store.readLog: the query parsed with ListLogQuery (400 with an ErrorBody when it fails),
 // at most `limit` entries above `after` (FAKE_DEFAULT_LIMIT when the read sends none), numbered by one store-wide
@@ -39,12 +39,8 @@ export type FakeService = {
   setRepos: (repos: { path: string; name: string }[]) => void;
   /** Adds a proposal to GET /proposals. */
   addProposal: (proposal: Proposal) => void;
-  /** Deletes an agent: gone from GET /agents, its log reads answer 404. */
-  removeAgent: (agentId: string) => void;
   /** Main's refusal while not connected: request() rejects unless the last connection state is `connected`. */
   refuseWhileDisconnected: (on: boolean) => void;
-  /** A misbehaving service: the agent's log reads ignore `after` (always from its first entry). */
-  ignoreAfter: (agentId: string) => void;
   /** Every request answered so far. */
   requests: () => FakeRequest[];
   /** Requests started and not answered yet. */
@@ -72,7 +68,6 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
   const connectionSubscribers = new Set<(state: ConnectionState) => void>();
   let state: ConnectionState = { state: "connecting" };
   const agentFields = new Map<string, Partial<AgentSummary>>();
-  const ignoringAfter = new Set<string>();
   const logReads = new Map<string, number>();
   let refusing = false;
   const proposals: Proposal[] = [];
@@ -104,7 +99,7 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
       if (!query.success) {
         return { status: 400, body: { error: { code: "invalid_request", message: query.error.issues[0]?.message ?? "invalid query" } } };
       }
-      const after = ignoringAfter.has(agentId) ? 0 : query.data.after;
+      const after = query.data.after;
       const limit = query.data.limit ?? FAKE_DEFAULT_LIMIT;
       const all = logs.get(agentId) ?? (agentFields.has(agentId) ? [] : undefined);
       if (all === undefined) return { status: 404, body: { error: { code: "not_found", message: `No agent ${agentId}.` } } };
@@ -124,6 +119,8 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
 
   const bridge: WombatBridge = {
     apiVersion: 1,
+    command: () => Promise.resolve(),
+    onZoom: () => () => undefined,
     service: {
       request: async (method, path) => {
         if (refusing && state.state !== "connected") {
@@ -199,15 +196,8 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
     addProposal: (added) => {
       proposals.push(added);
     },
-    removeAgent: (agentId) => {
-      agentFields.delete(agentId);
-      logs.delete(agentId);
-    },
     refuseWhileDisconnected: (on) => {
       refusing = on;
-    },
-    ignoreAfter: (agentId) => {
-      ignoringAfter.add(agentId);
     },
     requests: () => [...answered],
     inFlight: () => pending,

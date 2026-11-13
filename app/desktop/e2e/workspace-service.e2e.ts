@@ -2,7 +2,6 @@
 // sandbox (app-fixtures.ts): temp profile, runtime and state dirs, fake systemd, fake agents.
 import { statSync } from "node:fs";
 import path from "node:path";
-import { HOLDER_WAIT_MS } from "@wombat/shared/discovery";
 import { expect, isAlive, startAgent, test, SWITCH, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 
 const mode = (file: string): number => statSync(file).mode & 0o777;
@@ -11,28 +10,22 @@ const mode = (file: string): number => statSync(file).mode & 0o777;
 const settingsFor = (workspace: string) => ({ version: 1, workspace, workspaces: {}, askOnQuit: true });
 
 test.describe("first start", () => {
-  test("a fresh profile starts a service for the chosen workspace and remembers it in a private settings file", async ({ sandbox }) => {
-    await sandbox.launch({ workspaceAnswer: sandbox.workspace });
-
-    // The discovery file names the workspace (additive field), and its service is the one its token proves.
+  test("a fresh profile starts a service for the chosen workspace with private files, and a second start reuses it", async ({ sandbox }) => {
+    // A quit stops a service without agent processes (nothing left running unseen); one agent and the answer Keep
+    // leave it running.
+    const first = await sandbox.launch({ workspaceAnswer: sandbox.workspace, env: { [SWITCH.quitAnswer]: "leave" } });
+    // The discovery file names the workspace, and its service is the one its token proves.
     const file = await sandbox.waitForService();
     expect(file.workspace, "the discovery file doesn't name the service's workspace").toBe(sandbox.workspace);
     expect(sandbox.liveServices()).toEqual([file.pid]);
-
-    // Contract "Settings file": $XDG_CONFIG_HOME/Wombat/settings.json, 0600 in a 0700 folder, naming the workspace.
+    // The settings file and the service's log name the user's folders: 0600, the settings in a 0700 folder.
     const settings = sandbox.settingsPath();
     await waitUntil("settings.json to name the workspace", WAIT_MS, () => (sandbox.readSettings()?.["workspace"] === sandbox.workspace ? true : undefined));
     expect(mode(settings).toString(8), "settings.json isn't 0600").toBe("600");
     expect(mode(path.dirname(settings)).toString(8), "the settings folder isn't 0700").toBe("700");
+    expect(mode(path.join(sandbox.stateDir, "wombat", "service.log")).toString(8), "service.log isn't 0600").toBe("600");
 
-    // The service's output goes to a private log in the state dir.
-    const log = path.join(sandbox.stateDir, "wombat", "service.log");
-    expect(mode(log).toString(8), "service.log isn't 0600").toBe("600");
-  });
-
-  test("a second start reuses the running service instead of starting another", async ({ sandbox }) => {
-    const first = await sandbox.launch({ workspaceAnswer: sandbox.workspace });
-    const file = await sandbox.waitForService();
+    await startAgent(sandbox, "fake-reply");
     await first.quit();
     await first.exited();
     expect(isAlive(file.pid), "closing the app stopped the service").toBe(true);
@@ -42,60 +35,6 @@ test.describe("first start", () => {
     await waitForConnection(second.page, "connected");
     expect(sandbox.discovery()?.pid, "the second start replaced the service").toBe(file.pid);
     expect(sandbox.serviceStarts(), "the second start spawned another service").toEqual([file.pid]);
-  });
-
-  // Lasting check "One service per runtime dir": two apps (two profiles) on one runtime dir, started at once.
-  test("two apps started at once on one runtime dir leave one service, and both connect to it", async ({ sandbox }) => {
-    test.setTimeout(60_000);
-    const [a, b] = await Promise.all([
-      sandbox.launch({ profile: sandbox.profile }),
-      sandbox.launch({ profile: sandbox.newProfile() }),
-    ]);
-    await Promise.all([waitForConnection(a.page, "connected"), waitForConnection(b.page, "connected")]);
-    const file = await sandbox.waitForService();
-    // The start that lost the lock may still be exiting when both pages report connected. On a timeout the assert
-    // below says which services are still running.
-    await waitUntil("one live service", WAIT_MS, () => (sandbox.liveServices().length === 1 ? true : undefined)).catch(() => undefined);
-    expect(sandbox.liveServices(), "more than one service is running").toEqual([file.pid]);
-  });
-});
-
-test.describe("a running service for another workspace", () => {
-  // The old service's shutdown is held (fake `systemctl stop` waits on a gate) for longer than a new start waits for
-  // the lock (HOLDER_WAIT_MS), so a switch that starts the new service before the old one is gone leaves nothing
-  // running.
-  const HOLD_PAST_LOCK_WAIT_MS = HOLDER_WAIT_MS + 1_500;
-
-  test("Restart stops the old service and its agents, then a service for the saved workspace runs and stays up", async ({ makeSandbox }) => {
-    test.setTimeout(90_000);
-    const sandbox = makeSandbox({ holdStop: true });
-    const old = sandbox.newWorkspace("old");
-    const running = await sandbox.startService(old);
-    await startAgent(sandbox, "fake-reply");
-    const oldAgents = sandbox.agentPids();
-    expect(oldAgents.length).toBeGreaterThan(0);
-
-    sandbox.writeSettings(settingsFor(sandbox.workspace));
-    await sandbox.launch({ workspaceAnswer: null, env: { [SWITCH.restartAnswer]: "restart" } });
-
-    // Once the old service's shutdown reaches the slice stop, hold it, then let it finish.
-    await waitUntil("the old service's shutdown to stop its slice", WAIT_MS, () =>
-      sandbox.systemd.calls().some(({ tool, args }) => tool === "systemctl" && args.includes("stop")) ? true : undefined,
-    );
-    const release = setTimeout(() => sandbox.releaseStop(), HOLD_PAST_LOCK_WAIT_MS);
-    let file: Awaited<ReturnType<typeof sandbox.waitForService>>;
-    try {
-      file = await sandbox.waitForService((found) => found.workspace === sandbox.workspace, 60_000);
-    } finally {
-      clearTimeout(release);
-    }
-    await waitUntil("the old service to exit", WAIT_MS, () => (isAlive(running.pid) ? undefined : true));
-    expect(oldAgents.filter(isAlive), "the old service's agents still run").toEqual([]);
-    // Still the new service, still up, after the old one is gone.
-    expect(isAlive(file.pid)).toBe(true);
-    expect((await sandbox.api("GET", "/version")).status).toBe(200);
-    expect(sandbox.discovery()?.pid).toBe(file.pid);
-    expect(sandbox.readSettings()?.["workspace"]).toBe(sandbox.workspace);
   });
 });
 

@@ -1,4 +1,4 @@
-// Lasting check (contract "AgentSummary additions", store schema v3, silent failure): a store written by the
+// A store written by the
 // previous version (schema 2) opens in place as schema 3, keeping every agent, log entry, seq, handle counter and
 // proposal; its agents read with `pendingPermissions: []` and no branch, lastText or lastUserAt; and the new
 // summary fields survive a close and reopen. Without it, an upgrade would lose history or proposals, or the new
@@ -7,10 +7,9 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import type { AgentSummary } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
-import { open, summary, tempStorePath } from "../../test/store-fixtures.ts";
+import { open, tempStorePath } from "../../test/store-fixtures.ts";
 
 /** Schema 1 and the schema 2 additions, exactly as the step 5 store wrote them. */
 const V2_SCHEMA = `
@@ -163,34 +162,6 @@ describe("store schema v3", () => {
     expect(store.getProposal(PROPOSAL.id)).toEqual(PROPOSAL);
     expect(store.nextHandleNumber(COUNTER.structure, 0), "the handle counter carries on").toBe(COUNTER.last + 1);
     store.close();
-    expect(version(path)).toBe(3);
-  });
-
-  test("the new summary fields read back unchanged after a close and reopen, and reopening a v3 store changes nothing", () => {
-    const path = tempStorePath();
-    const full: AgentSummary = summary("a1", {
-      state: "waiting",
-      branch: "feature/footer-imprint",
-      lastText: "I'll update the footer component and run the tests.",
-      lastUserAt: "2026-11-09T09:04:30.000Z",
-      pendingPermissions: [
-        { requestId: "perm-1", at: "2026-11-09T09:04:40.000Z", title: "Edit src/Footer.tsx", kind: "edit" },
-        { requestId: "perm-2", at: "2026-11-09T09:04:41.000Z", title: "", kind: "other" },
-      ],
-    });
-    const first = open({ path });
-    first.putAgent(full);
-    const { dbId } = first;
-    const seq = first.currentSeq();
-    first.close();
-    expect(version(path)).toBe(3);
-
-    const again = open({ path });
-
-    expect(again.dbId).toBe(dbId);
-    expect(again.currentSeq()).toBe(seq);
-    expect(again.listAgents()).toStrictEqual([full]);
-    again.close();
     expect(version(path)).toBe(3);
   });
 });

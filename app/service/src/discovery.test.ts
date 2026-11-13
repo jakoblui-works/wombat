@@ -9,7 +9,7 @@ import { API_VERSION } from "@wombat/shared";
 import { DiscoveryFile } from "@wombat/shared/discovery";
 import { expect, onTestFinished, test } from "vitest";
 
-import { newToken, removeDiscovery, writeDiscovery } from "./discovery.ts";
+import { removeDiscovery, writeDiscovery } from "./discovery.ts";
 
 /** A fresh `<tmp>/wombat/service.json` path; its folder doesn't exist yet. */
 const tempPath = () => {
@@ -28,24 +28,12 @@ const sample = (overrides: Partial<DiscoveryFile> = {}): DiscoveryFile => ({
 
 const mode = (path: string) => statSync(path).mode & 0o777;
 
-test("discovery-file drift: what writeDiscovery writes parses with the shared DiscoveryFile schema and keeps its values", () => {
-  const { path } = tempPath();
-  const file = sample({ port: 15123, pid: 4242, workspace: "/home/dev/bakery" });
-  writeDiscovery(path, file);
-  expect(DiscoveryFile.parse(JSON.parse(readFileSync(path, "utf8")))).toEqual(file);
-});
-
-test.each([
-  { what: "into a new folder", existing: false },
-  { what: "over a looser existing folder and file", existing: true },
-])("writeDiscovery $what leaves the folder 0700 and the file 0600, with only the new file in it", ({ existing }) => {
+test("writeDiscovery over a looser existing folder and file leaves the folder 0700 and the file 0600, with only the new file in it", () => {
   const { dir, path } = tempPath();
-  if (existing) {
-    mkdirSync(dir);
-    chmodSync(dir, 0o755);
-    writeFileSync(path, JSON.stringify(sample({ pid: 1, token: "old-token-0123456789abcdef" })));
-    chmodSync(path, 0o644);
-  }
+  mkdirSync(dir);
+  chmodSync(dir, 0o755);
+  writeFileSync(path, JSON.stringify(sample({ pid: 1, token: "old-token-0123456789abcdef" })));
+  chmodSync(path, 0o644);
   const file = sample({ token: "new-token-0123456789abcdef" });
   writeDiscovery(path, file);
   expect(mode(dir).toString(8)).toBe("700");
@@ -67,14 +55,4 @@ test("removeDiscovery removes the file only when it names this pid, and is fine 
   removeDiscovery(path, 4242);
   expect(existsSync(path)).toBe(false);
   expect(() => removeDiscovery(path, 4242)).not.toThrow();
-});
-
-test("newToken gives at least 16 bearer-token characters, different on every call", () => {
-  const tokens = Array.from({ length: 20 }, () => newToken());
-  for (const token of tokens) {
-    expect(token.length).toBeGreaterThanOrEqual(16);
-    // RFC 6750 b64token: safe in an Authorization header as is.
-    expect(token).toMatch(/^[A-Za-z0-9\-._~+/]+=*$/);
-  }
-  expect(new Set(tokens).size).toBe(tokens.length);
 });

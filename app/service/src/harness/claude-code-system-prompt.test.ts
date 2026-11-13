@@ -1,4 +1,4 @@
-// Contract drift check (T9, D31): what the Claude Code harness asks to put into session/new for the instructions is
+// Contract drift check: what the Claude Code harness asks to put into session/new for the instructions is
 // what claude-agent-acp 0.100.0 turns into Claude Code's own preset prompt with the text appended, run through the
 // package's own conversion, so a wrong shape (one that replaces Claude Code's prompt, or is dropped) shows here.
 import { clientSystemPrompt, sdkSystemPrompt } from "@agentclientprotocol/claude-agent-acp/dist/client-system-prompt.js";

@@ -3,7 +3,14 @@
 import { mutationOptions, type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 
-import { AgentSummary, type AnswerPermissionRequest, type SendMessageRequest, type StartAgentRequest } from "@wombat/shared/api";
+import {
+  AgentSummary,
+  type AnswerPermissionRequest,
+  ContextBreakdown,
+  type SendMessageRequest,
+  type SetConfigRequest,
+  type StartAgentRequest,
+} from "@wombat/shared/api";
 import { asError } from "../lib/errors.ts";
 import { call } from "./client.ts";
 import { keys } from "./keys.ts";
@@ -29,6 +36,7 @@ export const newCommandId = (): string => {
 export type SendMessageVars = { agentId: string; text: string; commandId: string };
 export type StartAgentVars = StartAgentRequest & { text: string; commandId: string };
 export type AnswerPermissionVars = { agentId: string; requestId: string; kind: AnswerPermissionRequest["kind"] };
+export type SetConfigVars = SetConfigRequest & { agentId: string };
 
 /** The variables of one send, its commandId made now: build them once per user action. */
 export const sendMessageVars = (agentId: string, text: string): SendMessageVars => ({ agentId, text, commandId: newCommandId() });
@@ -61,6 +69,15 @@ export const answerPermissionFn = async ({ agentId, requestId, kind }: AnswerPer
   await call("POST", `${agentPath(agentId)}/permissions/${encodeURIComponent(requestId)}`, Ignored, { kind } satisfies AnswerPermissionRequest);
 };
 
+/** Sets one of the agent's config options; its new options arrive through the log. */
+export const setConfigFn = async ({ agentId, configId, value }: SetConfigVars): Promise<void> => {
+  await call("POST", `${agentPath(agentId)}/config`, Ignored, { configId, value } satisfies SetConfigRequest);
+};
+
+/** Asks the agent for its context breakdown; a hidden turn, so nothing in the log or the agent list changes. */
+export const contextBreakdownFn = (agentId: string): Promise<ContextBreakdown> =>
+  call("POST", `${agentPath(agentId)}/context`, ContextBreakdown);
+
 export const cancelTurnFn = async (agentId: string): Promise<void> => {
   await call("POST", `${agentPath(agentId)}/cancel`, Ignored);
 };
@@ -88,6 +105,12 @@ export const sendMessageMutation = (queryClient: QueryClient) =>
 export const answerPermissionMutation = (queryClient: QueryClient) =>
   mutationOptions({ mutationFn: answerPermissionFn, onSettled: (_data, _error, { agentId }) => refreshAgent(queryClient, agentId) });
 
+export const setConfigMutation = (queryClient: QueryClient) =>
+  mutationOptions({ mutationFn: setConfigFn, onSettled: (_data, _error, { agentId }) => refreshAgent(queryClient, agentId) });
+
+// Nothing to refresh: the breakdown is only for the dialog that asked.
+export const contextBreakdownMutation = () => mutationOptions({ mutationFn: contextBreakdownFn });
+
 export const cancelTurnMutation = (queryClient: QueryClient) =>
   mutationOptions({ mutationFn: cancelTurnFn, onSettled: (_data, _error, agentId: string) => refreshAgent(queryClient, agentId) });
 
@@ -106,6 +129,8 @@ export const deleteAgentMutation = (queryClient: QueryClient) =>
 export const useStartAgent = () => useMutation(startAgentMutation(useQueryClient()));
 export const useSendMessage = () => useMutation(sendMessageMutation(useQueryClient()));
 export const useAnswerPermission = () => useMutation(answerPermissionMutation(useQueryClient()));
+export const useSetConfig = () => useMutation(setConfigMutation(useQueryClient()));
+export const useContextBreakdown = () => useMutation(contextBreakdownMutation());
 export const useCancelTurn = () => useMutation(cancelTurnMutation(useQueryClient()));
 export const useStopAgent = () => useMutation(stopAgentMutation(useQueryClient()));
 export const useDeleteAgent = () => useMutation(deleteAgentMutation(useQueryClient()));

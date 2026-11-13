@@ -16,7 +16,7 @@ export const TAB_COMPONENT = "view";
 export type TabParams = TabRef;
 
 /** The part of dockview's api the tabs use. */
-export type TabHost = Pick<DockviewApi, "getPanel" | "addPanel" | "removePanel" | "panels" | "activeGroup" | "groups" | "adjacentGroupInDirection">;
+export type TabHost = Pick<DockviewApi, "getPanel" | "addPanel" | "removePanel" | "panels" | "activeGroup" | "groups" | "adjacentGroupInDirection" | "addGroup" | "getGroup" | "removeGroup">;
 
 /** `value` as JSON with every object's keys sorted, so the same params always give the same text. */
 const stableJson = (value: unknown): string =>
@@ -65,6 +65,31 @@ export const openTab = (host: TabHost, viewId: string, params: unknown, ctx: Res
     params: tab,
     ...(position === undefined ? {} : { position }),
   });
+};
+
+/** The sides of a group a split can open on. */
+export type SplitDirection = "right" | "down" | "left" | "up";
+
+/** Dockview's name for each side. */
+const DOCKVIEW_DIRECTION = { right: "right", down: "below", left: "left", up: "above" } as const;
+
+/**
+ * Adds an empty group on the `direction` side of group `referenceGroupId` (default: the active group, else the first)
+ * and makes it the active one: it's where the next thing opens.
+ */
+export const splitEmpty = (host: TabHost, direction: SplitDirection, referenceGroupId?: string): void => {
+  const reference = referenceGroupId === undefined ? (host.activeGroup ?? host.groups[0]) : host.groups.find(({ id }) => id === referenceGroupId);
+  if (referenceGroupId !== undefined && reference === undefined) throw new Error(`There's no group "${referenceGroupId}" to split; pass the id of a group in the editor.`);
+  const group = host.addGroup(reference === undefined ? undefined : { referenceGroup: reference, direction: DOCKVIEW_DIRECTION[direction] });
+  group.api.setActive();
+};
+
+/** Whether group `groupId` may be closed: it has no tab, and it isn't the only group (the editor always keeps one). */
+export const canCloseGroup = (host: Pick<TabHost, "getGroup" | "groups">, groupId: string): boolean => host.getGroup(groupId)?.panels.length === 0 && host.groups.length > 1;
+
+export const closeEmptyGroup = (host: TabHost, groupId: string): void => {
+  const group = host.getGroup(groupId);
+  if (group !== undefined && canCloseGroup(host, groupId)) host.removeGroup(group);
 };
 
 /** The view and params a panel shows; undefined for a panel that isn't a tab of the workbench's. */

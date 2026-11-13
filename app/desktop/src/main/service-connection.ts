@@ -1,8 +1,12 @@
 // Main's connection to the service, the page's only way to it. It reads the alert stream and forwards known alerts,
 // and follows the service across restarts: on every (re)connect it re-reads the discovery file (a new service may
-// be on a new port) and proves it with the file's token. It never starts a service by itself; only `reconnect` with a start does.
+// be on a new port) and proves it with the file's token. Once connected it reads who the service is (GET /version:
+// when it started, and whether it runs the code on disk), and checks again every `staleCheckMs` while connected, as
+// the code on disk may change under a running service. It never starts a service by itself; only `reconnect` with a
+// start does.
 import { API_VERSION } from "@wombat/shared";
-import { HEARTBEAT_MS, parseAlert, type AgentSummary, type Alert } from "@wombat/shared/api";
+import { HEARTBEAT_MS, parseAlert, VersionResponse, type AgentSummary, type Alert } from "@wombat/shared/api";
+import { isStale } from "@wombat/shared/code-id";
 import { findRunningService, type DiscoveryFile } from "@wombat/shared/discovery";
 import type { ConnectionState, ConnectionUpdate, ServiceAnswer } from "../shared/bridge.ts";
 import { callService, listAgents, requestService } from "./service-client.ts";
@@ -18,9 +22,14 @@ export type ConnectionTiming = {
   stallMs: number;
   /** A stream that ends sooner than this after opening doesn't reset the waits: a service that keeps dropping it backs off. */
   healthyMs: number;
+  /** While connected, how often the code on disk is hashed again and compared with the service's. */
+  staleCheckMs: number;
 };
 
-const DEFAULT_TIMING: ConnectionTiming = { firstRetryMs: 250, maxRetryMs: 4_000, failAfterMs: 30_000, stallMs: 3 * HEARTBEAT_MS, healthyMs: 15_000 };
+/** How often a connected service is checked against the code on disk. */
+export const STALE_CHECK_MS = 60_000;
+
+const DEFAULT_TIMING: ConnectionTiming = { firstRetryMs: 250, maxRetryMs: 4_000, failAfterMs: 30_000, stallMs: 3 * HEARTBEAT_MS, healthyMs: 15_000, staleCheckMs: STALE_CHECK_MS };
 const VERSION_TIMEOUT_MS = 2_000;
 /** For the stream's response headers; the stream itself has no timeout but the stall. */
 const HEADERS_TIMEOUT_MS = 10_000;
@@ -32,6 +41,16 @@ export type ConnectionDeps = {
   discoveryFile: () => string;
   onState: (update: ConnectionUpdate) => void;
   onAlert: (alert: Alert) => void;
+  /**
+   * codeIdOf the checkout the app starts the service from; called on each connect and each stale check, as the code
+   * on disk may change at any time. Without it the service's info is never read and `service` stays absent.
+   */
+  codeIdOnDisk?: () => string;
+  /**
+   * Whether `file` is the service this app launch found already running (workspace.open's `found`), for the service's
+   * `foundAtLaunch`; main always passes it. Without it the field is left out.
+   */
+  foundAtLaunch?: (file: DiscoveryFile) => boolean;
   timing?: Partial<ConnectionTiming>;
   log?: (line: string) => void;
 };
@@ -63,8 +82,11 @@ type Probe = { found: DiscoveryFile } | { incompatible: string } | { missing: tr
 /** Where the tries of one outage are: when it began, and the next wait. */
 type Retry = { since: number; wait: number };
 
-export const serviceConnection = ({ discoveryFile, onState, onAlert, timing = {}, log = console.warn }: ConnectionDeps): ServiceConnection => {
-  const { firstRetryMs, maxRetryMs, failAfterMs, stallMs, healthyMs } = { ...DEFAULT_TIMING, ...timing };
+const sameService = (a: ConnectionState["service"], b: ConnectionState["service"]): boolean =>
+  a?.stale === b?.stale && a?.startedAt === b?.startedAt && a?.foundAtLaunch === b?.foundAtLaunch;
+
+export const serviceConnection = ({ discoveryFile, onState, onAlert, codeIdOnDisk, foundAtLaunch, timing = {}, log = console.warn }: ConnectionDeps): ServiceConnection => {
+  const { firstRetryMs, maxRetryMs, failAfterMs, stallMs, healthyMs, staleCheckMs } = { ...DEFAULT_TIMING, ...timing };
   let update: ConnectionUpdate = { seq: 0, state: { state: "connecting" } };
   let connected: DiscoveryFile | undefined;
   // Each reconnect starts a new run; a loop or stream of an older run stops at its next step.
@@ -83,7 +105,8 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, timing = {}
     });
 
   const set = (state: ConnectionState): void => {
-    if (state.state === update.state.state && state.message === update.state.message) return;
+    const now = update.state;
+    if (state.state === now.state && state.message === now.message && sameService(state.service, now.service)) return;
     update = { seq: update.seq + 1, state };
     onState(update);
   };
@@ -103,6 +126,46 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, timing = {}
         `The running service speaks API version ${String(file.apiVersion)}; this app needs version ${String(API_VERSION)}. ` +
         "Restart stops that service and its agents and starts this app's own service.",
     };
+  };
+
+  /** The connected service's info for ConnectionState; undefined when /version or the hash on disk failed. */
+  const identify = async (file: DiscoveryFile): Promise<ConnectionState["service"]> => {
+    if (codeIdOnDisk === undefined) return undefined;
+    try {
+      const onDisk = codeIdOnDisk();
+      const response = await callService(file, "GET", "/version", { timeoutMs: VERSION_TIMEOUT_MS });
+      if (response.status !== 200) {
+        await response.body?.cancel();
+        throw new Error(`HTTP ${String(response.status)}`);
+      }
+      const version = VersionResponse.parse(await response.json());
+      return {
+        ...(version.startedAt === undefined ? {} : { startedAt: version.startedAt }),
+        stale: isStale(version, onDisk),
+        ...(foundAtLaunch === undefined ? {} : { foundAtLaunch: foundAtLaunch(file) }),
+      };
+    } catch (error) {
+      // Connected all the same: the page shows the service's age and code as unknown.
+      log(`Wombat couldn't read which code the service runs: ${error instanceof Error ? error.message : String(error)}`);
+      return undefined;
+    }
+  };
+
+  // The next stale check of the connected service; cleared whenever the connection drops or is closed.
+  let staleCheck: NodeJS.Timeout | undefined;
+  const stopStaleChecks = (): void => {
+    clearTimeout(staleCheck);
+    staleCheck = undefined;
+  };
+
+  /** Reads the service's info now and every `staleCheckMs` after, while `file` stays the connected service. */
+  const checkService = async (file: DiscoveryFile, mine: number): Promise<void> => {
+    const service = await identify(file);
+    // Only onto the same connection: a drop or reconnect since has its own state.
+    if (mine !== run || connected !== file || update.state.state !== "connected") return;
+    set(service === undefined ? { state: "connected" } : { state: "connected", service });
+    stopStaleChecks();
+    staleCheck = setTimeout(() => void checkService(file, mine), staleCheckMs);
   };
 
   const forward = (block: string): void => {
@@ -173,10 +236,12 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, timing = {}
     const openedAt = Date.now();
     // Connected only once the stream is open, so no alert after it is missed.
     set({ state: "connected" });
+    void checkService(file, mine);
     void read(body, controller).then(() => {
       if (mine !== run) return;
       connected = undefined;
       stream = undefined;
+      stopStaleChecks();
       set({ state: "reconnecting" });
       // After a long healthy stream, at once and with fresh waits; after a short one, the outage goes on.
       if (Date.now() - openedAt >= healthyMs) void connect(mine);
@@ -219,6 +284,7 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, timing = {}
     stream?.abort();
     stream = undefined;
     connected = undefined;
+    stopStaleChecks();
     return run;
   };
 

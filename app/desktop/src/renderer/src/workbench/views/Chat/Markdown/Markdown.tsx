@@ -1,4 +1,4 @@
-// What user and agent text may render as (interface-S7, "Markdown"): the one place that decides. Agent text is
+// What user and agent text may render as: the one place that decides. Agent text is
 // untrusted, so nothing in it may run, load or navigate in the page:
 // - raw HTML shows as its own text (no rehype-raw; react-markdown turns raw nodes into text);
 // - a link is an <a> only for an https: URL, opened in a new window without a referrer; any other URL shows as text;

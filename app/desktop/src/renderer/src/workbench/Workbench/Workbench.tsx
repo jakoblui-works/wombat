@@ -16,9 +16,15 @@ import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
 import { activities, activityOrDefault, getView, isKnown, isRestorable, viewsFor, viewTitle } from "../registry.ts";
 import { ActivityBar } from "../ActivityBar/ActivityBar.tsx";
+import { commandForKey, runLogged } from "../commands/registry.ts";
+import { activityCommandId, registerWorkbenchCommands, WORKBENCH_COMMAND } from "../commands/workbench-commands.ts";
 import { ConnectionBanner } from "../ConnectionBanner/ConnectionBanner.tsx";
-import { ConnectionIndicator } from "../ConnectionIndicator/ConnectionIndicator.tsx";
+import { LiveLaunchNotice } from "../LaunchNotice/LaunchNotice.tsx";
+import { LiveStatusBar } from "../StatusBar/StatusBar.tsx";
 import { EmptyGroup } from "../EmptyGroup/EmptyGroup.tsx";
+import { SplitButton } from "../TabBar/SplitButton.tsx";
+import { Tab } from "../TabBar/Tab.tsx";
+import { TabBarMenu } from "../TabBar/TabBarMenu.tsx";
 import { ResizeHandle } from "../ResizeHandle/ResizeHandle.tsx";
 import {
   pruneTabs,
@@ -33,6 +39,7 @@ import {
 } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { type ActiveTab, ActiveTabContext, type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
+import { ZoomToast } from "../ZoomToast/ZoomToast.tsx";
 
 type Chrome = Pick<SavedLayout, "sidebars" | "activity">;
 
@@ -40,6 +47,26 @@ const SIDEBAR_MIN = 160;
 const SIDEBAR_MAX = 800;
 
 const clampWidth = (width: number): number => Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, width));
+
+// The launch notice's dismissal, in sessionStorage: it survives a reload of the window (main still reports the service
+// as found at launch) and starts empty on the next launch. Storage that fails only costs the notice coming back.
+const NOTICE_DISMISSED_KEY = "wombat.launchNoticeDismissed";
+
+const noticeDismissedBefore = (): boolean => {
+  try {
+    return sessionStorage.getItem(NOTICE_DISMISSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
+const rememberNoticeDismissed = (): void => {
+  try {
+    sessionStorage.setItem(NOTICE_DISMISSED_KEY, "1");
+  } catch {
+    // Kept for this page only.
+  }
+};
 
 /** What the actions do before dockview is ready; typed, so a new member can't be missed. */
 const NO_ACTIONS: WorkbenchActions = { openTab: () => undefined, openBeside: () => undefined, closeTab: () => undefined, openAgentChat: () => undefined };
@@ -79,7 +106,8 @@ const agentsAnswered = (state: QueryState<ListAgentsResponse> | undefined, conne
 export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const queryClient = useQueryClient();
   const agents = useAgents();
-  const { state: connection, message: connectionMessage } = useConnection();
+  const connectionState = useConnection();
+  const { state: connection, message: connectionMessage } = connectionState;
   const [api, setApi] = useState<DockviewApi>();
   const [saved, setSaved] = useState<SavedRead>();
   const [chrome, setChrome] = useState<Chrome>(() => {
@@ -169,6 +197,8 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     // Saved after the delay, by which time the change has rendered into chromeRef.
     saver.current?.schedule("user");
   };
+  const changeChromeRef = useRef(changeChrome);
+  changeChromeRef.current = changeChrome;
 
   // The active tab, for views that mark what's open.
   const [activeTab, setActiveTab] = useState<ActiveTab>();
@@ -211,10 +241,36 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     });
   }, [ready, agentsKnown, openAgents, actions]);
 
-  const activity = activityOrDefault(chrome.activity);
-  const Sidebar = activity === undefined ? undefined : getView(activity.sidebarView)?.component;
   const rightViews = viewsFor("right");
   const rightView = rightViews[0] === undefined ? undefined : { title: viewTitle(rightViews[0], {}, { agents: undefined }), icon: rightViews[0].icon };
+  // The workbench's commands, and the page's one key listener: every key binding runs through the registry.
+  useEffect(
+    () =>
+      registerWorkbenchCommands({
+        api: () => api,
+        activities: activities(),
+        showActivity,
+        toggleRightSidebar: () =>
+          changeChromeRef.current((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } })),
+        ...(rightView === undefined ? {} : { rightSidebarTitle: rightView.title }),
+        blocked: () => blockedRef.current,
+        restartService: () => restartRef.current(),
+      }),
+    [api, showActivity, rightView?.title],
+  );
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const command = commandForKey(event);
+      if (command === undefined) return;
+      event.preventDefault();
+      runLogged(command.id);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const activity = activityOrDefault(chrome.activity);
+  const Sidebar = activity === undefined ? undefined : getView(activity.sidebarView)?.component;
   const resize = (side: "left" | "right", dx: number) =>
     changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, [side]: clampWidth(current.sidebars[side] + dx) } }));
 
@@ -222,11 +278,15 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const [connectedBefore, setConnectedBefore] = useState(false);
   if (connection === "connected" && !connectedBefore) setConnectedBefore(true);
   const blocked = showsBanner(connection, connectedBefore);
+  const blockedRef = useRef(blocked);
+  const restartRef = useRef<() => void>(() => undefined);
+  blockedRef.current = blocked;
 
   // Kept here, not in the banner, which unmounts when the state moves (a first connecting) while a restart runs.
   const [attempt, dispatchAttempt] = useReducer(restartAttempt, NO_RESTART);
   useEffect(() => dispatchAttempt({ type: "connection", state: connection }), [connection]);
   const restart = () => {
+    dismissNotice();
     dispatchAttempt({ type: "start" });
     window.wombat.service.restart().then(
       () => dispatchAttempt({ type: "settled" }),
@@ -236,6 +296,16 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
           error: `Couldn't restart the service${failure instanceof Error ? `: ${failure.message}` : ""}. Try Restart again.`,
         }),
     );
+  };
+
+  restartRef.current = restart;
+
+  // Whether the launch notice shows is serviceView's (main says whether the service was found at launch); the page
+  // only remembers that it was dismissed, or that Restart replaced the service it was about, for the launch.
+  const [noticeDismissed, setNoticeDismissed] = useState(noticeDismissedBefore);
+  const dismissNotice = () => {
+    rememberNoticeDismissed();
+    setNoticeDismissed(true);
   };
 
   return (
@@ -248,20 +318,19 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                 right={rightView}
                 count={agentList === undefined ? 0 : needsMe(agentList).length}
                 rightOpen={!chrome.sidebars.rightCollapsed}
-                onToggleRight={() =>
-                  changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } }))
-                }
+                onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
               />
               {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
+              {noticeDismissed || blocked ? null : (
+                <LiveLaunchNotice connection={connectionState} onRestart={restart} onDismiss={dismissNotice} />
+              )}
               <div className="flex min-h-0 flex-1">
                 <ActivityBar
                   activities={activities()}
                   active={activity?.id}
                   blocked={blocked}
-                  onSelect={(id) => changeChrome((current) => ({ ...current, activity: id }))}
-                >
-                  <ConnectionIndicator connection={connection} />
-                </ActivityBar>
+                  onSelect={(id) => runLogged(activityCommandId(id))}
+                />
                 {/* Always here, so the views never remount: while blocked it is inert and the scrim over it shows. */}
                 <div inert={blocked} className="relative flex min-w-0 flex-1">
                   <aside aria-label={activity?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.left }}>
@@ -269,12 +338,16 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   </aside>
                   <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
                   <main className="min-w-0 flex-1">
-                    <DockviewReact
-                      className="dockview-theme-wombat"
-                      components={COMPONENTS}
-                      watermarkComponent={EmptyGroup}
-                      onReady={(event: DockviewReadyEvent) => setApi(event.api)}
-                    />
+                    <TabBarMenu api={api}>
+                      <DockviewReact
+                        className="dockview-theme-wombat"
+                        components={COMPONENTS}
+                        defaultTabComponent={Tab}
+                        rightHeaderActionsComponent={SplitButton}
+                        watermarkComponent={EmptyGroup}
+                        onReady={(event: DockviewReadyEvent) => setApi(event.api)}
+                      />
+                    </TabBarMenu>
                   </main>
                   {!chrome.sidebars.rightCollapsed && (
                     <>
@@ -292,6 +365,8 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   />
                 </div>
               </div>
+              <LiveStatusBar connection={connectionState} agents={agentList} />
+              <ZoomToast />
               <span className="sr-only">
                 Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
               </span>

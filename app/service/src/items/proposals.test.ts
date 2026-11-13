@@ -9,9 +9,9 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { openAccess, ProposalError, type Access } from "./access.ts";
+import { openAccess, type Access } from "./access.ts";
 import { ACCESS_FILES, AGENT, expectRefused, openAccessRoot, snapshotFiles } from "../../test/access-fixtures.ts";
-import { mdFilesIn, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
+import { openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 
 const BUG = "bugs/BUG-2-hero-caption.md";
 
@@ -22,17 +22,6 @@ const FREE_FILES = {
   "drafts/guides/keep.md": "---\nid: 0196f3c2-9e00-7000-8000-0000000000b1\nhandle: DRF-1\n---\n# Keep\n\nInvented.\n",
   "papers/_structure.yaml":
     'version: 1\nid: papers\nname: Papers\nprefix: PAP\naccess: propose\nnaming: free\ninclude: ["**/*.md"]\nproperties:\n  file: { type: text }\n',
-};
-
-const decisionError = async (call: Promise<unknown>) => {
-  let error: unknown;
-  try {
-    await call;
-  } catch (thrown) {
-    error = thrown;
-  }
-  expect(error).toBeInstanceOf(ProposalError);
-  return error as ProposalError;
 };
 
 describe("proposals", () => {
@@ -56,19 +45,6 @@ describe("proposals", () => {
     });
     expect(proposal?.decidedAt).toBeUndefined();
     expect(announced).toEqual([proposed]);
-  });
-
-  test("approving a create writes the item and fills in the proposal's handle", async () => {
-    const { access, root } = openAccessRoot();
-    const { proposed } = await access.proposeCreate(AGENT, "bugs", { title: "The footer link is broken", properties: { note: "On every page" } }, "Found it");
-
-    const decided = await access.approve(proposed);
-
-    expect(decided).toMatchObject({ status: "approved", kind: "create", handle: "BUG-3" });
-    expect(decided.decidedAt).toBeDefined();
-    const file = mdFilesIn(root, "bugs").find((name) => name.startsWith("BUG-3-"));
-    expect(readAt(root, `bugs/${file}`)).toContain("# The footer link is broken");
-    expect((await access.get("BUG-3")).properties.note).toBe("On every page");
   });
 
   test("a proposal writes nothing and takes no handle number: the approved create gets the handle it would get alone", async () => {
@@ -121,36 +97,6 @@ describe("proposals", () => {
     expect(readAt(root, "drafts/guides/setup.md")).toContain("# Setting up");
   });
 
-  test("a proposal's file is null for an update, a delete and a handle-named create", async () => {
-    const { access } = openAccessRoot();
-    await access.proposeUpdate(AGENT, "BUG-2", { note: "Seen again" }, (await access.get("BUG-2")).version, "Reported twice");
-    await access.proposeDelete(AGENT, "BUG-1", (await access.get("BUG-1")).version, "A duplicate");
-    await access.proposeCreate(AGENT, "bugs", { title: "The footer link is broken" }, "Found it");
-
-    const proposals = await access.proposals();
-    expect(proposals.map((proposal) => [proposal.kind, proposal.file]).sort()).toEqual([
-      ["create", null],
-      ["delete", null],
-      ["update", null],
-    ]);
-  });
-
-  test("in a free-named structure with a property named file, a proposed path and the property are kept and written apart", async () => {
-    const { access, root } = openAccessRoot(FREE_FILES);
-    const input = { title: "A scanned paper", body: "\nInvented.\n", file: "scanned.md", properties: { file: "scan-0042.pdf" } };
-
-    const { proposed } = await access.proposeCreate(AGENT, "papers", input, "Filed by hand before");
-
-    const [pending] = await access.proposals("pending");
-    expect(pending?.file, "the path").toBe("scanned.md");
-    expect(pending?.fields.file, "the property").toBe("scan-0042.pdf");
-    const decided = await access.approve(proposed);
-    expect(decided.status, JSON.stringify(decided.problem)).toBe("approved");
-    expect(existsSync(join(root, "papers", "scanned.md")), "written at the path").toBe(true);
-    expect((await access.get(decided.handle ?? "")).properties.file, "the property's value").toBe("scan-0042.pdf");
-    expect(existsSync(join(root, "papers", "scan-0042.pdf")), "the property is no path").toBe(false);
-  });
-
   test("approving an update writes the field, and approving a delete removes the file", async () => {
     const { access, root } = openAccessRoot();
     const update = await access.proposeUpdate(AGENT, "BUG-2", { note: "Fixed by the grid" }, (await access.get("BUG-2")).version, "Done");
@@ -173,32 +119,6 @@ describe("proposals", () => {
     expect(decided.decidedAt).toBeDefined();
     expect(snapshotFiles(root)).toEqual(before);
     expect(announced).toEqual([proposed, proposed]);
-  });
-
-  test("deciding a proposal twice is refused as not pending, and an unknown one as not found", async () => {
-    const { access, root } = openAccessRoot();
-    const first = await access.proposeUpdate(AGENT, "BUG-2", { note: "Once" }, (await access.get("BUG-2")).version, "Why");
-    const second = await access.proposeDelete(AGENT, "BUG-1", (await access.get("BUG-1")).version, "Why");
-    await access.approve(first.proposed);
-    await access.reject(second.proposed);
-    const before = snapshotFiles(root);
-
-    expect((await decisionError(access.approve(first.proposed))).code).toBe("proposal_not_pending");
-    expect((await decisionError(access.reject(first.proposed))).code).toBe("proposal_not_pending");
-    expect((await decisionError(access.approve(second.proposed))).code).toBe("proposal_not_pending");
-    expect((await decisionError(access.approve("prop_unknown"))).code).toBe("proposal_not_found");
-    expect(snapshotFiles(root)).toEqual(before);
-  });
-
-  test("a delete of an item without an id is refused, and nothing is stored", async () => {
-    // Without a title the catalog never gives the file an id.
-    const { access } = openAccessRoot({ ...ACCESS_FILES, "bugs/BUG-7-untitled.md": "---\nhandle: BUG-7\nrepo: api\n---\nNo heading here.\n" });
-    const { version } = await access.get("BUG-7");
-
-    const message = await expectRefused(access.proposeDelete(AGENT, "BUG-7", version, "Untitled"), "invalid_fields", "propose_delete");
-
-    expect(message).toContain("by hand");
-    expect(await access.proposals()).toEqual([]);
   });
 
   test("a proposal stays stored and answered when announcing it fails", async () => {

@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Columns2, FilePen, type LucideIcon, ShieldQu
 import { type Ref, useState } from "react";
 
 import { Button } from "../../../../components/ui/button";
+import { Collapse } from "../../../../components/ui/collapse";
 import type { ChatItem } from "../../../../data/chat-model.ts";
 import { cn } from "../../../../lib/utils";
 import { AnswerButtons, AnswerError, EditTarget, Outcome, Waiting } from "../../approvals/Answer/Answer.tsx";
@@ -107,7 +108,11 @@ export const Permission = (props: Props) => {
         ) : (
           <div className="flex items-center gap-2 px-3 py-1.5">{row}</div>
         )}
-        {details && expanded ? <ToolDetails item={tool} /> : null}
+        {details ? (
+          <Collapse open={expanded}>
+            <ToolDetails item={tool} />
+          </Collapse>
+        ) : null}
       </section>
     );
   }

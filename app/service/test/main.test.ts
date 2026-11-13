@@ -1,6 +1,6 @@
 // The service as a process: spawned for real, found through the discovery file as the app will find it (parsed
 // with the shared schema, so the writer can't drift from the reader), one instance per runtime dir even when two
-// start at once (lasting check "One service per runtime dir"), and ending cleanly on SIGTERM or POST /shutdown. Every spawned service gets recording fakes of
+// start at once, and ending cleanly on SIGTERM or POST /shutdown. Every spawned service gets recording fakes of
 // systemd-run and systemctl as its whole PATH, so no run can ever stop the real wombat-agents.slice.
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -13,7 +13,9 @@ import { join } from "node:path";
 
 import { API_VERSION } from "@wombat/shared";
 import { VersionResponse } from "@wombat/shared/api";
+import { codeIdOf } from "@wombat/shared/code-id";
 import { DiscoveryFile } from "@wombat/shared/discovery";
+import { startTimeOf } from "@wombat/shared/process-stat";
 import { expect, onTestFinished, test } from "vitest";
 
 import { openStore } from "../src/store/store.ts";
@@ -165,6 +167,11 @@ test(
     const version = await api(file, "GET", "/version");
     expect(version.status).toBe(200);
     expect(VersionResponse.parse(version.json).apiVersion).toBe(API_VERSION);
+    // The app tells a reused pid from the service by the start time, and a stale service by the code id of its checkout.
+    expect(file.processStart, "the discovery file's processStart").toBe(startTimeOf(file.pid));
+    const identity = version.json as { startedAt?: string; codeId?: string };
+    expect(identity.codeId, "codeId isn't codeIdOf the checkout the service runs from").toBe(codeIdOf(join(SERVICE_DIR, "..")));
+    expect(Date.parse(identity.startedAt ?? ""), "startedAt isn't a time").not.toBeNaN();
 
     const started = await api(file, "POST", "/agents", { harness: "fake-reply", repo: REPO });
     expect(started.status, started.text).toBeLessThan(300);
@@ -184,7 +191,9 @@ test(
     expect(secondSystemd.calls(), "a refused second start must not touch systemd").toEqual([]);
     expect(existsSync(secondState), "a refused second start must not open a store").toBe(false);
     expect(readFileSync(at.discoveryPath, "utf8"), "the first instance's file is untouched").toBe(text);
-    expect((await api(file, "GET", "/version")).status).toBe(200);
+    const again = await api(file, "GET", "/version");
+    expect(again.status).toBe(200);
+    expect(again.json, "startedAt moved: computed per request, not once at start").toEqual(version.json);
 
     service.child.kill("SIGTERM");
     expect(await service.exited()).toEqual({ code: 0, signal: null });
@@ -237,7 +246,7 @@ const readDiscovery = (path: string): DiscoveryFile | undefined => {
   }
 };
 
-// Lasting check "One service per runtime dir" (silent failure): without the start lock, starts racing
+// Without the start lock, starts racing
 // past the discovery check both open the store, both stop the slice (ending each other's agents) and both listen,
 // and the app talks to whichever wrote the file last.
 test(

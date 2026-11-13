@@ -1,4 +1,4 @@
-// Lasting check (silent failure): an agent's token lives in the service's memory and the agent's session only.
+// An agent's token lives in the service's memory and the agent's session only.
 // It is never written to the store, the service's log, the agent's log entries, the agent's environment, or any
 // app answer (agents, logs, proposals); a leaked token would let any local process act as that agent.
 import { readdirSync, readFileSync } from "node:fs";

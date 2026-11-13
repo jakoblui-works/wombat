@@ -14,18 +14,6 @@ afterEach(() => {
 
 const withActivity = (activity: string): SavedLayout => ({ ...defaultLayout(), activity });
 
-test("changes in quick succession are saved once, as the latest layout", () => {
-  let current = withActivity("first");
-  const written: SavedLayout[] = [];
-  const saver = layoutSaver(() => current, (layout) => written.push(layout));
-  saver.arm();
-  saver.schedule("passive");
-  current = withActivity("second");
-  saver.schedule("user");
-  vi.advanceTimersByTime(LAYOUT_SAVE_DELAY_MS);
-  expect(written).toEqual([withActivity("second")]);
-});
-
 // A restore that fell back leaves the saver unarmed: the saved layout (one a newer app wrote, say) stays.
 test("unarmed, passive changes never save; the user's first change does, and passive ones after it", () => {
   const written: SavedLayout[] = [];

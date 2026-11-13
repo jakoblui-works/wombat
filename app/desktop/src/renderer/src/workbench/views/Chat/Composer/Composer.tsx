@@ -1,26 +1,46 @@
+import type { ChatAccess } from "@wombat/shared/api";
 import { ArrowUp, Square } from "lucide-react";
 import { useEffect, useReducer } from "react";
 
 import { Button } from "../../../../components/ui/button";
 import { sendMessageVars, useCancelTurn, useSendMessage } from "../../../../data/commands.ts";
-import { canSend, composerReducer, keyAction } from "./composer-state.ts";
+import { appCommand, canSend, composerReducer, keyAction } from "./composer-state.ts";
 import { forgetUnsent, openingComposer } from "./unsent.ts";
 
-type Props = { agentId: string; turnActive: boolean; connected: boolean };
+type Props = {
+  agentId: string;
+  turnActive: boolean;
+  connected: boolean;
+  /**
+   * Whether the agent takes a message (Chat decides, by `chatAccess`): a `resumable` one is started again by it; a
+   * `closed` one's box is read-only (the footer's NotRunning indicator says why).
+   */
+  access: ChatAccess;
+  /** The agent's harness features (`GET /harnesses`): which app commands the text may be; undefined until they are known. */
+  features: readonly string[] | undefined;
+  onOpenContext: () => void;
+};
 
 /** The message box: Send, and Cancel while a turn runs. */
-export const Composer = ({ agentId, turnActive, connected }: Props) => {
+export const Composer = ({ agentId, turnActive, connected, access, features, onOpenContext }: Props) => {
   // A message handed over (the first one, when it wasn't sent) shows as a failed send, its text in the box.
   const [state, dispatch] = useReducer(composerReducer, agentId, openingComposer);
   useEffect(() => forgetUnsent(agentId), [agentId]);
   const sending = useSendMessage();
   const cancelling = useCancelTurn();
-  const sendable = canSend(state, { turnActive, connected });
+  const sendable = canSend(state, { turnActive, connected, access });
   // A failed Cancel's error is about the turn it tried to end: gone once the turn changes.
   const resetCancel = cancelling.reset;
   useEffect(() => resetCancel(), [turnActive, resetCancel]);
 
   const send = () => {
+    // Before canSend: the breakdown works while a turn runs (the dialog says if the agent isn't idle), and for an agent
+    // without a process that can be started again (the dialog's request starts it).
+    if (appCommand(state.text, access === "closed" ? [] : features) === "context") {
+      dispatch({ type: "edit", text: "" });
+      onOpenContext();
+      return;
+    }
     if (!sendable) return;
     dispatch({ type: "send" });
     cancelling.reset();
@@ -37,6 +57,8 @@ export const Composer = ({ agentId, turnActive, connected }: Props) => {
           aria-label="Message"
           rows={1}
           placeholder="Reply to the agent…"
+          readOnly={access === "closed"}
+          aria-disabled={access === "closed" || undefined}
           value={state.text}
           onChange={(event) => dispatch({ type: "edit", text: event.target.value })}
           onKeyDown={(event) => {

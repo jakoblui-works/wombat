@@ -1,65 +1,59 @@
-import { Circle, CircleAlert, CircleX, type LucideIcon } from "lucide-react";
-
 import type { ConnectionState } from "../../../shared/bridge.ts";
 
 export type Connection = ConnectionState["state"];
 
+/** How the status bar's service item looks; `warn` (amber) is a service that runs but isn't quite right. */
+export type ServiceTone = "ok" | "warn" | "pending" | "down";
+
 export type ConnectionLook = {
-  /** What the indicator says, as its label. */
+  /** The state as a label: the status bar's indicator names it, and the banner heads with it. */
   readonly label: string;
-  /** The text-colour utility bound to the state's token (tokens.css). */
-  readonly colour: string;
-  /** Its own shape, so states are told apart by more than colour. */
-  readonly icon: LucideIcon;
-  /** Whether the icon is drawn filled (a solid dot) rather than as an outline. */
-  readonly filled: boolean;
-  /** Whether the icon pulses while the state lasts. */
+  /** Whether it's still being worked on: the banner's spinner, and an ellipsis on its headline. */
   readonly pulses: boolean;
   /** What the banner tells the user besides its headline (the label); none for `connected`, which has no banner. */
-  readonly detail?: string;
+  readonly detail: string;
+  /** The status bar's service item: what it says after "Service · ", and its tone. */
+  readonly item: { readonly text: string; readonly tone: ServiceTone };
+  /** The status bar panel's first line. */
+  readonly line: string;
 };
 
-/** How each connection state shows: the activity bar's indicator and the banner. */
+/** How each connection state shows: the banner, and the status bar's item and panel (through serviceView). */
 export const CONNECTION_STATES: Readonly<Record<Connection, ConnectionLook>> = {
   connected: {
     label: "Connected to the service",
-    colour: "text-connection-ok",
-    icon: Circle,
-    filled: true,
     pulses: false,
     detail: "",
+    item: { text: "running", tone: "ok" },
+    line: "Running",
   },
   connecting: {
     label: "Connecting to the service",
-    colour: "text-connection-lost",
-    icon: Circle,
-    filled: false,
     pulses: true,
     detail: "Your agents keep running.",
+    item: { text: "connecting…", tone: "pending" },
+    line: "Connecting…",
   },
   reconnecting: {
     label: "Reconnecting to the service",
-    colour: "text-connection-lost",
-    icon: Circle,
-    filled: false,
     pulses: true,
     detail: "Your agents keep running.",
+    item: { text: "connecting…", tone: "pending" },
+    line: "Reconnecting…",
   },
   failed: {
     label: "Can't connect to the service",
-    colour: "text-connection-lost",
-    icon: CircleX,
-    filled: false,
     pulses: false,
     detail: "Restart it to try again.",
+    item: { text: "not connected", tone: "down" },
+    line: "Not connected: the app can't reach it.",
   },
   incompatible: {
     label: "The service doesn't match this app's version",
-    colour: "text-connection-lost",
-    icon: CircleAlert,
-    filled: false,
     pulses: false,
     detail: "Restart it to use this app's own.",
+    item: { text: "doesn't match this app", tone: "warn" },
+    line: "Running, but it doesn't match this app's version. Restart it.",
   },
 };
 

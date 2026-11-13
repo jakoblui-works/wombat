@@ -15,7 +15,6 @@
 // asked systemd about the real slice.
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { _electron as electron, test as base, expect, type ElectronApplication, type Locator, type Page } from "@playwright/test";
@@ -94,17 +93,18 @@ export type Sandbox = {
   stateDir: string;
   discoveryPath: string;
   systemd: FakeSystemd;
-  /** Lets a held `systemctl stop` finish (sandboxes made with `holdStop`). */
-  releaseStop: () => void;
-  /** `$XDG_CONFIG_HOME/Wombat/settings.json` (contract "Settings file"). */
+  /** `$XDG_CONFIG_HOME/Wombat/settings.json`. */
   settingsPath: (profile?: string) => string;
   /** Writes settings.json (an object as JSON, a string as is) into a profile before a launch. */
   writeSettings: (content: unknown, profile?: string) => void;
   /** settings.json parsed, or undefined while it's missing or not JSON. */
   readSettings: (profile?: string) => Record<string, unknown> | undefined;
   launch: (options?: LaunchOptions) => Promise<LaunchedApp>;
-  /** Starts a service directly (as one left running from before), for `workspace`; resolves once it's found. */
-  startService: (workspace: string, env?: Record<string, string>) => Promise<Discovery>;
+  /**
+   * Starts a service directly (as one left running from before), for `workspace`; resolves once it's found. `entry`
+   * (default the sandbox's service entry) runs it from another checkout (see app-copy.ts).
+   */
+  startService: (workspace: string, env?: Record<string, string>, entry?: string) => Promise<Discovery>;
   /** The discovery file's content, raw (so fields the shared schema doesn't know yet are kept); undefined when absent. */
   discovery: () => Discovery | undefined;
   /** Waits for a discovery file whose service is alive and answers /version with its token, and that passes `check`. */
@@ -116,8 +116,6 @@ export type Sandbox = {
   agentPids: () => number[];
   /** A call to the running service as the app makes it (token, Origin); the test is the only other client. */
   api: (method: string, pathname: string, body?: unknown) => Promise<{ status: number; json: unknown }>;
-  /** A free port other than `not`. */
-  freePort: (not?: number) => Promise<number>;
 };
 
 const isAlivePid = (pid: number): boolean => {
@@ -199,14 +197,10 @@ const until = async <T>(what: string, timeoutMs: number, probe: () => Promise<T 
   }
 };
 
-export type SandboxOptions = Omit<FakeSystemdOptions, "stopGate"> & {
-  /** Fake `systemctl stop` waits until `Sandbox.releaseStop()` (a gate file under the sandbox root). */
-  holdStop?: boolean;
-};
+export type SandboxOptions = Omit<FakeSystemdOptions, "stopGate">;
 
-const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions): { sandbox: Sandbox; teardown: () => Promise<void> } => {
+const createSandbox = (systemdOptions: SandboxOptions): { sandbox: Sandbox; teardown: () => Promise<void> } => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "wombat-e2e-")));
-  const stopGate = holdStop ? path.join(root, "stop-gate") : undefined;
   const dir = (...parts: string[]): string => {
     const at = path.join(root, ...parts);
     mkdirSync(at, { recursive: true, mode: 0o700 });
@@ -220,7 +214,7 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
   const agentPidDir = dir("pids", "agents");
   const servicePidDir = dir("pids", "services");
   const slice = `wombate2e${String(process.pid)}${String(Date.now())}${String(Math.floor(Math.random() * 1e6))}.slice`;
-  const systemd = fakeSystemd(stopGate === undefined ? systemdOptions : { ...systemdOptions, stopGate });
+  const systemd = fakeSystemd(systemdOptions);
   symlinkSync(process.execPath, path.join(systemd.binDir, "node"));
   symlinkSync(which("sleep"), path.join(systemd.binDir, "sleep"));
 
@@ -356,35 +350,28 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
     launched.page = await app.firstWindow();
     if (onWindow) await onWindow(app);
     await app.evaluate(({ BrowserWindow }, { width, height }) => {
-      for (const window of BrowserWindow.getAllWindows()) window.setContentSize(width, height);
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.setContentSize(width, height);
+        // A window that was never shown draws about one frame a second, and every mouse move, menu close and
+        // transition waits for frames. On the headless platform there is no display, so showing it puts nothing on screen.
+        window.showInactive();
+      }
     }, VIEWPORT);
     await launched.page.waitForLoadState("domcontentloaded");
+    // Checks run with motion off, so none waits for a transition to finish.
+    await launched.page.emulateMedia({ reducedMotion: "reduce" });
     return launched;
   };
 
-  const startService: Sandbox["startService"] = async (forWorkspace, extra = {}) => {
+  const startService: Sandbox["startService"] = async (forWorkspace, extra = {}, entry = serviceEntry()) => {
     const log = openSync(path.join(root, `direct-service-${String(directServices.length)}.log`), "a", 0o600);
-    const child = spawn(process.execPath, [serviceEntry()], {
+    const child = spawn(process.execPath, [entry], {
       env: env({ WOMBAT_WORKSPACE: forWorkspace, ...extra }),
       detached: true,
       stdio: ["ignore", log, log],
     });
     directServices.push(child);
     return waitForService((file) => file.pid === child.pid);
-  };
-
-  const freePort: Sandbox["freePort"] = async (not) => {
-    for (;;) {
-      const port = await new Promise<number>((resolve, reject) => {
-        const server = createServer();
-        server.once("error", reject);
-        server.listen(0, "127.0.0.1", () => {
-          const { port: bound } = server.address() as AddressInfo;
-          server.close(() => resolve(bound));
-        });
-      });
-      if (port !== not) return port;
-    }
   };
 
   const sandbox: Sandbox = {
@@ -397,10 +384,6 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
     stateDir,
     discoveryPath,
     systemd,
-    releaseStop: () => {
-      if (stopGate === undefined) throw new Error("releaseStop: this sandbox wasn't made with holdStop");
-      writeFileSync(stopGate, "");
-    },
     settingsPath,
     writeSettings: (content, at = profile) => {
       const file = settingsPath(at);
@@ -422,11 +405,9 @@ const createSandbox = ({ holdStop = false, ...systemdOptions }: SandboxOptions):
     liveServices: () => [...new Set([...pidsIn(servicePidDir), ...sandboxEntryProcesses(root)])].filter(isAlivePid).sort((a, b) => a - b),
     agentPids: () => pidsIn(agentPidDir),
     api,
-    freePort,
   };
 
   const teardown = async (): Promise<void> => {
-    if (stopGate !== undefined) writeFileSync(stopGate, "");
     // The app's whole process group (Playwright starts Electron as a group leader): Chromium's helpers would
     // otherwise go on writing into the profile while it's being removed.
     for (const launched of apps) {
@@ -515,10 +496,13 @@ export const click = async (locator: Locator): Promise<void> => {
   await locator.page().mouse.click(at.x, at.y);
 };
 
+/** The element marking a select's current value in `dialog`, holding `name`. */
+export const current = (dialog: Locator, name: string): Locator =>
+  dialog.locator('[aria-checked="true"], [aria-selected="true"], [aria-current="true"]').filter({ hasText: name });
+
 type ConnectionWindow = {
   wombat?: { service?: { onConnection?: (cb: (state: { state: string; message?: string }) => void) => unknown; onAlert?: (cb: (alert: unknown) => void) => unknown } };
   __e2eConnection?: { state: string; message?: string }[];
-  __e2eAlerts?: unknown[];
 };
 
 /** Subscribes the page to the bridge's connection states and alerts, recording them in the page. */
@@ -531,18 +515,13 @@ export const watchBridge = async (page: Page): Promise<void> => {
     }
     if (w.__e2eConnection) return;
     w.__e2eConnection = [];
-    w.__e2eAlerts = [];
     service.onConnection((state) => w.__e2eConnection?.push(state));
-    service.onAlert((alert) => w.__e2eAlerts?.push(alert));
   });
 };
 
 /** The connection states the page has seen, in order. */
 export const connectionStates = (page: Page): Promise<string[]> =>
   page.evaluate(() => ((window as unknown as ConnectionWindow).__e2eConnection ?? []).map(({ state }) => state));
-
-/** The alerts the page has received, in order. */
-export const alertsSeen = (page: Page): Promise<unknown[]> => page.evaluate(() => [...((window as unknown as ConnectionWindow).__e2eAlerts ?? [])]);
 
 /** Waits until the page's latest connection state is `state`, after at least `after` states were seen. */
 export const waitForConnection = async (page: Page, state: string, { after = 0, timeoutMs = WAIT_MS } = {}): Promise<void> => {
@@ -637,3 +616,109 @@ export const layoutOf = (page: Page): Promise<GroupView[]> =>
       .sort((a, b) => a.x - b.x || a.y - b.y)
       .map(({ tabs, active }) => ({ tabs, active })),
   );
+
+type CommandWindow = {
+  wombat?: { command?: (id: unknown) => Promise<void>; onZoom?: (cb: (level: number) => void) => unknown };
+  __e2eZooms?: number[];
+};
+
+/**
+ * Calls `window.wombat.command(id)` in the page with any value, as a hostile page could: "resolved", or "rejected: "
+ * and main's message.
+ */
+export const bridgeCommand = (page: Page, id: unknown): Promise<string> =>
+  page.evaluate(async (value) => {
+    const command = (window as unknown as CommandWindow).wombat?.command;
+    if (typeof command !== "function") throw new Error("window.wombat.command is missing: the preload bridge (src/preload/index.ts) doesn't expose it");
+    try {
+      await command(value);
+      return "resolved";
+    } catch (error) {
+      return `rejected: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }, id);
+
+/** The zoom level main has applied to the app's window (webContents.getZoomLevel()). */
+export const zoomLevel = (app: ElectronApplication): Promise<number | undefined> =>
+  app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.webContents.getZoomLevel());
+
+/** Subscribes the page to `window.wombat.onZoom`, recording each level it hears in the page. */
+export const watchZoom = async (page: Page): Promise<void> => {
+  await page.evaluate(() => {
+    const w = window as unknown as CommandWindow;
+    if (typeof w.wombat?.onZoom !== "function") throw new Error("window.wombat.onZoom is missing: the preload bridge (src/preload/index.ts) doesn't expose it");
+    if (w.__e2eZooms) return;
+    w.__e2eZooms = [];
+    w.wombat.onZoom((level) => w.__e2eZooms?.push(level));
+  });
+};
+
+/** The zoom levels the page has heard through onZoom, in order. */
+export const zoomsHeard = (page: Page): Promise<number[]> => page.evaluate(() => [...((window as unknown as CommandWindow).__e2eZooms ?? [])]);
+
+export type RecordedNotification = { title: string; body: string };
+
+/**
+ * From now on, also writes every notification main records (E2E_NOTIFICATIONS) to a file in the sandbox, so a check
+ * can read the ones raised as the app quits, after its process is gone. It wraps the recorded list, whether main
+ * pushes onto it or replaces it. Returns a reader of what was recorded since.
+ */
+export const keepNotifications = async (sandbox: Sandbox, app: ElectronApplication): Promise<() => RecordedNotification[]> => {
+  const file = path.join(sandbox.base, `notifications-${String(Date.now())}-${String(Math.floor(Math.random() * 1e6))}.jsonl`);
+  writeFileSync(file, "", { mode: 0o600 });
+  await app.evaluate(
+    (_electron, [key, at]) => {
+      const fs = process.getBuiltinModule("node:fs");
+      const write = (items: unknown[]): void => {
+        for (const item of items) fs.appendFileSync(at, `${JSON.stringify(item)}\n`);
+      };
+      class Kept extends Array<unknown> {
+        override push(...items: unknown[]): number {
+          write(items);
+          return super.push(...items);
+        }
+      }
+      const global = globalThis as Record<string, unknown>;
+      const existing = global[key];
+      let current: unknown = Kept.from(Array.isArray(existing) ? (existing as unknown[]) : []);
+      Object.defineProperty(global, key, {
+        configurable: true,
+        get: () => current,
+        set: (value: unknown) => {
+          if (Array.isArray(value)) {
+            write(value.slice(Array.isArray(current) ? current.length : 0));
+            current = Kept.from(value as unknown[]);
+          } else {
+            current = value;
+          }
+        },
+      });
+    },
+    [E2E_NOTIFICATIONS, file] as const,
+  );
+  return () =>
+    readFileSync(file, "utf8")
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => JSON.parse(line) as RecordedNotification);
+};
+
+/** The latest connection state the page has seen through the bridge, whole (the service's info included). */
+export type SeenConnection = { state: string; message?: string; service?: { startedAt?: string; stale?: unknown; foundAtLaunch?: unknown } };
+
+/** Every connection state the page has seen, whole and in order (watchBridge first). */
+export const connectionsSeen = (page: Page): Promise<SeenConnection[]> =>
+  page.evaluate(() => [...(((window as unknown as { __e2eConnection?: unknown[] }).__e2eConnection ?? []) as SeenConnection[])]);
+
+/**
+ * Waits until a connection state after the first `after` is `connected` with the service's info, and returns it.
+ * Subscribes the page first.
+ */
+export const connectedService = async (page: Page, { after = 0, timeoutMs = WAIT_MS } = {}): Promise<SeenConnection & { service: NonNullable<SeenConnection["service"]> }> => {
+  await watchBridge(page);
+  return until(`a connected state with the service's info (after ${String(after)} states)`, timeoutMs, async () => {
+    const seen = (await connectionsSeen(page)).slice(after);
+    const last = seen.at(-1);
+    return last?.state === "connected" && last.service !== undefined ? { ...last, service: last.service } : undefined;
+  });
+};

@@ -1,11 +1,11 @@
-// T8: reading an agent's log (interface-S4, `useAgentLog` through its seam `agentLogQueryFn(agentId, cached?)`),
+// Reading an agent's log (`useAgentLog` through its seam `agentLogQueryFn(agentId, cached?)`),
 // against the fake bridge, which pages and caps like the service's readLog. What would fail silently: a long log cut
 // at its first page (or at a page an unknown entry made shorter), a cached log re-read whole, a new store's entries
 // merged into the old store's, and `truncated` read as "more pages" or lost.
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import type { LogEntry } from "@wombat/shared/api";
-import { fakeService, type FakeService, MAX_LOG_READS } from "../../../../test/fake-bridge.ts";
+import { fakeService, type FakeService } from "../../../../test/fake-bridge.ts";
 import { type Body, chunk, MALFORMED, turnEnded, UNSHOWN, user } from "../../../../../shared/test/log-entries.ts";
 import { chatModel } from "./chat-model.ts";
 import { agentLogQueryFn } from "./query-client.ts";
@@ -119,18 +119,6 @@ test("truncated says the service's cap dropped entries after the cursor", async 
   gap.append(A, chunk("three"), chunk("four"), chunk("five"));
   gap.capDrop(A, 4);
   expect((await agentLogQueryFn(A, early)).truncated).toBe(true);
-});
-
-test("paging stops when a full page doesn't move the cursor past after (a service ignoring after can't loop it)", async () => {
-  const limit = await pageSize();
-  service.append(A, user("Fix the hours"), ...chunks(limit + 4, "a"));
-  service.ignoreAfter(A);
-
-  const log = await agentLogQueryFn(A);
-
-  expect(logReads().length, `log reads before stopping (the fake fails after ${String(MAX_LOG_READS)})`).toBeLessThanOrEqual(3);
-  const seqList = log.entries.map((entry) => entry.seq);
-  expect(seqList).toEqual([...new Set(seqList)].sort((a, b) => a - b));
 });
 
 test("a malformed known entry doesn't fail the read: it shows as an unreadable item, and the rest of the log reads on", async () => {

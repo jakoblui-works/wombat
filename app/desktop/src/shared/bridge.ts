@@ -6,6 +6,14 @@ import type { Alert } from "@wombat/shared/api";
 export type ConnectionState = {
   state: "connecting" | "connected" | "reconnecting" | "incompatible" | "failed";
   message?: string;
+  /**
+   * Set only while `connected`, once the service's GET /version has answered: when it started (absent from a service
+   * from before it was reported), whether it runs other code than the app would start (`stale`), and whether it is the
+   * service this app launch found already running rather than one the app started (`foundAtLaunch`; per launch, so a
+   * page reload doesn't change it; main always sets it, absent reads as false). Absent while unknown (not yet read, or
+   * /version failed).
+   */
+  service?: { startedAt?: string; stale: boolean; foundAtLaunch?: boolean };
 };
 
 /** The service's answer: its status, and its body parsed as JSON (undefined when empty). */
@@ -22,6 +30,36 @@ export type WorkspaceInfo = { root: string };
 
 export type Unsubscribe = () => void;
 
+/**
+ * The commands the page may ask main to run: the ones only main can do (zoom, the window, the clipboard through
+ * webContents, the workspace and service dialogs, quitting). Main runs an id only when isMainCommandId takes it, so
+ * this list is the whole of what `command` can reach; the trust-boundary e2e checks the rest are refused.
+ */
+export const MAIN_COMMAND_IDS = [
+  "zoom.in",
+  "zoom.out",
+  "zoom.reset",
+  "edit.undo",
+  "edit.redo",
+  "edit.cut",
+  "edit.copy",
+  "edit.paste",
+  "edit.selectAll",
+  "window.minimize",
+  "window.maximize",
+  "window.close",
+  "workspace.switch",
+  "service.stop",
+  "app.quit",
+] as const;
+
+export type MainCommandId = (typeof MAIN_COMMAND_IDS)[number];
+
+const MAIN_COMMANDS: ReadonlySet<unknown> = new Set(MAIN_COMMAND_IDS);
+
+/** Whether `id` is one of MAIN_COMMAND_IDS itself: a Set lookup, so nothing that only coerces to one passes. */
+export const isMainCommandId = (id: unknown): id is MainCommandId => MAIN_COMMANDS.has(id);
+
 export type WombatBridge = {
   readonly apiVersion: typeof API_VERSION;
   readonly service: {
@@ -31,12 +69,9 @@ export type WombatBridge = {
     /** Calls `cb` with the current state at once, then with every change. */
     onConnection: (cb: (state: ConnectionState) => void) => Unsubscribe;
     /**
-     * By the connection's state:
-     * - `failed`, `connecting`, `reconnecting`, `connected`: starts the service for the workspace if none runs (a
-     *   running one for it is kept, with its agents), then connects again. A running service for another workspace
-     *   is never taken: the state turns `failed`, saying to switch.
-     * - `incompatible`: asks "Stop the service and its N agents?" first; Stop stops the running service and its
-     *   agents and starts this app's own, Cancel leaves everything as it is.
+     * Whatever the connection's state: when agents have a process, asks "Stop the service and its N agents?" first (Cancel leaves
+     * everything as it is); then stops the running service, if any, and starts one from the code on disk for the
+     * workspace (a running service for another workspace is stopped too), then connects to it.
      * Settles once the service is connected, incompatible or failed (or the question was cancelled).
      */
     restart: () => Promise<void>;
@@ -55,6 +90,10 @@ export type WombatBridge = {
     set: (patch: Partial<RendererSettings>) => Promise<void>;
   };
   onOpenAgent: (cb: (agentId: string) => void) => Unsubscribe;
+  /** Runs a main command; rejects, running nothing, for an id outside MAIN_COMMAND_IDS. */
+  command: (id: MainCommandId) => Promise<void>;
+  /** Calls `cb` with the app's zoom level (an Electron zoom level, 0 is 100%) after each change is applied. */
+  onZoom: (cb: (level: number) => void) => Unsubscribe;
 };
 
 /** A connection state as main sends it: `seq` orders the states, so a late answer never replaces a newer state. */
@@ -71,4 +110,6 @@ export const CHANNELS = {
   settingsGet: "wombat:settings:get",
   settingsSet: "wombat:settings:set",
   openAgent: "wombat:open-agent",
+  command: "wombat:command",
+  zoom: "wombat:zoom",
 } as const;

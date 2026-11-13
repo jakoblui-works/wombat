@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp, Circle, CircleCheck, CircleDot, ListChecks } from "lucide-react";
 import { useState } from "react";
 
+import { Collapse } from "../../../../components/ui/collapse";
 import type { PlanEntry } from "../../../../data/chat-model.ts";
 import { cn } from "../../../../lib/utils";
 
@@ -18,7 +19,8 @@ const STEP_LOOK = {
 export const Plan = ({ entries }: { entries: readonly PlanEntry[] }) => {
   const [collapsed, setCollapsed] = useState(false);
   const done = entries.filter((step) => step.status === "completed").length;
-  const shown = collapsed ? entries.filter((step) => step.status === "in_progress").slice(0, 1) : entries;
+  // Collapsed, only the first step in progress stays; the others fold away.
+  const kept = entries.findIndex((step) => step.status === "in_progress");
   const Toggle = collapsed ? ChevronUp : ChevronDown;
   return (
     <section aria-label="Plan" className="@container shrink-0 border-b border-line bg-surface-1">
@@ -32,10 +34,10 @@ export const Plan = ({ entries }: { entries: readonly PlanEntry[] }) => {
             </span>
           </div>
           <ol className="flex max-h-40 min-w-0 flex-1 flex-col overflow-y-auto">
-            {shown.map((step, index) => {
+            {entries.map((step, index) => {
               const look = STEP_LOOK[step.status];
               return (
-                <li key={index} className="flex min-w-0 items-center gap-2 text-sm leading-4.5">
+                <Collapse key={index} render={<li />} open={!collapsed || index === kept} className="flex min-w-0 items-center gap-2 text-sm leading-4.5">
                   <look.icon aria-label={look.label} className={cn("size-3.5 shrink-0 text-fg-tertiary", step.status === "in_progress" && "text-fg-primary")} />
                   <span
                     className={cn(
@@ -46,7 +48,7 @@ export const Plan = ({ entries }: { entries: readonly PlanEntry[] }) => {
                   >
                     {step.content}
                   </span>
-                </li>
+                </Collapse>
               );
             })}
           </ol>

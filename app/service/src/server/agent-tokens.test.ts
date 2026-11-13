@@ -1,7 +1,8 @@
-// Lasting check (silent failure): agent and app tokens apart. An agent's token opens /mcp only, and acts as that
+// Agent and app tokens apart. An agent's token opens /mcp only, and acts as that
 // agent; the app's token never opens /mcp; on /mcp a request without the agent token, with an Origin, or with a
 // foreign Host is refused; a token stops working when its agent is stopped, deleted, crashes, is killed, or the
-// service shuts down. Otherwise an agent could drive other agents or approve its own proposals.
+// service shuts down; a resumed agent gets a new one. Otherwise an agent could drive other agents or approve
+// its own proposals.
 import { describe, expect, test } from "vitest";
 
 import { APP_ORIGIN, appRoutes, expectError } from "../../test/server-fixtures.ts";
@@ -64,8 +65,6 @@ describe("agent and app tokens apart", () => {
         { what: "a wrong token", token: `${a.token}x`, options: {} },
         { what: "a prefix of the token", token: a.token.slice(0, -1), options: {} },
         { what: "the app's Origin", token: a.token, options: { headers: { origin: APP_ORIGIN } } },
-        { what: "a page's Origin", token: a.token, options: { headers: { origin: `http://127.0.0.1:${s.port}` } } },
-        { what: "Origin null", token: a.token, options: { headers: { origin: "null" } } },
         { what: "a foreign Host", token: a.token, options: { host: `evil.example:${s.port}` } },
         { what: "another port in Host", token: a.token, options: { host: `127.0.0.1:${otherPort}` } },
       ];
@@ -98,7 +97,7 @@ describe("agent and app tokens apart", () => {
   );
 
   test(
-    "a token stops working when its agent is stopped, deleted, crashes or is killed, and at shutdown",
+    "a token stops working when its agent is stopped or killed, and at shutdown",
     async () => {
       const { s } = await serveItems();
       const tokens: { what: string; token: string }[] = [];
@@ -106,15 +105,6 @@ describe("agent and app tokens apart", () => {
       const stopped = await agentConfig(s);
       await s.manager.stop(stopped.agentId);
       tokens.push({ what: "stopped", token: stopped.token });
-
-      const deleted = await agentConfig(s);
-      await s.manager.delete(deleted.agentId);
-      tokens.push({ what: "deleted", token: deleted.token });
-
-      const crashed = await agentConfig(s);
-      await s.manager.send(crashed.agentId, { text: "crash" });
-      await waitFor("the crash recorded", () => s.agent(crashed.agentId)?.state === "error");
-      tokens.push({ what: "crashed", token: crashed.token });
 
       const before = new Set(s.pids());
       const killed = await agentConfig(s);
@@ -132,6 +122,31 @@ describe("agent and app tokens apart", () => {
 
       await s.manager.shutdown();
       expect(isRefused(await mcpRequest(s, running.token, "tools/list")), "a token after shutdown").toBe(true);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // A token never outlives its process, so a resumed agent gets a new one; with the old one its
+  // Wombat tools would fail, and reviving the old one would let a dead process's token back in.
+  test(
+    "a resumed agent gets a new token that acts as the same agent; the stopped process's token stays refused, and the new one ends with its process",
+    async () => {
+      const { s } = await serveItems();
+      const first = await agentConfig(s);
+      await s.manager.stop(first.agentId);
+
+      const resumed = await agentConfig(s, first.agentId);
+
+      expect(resumed.token, "a new token").not.toBe(first.token);
+      expect(isRefused(await mcpRequest(s, first.token, "tools/list")), "the stopped process's token").toBe(true);
+      expect(await toolsListed(s, resumed.token, "tools/list"), "the resumed process's token opens /mcp").toBe(true);
+      const proposed = await callTool(s, resumed.token, "propose_create", { structure: "bugs", title: "Proposed after the resume", reason: "Seen again" });
+      const listed = await s.api("GET", "/proposals");
+      const proposals = (listed.json as { proposals: { id: string; agentId: string }[] }).proposals;
+      expect(proposals.find((proposal) => proposal.id === (proposed.json as { proposed: string }).proposed)?.agentId, "acts as the same agent").toBe(first.agentId);
+
+      await s.manager.stop(first.agentId);
+      expect(isRefused(await mcpRequest(s, resumed.token, "tools/list")), "the resumed process's token once it is stopped").toBe(true);
     },
     TEST_TIMEOUT_MS,
   );

@@ -33,3 +33,8 @@ export const chatBlocks = (items: readonly ChatItem[]): ChatBlock[] => {
   }
   return blocks;
 };
+
+export const streamingKey = (blocks: readonly ChatBlock[], turnActive: boolean): string | undefined => {
+  const last = blocks.at(-1);
+  return turnActive && last?.kind === "item" && last.item.kind === "agent" ? last.key : undefined;
+};

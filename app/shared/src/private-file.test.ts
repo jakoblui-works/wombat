@@ -1,4 +1,4 @@
-// Private files (silent failure): the discovery file, the start lock and the store must never be readable by another
+// Private files: the discovery file, the start lock and the store must never be readable by another
 // local user, nor their folder listable; and a reader (the app, a racing start) must never see a half-written file.
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

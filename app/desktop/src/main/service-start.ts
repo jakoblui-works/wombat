@@ -5,9 +5,9 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync } from "node:fs";
 import path from "node:path";
 import { SERVICE_ENV } from "@wombat/shared";
-import { discoveryPath, findRunningService, HOLDER_WAIT_MS, type DiscoveryFile } from "@wombat/shared/discovery";
+import { discoveryPath, findRunningService, HOLDER_WAIT_MS, readDiscovery, type DiscoveryFile } from "@wombat/shared/discovery";
 import { ensurePrivateFile } from "@wombat/shared/private-file";
-import { isAlive } from "@wombat/shared/process-stat";
+import { startTimeOf } from "@wombat/shared/process-stat";
 import { stateDir } from "@wombat/shared/state-dir";
 import { callService } from "./service-client.ts";
 
@@ -18,6 +18,29 @@ const START_TIMEOUT_MS = 15_000 + HOLDER_WAIT_MS;
 const SHUTDOWN_TIMEOUT_MS = 120_000;
 /** After its 202 the service only closes its store and lock. */
 const EXIT_TIMEOUT_MS = 30_000;
+
+/** The app's service as its discovery file names it, with the process that is it. */
+export type RunningService = { file: DiscoveryFile; pid: number };
+
+/**
+ * Whether the process `file` names still runs: the pid alive and started when the file says (`processStart`), so a
+ * pid reused by another process isn't taken for it. A file without `processStart`, from an older service, is taken at
+ * its pid alone.
+ */
+const processRuns = (file: DiscoveryFile): boolean => {
+  const start = startTimeOf(file.pid);
+  return start !== undefined && (file.processStart === undefined || start === file.processStart);
+};
+
+/**
+ * The service the discovery file at `path` names, when its process still runs (see processRuns, which stopService's
+ * wait for the exit shares). Undefined when there's no file or its process is gone; a leftover file is ignored (a start
+ * replaces it). The one place that decides whether the app's service runs.
+ */
+export const runningService = (path: string): RunningService | undefined => {
+  const file = readDiscovery(path);
+  return file === undefined || !processRuns(file) ? undefined : { file, pid: file.pid };
+};
 
 /** A start or stop that failed; the message says what to do and names the service's log. */
 export class ServiceStartFailed extends Error {
@@ -40,16 +63,46 @@ export const pageMessage = (error: unknown): string => {
 
 /**
  * A running service from before this app: its discovery file doesn't name its workspace. The connection shows it as
- * `incompatible`, with Restart.
+ * `incompatible`, with Restart. Restart stops it as it stops any service (POST /shutdown); one from before that route
+ * refuses, and the failed Restart's report says how to stop it.
  */
 export class ServiceTooOld extends ServiceStartFailed {
   constructor(running: DiscoveryFile) {
     super(
       `The running service (pid ${String(running.pid)}) predates this app: it doesn't say which workspace it runs for. ` +
-        `Stop it yourself (\`kill ${String(running.pid)}\`; its agents stop with it), then press Restart to start this app's own service.`,
+        "Restart stops it and its agents and starts this app's own service.",
     );
   }
 }
+
+/**
+ * Ours runs (runningService) but doesn't answer: hung, or stopped in a debugger. A second service is never started
+ * next to it (the two would share the store and the lock), so the start fails naming it.
+ */
+export class ServiceNotAnswering extends ServiceStartFailed {
+  constructor(pid: number) {
+    super(
+      `The service (pid ${String(pid)}) is running but doesn't answer, so Wombat doesn't start another one next to it. ` +
+        `Stop it yourself (\`kill ${String(pid)}\`; its agents stop with it), then press Restart.`,
+    );
+  }
+}
+
+/**
+ * The running service once it answers (findRunningService); undefined when none runs (runningService). Rejects with a
+ * ServiceNotAnswering when ours runs but doesn't answer: its file records the process's start time, so the pid is
+ * surely it. A file without the start time (an older service) whose pid doesn't answer is taken for a leftover whose
+ * pid another process may have taken since, so it counts as none running (a start replaces it). Every start, switch
+ * and open asks it first.
+ */
+export const answeringService = async (path: string, timeoutMs?: number): Promise<DiscoveryFile | undefined> => {
+  const running = runningService(path);
+  if (running === undefined) return undefined;
+  const found = await findRunningService(path, timeoutMs === undefined ? {} : { timeoutMs });
+  if (found !== undefined) return found;
+  if (running.file.processStart === undefined) return undefined;
+  throw new ServiceNotAnswering(running.pid);
+};
 
 /** `running` when it's a service of this app (it names its workspace); throws ServiceTooOld when it predates the app. */
 export const ofThisApp = (running: DiscoveryFile): DiscoveryFile => {
@@ -161,7 +214,10 @@ export const startService = async ({
   }
 };
 
-/** Asks the service to stop (POST /shutdown), waits for its 202 (its agents have stopped), then for its process to exit. */
+/**
+ * Asks the service to stop (POST /shutdown), waits for its 202 (its agents have stopped), then for its process to exit
+ * (processRuns: a pid taken by another process since counts as exited).
+ */
 export const stopService = async (file: DiscoveryFile): Promise<void> => {
   let status: number;
   try {
@@ -179,7 +235,7 @@ export const stopService = async (file: DiscoveryFile): Promise<void> => {
     );
   }
   const deadline = Date.now() + EXIT_TIMEOUT_MS;
-  while (isAlive(file.pid)) {
+  while (processRuns(file)) {
     if (Date.now() > deadline) {
       throw new ServiceStartFailed(
         `The service (pid ${String(file.pid)}) stopped its agents but hasn't exited. Stop it yourself (\`kill ${String(file.pid)}\`) and try again.`,

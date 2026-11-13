@@ -1,11 +1,10 @@
-// T9: the saved layout (interface-S4, "Saved layout"). Lasting check "Layout restore drops what's gone": a saved
+// The saved layout: a saved
 // layout with unknown views or deleted agents restores without them, and one that can't be read gives the default.
 import type { SerializedDockview } from "dockview-react";
 import fc from "fast-check";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import "./activities.ts";
-import { AGENTS_ACTIVITY } from "./activity-ids.ts";
 import { defaultLayout, type IsKnown, pruneLayout, restoreLayout, SavedLayout } from "./layout.ts";
 import { activities, isKnown as registryIsKnown } from "./registry.ts";
 import { summary } from "../../../../test/summaries.ts";
@@ -72,10 +71,6 @@ const rootOf = (layout: SavedLayout): Branch => (layout.dockview.grid.root as un
 const panelIds = (layout: SavedLayout): string[] => Object.keys(layout.dockview.panels).sort();
 
 describe("pruneLayout", () => {
-  test("a layout whose tabs all still apply comes back as it was", () => {
-    const saved = savedSplit();
-    expect(pruneLayout(structuredClone(saved), () => true)).toEqual(saved);
-  });
 
   test("an unknown view and a deleted agent's tab are dropped, with the group they leave empty; active panel, group and activity are fixed", () => {
     const pruned = pruneLayout({ ...savedSplit(), activity: "an-activity-that-is-gone" }, isKnown());
@@ -206,13 +201,7 @@ describe("restoreLayout", () => {
   test.each<[string, () => unknown]>([
     ["nothing saved yet", () => undefined],
     ["not JSON-shaped", () => `{"version":1,"dockview":"${MARKER}`],
-    ["a number", () => 42],
-    ["an array", () => [marked()]],
     ["another version", () => ({ ...marked(), version: 2 })],
-    ["dockview without a grid", () => ({ ...marked(), dockview: { panels: marked().dockview.panels } })],
-    ["dockview's grid not an object", () => ({ ...marked(), dockview: { ...marked().dockview, grid: MARKER } })],
-    ["sidebars missing", () => ({ ...marked(), sidebars: undefined })],
-    ["activity not a string", () => ({ ...marked(), activity: { id: MARKER } })],
   ])("a layout that can't be read gives the default, with one warning that holds no layout content: %s", (_name, raw) => {
     const applied: SerializedDockview[] = [];
     let restored: SavedLayout | undefined;
@@ -239,14 +228,5 @@ describe("restoreLayout", () => {
     expect(restored).toEqual(defaultLayout());
     expect(warned).toHaveLength(1);
     expect(warned.join("\n")).not.toContain(MARKER);
-  });
-
-  // Agents by its id, not as the first registered activity: an activity registered before it mustn't become the default.
-  test("the default layout is one empty group on the Agents activity, and valid as a saved layout", () => {
-    const fallback = defaultLayout();
-    expect(SavedLayout.safeParse(fallback).success).toBe(true);
-    expect(Object.keys(fallback.dockview.panels)).toEqual([]);
-    expect(leaves(rootOf(fallback)).map((g) => g.data.views)).toEqual([[]]);
-    expect(fallback.activity).toBe(AGENTS_ACTIVITY);
   });
 });

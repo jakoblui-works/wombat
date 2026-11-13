@@ -1,9 +1,9 @@
-import type { AgentSummary } from "@wombat/shared/api";
+import { hasProcess } from "@wombat/shared/api";
 
 import { useDeleteAgent, useStopAgent } from "../../../data/commands.ts";
 
 /** Whether the agent has a process to stop, whatever its state (a done agent's process still runs). */
-export const canStop = (agent: Pick<AgentSummary, "hasProcess">): boolean => agent.hasProcess;
+export const canStop = hasProcess;
 
 /** Stopping and deleting one agent: the one place the agent list's row menu and the chat's header call. */
 export const useAgentActions = (agentId: string) => {

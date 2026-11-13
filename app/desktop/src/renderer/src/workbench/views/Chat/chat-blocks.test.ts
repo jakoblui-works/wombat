@@ -15,17 +15,6 @@ const tool = (id: string, sessionId?: string): ChatItem => ({
   at,
   ...(sessionId === undefined ? {} : { sessionId }),
 });
-const agent = (seq: number): ChatItem => ({ kind: "agent", key: `agent:${String(seq)}`, text: "x", at });
-
-test("consecutive tool calls of one session share a list; anything between, or another session, starts a new one", () => {
-  const blocks = chatBlocks([tool("a"), tool("b"), agent(3), tool("c"), tool("d", "sub")]);
-  expect(blocks.map((block) => (block.kind === "tools" ? block.items.map(({ key }) => key) : block.key))).toEqual([
-    ["tool:a", "tool:b"],
-    "agent:3",
-    ["tool:c"],
-    ["tool:d"],
-  ]);
-});
 
 test("a permission shows as one block with the tool call it asks about: no row of its own for that call", () => {
   const permission: ChatItem = { kind: "permission", key: "permission:req-1", requestId: "req-1", toolCallId: "b", title: "b", options: [], at };

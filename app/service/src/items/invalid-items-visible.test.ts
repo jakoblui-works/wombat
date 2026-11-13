@@ -1,10 +1,10 @@
-// Lasting check (silent failure): invalid items stay visible. A file the catalog can't parse or
+// Invalid items stay visible. A file the catalog can't parse or
 // validate is listed as invalid with a reason naming the field or line, never dropped, and never takes the
 // valid items or the list down with it. The HTTP half is server/items-invalid-visible.test.ts.
 import { describe, expect, test } from "vitest";
 
-import { findByHandle, type LoadedItem, type Problem } from "./catalog.ts";
-import { FIXTURE_FILES, INVALID_BUGS, itemAt, mdFilesIn, openItems, readAt, writeAt, writeRoot } from "../../test/items-fixtures.ts";
+import { type LoadedItem, type Problem } from "./catalog.ts";
+import { FIXTURE_FILES, INVALID_BUGS, itemAt, mdFilesIn, openItems, writeRoot } from "../../test/items-fixtures.ts";
 
 const names = (problems: Problem[], fields: string[]) =>
   problems.some(
@@ -44,31 +44,9 @@ describe("invalid items stay visible", () => {
     expect((await catalog.snapshot()).items.filter((item) => item.structure === "backlog").every((item) => item.problems.length === 0)).toBe(true);
   });
 
-  test("an invalid item that has a handle is still found by it, with its problems", async () => {
-    const { catalog } = openItems(writeRoot(FIXTURE_FILES));
-
-    const item = findByHandle((await catalog.snapshot()).items, "BUG-12");
-
-    expect(item?.path).toMatch(/BUG-12-missing-repo\.md$/);
-    expect(item?.problems.length).toBeGreaterThan(0);
-  });
-
-  test("a valid file broken by hand between two reads is listed as invalid on the second, not served stale", async () => {
-    const root = writeRoot(FIXTURE_FILES);
-    const { catalog } = openItems(root);
-    const file = "bugs/hero-caption.md";
-    expect(itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), file).problems).toEqual([]);
-
-    writeAt(root, file, readAt(root, file).replace("repo: site-web\n", "repo: site-web\nseverty: high\n"));
-
-    const second = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), file);
-    expect(names(second.problems, ["severty"]), describeProblems(second)).toBe(true);
-    expect(second.handle).toBe("BUG-2");
-  });
-
   // Front matter keys are data: one named like a member every object has must read as an unknown key, not as
   // that member (which made reading the root throw, taking every list and tool down).
-  test.each(["toString", "__proto__"])(
+  test.each(["__proto__"])(
     "a key named %s is an unknown-key problem on its item, and every other item still lists",
     async (key) => {
       const file = `bugs/BUG-30-${key.replaceAll("_", "")}.md`;

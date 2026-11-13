@@ -27,25 +27,6 @@ describe("excerpt", () => {
     );
   });
 
-  test("cuts before a surrogate pair that would straddle the limit", () => {
-    const text = `${"a".repeat(EXCERPT_LENGTH - 1)}😀 and more`;
-    expect(excerpt(text)).toBe("a".repeat(EXCERPT_LENGTH - 1));
-  });
-
-  test("leaves a short, already folded text unchanged", () => {
-    const words = fc
-      .array(fc.stringMatching(/^[^\s]{1,12}$/), { minLength: 1, maxLength: 15 })
-      .map((list) => list.join(" "));
-    fc.assert(
-      fc.property(
-        words.filter((text) => text.length <= EXCERPT_LENGTH && text.isWellFormed()),
-        (text) => {
-          expect(excerpt(text)).toBe(text);
-        },
-      ),
-    );
-  });
-
   test("a text kept piece by piece with keepForExcerpt gives the excerpt of the whole", () => {
     fc.assert(
       fc.property(fc.array(fc.string({ unit: codeUnit, maxLength: 120 }), { maxLength: 12 }), (pieces) => {

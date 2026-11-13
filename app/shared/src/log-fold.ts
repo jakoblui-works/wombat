@@ -1,6 +1,6 @@
 // An agent's log folded into items: the one reading of the log that the chat and the agent list share, so a row's
 // message and request titles can't differ from what the chat shows.
-import { permissionTitle, type LogEntry, type SessionUpdate } from "./api.ts";
+import { permissionTitle, type Activity, type ConfigOption, type LogEntry, type SessionUpdate } from "./api.ts";
 
 type ToolCall = Extract<SessionUpdate, { sessionUpdate: "tool_call" }>;
 type ToolCallUpdate = Extract<SessionUpdate, { sessionUpdate: "tool_call_update" }>;
@@ -12,6 +12,8 @@ export type ToolKind = NonNullable<ToolCall["kind"]>;
 export type ToolCallStatus = NonNullable<ToolCall["status"]>;
 export type ToolCallContent = NonNullable<ToolCall["content"]>[number];
 export type ToolCallLocation = NonNullable<ToolCall["locations"]>[number];
+/** The agent's context use: a `usage_update`'s fields. */
+export type Usage = Omit<Extract<SessionUpdate, { sessionUpdate: "usage_update" }>, "sessionUpdate">;
 
 /** A stored entry of a known type that fails its schema: kept in its place, as an item without its content. */
 export type UnreadableEntry = { type: "unreadable"; seq: number; at: string };
@@ -73,6 +75,14 @@ export type FoldState = {
   items: ChatItem[];
   /** The latest plan update's entries. */
   plan?: PlanEntry[];
+  /** The latest main-session `config_option_update`'s options. */
+  config?: ConfigOption[];
+  /** The command names of the latest main-session `available_commands_update`. */
+  commands?: string[];
+  /** The latest main-session `usage_update`, without its kind. */
+  usage?: Usage;
+  /** The main session's latest chunk or tool call since the last user message; what `activityOf` reads. */
+  latest?: { kind: "thinking" | "writing" } | { kind: "tool"; toolCallId: string };
   /** From a user message until the next turn end. */
   turnActive: boolean;
   /**
@@ -182,6 +192,7 @@ const foldUpdate = (state: FoldState, entry: Extract<LogEntry, { type: "session_
     case "agent_message_chunk":
     case "agent_thought_chunk": {
       const kind = update.sessionUpdate === "agent_message_chunk" ? "agent" : "reasoning";
+      if (session === undefined) state.latest = { kind: kind === "agent" ? "writing" : "thinking" };
       const text = update.content.type === "text" ? update.content.text : "";
       const messageId = update.messageId ?? undefined;
       const run = state.run;
@@ -210,10 +221,20 @@ const foldUpdate = (state: FoldState, entry: Extract<LogEntry, { type: "session_
         state.tools.set(update.toolCallId, item);
       }
       applyToolFields(item, update);
+      if (session === undefined) state.latest = { kind: "tool", toolCallId: update.toolCallId };
       return;
     }
     case "plan":
       state.plan = update.entries;
+      return;
+    case "config_option_update":
+      if (session === undefined) state.config = update.configOptions;
+      return;
+    case "available_commands_update":
+      if (session === undefined) state.commands = update.availableCommands.map((command) => command.name);
+      return;
+    case "usage_update":
+      if (session === undefined) state.usage = { used: update.used, size: update.size, ...(update.cost === undefined ? {} : { cost: update.cost }) };
       return;
     // Session updates without an item.
     default:
@@ -234,6 +255,8 @@ const foldUpdate = (state: FoldState, entry: Extract<LogEntry, { type: "session_
  *    without a sessionId belongs to the main session.
  * 4. A tool call or update: a present field replaces, a null one clears (title to `""`, kind to `"other"`, the others
  *    removed or emptied). An update for an unknown call places the tool item where it stands.
+ * 5. Only main-session updates set `config`, `commands`, `usage` and `latest`; a user message clears `latest` (a new
+ *    turn starts from scratch) but keeps `config`, `commands` and `usage`.
  *
  * `keepText(kept, chunk)` decides what a text item keeps, from its first chunk on (a new item holds
  * `keepText("", chunk)`); it may only drop text, never reorder it. A chunk that starts an item places it even when its
@@ -249,6 +272,7 @@ export const foldEntry = (state: FoldState, entry: FoldEntry, options: FoldOptio
     case "user_message":
       place(state, { kind: "user", key: `user:${String(entry.seq)}`, text: entry.text, at: entry.at }, undefined);
       state.turnActive = true;
+      delete state.latest;
       break;
     case "turn_ended":
       place(state, { kind: "turn_end", key: `turn_end:${String(entry.seq)}`, stopReason: entry.stopReason, at: entry.at }, undefined);
@@ -307,3 +331,34 @@ export const foldLog = (entries: Iterable<FoldEntry>, mainSessionId?: string): F
 /** The text of the last agent item from the main session: the agent list's row message. Undefined when there is none. */
 export const lastMainMessage = (state: FoldState): string | undefined =>
   state.items.findLast((item): item is Extract<ChatItem, { kind: "agent" }> => item.kind === "agent" && item.sessionId === undefined)?.text;
+
+/**
+ * What the agent is doing, by its main session's latest update this turn: the one rule the agent list's row and the
+ * chat's working line share. Null unless a turn is active. A thought chunk gives `thinking`, a message chunk
+ * `writing`, a tool call or its update `tool` with the tool item's title (left out when empty), unless that tool has
+ * completed or failed: then `thinking`, as the agent decides its next step. Nothing yet this turn gives `thinking`.
+ */
+export const activityOf = (state: FoldState): Activity | null => {
+  if (!state.turnActive) return null;
+  const latest = state.latest;
+  if (latest?.kind !== "tool") return { kind: latest?.kind ?? "thinking" };
+  const tool = state.tools.get(latest.toolCallId);
+  if (tool?.status === "completed" || tool?.status === "failed") return { kind: "thinking" };
+  return tool === undefined || tool.title === "" ? { kind: "tool" } : { kind: "tool", title: tool.title };
+};
+
+/** Whether two activities read the same (kind and title): the manager writes the summary only when they don't. */
+export const sameActivity = (a: Activity | null, b: Activity | null): boolean =>
+  a === null || b === null ? a === b : a.kind === b.kind && a.title === b.title;
+
+/**
+ * The agent's settings now: the latest main-session `config_option_update`'s options, kept across turns (a user
+ * message doesn't clear them). A sub-agent's never replace them. Undefined before the first.
+ */
+export const configOf = (state: FoldState): ConfigOption[] | undefined => state.config;
+
+/** The commands the agent offers now: the latest main-session `available_commands_update`'s names. Undefined before the first. */
+export const commandsOf = (state: FoldState): string[] | undefined => state.commands;
+
+/** The agent's context use now: the latest main-session `usage_update`, kept across turns. Undefined before the first. */
+export const usageOf = (state: FoldState): Usage | undefined => state.usage;

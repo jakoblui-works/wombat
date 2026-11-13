@@ -1,4 +1,4 @@
-// Lasting check (contract "bounded alert queue", silent failure): an /events client that stops reading is dropped
+// An /events client that stops reading is dropped
 // once its queue passes the cap: its stream ends (so the app sees it and reconnects), it's unsubscribed (so it
 // holds no memory), and what it did get is an unbroken run of seqs it can catch up from. Clients that keep reading
 // are never dropped, and a stream opened after the drop gets the next alert. Without it, one stalled window grows

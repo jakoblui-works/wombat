@@ -21,6 +21,11 @@ export const DiscoveryFile = z.object({
   token: z.string().min(1),
   /** The service's workspace root; services that predate it leave it out. */
   workspace: z.string().min(1).optional(),
+  /**
+   * The service process's start time (startTimeOf its pid), so a pid reused by another process isn't taken for the
+   * service; services that predate it leave it out.
+   */
+  processStart: z.string().min(1).optional(),
 });
 export type DiscoveryFile = z.infer<typeof DiscoveryFile>;
 

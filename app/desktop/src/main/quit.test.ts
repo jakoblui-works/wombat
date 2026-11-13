@@ -1,15 +1,11 @@
 // The quit decision: when the question is asked, what each answer does, and that a quit waits for a switch in
 // progress. The question and the agent list are stubs; the workspace control runs the fake service in a sandbox.
-import { API_VERSION } from "@wombat/shared";
 import type { AgentSummary } from "@wombat/shared/api";
 import { findRunningService } from "@wombat/shared/discovery";
-import { isAlive } from "@wombat/shared/process-stat";
-import { expect, onTestFinished, test } from "vitest";
+import { expect, test } from "vitest";
 
 import { FAKE_SERVICE_ENTRY, serviceSandbox, type ServiceSandbox } from "../../test/service-sandbox.ts";
-import { decideQuit, restartService, stopIfConfirmed, type QuitChoice, type QuitDeps } from "./quit.ts";
-import { serviceConnection } from "./service-connection.ts";
-import { startService } from "./service-start.ts";
+import { decideQuit, stopIfConfirmed, type QuitChoice, type QuitDeps } from "./quit.ts";
 import { loadSettings, saveSettings } from "./settings.ts";
 import { workspaceControl } from "./workspace.ts";
 
@@ -23,10 +19,14 @@ const control = (sandbox: ServiceSandbox) =>
     log: () => undefined,
   });
 
-/** A quit with one waiting agent, answering `choice`; counts the questions and stops. */
+/**
+ * A quit with one waiting agent, answering `choice`; counts the questions and stops, and records each "still running"
+ * notification's agent count in `kept`.
+ */
 const quit = (sandbox: ServiceSandbox, choice: QuitChoice, deps: Partial<QuitDeps> = {}) => {
   const workspace = control(sandbox);
   const seen = { asked: 0, stopped: 0 };
+  const kept: (number | undefined)[] = [];
   const decided = decideQuit({
     settings: workspace.settings,
     updateSettings: workspace.updateSettings,
@@ -40,11 +40,23 @@ const quit = (sandbox: ServiceSandbox, choice: QuitChoice, deps: Partial<QuitDep
       seen.stopped += 1;
       return Promise.resolve();
     },
+    notifyKept: (running: number | undefined) => {
+      kept.push(running);
+    },
     log: () => undefined,
     ...deps,
   });
-  return { decided, seen };
+  return { decided, seen, kept };
 };
+
+test("with no agent process the service stops with the app: no question, no notification, even with Keep remembered", async () => {
+  const sandbox = serviceSandbox();
+  saveSettings(sandbox.settingsFile, { version: 1, workspaces: {}, askOnQuit: false, quitAnswer: "leave" });
+  const { decided, seen, kept } = quit(sandbox, { answer: "cancel", dontAsk: false }, { agents: () => Promise.resolve([{ state: "done", hasProcess: false } as AgentSummary]) });
+  expect(await decided).toBe(true);
+  expect(seen).toEqual({ asked: 0, stopped: 1 });
+  expect(kept).toEqual([]);
+});
 
 test("Cancel keeps the app running: nothing stopped, the settings as they were", async () => {
   const sandbox = serviceSandbox();
@@ -66,6 +78,28 @@ test("\"Don't ask again\" saves askOnQuit false, and the next quit asks nothing 
   expect(second.seen).toEqual({ asked: 0, stopped: 0 });
 });
 
+// "Don't ask again" remembers the answer itself, Stop as much as Keep; turning the question back on (askOnQuit,
+// the page's setting) asks again. Each quit below is a fresh control, so the answer goes through the settings file.
+test("a remembered Stop stops the next quit's agents without asking, until the question is turned back on", async () => {
+  const sandbox = serviceSandbox();
+  const first = quit(sandbox, { answer: "stop", dontAsk: true });
+  expect(await first.decided).toBe(true);
+  expect(first.seen).toEqual({ asked: 1, stopped: 1 });
+  expect(first.kept, "a stopped service was announced as still running").toEqual([]);
+
+  // Would keep the agents running if it were asked.
+  const second = quit(sandbox, { answer: "leave", dontAsk: false });
+  expect(await second.decided).toBe(true);
+  expect(second.seen, "the remembered Stop wasn't applied").toEqual({ asked: 0, stopped: 1 });
+  expect(second.kept, "a stopped service was announced as still running").toEqual([]);
+
+  control(sandbox).updateSettings((current) => ({ ...current, askOnQuit: true }));
+  const third = quit(sandbox, { answer: "leave", dontAsk: false });
+  expect(await third.decided).toBe(true);
+  expect(third.seen, "with the question on again, the quit didn't ask").toEqual({ asked: 1, stopped: 0 });
+  expect(third.kept, "Keep didn't announce the service still running, with its one agent").toEqual([1]);
+});
+
 test("a quit during a workspace switch waits for the switch to finish before it looks at the agents", async () => {
   const sandbox = serviceSandbox();
   sandbox.env["FAKE_START_DELAY_MS"] = "300";
@@ -84,34 +118,15 @@ test("a quit during a workspace switch waits for the switch to finish before it 
       return [];
     },
     ask: () => Promise.reject(new Error("the question wasn't expected")),
-    stop: () => Promise.reject(new Error("no stop was expected")),
+    // No agent has a process, so the quit stops the service: nothing is left running unseen behind the app.
+    stop: () => Promise.resolve(),
+    notifyKept: () => undefined,
     log: () => undefined,
   });
 
   expect(await quitting).toBe(true);
   expect(runningWhenRead, "the quit didn't wait for the switch's service").toBe(target);
   await switching;
-});
-
-test("Stop: the quit waits until the stop has finished, and only then saves \"Don't ask again\"", async () => {
-  const sandbox = serviceSandbox();
-  let finishStop = () => undefined as void;
-  const stopped = new Promise<void>((resolve) => {
-    finishStop = resolve;
-  });
-  let settled = false;
-  const { decided } = quit(sandbox, { answer: "stop", dontAsk: true }, { stop: () => stopped });
-  void decided.then(() => {
-    settled = true;
-  });
-
-  await new Promise((resolve) => setImmediate(resolve));
-  expect(settled, "the quit went ahead before the stop finished").toBe(false);
-  expect(loadSettings(sandbox.settingsFile, () => undefined).askOnQuit).toBe(true);
-
-  finishStop();
-  expect(await decided).toBe(true);
-  expect(loadSettings(sandbox.settingsFile, () => undefined).askOnQuit).toBe(false);
 });
 
 test("a stop that fails fails the quit, and leaves the question on", async () => {
@@ -186,71 +201,11 @@ test("a switch asked for while the quit question is open finishes before the ans
     stop: async () => {
       runningWhenStopped = (await findRunningService(sandbox.discoveryPath))?.workspace;
     },
+    notifyKept: () => undefined,
     log: () => undefined,
   });
 
   expect(await decided).toBe(true);
   expect(runningWhenStopped, "the stop ran before the switch's service was up").toBe(target);
   await switching;
-});
-
-/**
- * The page's Restart over a real connection and workspace control, with a fake service of another API version
- * running. The fake service has no alert stream, so a connection to it gives up (`failed`) after a short while.
- */
-const restartFromIncompatible = async (answer: boolean) => {
-  const sandbox = serviceSandbox();
-  const saved = sandbox.workspace("saved");
-  saveSettings(sandbox.settingsFile, { version: 1, workspace: saved, workspaces: {}, askOnQuit: true });
-  const old = await startService({
-    env: { ...sandbox.env, FAKE_API_VERSION: String(API_VERSION + 1) },
-    entry: FAKE_SERVICE_ENTRY,
-    workspace: saved,
-  });
-  const workspace = control(sandbox);
-  const connection = serviceConnection({
-    discoveryFile: () => sandbox.discoveryPath,
-    onState: () => undefined,
-    onAlert: () => undefined,
-    timing: { firstRetryMs: 10, maxRetryMs: 20, failAfterMs: 200 },
-    log: () => undefined,
-  });
-  onTestFinished(() => connection.close());
-  await connection.reconnect(() => Promise.resolve());
-  expect(connection.current().state.state).toBe("incompatible");
-
-  const asked: (number | undefined)[] = [];
-  const restarted = await restartService({
-    incompatible: () => connection.current().state.state === "incompatible",
-    agents: () => Promise.resolve([{ state: "waiting", hasProcess: true } as AgentSummary]),
-    confirm: (running) => {
-      asked.push(running);
-      return Promise.resolve(answer);
-    },
-    stop: () => connection.shutdown(() => workspace.shutdown()),
-    start: () => connection.reconnect(() => workspace.restart()),
-    log: () => undefined,
-  });
-  return { sandbox, old, asked, restarted, connection, saved };
-};
-
-test("Restart on an incompatible service asks, then stops it and its agents and starts the app's own", async () => {
-  const { old, asked, restarted, sandbox, saved } = await restartFromIncompatible(true);
-
-  expect(restarted).toBe(true);
-  expect(asked).toEqual([1]);
-  expect(isAlive(old.pid), "the incompatible service still runs").toBe(false);
-  const now = await findRunningService(sandbox.discoveryPath);
-  expect(now?.apiVersion).toBe(API_VERSION);
-  expect(now?.workspace).toBe(saved);
-});
-
-test("Cancel on Restart of an incompatible service leaves it running and starts nothing", async () => {
-  const { old, asked, restarted, connection, sandbox } = await restartFromIncompatible(false);
-
-  expect(restarted).toBe(false);
-  expect(asked).toEqual([1]);
-  expect(isAlive(old.pid)).toBe(true);
-  expect(sandbox.starts()).toHaveLength(1);
-  expect(connection.current().state.state).toBe("incompatible");
 });

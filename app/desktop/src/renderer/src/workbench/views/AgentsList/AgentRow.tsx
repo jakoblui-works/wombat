@@ -3,6 +3,8 @@ import { Ellipsis, GitBranch } from "lucide-react";
 import { useState } from "react";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../../components/ui/dropdown-menu";
+import { activityLabel } from "../../../lib/activity";
+import { AGENT_STATES } from "../../../lib/agent-state";
 import { ago } from "../../../lib/ago";
 import { StateMark } from "../../../lib/state-mark";
 import { cn } from "../../../lib/utils";
@@ -17,11 +19,13 @@ type Props = {
   workspaceName: string;
   now: number;
   selected: boolean;
+  /** The agent changed state in the last update (`trackStates`). */
+  stateChanged: boolean;
   onOpen: () => void;
 };
 
 /** One agent: the row opens its chat; the menu beside it stops or deletes the agent. */
-export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props) => {
+export const AgentRow = ({ agent, workspaceName, now, selected, stateChanged, onOpen }: Props) => {
   const title = agentTitle(agent.id, agent);
   const actions = useAgentActions(agent.id);
   const [confirming, setConfirming] = useState(false);
@@ -39,7 +43,7 @@ export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props)
         )}
       >
         <span className="flex w-full items-center gap-2">
-          <StateMark state={agent.state} />
+          <StateMark state={agent.state} entering={stateChanged} />
           <span className="min-w-0 flex-1 truncate text-base font-medium text-fg-primary">{title}</span>
           <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{ago(agent.lastUserAt ?? agent.startedAt, now)}</span>
         </span>
@@ -52,6 +56,11 @@ export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props)
             </>
           )}
         </span>
+        {agent.state === "working" && agent.activity != null ? (
+          <span className="truncate pl-5.5 text-xs text-fg-secondary">
+            {AGENT_STATES.working.label} · {activityLabel(agent.activity)}
+          </span>
+        ) : null}
         {agent.lastText === undefined ? null : <span className="line-clamp-2 pl-5.5 text-sm text-fg-secondary">{agent.lastText}</span>}
       </button>
       <DropdownMenu>

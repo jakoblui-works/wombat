@@ -1,26 +1,37 @@
-import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { chatAccess } from "@wombat/shared/api";
+import { memo, type ReactNode, useCallback, useEffect, useState, useLayoutEffect, useMemo, useRef } from "react";
 
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { type ChatItem, type ChatModel } from "../../../data/chat-model.ts";
-import { useConnection } from "../../../data/hooks.ts";
+import { useSetConfig } from "../../../data/commands.ts";
+import { useConnection, useHarnesses } from "../../../data/hooks.ts";
 import type { Reveal, ViewProps } from "../../registry.ts";
 import { useWorkbench } from "../../workbench-context.ts";
 import { DIFF_VIEW } from "../Diff/diff-params.ts";
 import { type EditRequest, editRequest } from "../approvals/edit-request.ts";
 import { useAnswer } from "../approvals/answer.ts";
-import { type ChatBlock, chatBlocks } from "./chat-blocks.ts";
+import { usePlay } from "../../../lib/motion.ts";
+import { useReveal } from "../../../lib/use-reveal.ts";
+import { type Arrivals, NO_ARRIVALS, trackArrivals } from "./arrivals.ts";
+import { type ChatBlock, chatBlocks, streamingKey } from "./chat-blocks.ts";
 import { CHAT_VIEW, ChatParams } from "./chat-params.ts";
+import { featuresOrAssumed } from "./harness-features.ts";
 import { type LiveState, liveState } from "../approvals/live-state.ts";
 import { sameBlock } from "./same-item.ts";
 import { useChatModel } from "../approvals/use-chat-model.ts";
+import { caughtUp, followStreaming, NO_PACING, type Pacing, revealDone, stillReveals } from "./pacing.ts";
 import { ChatHeader } from "./ChatHeader/ChatHeader.tsx";
+import { ContextDialogHost } from "./ContextDialogHost/ContextDialogHost.tsx";
 import { Composer } from "./Composer/Composer.tsx";
+import { ComposerFooter } from "./Composer/ComposerFooter/ComposerFooter.tsx";
 import { LogError } from "../approvals/LogError/LogError.tsx";
 import { Markdown } from "./Markdown/Markdown.tsx";
+import { safePrefix } from "./Markdown/safe-prefix.ts";
 import { Permission } from "./Permission/Permission.tsx";
 import { Plan } from "./Plan/Plan.tsx";
 import { Reasoning } from "./Reasoning/Reasoning.tsx";
 import { ToolCalls } from "./ToolCall/ToolCall.tsx";
+import { WorkingLine } from "./WorkingLine/WorkingLine.tsx";
 
 /** How close to the end (px) still counts as "at the bottom": new content then scrolls into view. */
 const BOTTOM_SLACK_PX = 24;
@@ -48,6 +59,12 @@ const STOP_REASONS: Readonly<Record<string, string>> = {
   refusal: "The agent refused to go on.",
 };
 
+/** What a turn's end says, or undefined for one that ended without a reason worth saying (it renders nothing). */
+const turnEndText = (item: { stopReason: string }): string | undefined => STOP_REASONS[item.stopReason];
+
+/** Whether a block renders nothing: there is nothing to animate. */
+const showsNothing = (block: ChatBlock): boolean => block.kind === "item" && block.item.kind === "turn_end" && turnEndText(block.item) === undefined;
+
 /** A sub-agent's item (another ACP session), marked apart from the agent's own. */
 const SubAgent = ({ children }: { children: ReactNode }) => (
   <div className="flex flex-col gap-1 border-l-2 border-line pl-3">
@@ -57,6 +74,21 @@ const SubAgent = ({ children }: { children: ReactNode }) => (
 );
 
 type StaticItem = Extract<ChatBlock, { kind: "item" }>["item"];
+
+const AgentText = ({ text }: { text: string }) => <Markdown text={text} className="text-base text-fg-primary" />;
+
+/**
+ * An agent message revealed at an even pace (`stillReveals`); only it renders again on each frame. Once it is no
+ * longer being written and shows all of its text it calls `onDone` with its block's key.
+ */
+const StreamingText = ({ blockKey, text, fresh, streaming, onDone }: { blockKey: string; text: string; fresh: boolean; streaming: boolean; onDone: (key: string) => void }) => {
+  const shown = useReveal(text, true, fresh);
+  const done = revealDone(streaming, shown, text);
+  useEffect(() => {
+    if (done) onDone(blockKey);
+  }, [done, onDone, blockKey]);
+  return <AgentText text={safePrefix(shown)} />;
+};
 
 /** An item that shows only what the log says (everything but a permission, whose state is live). */
 const StaticItemView = ({ item }: { item: StaticItem }): ReactNode => {
@@ -68,11 +100,11 @@ const StaticItemView = ({ item }: { item: StaticItem }): ReactNode => {
         </div>
       );
     case "agent":
-      return <Markdown text={item.text} className="text-base text-fg-primary" />;
+      return <AgentText text={item.text} />;
     case "reasoning":
       return <Reasoning text={item.text} />;
     case "turn_end": {
-      const said = STOP_REASONS[item.stopReason];
+      const said = turnEndText(item);
       return said === undefined ? null : <p className="text-sm text-fg-tertiary">{said}</p>;
     }
     case "unreadable":
@@ -87,6 +119,12 @@ const StaticBlock = memo(
 );
 StaticBlock.displayName = "StaticBlock";
 
+/** A block that arrived live: it fades and slides in once, if it is shown when it arrives (`usePlay`). */
+const Arrival = ({ children }: { children: ReactNode }) => {
+  const enter = usePlay<HTMLDivElement>("motion-enter", true, { onMount: true });
+  return <div ref={enter}>{children}</div>;
+};
+
 type BlockProps = {
   block: ChatBlock;
   live: LiveState;
@@ -95,9 +133,16 @@ type BlockProps = {
   onOpenSideBySide: (requestId: string) => void;
   answers: ReturnType<typeof useAnswer>;
   cards: Map<string, HTMLElement>;
+  /** The block arrived while the chat was open (`trackArrivals`): it fades and slides in. */
+  fresh: boolean;
+  /** The block is the agent message still being written (`streamingKey`). */
+  streaming: boolean;
+  /** The block reveals its text at a pace (`stillReveals`). */
+  paced: boolean;
+  onRevealDone: (key: string) => void;
 };
 
-const Block = ({ block, live, edits, connected, answers, cards, onOpenSideBySide }: BlockProps) => {
+const Block = ({ block, live, edits, connected, answers, cards, fresh, streaming, paced, onRevealDone, onOpenSideBySide }: BlockProps) => {
   let shown: ReactNode;
   if (block.kind === "permission") {
     const item = block.item;
@@ -119,9 +164,13 @@ const Block = ({ block, live, edits, connected, answers, cards, onOpenSideBySide
         }}
       />
     );
-  } else shown = <StaticBlock block={block} />;
+  } else if (paced && block.kind === "item" && block.item.kind === "agent") {
+    shown = <StreamingText blockKey={block.key} text={block.item.text} fresh={fresh} streaming={streaming} onDone={onRevealDone} />;
+  }
+  else shown = <StaticBlock block={block} />;
   const session: ChatItem["sessionId"] = block.kind === "tools" ? block.items[0]?.sessionId : block.item.sessionId;
-  return session === undefined ? shown : <SubAgent>{shown}</SubAgent>;
+  const placed = session === undefined ? shown : <SubAgent>{shown}</SubAgent>;
+  return fresh && !showsNothing(block) ? <Arrival>{placed}</Arrival> : placed;
 };
 
 /** One agent's chat: the plan pinned on top, the conversation, the message box at the bottom. */
@@ -129,11 +178,26 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const { model, agent, log } = useChatModel(agentId);
   const connected = useConnection().state === "connected";
   const answers = useAnswer(agentId);
+  const harnesses = useHarnesses();
+  const harness = harnesses.data?.find(({ id }) => id === agent?.harness);
+  const features = harnesses.data === undefined ? undefined : (harness?.features ?? []);
+  // While the agent is still loading it counts as running: only a known agent without a process isn't.
+  const access = agent === undefined ? "running" : chatAccess(agent, featuresOrAssumed(features));
+  const setConfig = useSetConfig();
   const blocks = useMemo(() => (model === undefined ? [] : chatBlocks(model.items)), [model]);
+  const [arrivals, setArrivals] = useState<Arrivals>(NO_ARRIVALS);
+  const tracked = trackArrivals(arrivals, blocks.map((block) => block.key), { loaded: model !== undefined, connected, reading: log.isFetching, readAt: log.dataUpdatedAt });
+  if (tracked !== arrivals) setArrivals(tracked);
   const edits = useMemo(() => (model === undefined ? new Map<string, EditRequest>() : editRequests(model, blocks)), [model, blocks]);
+  const [contextOpen, setContextOpen] = useState(false);
   const workbench = useWorkbench();
   const openSideBySide = (requestId: string) => workbench.openBeside(DIFF_VIEW, { agentId, requestId }, { viewId: CHAT_VIEW, params: { agentId } });
   const live = useMemo(() => (model === undefined ? undefined : liveState(model, agent)), [model, agent]);
+  const streamingBlock = streamingKey(blocks, live?.turnActive ?? false);
+  const [pacingState, setPacing] = useState<Pacing>(NO_PACING);
+  const pacing = followStreaming(pacingState, streamingBlock);
+  if (pacing !== pacingState) setPacing(pacing);
+  const onRevealDone = useCallback((key: string) => setPacing((before) => caughtUp(before, key)), []);
 
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -195,7 +259,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
         <p className="p-5 text-sm text-fg-tertiary">Loading…</p>
       ) : (
         <ScrollArea viewportRef={viewport} className="min-h-0 flex-1">
-          <div ref={content} className="mx-auto flex max-w-chat flex-col gap-3 px-5 pt-2 pb-4">
+          <div ref={content} role="log" aria-label="Conversation" className="mx-auto flex max-w-chat flex-col gap-3 px-5 pt-2 pb-4">
             {log.data?.truncated ? <p className="text-sm text-fg-tertiary">Earlier history wasn't kept.</p> : null}
             {blocks.map((block) => (
               <Block
@@ -206,13 +270,37 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
                 connected={connected}
                 answers={answers}
                 cards={cards.current}
+                fresh={tracked.fresh.has(block.key)}
+                streaming={block.key === streamingBlock}
+                paced={stillReveals(pacing, block.key)}
+                onRevealDone={onRevealDone}
                 onOpenSideBySide={openSideBySide}
               />
             ))}
           </div>
         </ScrollArea>
       )}
-      <Composer agentId={agentId} turnActive={live?.turnActive ?? false} connected={connected && model !== undefined} />
+      {/* The summary says whether the agent works, the log what it does; both must agree before the line shows. */}
+      {agent?.state === "working" ? <WorkingLine activity={model?.activity ?? null} /> : null}
+      <Composer
+        agentId={agentId}
+        turnActive={live?.turnActive ?? false}
+        connected={connected && model !== undefined}
+        access={access}
+        features={features}
+        onOpenContext={() => setContextOpen(true)}
+      />
+      {agent === undefined ? null : (
+        <ComposerFooter
+          agent={agent}
+          toolName={harness?.name ?? agent.harness}
+          options={model?.config}
+          usage={model?.usage}
+          access={access}
+          onSet={(configId, value) => setConfig.mutateAsync({ agentId, configId, value })}
+        />
+      )}
+      {agent === undefined ? null : <ContextDialogHost agent={agent} features={features} featuresError={harnesses.isFetching ? null : harnesses.error} refetchFeatures={harnesses.refetch} open={contextOpen} onOpenChange={setContextOpen} />}
     </div>
   );
 };

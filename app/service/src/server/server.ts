@@ -16,7 +16,10 @@ import {
   ListStructuresResponse as ListStructuresSchema,
   SendMessageRequest,
   ServerErrorCode,
+  SetConfigRequest,
   StartAgentRequest,
+  type AgentSummary,
+  type ContextBreakdown,
   type ErrorBody,
   type GetItemResponse,
   type ListAgentsResponse,
@@ -35,12 +38,14 @@ import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { z } from "zod";
 
-import { AgentError, notFound, type Manager } from "../agents/manager.ts";
+import { requireAgent } from "../agents/errors.ts";
+import { AgentError, type Manager } from "../agents/manager.ts";
 import { openAccess, ProposalError } from "../items/access.ts";
 import { handlesById, summarize, withLinks } from "../items/api-view.ts";
 import { findByHandle, type Catalog } from "../items/catalog.ts";
 import type { Writer } from "../items/write.ts";
 import type { Harness } from "../harness/harness.ts";
+import { harnessFeatures } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { listRepos, RepoError } from "../workspace.ts";
@@ -75,6 +80,8 @@ export type ServerOptions = {
   onShutdown?: () => void;
   /** Called when POST /shutdown begins, before any agent is stopped; main removes the discovery file there. */
   onShutdownStart?: () => void;
+  /** When the service started and which code it runs (codeIdOf its checkout), for `GET /version`; main sets both once. */
+  identity?: { startedAt: string; codeId: string };
 };
 
 /** Shorter tokens are guessable by a local process that can try requests in a loop. */
@@ -129,6 +136,7 @@ export const startServer = async ({
   writer,
   onShutdown,
   onShutdownStart,
+  identity,
 }: ServerOptions): Promise<{ port: number; close: () => Promise<void> }> => {
   if (token.length < MIN_TOKEN_LENGTH) {
     throw new Error(
@@ -139,6 +147,11 @@ export const startServer = async ({
   let boundPort = 0;
   const alerts = createAlertStreams({ onCommitted: manager.onCommitted, dbId: store.dbId, heartbeatMs });
   const app = new Hono();
+  /** A stored summary with the agent's live cache state, which is never stored; the only place it is added. */
+  const withLiveCache = (agent: AgentSummary): AgentSummary => {
+    const cache = manager.liveCache(agent.id);
+    return cache === undefined ? agent : { ...agent, cache };
+  };
   // Proposal changes reach the alert stream through the manager's listeners, like agent changes.
   const access =
     items && writer
@@ -165,16 +178,16 @@ export const startServer = async ({
     }),
   );
 
-  app.get("/version", (c) => c.json({ apiVersion: API_VERSION } satisfies VersionResponse));
+  app.get("/version", (c) => c.json({ apiVersion: API_VERSION, ...identity } satisfies VersionResponse));
 
   app.get("/harnesses", (c) =>
-    c.json(harnesses.map(({ id, name }) => ({ id, name })) satisfies ListHarnessesResponse),
+    c.json(harnesses.map((harness) => ({ id: harness.id, name: harness.name, features: harnessFeatures(harness) })) satisfies ListHarnessesResponse),
   );
 
   app.get("/repos", (c) => c.json({ repos: listRepos(workspaceRoot) } satisfies ListReposResponse));
 
   app.get("/agents", (c) =>
-    c.json({ dbId: store.dbId, seq: store.currentSeq(), agents: store.listAgents() } satisfies ListAgentsResponse),
+    c.json({ dbId: store.dbId, seq: store.currentSeq(), agents: store.listAgents().map(withLiveCache) } satisfies ListAgentsResponse),
   );
 
   app.post("/agents", async (c) => {
@@ -190,9 +203,7 @@ export const startServer = async ({
       );
     }
     const agentId = c.req.param("id");
-    if (!store.listAgents().some((agent) => agent.id === agentId)) {
-      throw notFound(agentId);
-    }
+    requireAgent(agentId, (id) => store.listAgents().find((agent) => agent.id === id));
     const { after, limit = defaultLogLimit } = query.data;
     const { entries, truncated } = store.readLog(agentId, after, limit);
     return c.json({ dbId: store.dbId, seq: store.currentSeq(), entries, truncated } satisfies ListLogResponse);
@@ -208,6 +219,16 @@ export const startServer = async ({
     manager.answer(c.req.param("id"), c.req.param("requestId"), kind);
     return c.body(null, 204);
   });
+
+  // 204 once the agent's new options are stored: a read of the log right after holds them.
+  app.post("/agents/:id/config", async (c) => {
+    const { configId, value } = await readBody(c, SetConfigRequest);
+    await manager.setConfig(c.req.param("id"), configId, value);
+    return c.body(null, 204);
+  });
+
+  // A hidden turn: the breakdown, with nothing of the turn in the agent's log or summary.
+  app.post("/agents/:id/context", async (c) => c.json(await manager.contextBreakdown(c.req.param("id")) satisfies ContextBreakdown));
 
   app.post("/agents/:id/cancel", async (c) => {
     await manager.cancel(c.req.param("id"));
@@ -334,7 +355,10 @@ export const startServer = async ({
     if (error instanceof InvalidRequest) return errorResponse(c, SERVER_STATUS.invalid_request, ServerErrorCode.enum.invalid_request, error.message);
     if (error instanceof ProposalError) return errorResponse(c, ITEMS_STATUS[error.code satisfies ProposalErrorCode], error.code, error.message);
     if (error instanceof RepoError) return errorResponse(c, AGENT_STATUS[error.code], error.code, error.message);
-    if (error instanceof AgentError) return errorResponse(c, AGENT_STATUS[error.code], error.code, error.message, error.hint);
+    if (error instanceof AgentError) {
+      const status = error.code === ServerErrorCode.enum.invalid_request ? SERVER_STATUS.invalid_request : AGENT_STATUS[error.code];
+      return errorResponse(c, status, error.code, error.message, error.hint);
+    }
     // The details stay in the service: an error's message may quote agent content or paths.
     log("request_failed", { method: c.req.method, route: c.req.routePath, error: error.name });
     return errorResponse(

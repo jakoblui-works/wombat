@@ -5,8 +5,8 @@
 // - the diff tab is titled "notes.txt (diff)" and has the same "Approve" and "Reject" while open;
 // - an answered request says "approved" or "rejected" (any case), in the chat and in its diff tab;
 // - the diff tab shows Monaco's diff editor (`.monaco-diff-editor`).
-// It is also the lasting check that Monaco runs under the page's CSP: Monaco loads lazily with the first diff tab, so
-// no other lasting check mounts it. While it's mounted, no CSP violation and no page error may happen.
+// It is also the one check that Monaco runs under the page's CSP: Monaco loads lazily with the first diff tab, so
+// no other test mounts it. While it's mounted, no CSP violation and no page error may happen.
 import type { Page } from "@playwright/test";
 
 import { click, expect, layoutOf, openAgent, REPO, type Sandbox, startWaitingAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";

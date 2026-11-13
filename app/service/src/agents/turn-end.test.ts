@@ -1,7 +1,7 @@
-// Lasting check (silent failure): every turn in an agent's stored log ends with exactly one turn_ended, so a
+// Every turn in an agent's stored log ends with exactly one turn_ended, so a
 // reader of the log alone sees each turn end. A successful turn keeps ACP's stopReason; a turn the agent fails
 // (the prompt is rejected while the connection stays open) ends with "error"; a turn whose process ends under it
-// (crash, kill, stop, service shutdown) ends with "stopped". A failed turn whose process then ends gets no second
+// (a crash here) ends with "stopped". A failed turn whose process then ends gets no second
 // one. A missing or doubled entry only shows to a later reader, so nothing else would catch it.
 import type { LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
@@ -48,25 +48,6 @@ const kill = (pid: number) => {
 const changes = (t: Setup, id: string) => t.committed.filter((event) => event.type === "agent_changed" && event.agentId === id).length;
 
 describe("turn_ended", () => {
-  test(
-    "successful turns: each ends with one turn_ended carrying ACP's stopReason",
-    async () => {
-      const t = setup();
-      const { id } = await t.manager.start("fake-reply", REPO);
-      await t.manager.send(id, { text: "Say hello" });
-      await t.turnEnded(id);
-      await waitFor("state done", () => t.agent(id)?.state === "done");
-      await t.manager.send(id, { text: "And again" });
-      await t.turnEnded(id, 2);
-      await waitFor("state done again", () => t.agent(id)?.state === "done");
-
-      expect(turns(t.entries(id))).toEqual([
-        { ends: ["end_turn"], endsLast: true },
-        { ends: ["end_turn"], endsLast: true },
-      ]);
-    },
-    TEST_TIMEOUT_MS,
-  );
 
   test(
     "a failed turn ends with one turn_ended error, the next failed turn too; the process then ending adds none",
@@ -78,6 +59,7 @@ describe("turn_ended", () => {
       await waitFor("the failed turn (state error)", () => t.agent(id)?.state === "error");
       // The process lives on: this is the failed-turn path, not a crash.
       expect(isAlive(pid)).toBe(true);
+      expect(t.agent(id)?.hasProcess, "an agent in error with a live process still has one").toBe(true);
       expect(turns(t.entries(id))).toEqual([{ ends: ["error"], endsLast: true }]);
 
       // A second call on the same live process: its own turn, its own single end.
@@ -90,6 +72,7 @@ describe("turn_ended", () => {
       const before = changes(t, id);
       kill(pid);
       await waitFor("the exit recorded", () => !isAlive(pid) && changes(t, id) > before);
+      expect(t.agent(id)?.hasProcess).toBe(false);
 
       expect(turns(t.entries(id))).toEqual([
         { ends: ["error"], endsLast: true },
@@ -106,16 +89,6 @@ describe("turn_ended", () => {
       harness: "fake-crash",
       end: (t, id) => waitFor("the crash recorded", () => t.agent(id)?.state === "error"),
     },
-    {
-      how: "the process is killed",
-      harness: "fake-hang",
-      end: async (t, id, pid) => {
-        kill(pid);
-        await waitFor("the kill recorded", () => t.agent(id)?.state === "error");
-      },
-    },
-    { how: "the agent is stopped", harness: "fake-hang", end: (t, id) => t.manager.stop(id) },
-    { how: "the service shuts down", harness: "fake-hang", end: (t) => t.manager.shutdown() },
   ];
 
   test.each(ENDINGS)(

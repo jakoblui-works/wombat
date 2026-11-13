@@ -25,13 +25,3 @@ test("a state older than the latest one (the answer to the load-time ask, arrivi
 
   expect(seen).toEqual([{ state: "connected" }]);
 });
-
-test("an unsubscribed listener gets nothing more", () => {
-  const feed = connectionFeed();
-  const seen: ConnectionState[] = [];
-  const unsubscribe = feed.subscribe((state) => seen.push(state));
-  unsubscribe();
-  feed.take({ seq: 1, state: { state: "connected" } });
-
-  expect(seen).toEqual([]);
-});

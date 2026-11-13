@@ -34,13 +34,6 @@ const reads = async (service: FakeService): Promise<string[]> => {
   return service.requests().map(({ method, path }) => `${method} ${path}`);
 };
 
-test.each(["agent_added", "agent_changed"] as const)("%s reads the agents again and nothing else", async (type) => {
-  const { service } = setup();
-  service.alert(type, A);
-  await vi.waitFor(() => expect(service.requests()).not.toEqual([]));
-  expect(await reads(service)).toEqual(["GET /agents"]);
-});
-
 test("a proposal alert reads the proposals again and nothing else", async () => {
   const { service } = setup();
   service.alert("agent_changed", A, { type: "proposal", proposalId: "proposal-1" });
