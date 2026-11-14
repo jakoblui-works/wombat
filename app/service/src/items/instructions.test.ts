@@ -93,12 +93,12 @@ describe("the instructions file", () => {
 
     const created = await access.proposeCreate(AGENT, "bugs", { title: "Search ignores accents", body: "\nInvented.\n" }, "Seen in the search box.");
     expect(readFileSync(path, "utf8"), "a pending create").not.toContain("Search ignores accents");
-    expect((await access.approve(created.proposed)).status).toBe("approved");
+    expect((await access.approve(created.proposed, 1)).status).toBe("approved");
     expect(readFileSync(path, "utf8"), "right after the approved create").toContain("Search ignores accents");
 
     const { version } = await access.get("BUG-2");
     const deleted = await access.proposeDelete(AGENT, "BUG-2", version, "Fixed by the new layout.");
-    expect((await access.approve(deleted.proposed)).status).toBe("approved");
+    expect((await access.approve(deleted.proposed, 1)).status).toBe("approved");
     expect(readFileSync(path, "utf8"), "right after the approved delete").not.toContain("The hero caption overlaps the image");
   });
 

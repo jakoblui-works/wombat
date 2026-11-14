@@ -13,7 +13,7 @@ import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { queueWrite, readAtVersion, readVersioned, VersionChanged, writeAtomic } from "./files.ts";
 import { addKeyEdits, checkedText, parseItemFile, scalarRange, type ParsedItemFile, type TextEdit } from "./item-file.ts";
-import { folderProblem, inFolder, ownerOf, readSettings, SETTINGS_FILE, structureFiles, structureFolders } from "./structures.ts";
+import { folderProblem, inFolder, isCatalogFile, ownerOf, readSettings, SETTINGS_FILE, structureFiles, structureFolders } from "./structures.ts";
 import { formatHandle, isUuid, parseHandle, validateOwnKeys, validateProperties, type LinkLookup } from "./validate.ts";
 
 export type { Problem } from "@wombat/shared/items";
@@ -57,6 +57,8 @@ export const findByHandle = (items: readonly LoadedItem[], handle: string): Load
 export type Catalog = {
   /** The structures and their items, invalid ones included, from one read. */
   snapshot(): Promise<Snapshot>;
+  /** Whether a file at `path` (absolute, symlinks resolved) is or would be one of the catalog's: `isCatalogFile`. */
+  holds(path: string): Promise<boolean>;
 };
 
 export type CatalogOptions = { root: string; store: Store; log?: Log };
@@ -458,5 +460,5 @@ export const openCatalog = ({ root, store, log }: CatalogOptions): Catalog => {
       });
     }
   };
-  return { snapshot };
+  return { snapshot, holds: (path) => isCatalogFile(root, path) };
 };

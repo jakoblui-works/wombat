@@ -3,10 +3,11 @@
 // agent read, under the structure's settings as they are now; anything changed since makes it a conflict, never
 // an overwrite.
 import { ItemWriteErrorCode } from "@wombat/shared/api";
-import type { Problem } from "@wombat/shared/items";
-import { canDecide, ProposalErrorCode, type ItemProposal, type ProposalStatus } from "@wombat/shared/proposals";
+import type { Item, Problem } from "@wombat/shared/items";
+import type { ItemProposal, ProposalStatus, ProposalVersion } from "@wombat/shared/proposals";
 
 import type { View } from "../items/access.ts";
+import { handlesById, withLinks } from "../items/api-view.ts";
 import type { Catalog, LoadedItem, Snapshot, ValidStructure } from "../items/catalog.ts";
 import { checkHasId, checkLevel, checkLocks, lockedNames, newItem, type Family, type ItemInput } from "../items/refusals.ts";
 import { SETTINGS_FILE } from "../items/structures.ts";
@@ -15,17 +16,7 @@ import type { Log } from "../log.ts";
 import type { NewProposal, ProposalChange, Store, StoredProposal } from "../store/store.ts";
 import { announcer } from "./announce.ts";
 import { commonFields } from "./proposal-fields.ts";
-
-/** Why deciding a proposal was refused; nothing changed. */
-export class ProposalError extends Error {
-  readonly code: ProposalErrorCode;
-
-  constructor(code: ProposalErrorCode, message: string) {
-    super(message);
-    this.name = "ProposalError";
-    this.code = code;
-  }
-}
+import { notFound, toApprove, toReject } from "./refused.ts";
 
 export type ProposalResult = { proposed: string };
 
@@ -43,11 +34,18 @@ export type ItemProposals = {
   proposeDelete(agentId: string, handle: string, version: string, reason: string): Promise<ProposalResult>;
   /** For people (HTTP): every proposal, hidden structures' included, or those with `status`. */
   proposals(status?: ProposalStatus): Promise<ItemProposalRecord[]>;
-  /** Applies a pending proposal through the writer; a conflict answers with `status: "conflict"` and its problem. */
-  approve(id: string): Promise<ItemProposalRecord>;
-  /** Marks a pending proposal rejected; no file is touched. */
-  reject(id: string): Promise<ItemProposalRecord>;
+  /** As `proposals`, with its item as it is now (null when gone), version `n`'s fields and every version. */
+  detail(id: string, n: number): Promise<ItemProposalDetail>;
+  /**
+   * Applies a pending proposal at its current version `version` through the writer; a conflict answers with
+   * `status: "conflict"` and its problem.
+   */
+  approve(id: string, version: number): Promise<ItemProposalRecord>;
+  /** Marks a pending proposal or a conflict rejected; no file is touched. */
+  reject(id: string, reason?: string): Promise<ItemProposalRecord>;
 };
+
+export type ItemProposalDetail = ItemProposalRecord & { current: Item | null; versions: ProposalVersion[] };
 
 /** The view functions come from access.ts, which alone decides what an agent may read about a structure. */
 export type ItemProposalsOptions = {
@@ -123,15 +121,8 @@ export const openItemProposals = ({
     return result;
   };
 
-  const pending = (id: string) => {
-    const stored = store.getProposal(id);
-    if (stored === undefined || !isItemProposal(stored)) throw new ProposalError(ProposalErrorCode.enum.proposal_not_found, `No proposal has the id ${id}. Refresh the proposals to see the current ones.`);
-    if (!canDecide(stored.status)) {
-      throw new ProposalError(
-        ProposalErrorCode.enum.proposal_not_pending,
-        `Proposal ${id} is already ${stored.status}; only a pending proposal can be approved or rejected. Refresh the proposals to see its state.`,
-      );
-    }
+  const itemOnly = (stored: StoredProposal) => {
+    if (!isItemProposal(stored)) throw notFound(stored.id);
     return stored;
   };
 
@@ -246,9 +237,25 @@ export const openItemProposals = ({
       return store.listProposals(status).filter(isItemProposal).map((stored) => proposalOf(stored, items));
     },
 
-    approve: (id) =>
+    detail: async (id, n) => {
+      const found = store.getProposal(id);
+      if (found === undefined) throw notFound(id);
+      const stored = itemOnly(found);
+      const { structures, items } = await catalog.snapshot();
+      const chosen = store.listVersions(id).find((version) => version.n === n)?.content;
+      if (chosen === undefined || !("fields" in chosen)) throw new Error(`Proposal ${id} has no item version ${String(n)} stored; it can't be read.`);
+      const item = stored.itemId === null ? undefined : items.find((candidate) => candidate.id === stored.itemId);
+      return {
+        ...proposalOf(stored, items),
+        fields: chosen.fields,
+        current: item === undefined ? null : withLinks(item, structures, handlesById(items)),
+        versions: store.listVersionHeads(id),
+      };
+    },
+
+    approve: (id, version) =>
       decide(async () => {
-        const stored = pending(id);
+        const stored = itemOnly(toApprove(store, id, version));
         const snapshot = await catalog.snapshot();
         const { n, fields } = currentVersion(id);
         moved(id, store.beginApplying(id, n, { kind: stored.kind, itemId: stored.itemId, version: n }));
@@ -267,11 +274,11 @@ export const openItemProposals = ({
         return proposalOf(approved, snapshot.items, created?.handle);
       }),
 
-    reject: (id) =>
+    reject: (id, reason) =>
       decide(async () => {
-        pending(id);
+        itemOnly(toReject(store, id));
         const { items } = await catalog.snapshot();
-        return proposalOf(moved(id, store.rejectProposal(id)), items);
+        return proposalOf(moved(id, store.rejectProposal(id, reason)), items);
       }),
   };
 };

@@ -2,12 +2,14 @@
 // of the nearest folder above it that has a `_structure.yaml` (broken settings included), and to no other:
 // a structure's access level covers exactly its own files, so a nested hidden structure's items never show
 // through its parent.
-import { glob, lstat, readdir, readFile } from "node:fs/promises";
-import { join, matchesGlob, relative, sep } from "node:path";
+import { glob, lstat, readdir, readFile, realpath } from "node:fs/promises";
+import { join, matchesGlob, posix, relative, sep } from "node:path";
 
 import { errorCode, isMissing } from "@wombat/shared/errno";
 import { StructureSettings, type Problem } from "@wombat/shared/items";
 import { isCollection, LineCounter, parseDocument, type Document } from "yaml";
+
+import { isWithin } from "../workspace.ts";
 
 export const SETTINGS_FILE = "_structure.yaml";
 
@@ -135,6 +137,36 @@ export const throughSymlink = async (folder: string, file: string) => {
   return false;
 };
 
+/**
+ * Whether the structure in `folder` reads the root-relative `path`, a regular file not reached through a symlink,
+ * as one of its items: `*.md` directly in its folder (`naming: handle`), or an `include` match of its own
+ * (`naming: free`). Never a dot file, nor anything under a dot folder or node_modules.
+ */
+export const readsAsItem = (settings: StructureSettings, folder: string, path: string, folders: Set<string>) => {
+  const inner = folder === "" ? path : path.slice(folder.length + 1);
+  if (!inFolder(folder, path) || !inner.endsWith(".md") || isSkippedPath(inner)) return false;
+  if (settings.naming === "handle" || settings.include === undefined) return !inner.includes("/");
+  return isIncluded(settings, inner) && ownerOf(folders, path) === folder;
+};
+
+/**
+ * Whether the catalog under `root` reads the file at `path` (absolute, symlinks resolved) as a structure's
+ * `_structure.yaml` or an item's file, as it is now or once a file is written there: files only the item tools
+ * may change. A structure whose settings don't load reads no items.
+ */
+export const isCatalogFile = async (root: string, path: string): Promise<boolean> => {
+  const realRoot = await realpath(root);
+  if (path === realRoot || !isWithin(realRoot, path)) return false;
+  const rootPath = toRootPath(realRoot, path);
+  if (isSkippedPath(rootPath)) return false;
+  if (posix.basename(rootPath) === SETTINGS_FILE) return true;
+  const folders = new Set((await structureFolders(realRoot)).folders);
+  const owner = ownerOf(folders, rootPath);
+  if (owner === undefined) return false;
+  const { settings } = await readSettings(join(realRoot, owner, SETTINGS_FILE));
+  return settings !== null && readsAsItem(settings, owner, rootPath, folders);
+};
+
 export type StructureFiles = { files: string[]; problems: Problem[] };
 
 /**
@@ -155,8 +187,9 @@ export const structureFiles = async (root: string, folder: string, settings: Str
       return failed(error);
     }
     const files = entries
-      .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && !entry.name.startsWith("."))
+      .filter((entry) => entry.isFile())
       .map((entry) => joinRootPath(folder, entry.name))
+      .filter((path) => readsAsItem(settings, folder, path, folders))
       .sort();
     return { files, problems: [] };
   }
@@ -164,7 +197,8 @@ export const structureFiles = async (root: string, folder: string, settings: Str
   try {
     for await (const match of glob(settings.include, { cwd: absolute })) {
       const path = match.split(sep).join("/");
-      if (!path.endsWith(".md") || isSkippedPath(path)) continue;
+      const rootPath = joinRootPath(folder, path);
+      if (!readsAsItem(settings, folder, rootPath, folders)) continue;
       const file = join(absolute, match);
       if (relative(absolute, file).startsWith("..")) continue;
       try {
@@ -173,8 +207,7 @@ export const structureFiles = async (root: string, folder: string, settings: Str
         // Gone since the glob saw it.
         continue;
       }
-      const rootPath = joinRootPath(folder, path);
-      if (ownerOf(folders, rootPath) === folder) files.add(rootPath);
+      files.add(rootPath);
     }
   } catch (error) {
     return failed(error);

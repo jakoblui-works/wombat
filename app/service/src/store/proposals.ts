@@ -49,7 +49,7 @@ export type NewProposal = DistributiveOmit<StoredProposal, "id" | "status" | "at
 export type ProposalChange = { proposal: StoredProposal; seq: number };
 
 /** How a write that began with `beginApplying` ended; `itemId` names an approved create's new item. */
-export type ApplyOutcome = { status: "approved"; itemId?: string } | { status: "conflict"; problem?: Problem } | { status: "pending" };
+export type ApplyOutcome = { status: "approved"; itemId?: string } | { status: "conflict"; problem?: Problem } | { status: "pending"; problem?: Problem };
 
 /**
  * Every write but `markDelivered` is one transaction that takes one seq; a refused one (an unknown id, a move the
@@ -68,6 +68,11 @@ export type ProposalStore = {
   /** `version` must be the current version; `intent` is JSON. */
   beginApplying: (id: string, version: number, intent: unknown) => ProposalChange | undefined;
   settle: (id: string, outcome: ApplyOutcome) => ProposalChange | undefined;
+  /**
+   * Settles a write that began with `beginApplying` back to pending, nothing written, with `content` as a new agent
+   * version whose target version is `baseVersion` (the proposal's base from then on).
+   */
+  settleRevised: (id: string, content: ProposalContent, reason: string, baseVersion: string | null) => ProposalChange | undefined;
   rejectProposal: (id: string, reason?: string) => ProposalChange | undefined;
   /** Every proposal, or those with `status`, oldest first. */
   listProposals: (status?: ProposalStatus) => StoredProposal[];
@@ -126,6 +131,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     ),
     insertVersion: db.prepare("INSERT INTO proposal_versions (proposal_id, n, by, content, reason, at) VALUES (?, ?, ?, ?, ?, ?)"),
+    setBase: db.prepare("UPDATE proposals SET base_version = ? WHERE id = ?"),
     takeVersionNumber: db.prepare("UPDATE proposals SET last_version = last_version + 1 WHERE id = ? RETURNING last_version"),
     deleteVersion: db.prepare("DELETE FROM proposal_versions WHERE proposal_id = ? AND n = ?"),
     versions: db.prepare("SELECT n, by, content, reason, at FROM proposal_versions WHERE proposal_id = ? ORDER BY n"),
@@ -276,6 +282,19 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
       return move(stored, event, columns) === undefined ? undefined : changed(id);
     });
 
+  const settleRevised = (id: string, content: ProposalContent, reason: string, baseVersion: string | null) =>
+    transaction(() => {
+      const stored = getProposal(id);
+      const event = stored === undefined ? undefined : settleEvent(stored.status, "pending");
+      if (stored === undefined || event === undefined) return undefined;
+      checkFits(stored.target, content);
+      const columns = () => ({ problem: null, rejectReason: null, intent: null, itemId: null });
+      if (move(stored, event, columns) === undefined) return undefined;
+      statements.insertVersion.run(id, takeVersionNumber(id), "agent", JSON.stringify(content), reason, now().toISOString());
+      statements.setBase.run(baseVersion, id);
+      return changed(id);
+    });
+
   const rejectProposal = (id: string, reason?: string) =>
     moving(id, () => true, "reject", (stored) => ({
       problem: stored.problem === undefined ? null : JSON.stringify(stored.problem),
@@ -294,6 +313,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     clearDraft,
     beginApplying,
     settle,
+    settleRevised,
     rejectProposal,
     listProposals,
     getProposal,

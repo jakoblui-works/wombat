@@ -15,6 +15,7 @@ import type { Harness } from "./harness/harness.ts";
 import { defaultHarnesses } from "./harness/registry.ts";
 import { openWriter } from "./items/write.ts";
 import { logToStderr } from "./log.ts";
+import type { ApproveStep } from "./proposals/apply.ts";
 import { startServer } from "./server/server.ts";
 import { LockHeld, takeStartLock } from "./start-lock.ts";
 import { openStore, type Store } from "./store/store.ts";
@@ -26,6 +27,8 @@ export type MainOptions = {
   harnesses?: readonly Harness[];
   /** Default the service's own slice. */
   slice?: string;
+  /** Called synchronously at each named step of an approve; only tests pass it. */
+  onApproveStep?: (step: ApproveStep) => void;
 };
 
 /** The `app/` folder this service's code was loaded from (src/main.ts is two levels below it), whatever the cwd. */
@@ -173,6 +176,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
         port: config.port,
         log,
         identity,
+        ...(options.onApproveStep === undefined ? {} : { onApproveStep: options.onApproveStep }),
         // Only called from a request, and none is handled before `stop` below is defined.
         onShutdown: () => stop("POST /shutdown"),
         // The file goes first, while the agents still stop: a start that finds it would take this service for a

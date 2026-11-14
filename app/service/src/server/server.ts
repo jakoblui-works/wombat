@@ -28,18 +28,10 @@ import {
   type ListStructuresResponse,
   type VersionResponse,
 } from "@wombat/shared/api";
-import {
-  ListProposalsQuery,
-  ListProposalsResponse as ListProposalsSchema,
-  Proposal as ProposalSchema,
-  type ListProposalsResponse,
-  type Proposal,
-  type ProposalErrorCode,
-} from "@wombat/shared/proposals";
+import { errorCode } from "@wombat/shared/errno";
 import { MAX_BODY_BYTES } from "@wombat/shared/routes";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import type { z } from "zod";
 
 import { requireAgent } from "../agents/errors.ts";
 import { AgentError, type Manager } from "../agents/manager.ts";
@@ -51,14 +43,17 @@ import type { Writer } from "../items/write.ts";
 import type { Harness } from "../harness/harness.ts";
 import { harnessFeatures } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
-import { ProposalError } from "../proposals/item-proposals.ts";
+import type { ApproveStep } from "../proposals/apply.ts";
 import { createProposals } from "../proposals/proposals.ts";
+import { ITEMS_NOT_CONFIGURED, ProposalError } from "../proposals/refused.ts";
 import type { Store } from "../store/store.ts";
 import { listRepos, RepoError } from "../workspace.ts";
 import { AGENT_STATUS, errorResponse, ITEMS_STATUS, SERVER_STATUS } from "./errors.ts";
 import { createAlertStreams } from "./events.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { portRules } from "./port-rules.ts";
+import { proposalRoutes } from "./proposal-routes.ts";
+import { checked, InvalidRequest, readBody, readQuery } from "./request.ts";
 
 export type ServerOptions = {
   manager: Manager;
@@ -88,44 +83,14 @@ export type ServerOptions = {
   onShutdownStart?: () => void;
   /** When the service started and which code it runs (codeIdOf its checkout), for `GET /version`; main sets both once. */
   identity?: { startedAt: string; codeId: string };
+  /** Called synchronously at each named step of an approve; main passes it through for the crash tests. */
+  onApproveStep?: (step: ApproveStep) => void;
 };
 
 /** Shorter tokens are guessable by a local process that can try requests in a loop. */
 const MIN_TOKEN_LENGTH = 16;
 /** How long close() lets ended responses flush before it drops the connections left. */
 const CLOSE_GRACE_MS = 1_000;
-
-/** Thrown by a route on a request that breaks the contract; answered with invalid_request. */
-class InvalidRequest extends Error {}
-
-const describeIssues = (error: z.ZodError) =>
-  error.issues
-    .map((issue) => (issue.path.length === 0 ? issue.message : `${issue.path.join(".")}: ${issue.message}`))
-    .join("; ");
-
-/** The request body as JSON, whatever its Content-Type says, checked against `schema`. */
-const readBody = async <T extends z.ZodType>(c: Context, schema: T): Promise<z.output<T>> => {
-  const text = await c.req.text();
-  let json: unknown;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    throw new InvalidRequest("The request body isn't JSON. Send a JSON object as described in the API contract.");
-  }
-  const parsed = schema.safeParse(json);
-  if (!parsed.success) {
-    throw new InvalidRequest(
-      `The request body doesn't match the API contract (${describeIssues(parsed.error)}). Fix it and send it again.`,
-    );
-  }
-  return parsed.data;
-};
-
-/** Every value of every query key: a repeated key stays an array, so the strict query schema refuses it. */
-const queryValues = (c: Context) =>
-  Object.fromEntries(
-    Object.entries(c.req.queries()).map(([key, values]) => [key, values.length === 1 ? values[0] : values]),
-  );
 
 /** Serves the API on 127.0.0.1 only; resolves once it is listening. */
 export const startServer = async ({
@@ -143,6 +108,7 @@ export const startServer = async ({
   onShutdown,
   onShutdownStart,
   identity,
+  onApproveStep,
 }: ServerOptions): Promise<{ port: number; close: () => Promise<void> }> => {
   if (token.length < MIN_TOKEN_LENGTH) {
     throw new Error(
@@ -167,8 +133,12 @@ export const startServer = async ({
     agentFolder: (agentId) => folderOf(workspaceRoot, requireAgent(agentId, (id) => store.listAgents().find((agent) => agent.id === id)).repo),
     onProposal,
     log,
-    itemProposals: access && ((status) => access.proposals(status)),
+    itemProposals: access,
+    holds: items && ((path) => items.holds(path)),
+    onApproveStep,
   });
+  // Before the server listens: no request may see a proposal a service death left applying.
+  await proposals.settleAtStart();
 
   // Before the port rules: /mcp takes an agent's token, never the app's, and the port rules refuse agent tokens.
   app.route(
@@ -209,15 +179,10 @@ export const startServer = async ({
   });
 
   app.get("/agents/:id/log", (c) => {
-    const query = ListLogQuery.safeParse(queryValues(c));
-    if (!query.success) {
-      throw new InvalidRequest(
-        `The query doesn't match the API contract (${describeIssues(query.error)}). Fix it and send it again.`,
-      );
-    }
+    const query = readQuery(c, ListLogQuery);
     const agentId = c.req.param("id");
     requireAgent(agentId, (id) => store.listAgents().find((agent) => agent.id === id));
-    const { after, limit = defaultLogLimit } = query.data;
+    const { after, limit = defaultLogLimit } = query;
     const { entries, truncated } = store.readLog(agentId, after, limit);
     return c.json({ dbId: store.dbId, seq: store.currentSeq(), entries, truncated } satisfies ListLogResponse);
   });
@@ -277,11 +242,8 @@ export const startServer = async ({
       c,
       ITEMS_STATUS.items_not_configured,
       ItemsErrorCode.enum.items_not_configured,
-      "The items aren't set up. Set WOMBAT_ITEMS to the absolute path of the items folder and restart the service.",
+      ITEMS_NOT_CONFIGURED,
     );
-
-  /** Checked against the shared schema before it goes out, so a drift fails here and not in the app. */
-  const checked = <T extends z.ZodType>(schema: T, value: unknown): z.output<T> => schema.parse(value);
 
   app.get("/structures", async (c) => {
     if (!items) return notConfigured(c);
@@ -325,35 +287,7 @@ export const startServer = async ({
     return c.json(checked(GetItemSchema, withLinks(found, structures, handles)) satisfies GetItemResponse);
   });
 
-  app.get("/proposals", async (c) => {
-    const parsed = ListProposalsQuery.safeParse(queryValues(c));
-    if (!parsed.success) {
-      throw new InvalidRequest(`The query doesn't match the API contract (${describeIssues(parsed.error)}). Fix it and send it again.`);
-    }
-    return c.json(checked(ListProposalsSchema, { proposals: await proposals.list(parsed.data.status) }) satisfies ListProposalsResponse);
-  });
-
-  app.post("/proposals/:id/approve", async (c) => {
-    if (!access) return notConfigured(c);
-    return c.json(checked(ProposalSchema, await access.approve(c.req.param("id"))) satisfies Proposal);
-  });
-
-  app.post("/proposals/:id/reject", async (c) => {
-    if (!access) return notConfigured(c);
-    return c.json(checked(ProposalSchema, await access.reject(c.req.param("id"))) satisfies Proposal);
-  });
-
-  // In the app's contract, but not answered by this service.
-  const notServedYet = (c: Context) =>
-    errorResponse(
-      c,
-      SERVER_STATUS.not_found,
-      ServerErrorCode.enum.not_found,
-      `This service doesn't serve ${c.req.method} ${c.req.routePath} yet. Update the service to a version that does.`,
-    );
-  app.get("/proposals/:id", notServedYet);
-  app.put("/proposals/:id/draft", notServedYet);
-  app.delete("/proposals/:id/draft", notServedYet);
+  proposalRoutes(app, proposals);
 
   app.get("/events", (c) => {
     // Hono answers HEAD by running this handler and dropping the body, which would leave a subscription that
@@ -376,14 +310,16 @@ export const startServer = async ({
 
   app.onError((error, c) => {
     if (error instanceof InvalidRequest) return errorResponse(c, SERVER_STATUS.invalid_request, ServerErrorCode.enum.invalid_request, error.message);
-    if (error instanceof ProposalError) return errorResponse(c, ITEMS_STATUS[error.code satisfies ProposalErrorCode], error.code, error.message);
+    if (error instanceof ProposalError) return errorResponse(c, ITEMS_STATUS[error.code], error.code, error.message);
     if (error instanceof RepoError) return errorResponse(c, AGENT_STATUS[error.code], error.code, error.message);
     if (error instanceof AgentError) {
       const status = error.code === ServerErrorCode.enum.invalid_request ? SERVER_STATUS.invalid_request : AGENT_STATUS[error.code];
       return errorResponse(c, status, error.code, error.message, error.hint);
     }
     // The details stay in the service: an error's message may quote agent content or paths.
-    log("request_failed", { method: c.req.method, route: c.req.routePath, error: error.name });
+    // An errno code, when there is one, names no path.
+    const code = errorCode(error);
+    log("request_failed", { method: c.req.method, route: c.req.routePath, error: error.name, ...(code === error.name ? {} : { code }) });
     return errorResponse(
       c,
       SERVER_STATUS.internal_error,

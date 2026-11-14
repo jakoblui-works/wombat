@@ -61,7 +61,7 @@ describe("proposals", () => {
       expect(snapshotFiles(root), "files after the proposals before the approval").toEqual(untouched);
       const { proposed } = await access.proposeCreate(AGENT, "bugs", footer, "Found it");
       expect(snapshotFiles(root), "files after the proposal to approve").toEqual(untouched);
-      return (await access.approve(proposed)).handle;
+      return (await access.approve(proposed, 1)).handle;
     };
 
     const alone = await approvedAfter(() => Promise.resolve());
@@ -89,7 +89,7 @@ describe("proposals", () => {
     const [pending] = await access.proposals("pending");
     expect(pending?.file, "the proposal's file").toBe("guides/setup.md");
     expect(pending?.fields, "fields holds title, body and properties only").not.toHaveProperty("file");
-    const decided = await access.approve(proposed);
+    const decided = await access.approve(proposed, 1);
     expect(decided.status).toBe("approved");
     expect(decided.file, "the decided proposal's file").toBe("guides/setup.md");
     const added = Object.keys(snapshotFiles(root)).filter((path) => !before.includes(path));
@@ -100,11 +100,11 @@ describe("proposals", () => {
   test("approving an update writes the field, and approving a delete removes the file", async () => {
     const { access, root } = openAccessRoot();
     const update = await access.proposeUpdate(AGENT, "BUG-2", { note: "Fixed by the grid" }, (await access.get("BUG-2")).version, "Done");
-    expect((await access.approve(update.proposed)).status).toBe("approved");
+    expect((await access.approve(update.proposed, 1)).status).toBe("approved");
     expect(readAt(root, BUG)).toContain("note: Fixed by the grid");
 
     const removal = await access.proposeDelete(AGENT, "BUG-2", (await access.get("BUG-2")).version, "A duplicate");
-    expect((await access.approve(removal.proposed)).status).toBe("approved");
+    expect((await access.approve(removal.proposed, 1)).status).toBe("approved");
     expect(existsSync(join(root, BUG))).toBe(false);
   });
 

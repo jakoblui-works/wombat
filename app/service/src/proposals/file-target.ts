@@ -1,13 +1,17 @@
-// The plain file a proposal targets: where its path points, and whether its text is text a proposal may hold.
+// The plain file a proposal targets: where its path points, whether its text is text a proposal may hold, and
+// writing an approved proposal onto it.
 import { constants } from "node:fs";
-import { lstat, open, realpath, stat } from "node:fs/promises";
+import { access, lstat, open, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, sep } from "node:path";
 
-import { errorCode, isMissing, isMissingPath } from "@wombat/shared/errno";
-import { MAX_PROPOSAL_BYTES } from "@wombat/shared/proposals";
+import { errorCode, isAlreadyThere, isMissing, isMissingPath } from "@wombat/shared/errno";
+import { MAX_PROPOSAL_BYTES, type FileProposalKind } from "@wombat/shared/proposals";
 
-import { versionOf } from "../items/files.ts";
+import { NoHardLinks, VersionChanged, versionOf, writeAtomic } from "../items/files.ts";
+import type { FileEdit } from "../store/store.ts";
 import { isWithin } from "../workspace.ts";
+import { applyEdits, type EditProblem } from "./edits.ts";
+import type { Applied } from "./apply.ts";
 import { ProposalRefused } from "./refused.ts";
 
 export type Target = { realPath: string; outsideWorkspace: boolean; exists: boolean };
@@ -155,4 +159,176 @@ export const readTarget = async (realPath: string, path: string): Promise<{ text
   if (file === undefined) throw new ProposalRefused(`${path} doesn't exist anymore. Check the path; for a new file send content instead of edits.`);
   if ("problem" in file) throw file.problem === "not_file" ? notRegular(path) : textRefusal(file.problem, path);
   return file;
+};
+
+/** Whether the file at `realPath` is now exactly `intent`'s version: an approve's write landed. Unreadable reads as not. */
+export const written = async (realPath: string, intent: unknown): Promise<boolean> => {
+  try {
+    const file = await readText(realPath);
+    return file !== undefined && !("problem" in file) && file.version === intent;
+  } catch {
+    return false;
+  }
+};
+
+/** A file proposal's text as it is now; null when it's missing or can't be read as text. */
+export const currentText = async (realPath: string): Promise<string | null> => {
+  try {
+    const file = await readText(realPath);
+    return file === undefined || "problem" in file ? null : file.text;
+  } catch {
+    return null;
+  }
+};
+
+const conflict = (message: string): Applied => ({ problem: { message } });
+
+const NOTHING_WRITTEN = "so nothing was written";
+const ASK_AGAIN = "Reject the proposal, or ask the agent to read the file again and propose anew.";
+
+const CATALOG_FILE = conflict(
+  `The file is an item's file or a structure's settings, which only the item tools change, ${NOTHING_WRITTEN}. Make the change by hand if you still want it, or reject the proposal.`,
+);
+const EXISTS = conflict(`A file was made at this path since the agent proposed creating it, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
+const GONE = conflict(`The file was deleted or moved since the agent read it, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
+const NO_EDITS = conflict(`The file changed since this version was made, and the version has no edits to apply to it again, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
+
+const textConflict = (problem: TextProblem | "not_file", what: string) =>
+  conflict(
+    problem === "not_file"
+      ? `The path no longer leads to a regular file, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`
+      : problem === "too_large"
+        ? `${what} is larger than ${String(MAX_PROPOSAL_BYTES / 1024)} KiB, the most a proposal can hold, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`
+        : `${what} isn't UTF-8 text, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`,
+  );
+
+const editConflict = (problem: EditProblem) => {
+  const { edit } = problem;
+  const found = "empty" in problem ? "has an empty old text" : problem.matches === 0 ? "no longer finds its old text" : `finds its old text ${String(problem.matches)} times`;
+  return conflict(`The file changed since the agent read it, and edit ${String(edit)} of the proposal ${found} in it, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
+};
+
+/** The proposal's stored edits on the file as it is now: a new version based on it, or the conflict. */
+const revised = (now: TargetText | undefined, edits: readonly FileEdit[] | undefined): Applied => {
+  if (now === undefined) return GONE;
+  if ("problem" in now) return textConflict(now.problem, "The file");
+  if (edits === undefined) return NO_EDITS;
+  const applied = applyEdits(now.text, edits);
+  if ("problem" in applied) return editConflict(applied.problem);
+  const checked = checkText(applied.text);
+  if ("problem" in checked) return textConflict(checked.problem, "The text after the proposal's edits");
+  return { revised: { content: { text: checked.text, edits: [...edits] }, baseVersion: now.version } };
+};
+
+export type FileWrite = {
+  proposal: { path: string; kind: FileProposalKind; baseVersion: string | null };
+  content: { text: string; edits?: readonly FileEdit[] | undefined };
+  /** Whether the items catalog holds the path; undefined without items. */
+  holds?: ((realPath: string) => Promise<boolean>) | undefined;
+};
+
+/** A target state the user can fix: the proposal stays pending, to approve again as it is. */
+const retry = (message: string): Applied => ({ retry: { message } });
+
+const FOLDER_GONE = retry(`The folder of this file doesn't exist anymore, ${NOTHING_WRITTEN}. Create the folder and approve again, or reject the proposal.`);
+const UNREADABLE = retry(
+  `The service isn't allowed to read the file or its folder, ${NOTHING_WRITTEN}. Make them readable for the service and approve again, or reject the proposal.`,
+);
+const READ_ONLY = retry(
+  `The file is read-only for the service (its permissions, or a read-only filesystem), ${NOTHING_WRITTEN}. Make it writable and approve again, or reject the proposal.`,
+);
+const UNWRITABLE = retry(
+  `The service isn't allowed to write in the file's folder (its permissions, or a read-only filesystem), ${NOTHING_WRITTEN}. Make the folder writable and approve again, or reject the proposal.`,
+);
+const NO_HARD_LINKS = conflict(
+  `The filesystem of the file's folder can't create a file without risking to replace one made meanwhile (it has no hard links), ${NOTHING_WRITTEN}. Create the file by hand, or reject the proposal.`,
+);
+
+const NO_ACCESS = new Set(["EACCES", "EPERM", "EROFS"]);
+
+/** Where touching the target failed: reading it, checking the file may be written, or writing it. */
+type Step = "read" | "check" | "write";
+
+/**
+ * What an expected failure at `step` (the target's state, not the service's) settles to: a retry once the user fixed
+ * the target, or a conflict; undefined for an unexpected failure.
+ */
+export const failureOutcome = (error: unknown, kind: FileProposalKind, step: Step): Applied | undefined => {
+  if (error instanceof NoHardLinks) return NO_HARD_LINKS;
+  if (kind === "create" && isAlreadyThere(error)) return EXISTS;
+  if (isMissingPath(error)) return kind === "create" ? FOLDER_GONE : GONE;
+  if (!NO_ACCESS.has(errorCode(error))) return undefined;
+  return step === "read" ? UNREADABLE : step === "check" ? READ_ONLY : UNWRITABLE;
+};
+
+/** Carries an expected failure's conflict out of the write; nothing was written. */
+class Unworkable extends Error {
+  readonly applied: Applied;
+
+  constructor(applied: Applied) {
+    super("The target can't be written as it is.");
+    this.applied = applied;
+    this.name = "Unworkable";
+  }
+}
+
+const at = async <T>(kind: FileProposalKind, step: Step, run: () => Promise<T>): Promise<T> => {
+  try {
+    return await run();
+  } catch (error) {
+    const applied = failureOutcome(error, kind, step);
+    if (applied === undefined) throw error;
+    throw new Unworkable(applied);
+  }
+};
+
+const write = async ({ proposal, content, holds }: FileWrite): Promise<Applied> => {
+  const { path, kind, baseVersion } = proposal;
+  if ((await holds?.(path)) === true) return CATALOG_FILE;
+  const checked = checkText(content.text);
+  if ("problem" in checked) return textConflict(checked.problem, "The proposed text");
+  if (kind === "create") {
+    if ((await at(kind, "read", () => readText(path))) !== undefined) return EXISTS;
+    try {
+      // Linked into place: fails with EEXIST rather than replace a file made meanwhile.
+      await at(kind, "write", () => writeAtomic(path, checked.text, { create: true }));
+    } catch (error) {
+      // Removing the temp file can fail after the link landed: the file then holds exactly the proposed text.
+      if (await written(path, versionOf(Buffer.from(checked.text, "utf8")))) return { written: true };
+      throw error;
+    }
+    return { written: true };
+  }
+  let now = await at(kind, "read", () => readText(path));
+  if (now !== undefined && !("problem" in now) && now.version === baseVersion) {
+    // The rename below would replace a file the service may not write, as long as its folder is writable.
+    await at(kind, "check", () => access(path, constants.W_OK));
+    const landed = await at(kind, "write", async () => {
+      try {
+        await writeAtomic(path, checked.text, { expectedVersion: baseVersion });
+        return true;
+      } catch (error) {
+        if (error instanceof VersionChanged) return false;
+        throw error;
+      }
+    });
+    if (landed) return { written: true };
+    now = await at(kind, "read", () => readText(path));
+  }
+  return revised(now, content.edits);
+};
+
+/**
+ * Writes the proposed text, only onto the file at the proposal's base version (a create: only where no file is,
+ * never replacing one), and only onto a file the service may write. A file changed since gets the stored edits
+ * again as a new version instead, or a conflict; so does a file the items catalog holds, and a target the service
+ * can't read or write. Unexpected failures throw, with nothing written.
+ */
+export const writeProposed = async (change: FileWrite): Promise<Applied> => {
+  try {
+    return await write(change);
+  } catch (error) {
+    if (error instanceof Unworkable) return error.applied;
+    throw error;
+  }
 };
