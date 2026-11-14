@@ -1,4 +1,5 @@
 import type { AgentErrorCode, ErrorBody, ErrorCode, ItemsErrorCode, ServerErrorCode } from "@wombat/shared/api";
+import { Problem } from "@wombat/shared/items";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
@@ -39,14 +40,22 @@ export const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {
   proposal_changed: 409,
 };
 
-/** An ErrorBody response: every refusal and failure the service sends has this shape. */
+/** An ErrorBody response: every refusal and failure the service sends has this shape. Problems go out with only the shared Problem's keys. */
 export const errorResponse = (
   c: Context,
   status: ContentfulStatusCode,
   code: ErrorCode,
   message: string,
   hint?: string,
+  problems?: readonly Problem[],
 ) => {
-  const body: ErrorBody = { error: { code, message, ...(hint === undefined ? {} : { hint }) } };
+  const body: ErrorBody = {
+    error: {
+      code,
+      message,
+      ...(hint === undefined ? {} : { hint }),
+      ...(problems === undefined ? {} : { problems: problems.map((problem) => Problem.parse(problem)) }),
+    },
+  };
   return c.json(body, status);
 };

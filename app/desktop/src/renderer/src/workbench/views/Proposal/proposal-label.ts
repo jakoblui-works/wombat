@@ -1,5 +1,5 @@
 import type { AgentSummary } from "@wombat/shared/api";
-import type { FileProposalKind, Proposal } from "@wombat/shared/proposals";
+import type { FileProposalKind, Proposal, ProposalDetail } from "@wombat/shared/proposals";
 
 import { agentTitle } from "../Chat/chat-params.ts";
 
@@ -8,6 +8,14 @@ export const proposalLabel = (proposal: Proposal): string => {
   if (proposal.target === "file") return proposal.path;
   const name = proposal.handle ?? proposal.file;
   return name === null ? proposal.structure : `${proposal.structure}/${name}`;
+};
+
+/** The proposal tab's label: `proposalLabel`, or for a create with nothing to name it by but its structure, the structure and its proposed title. */
+export const proposalTabLabel = (proposal: ProposalDetail): string => {
+  const label = proposalLabel(proposal);
+  if (proposal.target !== "item" || label !== proposal.structure) return label;
+  const title = proposal.fields["title"];
+  return typeof title === "string" && title.trim() !== "" ? `${proposal.structure}: ${title}` : label;
 };
 
 export const AGENT_DELETED = "agent deleted";

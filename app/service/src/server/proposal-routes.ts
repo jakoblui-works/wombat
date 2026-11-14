@@ -23,7 +23,7 @@ const asRequest = async <T>(call: () => Promise<T>): Promise<T> => {
   try {
     return await call();
   } catch (error) {
-    if (error instanceof DraftRefused) throw new InvalidRequest(error.message);
+    if (error instanceof DraftRefused) throw new InvalidRequest(error.message, error.problems.length > 0 ? error.problems : undefined);
     throw error;
   }
 };

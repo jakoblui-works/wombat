@@ -126,18 +126,21 @@ export const decideFn = async (vars: DecideVars): Promise<"decided" | "changed">
   }
 };
 
-export type DraftVars = { proposalId: string } & ({ action: "save"; onVersion: number; text: string } | { action: "clear" });
+/** What a draft saves: a file's whole text, or an item's fields (links as ids). */
+export type DraftBody = { text: string } | { fields: Record<string, unknown> };
+
+export type DraftVars = { proposalId: string } & ({ action: "save"; onVersion: number; body: DraftBody } | { action: "clear" });
 
 /**
- * Saves my text as my version of a file proposal, or drops my version. Answers the proposal after it, or "changed"
- * when the save named an agent version that is no longer the latest (the agent revised): the refresh in onSettled
- * shows the new version.
+ * Saves my text or fields as my version of a proposal, or drops my version. Answers the proposal after it, or
+ * "changed" when the save named an agent version that is no longer the latest (the agent revised): the refresh in
+ * onSettled shows the new version.
  */
 export const draftFn = async (vars: DraftVars): Promise<Proposal | "changed"> => {
   const path = `${proposalPath(vars.proposalId)}/draft`;
   try {
     return vars.action === "save"
-      ? await call("PUT", path, Proposal, { onVersion: vars.onVersion, text: vars.text } satisfies DraftRequest)
+      ? await call("PUT", path, Proposal, { onVersion: vars.onVersion, ...vars.body } satisfies DraftRequest)
       : await call("DELETE", path, Proposal);
   } catch (error) {
     if (isProposalChanged(error)) return "changed";

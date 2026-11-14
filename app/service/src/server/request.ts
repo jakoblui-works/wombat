@@ -1,9 +1,17 @@
 // Reading a request against the API contract, and checking a response against it, for every route module.
+import type { Problem } from "@wombat/shared/items";
 import type { Context } from "hono";
 import type { z } from "zod";
 
-/** Thrown by a route on a request that breaks the contract; answered with invalid_request. */
-export class InvalidRequest extends Error {}
+/** Thrown by a route on a request that breaks the contract; answered with invalid_request, with `problems` when given. */
+export class InvalidRequest extends Error {
+  readonly problems: readonly Problem[] | undefined;
+
+  constructor(message: string, problems?: readonly Problem[]) {
+    super(message);
+    this.problems = problems;
+  }
+}
 
 const describeIssues = (error: z.ZodError) =>
   error.issues

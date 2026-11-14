@@ -8,7 +8,7 @@
 // the stream open and isn't an alert.
 import { z } from "zod";
 
-import { Item, ItemSummary, knownItems, StructureSummary } from "./items.ts";
+import { Item, ItemSummary, knownItems, Problem, StructureSummary } from "./items.ts";
 import { DiffLine } from "./line-diff.ts";
 import { ProposalErrorCode, Timestamp } from "./proposals.ts";
 import { queryInt } from "./query.ts";
@@ -75,6 +75,8 @@ const ErrorDetail = z.object({
   code: z.string(),
   message: z.string(),
   hint: z.string().exactOptional(),
+  /** Where a refused request breaks the rules, each by its field; the message lists them too. Unknown shapes are dropped. */
+  problems: knownItems(Problem).exactOptional(),
 });
 
 export const ErrorBody = z.object({ error: ErrorDetail });

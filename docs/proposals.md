@@ -133,7 +133,7 @@ You can save a draft only on a `pending` proposal. It is refused when:
 - it is the same as the agent's version: there is nothing to save (if your edit is current, drop it to show the agent's version again);
 - it has the wrong shape for the kind (`text` for an item, `fields` for a file);
 - a file's text isn't UTF-8 or is over the size limit;
-- an item's fields don't pass the writer's checks, or the item is gone or moved to another structure (reject the proposal);
+- an item's fields don't pass the writer's checks (the error then carries `problems`, see Routes), or the item is gone or moved to another structure (reject the proposal);
 - the proposal is a delete, which has no fields.
 
 Approving a draft writes your version. The agent's locks on an item's fields don't bind it.
@@ -172,7 +172,7 @@ A conflicting file edit or item update is rebuilt on the file or item as it is n
 
 ## Routes
 
-Every route needs the service's token, like the rest of the API. An error answers `{ "error": { "code", "message", "hint"? } }`.
+Every route needs the service's token, like the rest of the API. An error answers `{ "error": { "code", "message", "hint"?, "problems"? } }`.
 
 | Route | Body | Answers |
 |---|---|---|
@@ -180,7 +180,7 @@ Every route needs the service's token, like the rest of the API. An error answer
 | `GET /proposals/:id?version=` | | the proposal with `current` (the target as it is now, `null` if it doesn't exist or a file can't be read as text), the version's `text` (a file) or `fields` (an item), and `versions` (`n`, `by`, `at`, `reason`). An edit of a file that is pending or in conflict also has `baseChanged`: `true` when the file changed since the proposal was made (approving then applies the agent's edits to the file again, as a new version). Without `version`, the current one |
 | `POST /proposals/:id/approve` | `{ version }` | the proposal after the approve: `approved`, `conflict`, or `pending` with a new version |
 | `POST /proposals/:id/reject` | `{ reason? }`, at most the reason limit | the rejected proposal |
-| `PUT /proposals/:id/draft` | `{ onVersion, text }` for a file, `{ onVersion, fields }` for an item | the proposal with your version current |
+| `PUT /proposals/:id/draft` | `{ onVersion, text }` for a file, `{ onVersion, fields }` for an item | the proposal with your version current. Item fields that don't pass the writer's checks answer `invalid_request` with `problems`: `[{ field, message }]`, one per problem, each `field` the field it is about (`title`, `body` or a property's name) when it has one; the message lists the same problems. Your version saved before stays current |
 | `DELETE /proposals/:id/draft` | | the proposal with the agent's version current |
 
 Every proposal has `target` (`file` or `item`), `id`, `status`, `agentId`, `reason`, `version`, `editedByMe`, `at`, and when set `decidedAt`, `rejectReason` and `problem`. A file proposal adds `path` (its real path, symlinks resolved), `outsideWorkspace` and `kind` (`edit` or `create`). An item proposal adds `structure` (its id), `kind` (`create`, `update` or `delete`), `handle` (`null` for a create until it is approved) and `file` (a create's file path in a free-named structure, else `null`). Every change to a proposal sends a `proposal` alert.

@@ -5,15 +5,17 @@ import { z } from "zod";
 import {
   ListAgentsResponse,
   ListHarnessesResponse,
+  ListItemsResponse,
   ListLogResponse,
   ListReposResponse,
+  ListStructuresResponse,
   parseLogEntry,
 } from "@wombat/shared/api";
 import type { FoldEntry } from "@wombat/shared/log-fold";
 import { ListProposalsResponse, ProposalDetail } from "@wombat/shared/proposals";
 import { bySeq } from "./by-seq.ts";
 import { call } from "./client.ts";
-import { keys, logAgentId, proposalIdOf } from "./keys.ts";
+import { keys, logAgentId, proposalIdOf, structureIdOf } from "./keys.ts";
 
 /** A parsed entry, or an unreadable one kept in its place (the log fold's entry). */
 export type AgentLogEntry = FoldEntry;
@@ -35,6 +37,8 @@ const readAgents = () => call("GET", "/agents", ListAgentsResponse);
 const readHarnesses = () => call("GET", "/harnesses", ListHarnessesResponse);
 const readRepos = () => call("GET", "/repos", ListReposResponse);
 const readProposals = () => call("GET", "/proposals", ListProposalsResponse);
+const readStructures = () => call("GET", "/structures", ListStructuresResponse);
+const readStructureItems = (structureId: string) => () => call("GET", `/structures/${encodeURIComponent(structureId)}/items`, ListItemsResponse);
 
 /** A proposal's route: its detail, and the prefix of its commands. */
 export const proposalPath = (proposalId: string): string => `/proposals/${encodeURIComponent(proposalId)}`;
@@ -47,6 +51,10 @@ export const harnessesQuery = () => queryOptions({ queryKey: keys.harnesses, que
 export const reposQuery = () => queryOptions({ queryKey: keys.repos, queryFn: readRepos });
 export const proposalsQuery = () => queryOptions({ queryKey: keys.proposals, queryFn: readProposals });
 export const proposalQuery = (proposalId: string) => queryOptions({ queryKey: keys.proposal(proposalId), queryFn: readProposal(proposalId) });
+/** The items' structures, hidden ones included. */
+export const structuresQuery = () => queryOptions({ queryKey: keys.structures, queryFn: readStructures });
+/** One structure's items, without their bodies. */
+export const structureItemsQuery = (structureId: string) => queryOptions({ queryKey: keys.structureItems(structureId), queryFn: readStructureItems(structureId) });
 /** One version of a proposal (`?version=`); its `current` is the target as it was at the read. */
 export const proposalVersionQuery = (proposalId: string, version: number) =>
   queryOptions({ queryKey: keys.proposalVersion(proposalId, version), queryFn: readProposal(proposalId, version) });
@@ -116,7 +124,9 @@ export const queryFor = (queryClient: QueryClient, key: QueryKey): (() => Promis
   if (agentId !== undefined) return again(agentLogQuery(queryClient, agentId)).read;
   const proposalId = proposalIdOf(key);
   if (proposalId !== undefined) return again(proposalQuery(proposalId)).read;
-  const lists = [again(agentsQuery()), again(harnessesQuery()), again(reposQuery()), again(proposalsQuery())];
+  const structureId = structureIdOf(key);
+  if (structureId !== undefined) return again(structureItemsQuery(structureId)).read;
+  const lists = [again(agentsQuery()), again(harnessesQuery()), again(reposQuery()), again(proposalsQuery()), again(structuresQuery())];
   return lists.find((list) => hashKey(list.queryKey) === hashKey(key))?.read;
 };
 

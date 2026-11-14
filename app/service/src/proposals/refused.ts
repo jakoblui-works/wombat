@@ -1,4 +1,5 @@
 import { ItemsErrorCode } from "@wombat/shared/api";
+import type { Problem } from "@wombat/shared/items";
 import { canDecide, canDraft, canReject, canRevise, nextStatus, ProposalErrorCode } from "@wombat/shared/proposals";
 
 import { currentVersion } from "../store/proposal-rules.ts";
@@ -12,11 +13,17 @@ export class ProposalRefused extends Error {
   }
 }
 
-/** A draft the user's request can't make (the wrong shape for the target, text or fields that don't pass); nothing changed. */
+/**
+ * A draft the user's request can't make (the wrong shape for the target, text or fields that don't pass); nothing
+ * changed. `problems`: the writer's, by field, for fields that don't pass; the message lists them too.
+ */
 export class DraftRefused extends Error {
-  constructor(message: string) {
+  readonly problems: readonly Problem[];
+
+  constructor(message: string, problems: readonly Problem[] = []) {
     super(message);
     this.name = "DraftRefused";
+    this.problems = problems;
   }
 }
 

@@ -2,7 +2,9 @@ import { FilePen, SquarePen } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useId, useState } from "react";
 
-import { type ProposalDetail, ProposalErrorCode } from "@wombat/shared/proposals";
+import { ServerErrorCode } from "@wombat/shared/api";
+import type { Problem } from "@wombat/shared/items";
+import { myDraft, type ProposalDetail, ProposalErrorCode, sameAsAgents } from "@wombat/shared/proposals";
 import { Button } from "../../../components/ui/button";
 import { ServiceError } from "../../../data/client.ts";
 import { useDecide } from "../../../data/commands.ts";
@@ -18,13 +20,13 @@ import { Note } from "../approvals/Note/Note.tsx";
 import { FileProposal } from "./FileProposal/FileProposal.tsx";
 import { ItemProposal } from "./ItemProposal/ItemProposal.tsx";
 import { proposalActions } from "./proposal-actions.ts";
-import { isOutsideWorkspace, proposalAgentTitle, proposalKindWord, proposalLabel } from "./proposal-label.ts";
+import { isOutsideWorkspace, proposalAgentTitle, proposalKindWord, proposalTabLabel } from "./proposal-label.ts";
 import { OutsideWorkspace } from "./OutsideWorkspace.tsx";
 import { isProposalTab, ProposalParams } from "./proposal-params.ts";
 import { PathText } from "./PathText.tsx";
 import { proposalTabState } from "./proposal-tab-state.ts";
-import type { ReviseNotice } from "./draft-state.ts";
-import { useDraftEditor } from "./use-draft.ts";
+import type { ReviseNotice, SaveError } from "./draft-state.ts";
+import { useDraftEditor, useItemDraft } from "./use-draft.ts";
 import { VersionPicker } from "./VersionPicker.tsx";
 
 const ReadError = ({ error }: { error: Error }) =>
@@ -42,6 +44,10 @@ const Notice = ({ tone, children }: { tone: "danger" | "plain"; children: string
     {children}
   </p>
 );
+
+/** The service's problems with a draft it refused, by field; none for any other failure. */
+const refusedProblems = (error: SaveError | undefined): readonly Problem[] =>
+  error?.error instanceof ServiceError && error.error.code === ServerErrorCode.enum.invalid_request ? (error.error.problems ?? []) : [];
 
 const revisedLine = ({ draft, lost }: ReviseNotice): string => {
   if (draft === undefined) return "Revised by the agent before your edits were saved; they were made on the previous version and aren't kept.";
@@ -106,8 +112,11 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
     if (active) void refresh(queryClient, keys.proposal(proposalId));
   }, [active, queryClient, proposalId]);
   const proposal: ProposalDetail | undefined = read.data;
-  const draft = useDraftEditor(proposalId, proposal?.target === "file" ? proposal : undefined);
-  const label = proposal === undefined ? undefined : proposalLabel(proposal);
+  const fileDraft = useDraftEditor(proposalId, proposal);
+  const itemDraft = useItemDraft(proposalId, proposal?.target === "item" && proposal.kind !== "delete" ? proposal : undefined);
+  // While my draft is current, the agent's version it edits is another read.
+  const theirs = useProposal(proposalId, proposal === undefined ? undefined : myDraft(proposal.versions)?.theirs.n);
+  const label = proposal === undefined ? undefined : proposalTabLabel(proposal);
   useEffect(() => {
     if (label !== undefined) setTitle?.(label);
   }, [label, setTitle]);
@@ -121,11 +130,13 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
   const busy = decide.isPending || saving;
   const viewingEarlier = viewing !== undefined && viewing !== proposal.version;
   const shown = viewingEarlier ? earlier.data : proposal;
-  const editable = actions.draft && !viewingEarlier && proposal.target === "file" && draft.text !== undefined;
+  const draft = proposal.target === "file" ? fileDraft : itemDraft;
+  const editable = actions.draft && !viewingEarlier && draft.value !== undefined && !(proposal.target === "item" && proposal.kind === "delete");
   const kind = proposalKindWord(proposal);
+  const draftProblems = refusedProblems(draft.error);
   // Waits for my text to be saved: Approve never sends a version older than the text on screen.
   const saved = async (byApprove: boolean): Promise<number | undefined> => {
-    if (proposal.target !== "file") return proposal.version;
+    if (proposal.target === "item" && proposal.kind === "delete") return proposal.version;
     setSaving(true);
     try {
       return await draft.flush(byApprove);
@@ -185,7 +196,7 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
                 </Button>
               ) : null}
               {state.approve && !viewingEarlier ? (
-                <Button size="sm" disabled={!actions.approve || busy} onClick={() => void approve()}>
+                <Button size="sm" disabled={!actions.approve || busy || draftProblems.length > 0} onClick={() => void approve()}>
                   Approve
                 </Button>
               ) : null}
@@ -202,7 +213,9 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
       <AnswerError error={decide.error ?? undefined} className="border-b" />
       {draft.error === undefined ? null : (
         <p role="alert" className="border-b border-line px-3 py-1.5 text-sm text-danger">
-          {draft.error.byApprove
+          {draftProblems.length > 0
+            ? "Your edits can't be saved until the problems shown at their fields are fixed; your version saved before stays, and Approve waits."
+            : draft.error.byApprove
             ? `Couldn't save your edits, so nothing was approved: ${draft.error.error.message}`
             : `Couldn't save your edits: ${draft.error.error.message.replace(/\.$/, "")}. They're saved again when you type, or press Approve to retry.`}
         </p>
@@ -217,7 +230,7 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
         </div>
       ) : null}
       {decide.data === "changed" ? <Notice tone="plain">This proposal has a new version; look it over before you approve.</Notice> : null}
-      {state.problem === undefined ? null : <Notice tone="danger">{state.problem.message}</Notice>}
+      {state.problem === undefined || proposal.target === "item" ? null : <Notice tone="danger">{state.problem.message}</Notice>}
       {state.changedSince ? <Notice tone="plain">The file changed since the proposal. Approve applies the agent's edits to it again.</Notice> : null}
       {shown === undefined ? (
         earlier.error ? <ReadError error={earlier.error} /> : <Note>Loading…</Note>
@@ -232,15 +245,71 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
           path={shown.path}
           kind={shown.kind}
           current={shown.current}
-          text={viewingEarlier ? shown.text : (draft.text ?? shown.text)}
-          edit={editable ? draft : undefined}
+          text={viewingEarlier ? shown.text : (fileDraft.value ?? shown.text)}
+          edit={editable ? fileDraft : undefined}
         />
-      ) : shown.kind === "delete" ? (
-        <Note>This proposal deletes the item.</Note>
       ) : (
-        <ItemProposal fields={shown.fields} />
+        <ItemTab
+          proposalId={proposalId}
+          shown={shown}
+          viewingEarlier={viewingEarlier}
+          theirs={theirs.data}
+          draft={itemDraft}
+          editable={editable}
+          problems={[...(state.problem === undefined || viewingEarlier ? [] : [state.problem]), ...(viewingEarlier ? [] : draftProblems)]}
+        />
       )}
     </section>
+  );
+};
+
+/**
+ * An item proposal's rows: an earlier version as it was; the current one against the agent's version, with my fields
+ * beside it while they differ (the agent's version it edits is read apart while my draft is current).
+ */
+const ItemTab = ({
+  proposalId,
+  shown,
+  viewingEarlier,
+  theirs,
+  draft,
+  editable,
+  problems,
+}: {
+  proposalId: string;
+  shown: Extract<ProposalDetail, { target: "item" }>;
+  viewingEarlier: boolean;
+  theirs: ProposalDetail | undefined;
+  draft: ReturnType<typeof useItemDraft>;
+  editable: boolean;
+  problems: readonly Problem[];
+}) => {
+  const mineCurrent = myDraft(shown.versions) !== undefined;
+  const agents = viewingEarlier || !mineCurrent ? shown.fields : theirs?.target === "item" ? theirs.fields : undefined;
+  if (agents === undefined) return <Note>Loading…</Note>;
+  const mine = viewingEarlier ? undefined : editable ? draft.value : mineCurrent ? shown.fields : undefined;
+  const differs = mine !== undefined && !sameAsAgents({ fields: mine }, { fields: agents });
+  return (
+    <ItemProposal
+      proposalId={proposalId}
+      structureId={shown.structure}
+      kind={shown.kind}
+      current={shown.current}
+      fields={agents}
+      mine={differs ? mine : undefined}
+      edit={
+        editable && draft.value !== undefined
+          ? {
+              value: draft.value,
+              change: (fields, now) => {
+                draft.onChange(fields);
+                if (now) void draft.flush(false);
+              },
+            }
+          : undefined
+      }
+      problems={problems}
+    />
   );
 };
 

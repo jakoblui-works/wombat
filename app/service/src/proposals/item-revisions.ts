@@ -80,7 +80,7 @@ export const itemRevisions = ({ catalog, writer, viewOf, checks }: ItemRevisions
     } catch (error) {
       if (!(error instanceof ItemWriteError)) throw error;
       const why = error.problems.length > 0 ? listed(error.problems) : error.message;
-      throw new DraftRefused(`Your edit can't be saved: ${why}. Fix it and save again; the version saved before stays.`);
+      throw new DraftRefused(`Your edit can't be saved: ${why}. Fix it and save again; the version saved before stays.`, error.problems);
     }
   };
 

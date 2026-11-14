@@ -1,9 +1,9 @@
 // The views' reads: thin glue over the queries in query-client.ts.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { ConnectionState } from "../../../shared/bridge.ts";
-import { agentLogQuery, agentsQuery, harnessesQuery, proposalQuery, proposalsQuery, proposalVersionQuery, reposQuery } from "./query-client.ts";
+import { agentLogQuery, agentsQuery, harnessesQuery, proposalQuery, proposalsQuery, proposalVersionQuery, reposQuery, structureItemsQuery, structuresQuery } from "./query-client.ts";
 
 export const useAgents = () => useQuery(agentsQuery());
 
@@ -20,6 +20,13 @@ export const useProposals = () => useQuery(proposalsQuery());
  */
 export const useProposal = (proposalId: string, version?: number) =>
   useQuery(version === undefined ? proposalQuery(proposalId) : proposalVersionQuery(proposalId, version));
+
+/** The items' structures; nothing announces their changes, so each caller's mount reads them again. */
+export const useStructures = () => useQuery({ ...structuresQuery(), refetchOnMount: "always" });
+
+/** The items of each structure in `structureIds`, in that order; read again on each caller's mount, like the structures. */
+export const useStructureItems = (structureIds: readonly string[]) =>
+  useQueries({ queries: structureIds.map((structureId) => ({ ...structureItemsQuery(structureId), refetchOnMount: "always" as const })) });
 
 export const useAgentLog = (agentId: string) => useQuery(agentLogQuery(useQueryClient(), agentId));
 
