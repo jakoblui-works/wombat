@@ -25,7 +25,7 @@ export type McpOptions = {
   /** Without it (no items configured) every item tool answers that the items aren't set up. */
   access: Access | undefined;
   /** Works with or without items. */
-  proposals: Pick<Proposals, "proposeFile" | "proposeItem">;
+  proposals: Pick<Proposals, "proposeFile" | "proposeItem" | "revise">;
   /** The agent a bearer token belongs to, while it runs: the manager's live token map. */
   agentForToken: (token: string) => string | undefined;
   port: () => number;
@@ -93,27 +93,43 @@ const createShape = {
     .describe("Only for a structure with free naming: the new file's path, relative to the structure's folder."),
 };
 
+/** Replacements, each `old` occurring exactly once in `where` as the edits before it leave it. */
+const editList = (where: string) =>
+  z.array(
+    z.object({
+      old: z.string().describe(`Text that occurs exactly once in ${where} as the edits before this one leave it.`),
+      new: z.string().describe("The text that replaces it, taken literally."),
+    }),
+  );
+
 const proposeChangeShape = {
   path: z.string().describe("The file's path: absolute, or relative to the folder you work in."),
   reason,
-  edits: z
-    .array(
-      z.object({
-        old: z.string().describe("Text that occurs exactly once in the file as the edits before this one leave it."),
-        new: z.string().describe("The text that replaces it, taken literally."),
-      }),
-    )
-    .optional()
-    .describe("For an existing file: the replacements, applied in order. Leave out `content`."),
+  edits: editList("the file").optional().describe("For an existing file: the replacements, applied in order. Leave out `content`."),
   content: z.string().optional().describe("For a new file: its whole text. Leave out `edits`."),
 };
 
-type ProposeChangeArgs = {
-  path: string;
-  reason: string;
-  edits?: { old: string; new: string }[] | undefined;
-  content?: string | undefined;
+type EditArgs = { old: string; new: string }[] | undefined;
+
+type ProposeChangeArgs = { path: string; reason: string; edits?: EditArgs; content?: string | undefined };
+
+const reviseShape = {
+  id: z.string().describe("The id your propose call answered."),
+  reason: z.string().describe("Why this version, for the user: what changed and why."),
+  edits: editList("the text the proposal holds now (on a conflict: the file as it is now)")
+    .optional()
+    .describe("For a file proposal: the replacements, applied in order. Leave out `content` and `fields`."),
+  content: z.string().optional().describe("For a file proposal: the whole new text. Leave out `edits` and `fields`."),
+  fields: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe("For an item proposal: the fields it should set instead of the ones it sets now (link values are handles)."),
 };
+
+type ReviseArgs = { id: string; reason: string; edits?: EditArgs; content?: string | undefined; fields?: Record<string, unknown> | undefined };
+
+/** The edits as the proposals store them. */
+const fileEdits = (edits: EditArgs) => edits?.map((edit) => ({ oldText: edit.old, newText: edit.new }));
 
 /** ItemInput as the input schema gives it: an optional field the agent left out is undefined. */
 type CreateArgs = Pick<ItemInput, "title"> & { [K in Exclude<keyof ItemInput, "title">]?: ItemInput[K] | undefined };
@@ -275,10 +291,21 @@ const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "pro
       inputSchema: z.object(proposeChangeShape),
     },
     answer(TOOL.proposeChange, ({ path, reason: why, edits, content }: ProposeChangeArgs) =>
-      proposals.proposeFile(agentId, path, why, {
-        edits: edits?.map((edit) => ({ oldText: edit.old, newText: edit.new })),
-        content,
-      }),
+      proposals.proposeFile(agentId, path, why, { edits: fileEdits(edits), content }),
+    ),
+  );
+  server.registerTool(
+    TOOL.reviseProposal,
+    {
+      description:
+        "Revises one of your own proposals that the user hasn't decided yet (pending, or a conflict) in place, instead " +
+        "of proposing anew: for a file, send `edits` to the text the proposal holds now, or the whole new `content`; " +
+        "on a conflict, edits apply to the file as it is now. For an item, send the `fields` it should set. The user " +
+        "sees it as a new version of the same proposal. Answers the proposal's id and the new version's number.",
+      inputSchema: z.object(reviseShape),
+    },
+    answer(TOOL.reviseProposal, ({ id, reason: why, edits, content, fields: given }: ReviseArgs) =>
+      proposals.revise(agentId, id, why, { edits: fileEdits(edits), content, fields: given }),
     ),
   );
   return server;

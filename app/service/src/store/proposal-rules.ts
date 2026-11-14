@@ -1,5 +1,5 @@
 // The store's status decisions, all derived from the shared contract so no status is named here.
-import { countsTowardCap, isOpen, nextStatus, ProposalStatus, type ProposalEvent, type ProposalVersion } from "@wombat/shared/proposals";
+import { canDecide, countsTowardCap, isOpen, nextStatus, ProposalStatus, type ProposalEvent, type ProposalVersion } from "@wombat/shared/proposals";
 
 const statusesWhere = (test: (status: ProposalStatus) => boolean) => ProposalStatus.options.filter(test);
 
@@ -15,6 +15,12 @@ export const APPLYING: readonly ProposalStatus[] = statusesWhere((status) => nex
 export const OUTCOMES: readonly ProposalStatus[] = statusesWhere((status) => !isOpen(status) || nextStatus(status, "resolve") !== undefined);
 
 export const isOutcome = (status: ProposalStatus) => OUTCOMES.includes(status);
+
+/** A conflict: waiting on a new version, which is based on the target as it is now. */
+export const awaitsNewVersion = (status: ProposalStatus) => nextStatus(status, "resolve") !== undefined;
+
+/** Whether my draft may go on it or be dropped: only while it may be approved, so never on a conflict. */
+export const takesDraft = (status: ProposalStatus) => canDecide(status);
 
 const SETTLE_EVENTS = ["applied", "conflicted", "apply_failed"] as const satisfies readonly ProposalEvent[];
 

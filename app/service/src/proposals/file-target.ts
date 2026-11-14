@@ -38,7 +38,7 @@ export const checkText = (data: Uint8Array | string): { text: string } | { probl
 const TEXT_ONLY = "so it can't be proposed. Proposals are for text files only.";
 
 /** What's wrong with `subject`'s text ("The proposed text", a path), as the start of a sentence. */
-const textProblemClause = (problem: TextProblem, subject: string) =>
+export const textProblemClause = (problem: TextProblem, subject: string) =>
   problem === "too_large" ? `${subject} is larger than ${String(MAX_PROPOSAL_BYTES / 1024)} KiB, the most a proposal can hold` : `${subject} isn't UTF-8 text`;
 
 /** The refusal for a checkText problem; `subject` starts the sentence ("The proposed text", a path). */
@@ -85,6 +85,9 @@ const entryAt = async (path: string, shown: string) => {
     throw unreadable(shown, error);
   }
 };
+
+/** Whether anything is at the path (a link counts, wherever it leads); refuses one that can't be told. */
+export const isThere = async (path: string, shown: string) => (await entryAt(path, shown)) !== undefined;
 
 /**
  * Where `path` (absolute, or relative to the agent's folder) points: an existing regular file's real path, or a new

@@ -4,7 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { Problem } from "@wombat/shared/items";
 import { canRevise, INITIAL_STATUS, nextStatus, type FileProposalKind, type ItemProposalKind, type ProposalEvent, type ProposalStatus } from "@wombat/shared/proposals";
 
-import { APPLYING, COUNTED_OPEN, currentVersion, draftSlot, isOutcome, OUTCOMES, settleEvent, type VersionAuthor } from "./proposal-rules.ts";
+import { APPLYING, awaitsNewVersion, COUNTED_OPEN, currentVersion, draftSlot, takesDraft, isOutcome, OUTCOMES, settleEvent, type VersionAuthor } from "./proposal-rules.ts";
 import { asNullableString, asNumber, asString, type DistributiveOmit } from "./values.ts";
 
 export type FileEdit = { oldText: string; newText: string };
@@ -73,13 +73,17 @@ export type ApplyOutcome = { status: "approved"; itemId?: string; itemHandle?: s
  */
 export type ProposalStore = {
   insertProposal: (proposal: NewProposal, firstVersion: ProposalContent) => ProposalChange;
-  /** From a conflict this resolves it back to pending; my draft stays in the list as history. */
-  addAgentVersion: (id: string, content: ProposalContent, reason: string) => ProposalChange | undefined;
+  /**
+   * From a conflict this resolves it back to pending; my draft stays in the list as history. A pending proposal's
+   * stored problem goes too. A given `baseVersion` becomes the proposal's base; undefined keeps it.
+   */
+  addAgentVersion: (id: string, content: ProposalContent, reason: string, baseVersion?: string | null) => ProposalChange | undefined;
   /**
    * My edit of agent version `onVersion`, which must be the latest agent version. It gets a new number, replacing my
-   * draft already on it; no number is ever given twice.
+   * draft already on it; no number is ever given twice. Only while pending (`takesDraft`); a stored problem goes.
    */
   putDraft: (id: string, onVersion: number, content: ProposalContent) => ProposalChange | undefined;
+  /** Drops my current draft, only while pending (`takesDraft`). */
   clearDraft: (id: string) => ProposalChange | undefined;
   /** `version` must be the current version; `intent` is JSON. A given `itemHandle` replaces the stored one. */
   beginApplying: (id: string, version: number, intent: unknown, itemHandle?: string | null) => ProposalChange | undefined;
@@ -148,6 +152,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     ),
     insertVersion: db.prepare("INSERT INTO proposal_versions (proposal_id, n, by, content, reason, at) VALUES (?, ?, ?, ?, ?, ?)"),
     setBase: db.prepare("UPDATE proposals SET base_version = ? WHERE id = ?"),
+    clearProblem: db.prepare("UPDATE proposals SET problem = NULL WHERE id = ?"),
     takeVersionNumber: db.prepare("UPDATE proposals SET last_version = last_version + 1 WHERE id = ? RETURNING last_version"),
     deleteVersion: db.prepare("DELETE FROM proposal_versions WHERE proposal_id = ? AND n = ?"),
     versions: db.prepare("SELECT n, by, content, reason, at FROM proposal_versions WHERE proposal_id = ? ORDER BY n"),
@@ -240,34 +245,36 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     });
   };
 
-  /** The proposal while a new version may replace its current one, with its versions. */
-  const revisable = (id: string, content: ProposalContent) => {
+  /** The proposal while `allows` its status for a new version, with its versions. */
+  const revisable = (id: string, content: ProposalContent, allows: (status: ProposalStatus) => boolean) => {
     const stored = getProposal(id);
-    if (stored === undefined || !canRevise(stored.status)) return undefined;
+    if (stored === undefined || !allows(stored.status)) return undefined;
     checkFits(stored.target, content);
     return { stored, versions: listVersions(id) };
   };
 
-  const addAgentVersion = (id: string, content: ProposalContent, reason: string) =>
+  const addAgentVersion = (id: string, content: ProposalContent, reason: string, baseVersion?: string | null) =>
     transaction(() => {
-      const found = revisable(id, content);
+      const found = revisable(id, content, canRevise);
       if (found === undefined) return undefined;
       const { stored } = found;
       statements.insertVersion.run(id, takeVersionNumber(id), "agent", JSON.stringify(content), reason, now().toISOString());
-      if (nextStatus(stored.status, "resolve") !== undefined) {
+      if (baseVersion !== undefined) statements.setBase.run(baseVersion, id);
+      if (awaitsNewVersion(stored.status)) {
         const columns = () => ({ problem: null, rejectReason: null, intent: null, itemId: null });
         if (move(stored, "resolve", columns) === undefined) throw new Error(`Proposal ${id} changed while it was being revised.`);
-      }
+      } else statements.clearProblem.run(id);
       return changed(id);
     });
 
   const putDraft = (id: string, onVersion: number, content: ProposalContent) =>
     transaction(() => {
-      const found = revisable(id, content);
+      const found = revisable(id, content, takesDraft);
       const slot = found === undefined ? undefined : draftSlot(found.versions, onVersion);
-      if (slot === undefined) return undefined;
+      if (found === undefined || slot === undefined) return undefined;
       if (slot.replaces !== undefined) statements.deleteVersion.run(id, slot.replaces);
       statements.insertVersion.run(id, takeVersionNumber(id), "me", JSON.stringify(content), "", now().toISOString());
+      statements.clearProblem.run(id);
       return changed(id);
     });
 
@@ -275,7 +282,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     transaction(() => {
       const stored = getProposal(id);
       const current = currentVersion(listVersionHeads(id));
-      if (stored === undefined || !canRevise(stored.status) || current?.by !== "me") return undefined;
+      if (stored === undefined || !takesDraft(stored.status) || current?.by !== "me") return undefined;
       statements.deleteVersion.run(id, current.n);
       return changed(id);
     });
@@ -317,7 +324,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
   // Only a conflict's problem stays: a pending proposal's (a retry's) says to approve again, which no longer applies.
   const rejectProposal = (id: string, reason?: string) =>
     moving(id, () => true, "reject", (stored) => ({
-      problem: stored.problem === undefined || nextStatus(stored.status, "resolve") === undefined ? null : JSON.stringify(stored.problem),
+      problem: stored.problem === undefined || !awaitsNewVersion(stored.status) ? null : JSON.stringify(stored.problem),
       rejectReason: reason ?? null,
       intent: null,
       itemId: null,

@@ -22,6 +22,7 @@ import {
   type StoredItemProposal,
 } from "./item-proposals.ts";
 import { fileProposer } from "./propose-file.ts";
+import { reviser } from "./revise.ts";
 import { commonFields } from "./proposal-fields.ts";
 import { itemsNotConfigured, notApprovable, notFound, ProposalError, ProposalRefused, toApprove, toReject } from "./refused.ts";
 
@@ -100,7 +101,7 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
   const applying = async (id: string, version: number): Promise<StoredProposal> => {
     const stored = toApprove(store, id, version);
     const target = stored.target === "file" ? fileTarget : itemSide().itemTarget;
-    const { content, reason } = contentOf(id, version);
+    const { content, reason, by } = contentOf(id, version);
     const { intent, itemHandle } = await target.intentOf(stored, content);
     const begun = store.beginApplying(id, version, intent, itemHandle);
     if (begun === undefined) {
@@ -111,7 +112,7 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
     onApproveStep?.("after_applying_commit");
     let applied: Applied;
     try {
-      applied = await target.write(begun.proposal, content);
+      applied = await target.write(begun.proposal, content, by);
     } catch (error) {
       // A failure after the write landed (a temp file left behind) must settle approved, or approving again writes twice.
       // When that can't be told, the row stays applying for the next start's check.
@@ -241,7 +242,9 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
     }
   };
 
-  return { proposeFile, proposeItem, list, get, approve, reject, settleAtStart };
+  const { revise, putDraft, clearDraft } = reviser({ store, decide, committed, items, holds, summaryOf });
+
+  return { proposeFile, proposeItem, revise, putDraft, clearDraft, list, get, approve, reject, settleAtStart };
 };
 
 export type Proposals = ReturnType<typeof createProposals>;

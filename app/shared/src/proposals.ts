@@ -85,7 +85,7 @@ const proposalFields = {
   reason: z.string(),
   /** The current version's number; approving names it, so the user approves what they saw. */
   version: z.int().positive(),
-  /** The user edited it: some version is theirs. */
+  /** The current version is the user's: a draft, or the version it was decided on. */
   editedByMe: z.boolean(),
   at: Timestamp,
   decidedAt: Timestamp.exactOptional(),

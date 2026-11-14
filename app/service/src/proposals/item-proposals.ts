@@ -14,13 +14,15 @@ import type { ItemProposal, ProposalVersion } from "@wombat/shared/proposals";
 import type { View } from "../items/access.ts";
 import { handlesById, withLinks } from "../items/api-view.ts";
 import type { Catalog, LoadedItem, LoadedStructure, Snapshot, ValidStructure } from "../items/catalog.ts";
-import { checkHasId, checkLevel, checkLocks, lockedNames, newItem, type Family, type ItemInput } from "../items/refusals.ts";
+import { checkHasId, checkLevel, checkLocks, lockedNames, newItem, type Change, type Family, type ItemInput } from "../items/refusals.ts";
 import { SETTINGS_FILE } from "../items/structures.ts";
 import { ItemWriteError, presentValues, type Writer } from "../items/write.ts";
+import type { VersionAuthor } from "../store/proposal-rules.ts";
 import { fieldsOf } from "../store/proposals.ts";
 import type { NewProposal, ProposalVersionHead, Store, StoredProposal } from "../store/store.ts";
 import { askAgain, BY_HAND, conflict, NOTHING_WRITTEN, type Applied, type ApplyTarget, type Written } from "./apply.ts";
 import { failureOutcome } from "./file-target.ts";
+import { itemRevisions, type ItemRevisions } from "./item-revisions.ts";
 import { commonFields } from "./proposal-fields.ts";
 
 export type ProposalResult = { proposed: string };
@@ -42,7 +44,7 @@ export type ProposedItemChange =
 /** An item proposal that passed its checks: what to store, and its first version's fields. */
 export type CheckedItemProposal = { proposal: Extract<NewProposal, { target: "item" }>; fields: Record<string, unknown> };
 
-export type ItemProposals = {
+export type ItemProposals = ItemRevisions & {
   /** Runs `change`'s checks as `agentId` proposes it; throws the agent's refusal. Stores nothing. */
   checkItemProposal(agentId: string, change: ProposedItemChange, reason: string): Promise<CheckedItemProposal>;
   /** For people (HTTP): the stored item proposals as sent, each with its item's handle now, or the one it had. */
@@ -84,6 +86,9 @@ const itemOnly = (stored: StoredProposal): StoredItemProposal => {
   if (stored.target !== "item") throw new Error(`Proposal ${stored.id} isn't an item proposal; it can't be handled as one.`);
   return stored;
 };
+
+/** The fields of a version by `by` that are locked in `structure` now: the agent's locks never bind my version. */
+export const bindingLocks = (structure: ValidStructure, kind: Change, names: string[], by: VersionAuthor) => (by === "me" ? [] : lockedNames(structure, kind, names));
 
 const itemById = (items: readonly LoadedItem[], id: string | null | undefined) => (id == null ? undefined : items.find((item) => item.id === id));
 
@@ -213,7 +218,7 @@ export const openItemProposals = ({
   };
 
   /** Applies a proposal, or says why it can't be: what changed since the agent read the item. */
-  const write = async (stored: StoredItemProposal, fields: Record<string, unknown>): Promise<Applied> => {
+  const write = async (stored: StoredItemProposal, fields: Record<string, unknown>, by: VersionAuthor): Promise<Applied> => {
     const snapshot = await catalog.snapshot();
     const current = viewOf(snapshot);
     const structure = current.structures.get(stored.structure);
@@ -224,7 +229,7 @@ export const openItemProposals = ({
     if (structure === undefined) {
       return conflict(`The structure ${stored.structure} is gone, or its ${SETTINGS_FILE} is broken, ${NOTHING_WRITTEN}. Fix its settings and ask the agent again, or reject the proposal.`);
     }
-    const locked = lockedNames(structure, stored.kind, Object.keys(fields));
+    const locked = bindingLocks(structure, stored.kind, Object.keys(fields), by);
     if (locked.length > 0) {
       return conflict(`${locked.join(", ")} became locked in ${stored.structure}, ${NOTHING_WRITTEN}. ${BY_HAND}`, locked[0]);
     }
@@ -267,6 +272,8 @@ export const openItemProposals = ({
   };
 
   return {
+    ...itemRevisions({ catalog, writer, viewOf, structureFor, checkStructure, linksToIds, agentWriteError }),
+
     checkItemProposal: (agentId, change, reason) => {
       if (change.kind === "create") return checkCreate(agentId, change.structure, change.input, reason);
       if (change.kind === "update") return checkUpdate(agentId, change.handle, change.fields, change.version, reason);
@@ -292,7 +299,7 @@ export const openItemProposals = ({
 
     itemTarget: {
       intentOf: (stored, content) => intentOf(itemOnly(stored), fieldsOf(content)),
-      write: (stored, content) => write(itemOnly(stored), fieldsOf(content)),
+      write: (stored, content, by) => write(itemOnly(stored), fieldsOf(content), by),
       written: async (stored) => {
         const item = itemOnly(stored);
         const { structures, items } = await catalog.snapshot();

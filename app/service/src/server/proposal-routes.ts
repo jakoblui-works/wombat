@@ -1,7 +1,7 @@
-// The proposal routes: list, read, approve and reject, for file and item proposals alike.
-import { ServerErrorCode } from "@wombat/shared/api";
+// The proposal routes: list, read, approve, reject and my draft, for file and item proposals alike.
 import {
   ApproveRequest,
+  DraftRequest,
   ListProposalsQuery,
   ListProposalsResponse as ListProposalsSchema,
   Proposal as ProposalSchema,
@@ -12,11 +12,21 @@ import {
   type Proposal,
   type ProposalDetail,
 } from "@wombat/shared/proposals";
-import type { Context, Hono } from "hono";
+import type { Hono } from "hono";
 
 import type { Proposals } from "../proposals/proposals.ts";
-import { errorResponse, SERVER_STATUS } from "./errors.ts";
-import { checked, readBody, readQuery } from "./request.ts";
+import { DraftRefused } from "../proposals/refused.ts";
+import { checked, InvalidRequest, readBody, readQuery } from "./request.ts";
+
+/** A draft the request can't make is the request's fault: answered as invalid_request. */
+const asRequest = async <T>(call: () => Promise<T>): Promise<T> => {
+  try {
+    return await call();
+  } catch (error) {
+    if (error instanceof DraftRefused) throw new InvalidRequest(error.message);
+    throw error;
+  }
+};
 
 export const proposalRoutes = (app: Hono, proposals: Proposals) => {
   app.get("/proposals", async (c) => {
@@ -39,14 +49,12 @@ export const proposalRoutes = (app: Hono, proposals: Proposals) => {
     return c.json(checked(ProposalSchema, await proposals.reject(c.req.param("id"), reason)) satisfies Proposal);
   });
 
-  // In the app's contract, but not answered by this service.
-  const notServedYet = (c: Context) =>
-    errorResponse(
-      c,
-      SERVER_STATUS.not_found,
-      ServerErrorCode.enum.not_found,
-      `This service doesn't serve ${c.req.method} ${c.req.routePath} yet. Update the service to a version that does.`,
-    );
-  app.put("/proposals/:id/draft", notServedYet);
-  app.delete("/proposals/:id/draft", notServedYet);
+  app.put("/proposals/:id/draft", async (c) => {
+    const { onVersion, ...content } = await readBody(c, DraftRequest);
+    return c.json(checked(ProposalSchema, await asRequest(() => proposals.putDraft(c.req.param("id"), onVersion, content))) satisfies Proposal);
+  });
+
+  app.delete("/proposals/:id/draft", async (c) =>
+    c.json(checked(ProposalSchema, await asRequest(() => proposals.clearDraft(c.req.param("id")))) satisfies Proposal),
+  );
 };

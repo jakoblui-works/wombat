@@ -1,6 +1,7 @@
 // What an approve and a target's write hand each other, for every target.
 import type { Problem } from "@wombat/shared/items";
 
+import type { VersionAuthor } from "../store/proposal-rules.ts";
 import type { ProposalContent, StoredProposal } from "../store/store.ts";
 
 /** The named points of an approve, for a caller that must act exactly there (the crash tests stop the process). */
@@ -23,10 +24,13 @@ export type Applied = Written | { problem: Problem } | { retry: Problem } | { re
  */
 export type Intent = { intent: unknown; itemHandle?: string | null };
 
-/** What an approve needs from a target: the intent of its write, the write, and whether a write with that intent landed. */
+/**
+ * What an approve needs from a target: the intent of its write, the write (of a version by `by`), and whether a
+ * write with that intent landed.
+ */
 export type ApplyTarget = {
   intentOf: (stored: StoredProposal, content: ProposalContent) => Promise<Intent>;
-  write: (stored: StoredProposal, content: ProposalContent) => Promise<Applied>;
+  write: (stored: StoredProposal, content: ProposalContent, by: VersionAuthor) => Promise<Applied>;
   written: (stored: StoredProposal) => Promise<Written | undefined>;
 };
 
