@@ -5,12 +5,15 @@
 // one, without scrubbing ordinary problems that merely share a word with a hidden name. A prefix clash with a hidden
 // structure refuses edits and proposals alike without naming it, a handle with a hidden structure's prefix reads like
 // one with a prefix no structure has, and no problem an agent gets carries more than the shared Problem's keys (the
-// service's own `names` stay inside it).
+// service's own `names` stay inside it). A file proposal on a hidden structure's files is refused word for word like
+// one on a visible structure's, and the cap's refusal names nothing of the proposals it counts.
 import { chmodSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
+import { MAX_OPEN_PROPOSALS } from "@wombat/shared/proposals";
 import { describe, expect, onTestFinished, test } from "vitest";
 
+import { ProposalRefused } from "../proposals/refused.ts";
 import { AccessError } from "./refusals.ts";
 import { ACCESS_FILES, AGENT, HIDDEN, MARKER, expectRefused, extraProblemKeys, leaks, openAccessRoot, refusal } from "../../test/access-fixtures.ts";
 import { UUID } from "../../test/instructions-fixtures.ts";
@@ -436,5 +439,50 @@ describe("hidden never reaches an agent", () => {
     await expectRefused(access.list("bugs"), "not_found", "list of the shared id");
     await expectRefused(access.get("BUG-90"), "not_found", "get of the hidden twin's item");
     expect(leaks(JSON.stringify(await access.search(MARKER)))).toEqual([]);
+  });
+
+  test("a file proposal on a hidden structure's item or settings file is refused exactly like one on a visible structure's, and the cap's refusal names nothing hidden", async () => {
+    const { proposals, store, root } = openAccessRoot();
+    /** The refusal of a propose_change call, which must be one. */
+    const refused = async (path: string, oldText: string) => {
+      let error: unknown;
+      try {
+        await proposals.proposeFile(AGENT, path, "why", { edits: [{ oldText, newText: "changed" }] });
+      } catch (thrown) {
+        error = thrown;
+      }
+      expect(error, `propose_change on ${path}`).toBeInstanceOf(ProposalRefused);
+      return withoutTyped((error as Error).message, path);
+    };
+    const hiddenStrings = [MARKER, ...HIDDEN.ids, ...HIDDEN.handles, HIDDEN.structure, HIDDEN.name];
+    // Each pair: a file of the hidden structure and its like in a visible one, with an edit that fits the file.
+    const pairs: [string, [string, string], [string, string]][] = [
+      ["an item file", ["vault/KST-1-plan.md", "codename"], ["bugs/BUG-2-hero-caption.md", "site-web"]],
+      ["a settings file", ["vault/_structure.yaml", "access: hidden"], ["bugs/_structure.yaml", "access: propose"]],
+      ["an item file by its absolute path", [join(root, "vault/KST-2-notes.md"), "codename"], [join(root, "bugs/BUG-1-login-times-out.md"), "note"]],
+    ];
+
+    for (const [what, hidden, visible] of pairs) {
+      const message = await refused(...hidden);
+      expect(message, what).toBe(await refused(...visible));
+      expect(leaks(message, hiddenStrings), what).toEqual([]);
+    }
+    expect(store.listProposals(), "no refused call stored a proposal").toEqual([]);
+
+    // At the cap through proposals on a structure that was hidden since: the refusal counts them and names none.
+    for (let n = 0; n < MAX_OPEN_PROPOSALS; n += 1) {
+      store.insertProposal(
+        { target: "item", path: null, structure: HIDDEN.structure, itemId: HIDDEN.ids[0], kind: "update", file: null, reason: `About the ${MARKER} plan`, baseVersion: "9f2c", agentId: AGENT },
+        { fields: { codename: MARKER } },
+      );
+    }
+    let atTheCap: unknown;
+    try {
+      await proposals.proposeFile(AGENT, "notes.md", "why", { content: "# Notes\n" });
+    } catch (thrown) {
+      atTheCap = thrown;
+    }
+    expect(atTheCap).toBeInstanceOf(ProposalRefused);
+    expect(leaks((atTheCap as Error).message, hiddenStrings)).toEqual([]);
   });
 });
