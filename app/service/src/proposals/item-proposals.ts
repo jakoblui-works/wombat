@@ -13,6 +13,8 @@ import { SETTINGS_FILE } from "../items/structures.ts";
 import { ItemWriteError, presentValues, type Writer } from "../items/write.ts";
 import type { Log } from "../log.ts";
 import type { NewProposal, ProposalChange, Store, StoredProposal } from "../store/store.ts";
+import { announcer } from "./announce.ts";
+import { commonFields } from "./proposal-fields.ts";
 
 /** Why deciding a proposal was refused; nothing changed. */
 export class ProposalError extends Error {
@@ -80,14 +82,7 @@ export const openItemProposals = ({
 }: ItemProposalsOptions): ItemProposals => {
   const view = async () => viewOf(await catalog.snapshot());
 
-  /** Announces a committed proposal change; a failing listener never makes the committed change look failed. */
-  const announce = (id: string, seq: number) => {
-    try {
-      onProposal(id, seq);
-    } catch (error) {
-      log("proposal_alert_failed", { proposalId: id, seq, error: error instanceof Error ? error.name : "unknown" });
-    }
-  };
+  const announce = announcer(onProposal, log);
 
   /** Stores a proposal and announces it once committed. */
   const propose = (proposal: NewItemProposal, fields: Record<string, unknown>): ProposalResult => {
@@ -100,32 +95,23 @@ export const openItemProposals = ({
     const versions = store.listVersions(id);
     const latest = versions.at(-1);
     if (latest === undefined || !("fields" in latest.content)) throw new Error(`Proposal ${id} has no item version stored; it can't be read.`);
-    return { n: latest.n, fields: latest.content.fields, editedByMe: versions.some((version) => version.by === "me") };
+    return { n: latest.n, fields: latest.content.fields, versions };
   };
 
   /** A stored proposal with its item's current handle (people see hidden structures too). */
   const proposalOf = (stored: StoredItemProposal, items: LoadedItem[], handle?: string | null): ItemProposalRecord => {
-    const { itemId, decidedAt, problem, rejectReason } = stored;
+    const { itemId } = stored;
     const found = itemId === null ? undefined : items.find((item) => item.id === itemId);
-    const { n, fields, editedByMe } = currentVersion(stored.id);
+    const { fields, versions } = currentVersion(stored.id);
     return {
-      id: stored.id,
+      ...commonFields(stored, versions),
       target: "item",
       structure: stored.structure,
       kind: stored.kind,
       handle: handle !== undefined ? handle : (found?.handle ?? null),
       file: stored.file,
       fields,
-      reason: stored.reason,
       baseVersion: stored.baseVersion,
-      status: stored.status,
-      agentId: stored.agentId,
-      version: n,
-      editedByMe,
-      at: stored.at,
-      ...(decidedAt === undefined ? {} : { decidedAt }),
-      ...(problem === undefined ? {} : { problem }),
-      ...(rejectReason === undefined ? {} : { rejectReason }),
     };
   };
 

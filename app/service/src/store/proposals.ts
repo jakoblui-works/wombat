@@ -14,6 +14,9 @@ export type ProposalContent = { text: string; edits?: FileEdit[] } | { fields: R
 
 export type ProposalVersionRecord = { n: number; by: VersionAuthor; content: ProposalContent; reason: string; at: string };
 
+/** A version without its content. */
+export type ProposalVersionHead = Omit<ProposalVersionRecord, "content">;
+
 /**
  * A proposal as stored. An item proposal names its item by id (`itemId`, null for a create until it's approved),
  * since handles change by hand. What it proposes lives in its versions.
@@ -70,6 +73,8 @@ export type ProposalStore = {
   listProposals: (status?: ProposalStatus) => StoredProposal[];
   getProposal: (id: string) => StoredProposal | undefined;
   listVersions: (id: string) => ProposalVersionRecord[];
+  /** listVersions without reading any content. */
+  listVersionHeads: (id: string) => ProposalVersionHead[];
   countOpen: (agentId: string) => number;
   listApplying: () => StoredProposal[];
   /** The agent's proposals in OUTCOMES whose outcome it hasn't been told, oldest outcome first. */
@@ -124,6 +129,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     takeVersionNumber: db.prepare("UPDATE proposals SET last_version = last_version + 1 WHERE id = ? RETURNING last_version"),
     deleteVersion: db.prepare("DELETE FROM proposal_versions WHERE proposal_id = ? AND n = ?"),
     versions: db.prepare("SELECT n, by, content, reason, at FROM proposal_versions WHERE proposal_id = ? ORDER BY n"),
+    versionHeads: db.prepare("SELECT n, by, reason, at FROM proposal_versions WHERE proposal_id = ? ORDER BY n"),
     get: db.prepare("SELECT * FROM proposals WHERE id = ?"),
     list: db.prepare("SELECT * FROM proposals ORDER BY at, rowid"),
     listIn: db.prepare("SELECT * FROM proposals WHERE status IN (SELECT value FROM json_each(?)) ORDER BY at, rowid"),
@@ -149,14 +155,15 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     return row === undefined ? undefined : proposalOf(row);
   };
 
+  const headOf = (row: Record<string, unknown>): ProposalVersionHead => ({
+    n: asNumber(row.n),
+    by: asString(row.by) as VersionAuthor,
+    reason: asString(row.reason),
+    at: asString(row.at),
+  });
+
   const listVersions = (id: string): ProposalVersionRecord[] =>
-    statements.versions.all(id).map((row) => ({
-      n: asNumber(row.n),
-      by: asString(row.by) as VersionAuthor,
-      content: JSON.parse(asString(row.content)) as ProposalContent,
-      reason: asString(row.reason),
-      at: asString(row.at),
-    }));
+    statements.versions.all(id).map((row) => ({ ...headOf(row), content: JSON.parse(asString(row.content)) as ProposalContent }));
 
   const changed = (id: string): ProposalChange => {
     const proposal = getProposal(id);
@@ -291,6 +298,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     listProposals,
     getProposal,
     listVersions,
+    listVersionHeads: (id) => statements.versionHeads.all(id).map(headOf),
     countOpen: (agentId) => asNumber(statements.countIn.get(agentId, JSON.stringify(COUNTED_OPEN))?.n),
     listApplying: () => statements.listIn.all(JSON.stringify(APPLYING)).map(proposalOf),
     undeliveredOutcomes: (agentId) => statements.undelivered.all(agentId, JSON.stringify(OUTCOMES)).map(proposalOf),

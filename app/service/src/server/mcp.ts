@@ -1,7 +1,7 @@
-// `/mcp`: the item tools for agents, over MCP's streamable HTTP (stateless, JSON answers). Only an agent's own token
-// opens it, and every call goes through Access as that agent, so access levels, locks and hidden structures hold
-// exactly as Access decides them. Answers and refusals are tool results; nothing here names a structure id, so the
-// tool list carries nothing of a hidden one.
+// `/mcp`: the tools for agents, over MCP's streamable HTTP (stateless, JSON answers). Only an agent's own token
+// opens it. Every item call goes through Access as that agent, so access levels, locks and hidden structures hold
+// exactly as Access decides them; propose_change goes through the proposals as that agent. Answers and refusals
+// are tool results; nothing here names a structure id, so the tool list carries nothing of a hidden one.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -14,14 +14,18 @@ import { SEARCH_LIMIT, type Access } from "../items/access.ts";
 import { AccessError, type ItemInput } from "../items/refusals.ts";
 import { TOOL } from "../items/tools.ts";
 import type { Log } from "../log.ts";
+import type { Proposals } from "../proposals/proposals.ts";
+import { ProposalRefused } from "../proposals/refused.ts";
 import { errorResponse, SERVER_STATUS } from "./errors.ts";
 import { refuseForeignHost } from "./port-rules.ts";
 
 type McpEnv = { Variables: { agentId: string } };
 
 export type McpOptions = {
-  /** Without it (no items configured) every tool answers that the items aren't set up. */
+  /** Without it (no items configured) every item tool answers that the items aren't set up. */
   access: Access | undefined;
+  /** Works with or without items. */
+  proposals: Pick<Proposals, "proposeFile">;
   /** The agent a bearer token belongs to, while it runs: the manager's live token map. */
   agentForToken: (token: string) => string | undefined;
   port: () => number;
@@ -89,6 +93,28 @@ const createShape = {
     .describe("Only for a structure with free naming: the new file's path, relative to the structure's folder."),
 };
 
+const proposeChangeShape = {
+  path: z.string().describe("The file's path: absolute, or relative to the folder you work in."),
+  reason,
+  edits: z
+    .array(
+      z.object({
+        old: z.string().describe("Text that occurs exactly once in the file as the edits before this one leave it."),
+        new: z.string().describe("The text that replaces it, taken literally."),
+      }),
+    )
+    .optional()
+    .describe("For an existing file: the replacements, applied in order. Leave out `content`."),
+  content: z.string().optional().describe("For a new file: its whole text. Leave out `edits`."),
+};
+
+type ProposeChangeArgs = {
+  path: string;
+  reason: string;
+  edits?: { old: string; new: string }[] | undefined;
+  content?: string | undefined;
+};
+
 /** ItemInput as the input schema gives it: an optional field the agent left out is undefined. */
 type CreateArgs = Pick<ItemInput, "title"> & { [K in Exclude<keyof ItemInput, "title">]?: ItemInput[K] | undefined };
 
@@ -106,10 +132,24 @@ const text = (value: string, isError = false): CallToolResult => ({
 });
 
 /** One McpServer for one request, every tool bound to the calling agent. */
-const toolServer = ({ access, log }: Pick<McpOptions, "access" | "log">, agentId: string) => {
+const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "proposals" | "log">, agentId: string) => {
   const server = new McpServer({ name: "wombat", version: String(API_VERSION) }, { capabilities: { tools: {} } });
 
-  /** Runs one tool through Access: its answer as JSON in one text block, a refusal as an error with its message. */
+  /** Runs one tool: its answer as JSON in one text block, a refusal as an error with its message. */
+  const answer =
+    <A>(tool: string, call: (args: A) => Promise<unknown>) =>
+    async (args: A): Promise<CallToolResult> => {
+      try {
+        return text(JSON.stringify(await call(args)));
+      } catch (error) {
+        if (error instanceof AccessError || error instanceof ProposalRefused) return text(error.message, true);
+        // The details stay in the service: an unexpected error's message may name files or hidden items.
+        log("tool_failed", { agentId, tool, error: error instanceof Error ? error.name : "unknown" });
+        return text(`The Wombat service failed to run ${tool}. Try again; if it keeps failing, tell the user.`, true);
+      }
+    };
+
+  /** Runs one item tool through Access, or answers that there are no items. */
   const run =
     <A>(tool: string, call: (access: Access, args: A) => Promise<unknown>) =>
     async (args: A): Promise<CallToolResult> => {
@@ -119,14 +159,7 @@ const toolServer = ({ access, log }: Pick<McpOptions, "access" | "log">, agentId
           true,
         );
       }
-      try {
-        return text(JSON.stringify(await call(access, args)));
-      } catch (error) {
-        if (error instanceof AccessError) return text(error.message, true);
-        // The details stay in the service: an unexpected error's message may name files or hidden items.
-        log("tool_failed", { agentId, tool, error: error instanceof Error ? error.name : "unknown" });
-        return text(`The Wombat service failed to run ${tool}. Try again; if it keeps failing, tell the user.`, true);
-      }
+      return answer(tool, (a: A) => call(access, a))(args);
     };
 
   server.registerTool(
@@ -233,6 +266,23 @@ const toolServer = ({ access, log }: Pick<McpOptions, "access" | "log">, agentId
     },
     run(TOOL.proposeDelete, (a, args: { handle: string; version: string; reason: string }) =>
       a.proposeDelete(agentId, args.handle, args.version, args.reason),
+    ),
+  );
+  server.registerTool(
+    TOOL.proposeChange,
+    {
+      description:
+        "Proposes a change to a text file, anywhere, instead of making it: for changes the user should approve first, " +
+        "such as docs, instructions (CLAUDE.md), skills, and anything you were told to propose. The file stays as it is " +
+        "until the user approves. Send `edits` to change an existing file, or `content` for a new one. It only " +
+        "suggests: keep working without waiting for the decision. Answers the proposal's id.",
+      inputSchema: z.object(proposeChangeShape),
+    },
+    answer(TOOL.proposeChange, ({ path, reason: why, edits, content }: ProposeChangeArgs) =>
+      proposals.proposeFile(agentId, path, why, {
+        edits: edits?.map((edit) => ({ oldText: edit.old, newText: edit.new })),
+        content,
+      }),
     ),
   );
   return server;

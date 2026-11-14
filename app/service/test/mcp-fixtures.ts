@@ -10,6 +10,7 @@ import { expect, onTestFinished } from "vitest";
 
 import type { Access } from "../src/items/access.ts";
 import type { LogFields } from "../src/log.ts";
+import { createProposals } from "../src/proposals/proposals.ts";
 import { mcpRoutes } from "../src/server/mcp.ts";
 import { ACCESS_FILES, openAccessRoot, type AccessSetup } from "./access-fixtures.ts";
 import { writeRoot } from "./items-fixtures.ts";
@@ -51,13 +52,16 @@ export const openMcp = ({ files = ACCESS_FILES, access }: { files?: Record<strin
   const opened = openAccessRoot(files);
   const port = 4123;
   const logs: McpApp["logs"] = [];
+  const log = (event: string, fields: LogFields) => logs.push({ event, fields });
   const app = mcpRoutes({
     access: access ?? opened.access,
+    // The stub agent works in the items root.
+    proposals: createProposals({ store: opened.store, workspace: opened.root, agentFolder: () => opened.root, onProposal: () => undefined, log }),
     agentForToken: (sent) => (sent === STUB_TOKEN ? STUB_AGENT : undefined),
     port: () => port,
     // The service's limit; the limit itself is tested on the running server.
     maxBodyBytes: 1024 * 1024,
-    log: (event, fields) => logs.push({ event, fields }),
+    log,
   });
   const request = async ({ method = "GET", path, headers = {}, body, host = `127.0.0.1:${port}` }: RequestOptions): Promise<Response> => {
     const json = body !== undefined && typeof body !== "string" && !Buffer.isBuffer(body);

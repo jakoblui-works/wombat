@@ -43,6 +43,7 @@ import type { z } from "zod";
 
 import { requireAgent } from "../agents/errors.ts";
 import { AgentError, type Manager } from "../agents/manager.ts";
+import { folderOf } from "../agents/resume.ts";
 import { openAccess } from "../items/access.ts";
 import { handlesById, summarize, withLinks } from "../items/api-view.ts";
 import { findByHandle, type Catalog } from "../items/catalog.ts";
@@ -51,6 +52,7 @@ import type { Harness } from "../harness/harness.ts";
 import { harnessFeatures } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
 import { ProposalError } from "../proposals/item-proposals.ts";
+import { createProposals } from "../proposals/proposals.ts";
 import type { Store } from "../store/store.ts";
 import { listRepos, RepoError } from "../workspace.ts";
 import { AGENT_STATUS, errorResponse, ITEMS_STATUS, SERVER_STATUS } from "./errors.ts";
@@ -157,16 +159,23 @@ export const startServer = async ({
     return cache === undefined ? agent : { ...agent, cache };
   };
   // Proposal changes reach the alert stream through the manager's listeners, like agent changes.
-  const access =
-    items && writer
-      ? openAccess({ catalog: items, writer, store, onProposal: (id, seq) => manager.proposalCommitted(id, seq), log })
-      : undefined;
+  const onProposal = (id: string, seq: number) => manager.proposalCommitted(id, seq);
+  const access = items && writer ? openAccess({ catalog: items, writer, store, onProposal, log }) : undefined;
+  const proposals = createProposals({
+    store,
+    workspace: workspaceRoot,
+    agentFolder: (agentId) => folderOf(workspaceRoot, requireAgent(agentId, (id) => store.listAgents().find((agent) => agent.id === id)).repo),
+    onProposal,
+    log,
+    itemProposals: access && ((status) => access.proposals(status)),
+  });
 
   // Before the port rules: /mcp takes an agent's token, never the app's, and the port rules refuse agent tokens.
   app.route(
     "/",
     mcpRoutes({
       access,
+      proposals,
       agentForToken: manager.agentForToken,
       port: () => boundPort,
       maxBodyBytes: MAX_BODY_BYTES,
@@ -317,13 +326,11 @@ export const startServer = async ({
   });
 
   app.get("/proposals", async (c) => {
-    if (!access) return notConfigured(c);
     const parsed = ListProposalsQuery.safeParse(queryValues(c));
     if (!parsed.success) {
       throw new InvalidRequest(`The query doesn't match the API contract (${describeIssues(parsed.error)}). Fix it and send it again.`);
     }
-    const proposals = await access.proposals(parsed.data.status);
-    return c.json(checked(ListProposalsSchema, { proposals }) satisfies ListProposalsResponse);
+    return c.json(checked(ListProposalsSchema, { proposals: await proposals.list(parsed.data.status) }) satisfies ListProposalsResponse);
   });
 
   app.post("/proposals/:id/approve", async (c) => {

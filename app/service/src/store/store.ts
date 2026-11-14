@@ -14,6 +14,7 @@ export type {
   NewProposal,
   ProposalChange,
   ProposalContent,
+  ProposalVersionHead,
   ProposalVersionRecord,
   StoredProposal,
 } from "./proposals.ts";
