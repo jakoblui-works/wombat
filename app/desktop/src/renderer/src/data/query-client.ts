@@ -36,7 +36,10 @@ const readHarnesses = () => call("GET", "/harnesses", ListHarnessesResponse);
 const readRepos = () => call("GET", "/repos", ListReposResponse);
 const readProposals = () => call("GET", "/proposals", ListProposalsResponse);
 
-const readProposal = (proposalId: string) => () => call("GET", `/proposals/${encodeURIComponent(proposalId)}`, ProposalDetail);
+/** A proposal's route: its detail, and the prefix of its commands. */
+export const proposalPath = (proposalId: string): string => `/proposals/${encodeURIComponent(proposalId)}`;
+
+const readProposal = (proposalId: string) => () => call("GET", proposalPath(proposalId), ProposalDetail);
 
 export const agentsQuery = () => queryOptions({ queryKey: keys.agents, queryFn: readAgents });
 export const harnessesQuery = () => queryOptions({ queryKey: keys.harnesses, queryFn: readHarnesses });

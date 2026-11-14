@@ -177,7 +177,7 @@ Every route needs the service's token, like the rest of the API. An error answer
 | Route | Body | Answers |
 |---|---|---|
 | `GET /proposals?status=` | | `{ proposals }`, oldest first, without content. `status` is one of the five statuses |
-| `GET /proposals/:id?version=` | | the proposal with `current` (the target as it is now, `null` if it doesn't exist or a file can't be read as text), the version's `text` (a file) or `fields` (an item), and `versions` (`n`, `by`, `at`, `reason`). Without `version`, the current one |
+| `GET /proposals/:id?version=` | | the proposal with `current` (the target as it is now, `null` if it doesn't exist or a file can't be read as text), the version's `text` (a file) or `fields` (an item), and `versions` (`n`, `by`, `at`, `reason`). An edit of a file that is pending or in conflict also has `baseChanged`: `true` when the file changed since the proposal was made (approving then applies the agent's edits to the file again, as a new version). Without `version`, the current one |
 | `POST /proposals/:id/approve` | `{ version }` | the proposal after the approve: `approved`, `conflict`, or `pending` with a new version |
 | `POST /proposals/:id/reject` | `{ reason? }`, at most the reason limit | the rejected proposal |
 | `PUT /proposals/:id/draft` | `{ onVersion, text }` for a file, `{ onVersion, fields }` for an item | the proposal with your version current |

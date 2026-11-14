@@ -22,6 +22,8 @@ export type WorkbenchActions = {
    * pending permission, if any. A Needs me click and a notification click both come here.
    */
   openAgentChat: (agentId: string, requestId?: string) => void;
+  /** Opens or focuses the proposal's tab (a Needs me row's click). */
+  openProposal: (proposalId: string) => void;
 };
 
 export const WorkbenchContext = createContext<WorkbenchActions | undefined>(undefined);

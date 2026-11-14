@@ -219,7 +219,16 @@ export const sameAsAgents = (draft: DraftComparable, theirs: DraftComparable): b
  * can't be read as text), the version's content and every version.
  */
 export const ProposalDetail = z.discriminatedUnion("target", [
-  FileProposal.extend({ current: z.string().nullable(), text: z.string(), versions: z.array(ProposalVersion) }),
+  FileProposal.extend({
+    current: z.string().nullable(),
+    text: z.string(),
+    versions: z.array(ProposalVersion),
+    /**
+     * An edit that is pending or in conflict only: the file is no longer the version the proposal was made on (a hand
+     * edit since); absent otherwise.
+     */
+    baseChanged: z.boolean().exactOptional(),
+  }),
   /** `fields`: field name → proposed value: `title`, `body` or property names, link values as ids. */
   ItemProposal.extend({ current: Item.nullable(), fields: z.record(z.string(), z.unknown()), versions: z.array(ProposalVersion) }),
 ]);

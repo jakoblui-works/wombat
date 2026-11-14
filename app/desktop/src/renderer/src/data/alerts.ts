@@ -20,7 +20,7 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
   const cachedProposals = (): string[] =>
     queryClient
       .getQueryCache()
-      .findAll({ queryKey: ["proposal"] })
+      .findAll({ queryKey: keys.proposalDetails })
       .flatMap((query) => proposalIdOf(query.queryKey) ?? []);
 
   // The store the cached data comes from: the dbId of the agents list, or of the alerts since it was reset.

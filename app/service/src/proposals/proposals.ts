@@ -14,7 +14,7 @@ import { fieldsOf, textOf } from "../store/proposals.ts";
 import type { ApplyOutcome, NewProposal, ProposalChange, ProposalContent, ProposalVersionHead, Store, StoredProposal } from "../store/store.ts";
 import { announcer } from "./announce.ts";
 import type { Applied, ApplyTarget, ApproveStep, Written } from "./apply.ts";
-import { currentText, workspaceMark, writeProposed, written } from "./file-target.ts";
+import { baseChanged, currentFile, workspaceMark, writeProposed, written } from "./file-target.ts";
 import {
   itemProposalOf,
   type ItemProposalDetail,
@@ -209,7 +209,9 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
       return side.itemProposalDetail(stored, fieldsOf(contentOf(id, n).content), heads);
     }
     const { text } = textOf(contentOf(id, n).content);
-    return { ...(await fileSummary(stored)), current: await currentText(stored.path, stored.kind), text, versions: heads };
+    const now = await currentFile(stored.path, stored.kind);
+    const changed = baseChanged(stored, now);
+    return { ...(await fileSummary(stored)), current: now?.text ?? null, text, versions: heads, ...(changed === undefined ? {} : { baseChanged: changed }) };
   };
 
   /** Approves version `version`, which must be current; a conflict or a new version to approve answers too. */

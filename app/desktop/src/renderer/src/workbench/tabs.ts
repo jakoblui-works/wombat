@@ -7,6 +7,7 @@ import { AGENTS_ACTIVITY } from "./activity-ids.ts";
 import type { IsKnown } from "./layout.ts";
 import { getView, paramsFit, type ResolveContext, type Reveal, viewTitle } from "./registry.ts";
 import { CHAT_VIEW } from "./views/Chat/chat-params.ts";
+import { PROPOSAL_VIEW, type ProposalParams } from "./views/Proposal/proposal-params.ts";
 import type { TabRef, WorkbenchActions } from "./workbench-context.ts";
 
 /** The dockview component every tab renders through; it looks the view up from the panel's params. */
@@ -211,6 +212,9 @@ export const workbenchActions = (
       showActivity(AGENTS_ACTIVITY);
       const agent = ctx().agents?.find(({ id }) => id === agentId);
       actions.openTab(CHAT_VIEW, { agentId }, requestId ?? oldestPending(agent));
+    },
+    openProposal: (proposalId) => {
+      actions.openTab(PROPOSAL_VIEW, { proposalId } satisfies ProposalParams);
     },
   };
   return actions;

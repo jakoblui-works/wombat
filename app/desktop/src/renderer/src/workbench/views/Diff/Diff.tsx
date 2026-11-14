@@ -1,5 +1,5 @@
 import { FilePen } from "lucide-react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "../../../components/ui/button";
 import { useConnection } from "../../../data/hooks.ts";
@@ -9,14 +9,12 @@ import { liveState } from "../approvals/live-state.ts";
 import { useChatModel } from "../approvals/use-chat-model.ts";
 import { CHANGE_GONE, NO_CHANGE } from "../approvals/EditDiff/EditDiff.tsx";
 import { LogError } from "../approvals/LogError/LogError.tsx";
-import { AnswerButtons, AnswerError, EditTarget, Outcome, Waiting } from "../approvals/Answer/Answer.tsx";
+import { AnswerButtons, AnswerError, DecisionSlot, EditTarget, Outcome, Waiting } from "../approvals/Answer/Answer.tsx";
+import { Note } from "../approvals/Note/Note.tsx";
+import { LazyMonacoDiff } from "./MonacoDiff/LazyMonacoDiff.tsx";
 import { DiffParams, diffTitle } from "./diff-params.ts";
 import { editRequest } from "../approvals/edit-request.ts";
 
-// Monaco loads with the first diff tab, not with the page.
-const MonacoDiff = lazy(() => import("./MonacoDiff/MonacoDiff.tsx").then(({ MonacoDiff: component }) => ({ default: component })));
-
-const Note = ({ children }: { children: string }) => <p className="p-5 text-sm text-fg-tertiary">{children}</p>;
 
 /**
  * One edit request side by side: the request's diff in Monaco, with the chat's answer buttons. It reads the same
@@ -48,20 +46,9 @@ const EditDiff = ({ agentId, requestId, setTitle }: DiffParams & { setTitle: Vie
       <header className="flex h-10 items-center gap-2 border-b border-line pr-1.5 pl-3">
         <FilePen className="size-3.5 shrink-0 text-fg-secondary" />
         <EditTarget path={request.path} />
-        {answer === undefined ? (
-          <>
-            <span className="ml-3 flex min-w-0 flex-1 items-center gap-2">
-              <Waiting />
-            </span>
-            <AnswerButtons
-              options={request.options}
-              disabled={!live.answerable(request, { connected, pending })}
-              onAnswer={(kind) => answers.answer(requestId, kind)}
-            />
-          </>
-        ) : (
-          <Outcome answer={answer} />
-        )}
+        <DecisionSlot waiting={<Waiting />} outcome={answer === undefined ? undefined : <Outcome answer={answer} />}>
+          <AnswerButtons options={request.options} disabled={!live.answerable(request, { connected, pending })} onAnswer={(kind) => answers.answer(requestId, kind)} />
+        </DecisionSlot>
       </header>
       <AnswerError error={error} className="border-b" />
       {shownDiff === undefined ? (
@@ -77,9 +64,7 @@ const EditDiff = ({ agentId, requestId, setTitle }: DiffParams & { setTitle: Vie
               ))}
             </nav>
           ) : null}
-          <Suspense fallback={<Note>Loading the diff…</Note>}>
-            <MonacoDiff path={request.path} oldText={shownDiff.oldText ?? ""} newText={shownDiff.newText} className="min-h-0 flex-1" />
-          </Suspense>
+          <LazyMonacoDiff path={request.path} oldText={shownDiff.oldText ?? ""} newText={shownDiff.newText} className="min-h-0 flex-1" />
         </>
       )}
     </section>

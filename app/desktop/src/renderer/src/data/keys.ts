@@ -1,7 +1,9 @@
-// The page's query keys. `logs` is the prefix of every `log(agentId)`, for finding the cached logs.
+// The page's query keys. `logs` is the prefix of every `log(agentId)` and `proposalDetails` of every
+// `proposal(proposalId)`, for finding the cached ones.
 import type { QueryKey } from "@tanstack/react-query";
 
 const LOG = "log";
+const PROPOSAL = "proposal";
 
 export const keys = {
   agents: ["agents"],
@@ -10,11 +12,12 @@ export const keys = {
   proposals: ["proposals"],
   logs: [LOG],
   log: (agentId: string) => [LOG, agentId],
-  proposal: (proposalId: string) => ["proposal", proposalId],
+  proposalDetails: [PROPOSAL],
+  proposal: (proposalId: string) => [PROPOSAL, proposalId],
 } as const satisfies Record<string, QueryKey | ((id: string) => QueryKey)>;
 
 /** The proposal a `keys.proposal(id)` key names; undefined for any other key. */
-export const proposalIdOf = (key: QueryKey): string | undefined => (key[0] === "proposal" && typeof key[1] === "string" ? key[1] : undefined);
+export const proposalIdOf = (key: QueryKey): string | undefined => (key[0] === PROPOSAL && typeof key[1] === "string" ? key[1] : undefined);
 
 /** The agent a `keys.log(agentId)` key names; undefined for any other key. */
 export const logAgentId = (key: QueryKey): string | undefined => (key[0] === LOG && typeof key[1] === "string" ? key[1] : undefined);

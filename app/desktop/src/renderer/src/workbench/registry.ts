@@ -3,13 +3,17 @@ import type { LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
 import type { ZodType } from "zod";
 import type { AgentSummary } from "@wombat/shared/api";
+import type { Proposal } from "@wombat/shared/proposals";
 import type { IsKnown } from "./layout.ts";
 
 export type ViewLocation = "left" | "editor" | "right";
-/** What a view's title may look at; `agents` is undefined while the list is loading. */
-export type ResolveContext = { agents: AgentSummary[] | undefined };
-/** What `resolves` looks at: it's only asked once the agents list is known (until then a tab is kept). */
-export type KnownContext = { agents: AgentSummary[] };
+/** What a view's title may look at; a list is undefined while it's loading (or couldn't be read). */
+export type ResolveContext = { agents: AgentSummary[] | undefined; proposals?: readonly Proposal[] | undefined };
+/**
+ * What `resolves` looks at: it's only asked once the agents list is known (until then a tab is kept). The proposals
+ * may still be unknown: a view that goes by them keeps its tab until they are.
+ */
+export type KnownContext = { agents: AgentSummary[]; proposals: readonly Proposal[] | undefined };
 
 /**
  * Asks a tab's view to show something in it (a permission request to scroll to). Every request is a new object, so
@@ -79,11 +83,11 @@ export const paramsFit = (view: ViewDescriptor, params: unknown): boolean => vie
  * resolves is true. While the list is unknown a tab is kept.
  */
 export const isKnown =
-  ({ agents }: ResolveContext): IsKnown =>
+  ({ agents, proposals }: ResolveContext): IsKnown =>
   (viewId, params) => {
     const view = views.get(viewId);
     if (view === undefined || !paramsFit(view, params)) return false;
-    return agents === undefined || view.resolves === undefined || view.resolves(params, { agents });
+    return agents === undefined || view.resolves === undefined || view.resolves(params, { agents, proposals });
   };
 
 /**
@@ -95,5 +99,5 @@ export const isRestorable =
   (viewId, params) => {
     if (!isKnown(ctx)(viewId, params)) return false;
     const restores = views.get(viewId)?.restores;
-    return ctx.agents === undefined || restores === undefined || restores(params, { agents: ctx.agents });
+    return ctx.agents === undefined || restores === undefined || restores(params, { agents: ctx.agents, proposals: ctx.proposals });
   };

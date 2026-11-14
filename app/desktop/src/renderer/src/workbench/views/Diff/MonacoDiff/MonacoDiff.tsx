@@ -5,9 +5,16 @@ import { useEffect, useRef } from "react";
 import { languageOf, MONACO_HOST_CLASS, MONACO_THEME, monaco } from "../../../../lib/monaco.ts";
 import { cn } from "../../../../lib/utils";
 
-type Props = { path: string; oldText: string; newText: string; className?: string | undefined };
+type Props = {
+  path: string;
+  oldText: string;
+  newText: string;
+  className?: string | undefined;
+  /** On for a whole file (the proposal tab), off for an edit request's snippet, whose numbers counted from 1 would mislead. */
+  lineNumbers?: boolean | undefined;
+};
 
-export const MonacoDiff = ({ path, oldText, newText, className }: Props) => {
+export const MonacoDiff = ({ path, oldText, newText, className, lineNumbers = false }: Props) => {
   const host = useRef<HTMLDivElement>(null);
   const editor = useRef<ReturnType<typeof monaco.editor.createDiffEditor>>(undefined);
 
@@ -24,8 +31,8 @@ export const MonacoDiff = ({ path, oldText, newText, className }: Props) => {
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
       renderLineHighlight: "none",
-      // An edit's diff may be a snippet of the file, so numbers counted from 1 would mislead.
-      lineNumbers: "off",
+      // Read once: the editor is made once per mount.
+      lineNumbers: lineNumbers ? "on" : "off",
       // Agent text stays text: nothing in it is a link or opens a hover.
       links: false,
       hover: { enabled: "off" },

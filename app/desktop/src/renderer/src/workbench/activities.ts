@@ -1,5 +1,5 @@
 // Importing this module registers the activities and their views, in the activity bar's order (Agents first).
-import { Bot, Columns2, Files, Inbox, FolderCog, GitBranch, LayoutDashboard, List, MessageSquare, type LucideIcon } from "lucide-react";
+import { Bot, Columns2, FilePen, Files, Inbox, FolderCog, GitBranch, LayoutDashboard, List, MessageSquare, type LucideIcon } from "lucide-react";
 import { createElement } from "react";
 
 import "../harnesses/claude/claude-ui.ts";
@@ -11,6 +11,8 @@ import { CHAT_VIEW, ChatParams, chatResolves, chatTitle } from "./views/Chat/cha
 import { Diff } from "./views/Diff/Diff.tsx";
 import { DIFF_TITLE, DIFF_VIEW, DiffParams, diffResolves, diffRestores } from "./views/Diff/diff-params.ts";
 import { NeedsMe } from "./views/NeedsMe/NeedsMe.tsx";
+import { Proposal } from "./views/Proposal/Proposal.tsx";
+import { PROPOSAL_TITLE, PROPOSAL_VIEW, ProposalParams, proposalResolves, proposalRestores } from "./views/Proposal/proposal-params.ts";
 import { EmptyActivity } from "./views/EmptyActivity/EmptyActivity.tsx";
 
 /** An activity that isn't built yet: its sidebar view shows its empty state. */
@@ -45,6 +47,18 @@ const register = (): void => {
     paramsSchema: DiffParams,
     resolves: diffResolves,
     restores: diffRestores,
+  });
+
+  registerView({
+    id: PROPOSAL_VIEW,
+    // The view reports the proposal's label once it has read the proposal.
+    title: PROPOSAL_TITLE,
+    icon: FilePen,
+    locations: ["editor"],
+    component: Proposal,
+    paramsSchema: ProposalParams,
+    resolves: proposalResolves,
+    restores: proposalRestores,
   });
 
   registerView({ id: "needs-me", title: "Needs me", icon: Inbox, locations: ["right"], component: NeedsMe });

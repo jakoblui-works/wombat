@@ -10,16 +10,21 @@ import { DiffCounts } from "../EditDiff/EditDiff.tsx";
 import type { InlineDiff } from "../EditDiff/inline-diff.ts";
 import { ANSWER_LABELS, type PermissionOption, permissionButtons } from "../permission-buttons.ts";
 
-/** How an answered or cancelled request reads in place of its buttons. */
-export const Outcome = ({ answer }: { answer: NonNullable<Extract<ChatItem, { kind: "permission" }>["answer"]> }) => {
-  const Mark = answer.startsWith("allow_") ? Check : X;
+/** A decision in place of the buttons that made it: a check for a yes, a cross for a no. */
+export const OutcomeMark = ({ allowed, children }: { allowed: boolean; children: ReactNode }) => {
+  const Mark = allowed ? Check : X;
   return (
     <span className="ml-auto flex shrink-0 items-center gap-1 rounded-sm bg-surface-3 px-1.5 py-0.5 text-xs text-fg-secondary">
       <Mark className="size-3" />
-      {ANSWER_LABELS[answer]}
+      {children}
     </span>
   );
 };
+
+/** How an answered or cancelled request reads in place of its buttons. */
+export const Outcome = ({ answer }: { answer: NonNullable<Extract<ChatItem, { kind: "permission" }>["answer"]> }) => (
+  <OutcomeMark allowed={answer.startsWith("allow_")}>{ANSWER_LABELS[answer]}</OutcomeMark>
+);
 
 /** One button per option: the rest by name, then Reject (secondary), then Approve (primary), from `permissionButtons`. */
 export const AnswerButtons = ({
@@ -53,6 +58,20 @@ export const AnswerButtons = ({
   );
 };
 
+/**
+ * The header's decision part: until there is an outcome, what's waiting and the buttons (`children`) at the end;
+ * then the outcome in their place.
+ */
+export const DecisionSlot = ({ waiting, outcome, children }: { waiting: ReactNode; outcome: ReactNode; children: ReactNode }) =>
+  outcome === undefined || outcome === null ? (
+    <>
+      <span className="ml-3 flex min-w-0 flex-1 items-center gap-2">{waiting}</span>
+      {children}
+    </>
+  ) : (
+    outcome
+  );
+
 /** "The agent waits for your answer", in the waiting state's look. */
 export const Waiting = ({ children = "The agent waits for your answer", wrap = false }: { children?: ReactNode; wrap?: boolean }) => {
   const waiting = AGENT_STATES.waiting;
@@ -64,11 +83,11 @@ export const Waiting = ({ children = "The agent waits for your answer", wrap = f
   );
 };
 
-/** Why the last answer failed, as a strip along the card (`className` gives the side its border is on). */
+/** Why the last answer or decision failed, as a strip along the card (`className` gives the side its border is on). */
 export const AnswerError = ({ error, className = "border-t" }: { error: Error | undefined; className?: string }) =>
   error === undefined ? null : (
     <p role="alert" className={cn("border-line px-3 py-1.5 text-sm text-danger", className)}>
-      Couldn't send the answer: {error.message}
+      Couldn't send: {error.message}
     </p>
   );
 

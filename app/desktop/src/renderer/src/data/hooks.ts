@@ -14,7 +14,7 @@ export const useRepos = () => useQuery({ ...reposQuery(), refetchOnMount: "alway
 
 export const useProposals = () => useQuery(proposalsQuery());
 
-/** One proposal with its versions and content; read again by every `proposal` alert while it is cached. */
+/** One proposal with its versions and content; read again by an alert for this proposal and after a reconnect. */
 export const useProposal = (proposalId: string) => useQuery(proposalQuery(proposalId));
 
 export const useAgentLog = (agentId: string) => useQuery(agentLogQuery(useQueryClient(), agentId));

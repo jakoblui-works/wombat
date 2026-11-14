@@ -11,11 +11,11 @@ import {
   type SetConfigRequest,
   type StartAgentRequest,
 } from "@wombat/shared/api";
-import type { ApproveRequest, RejectRequest } from "@wombat/shared/proposals";
+import { type ApproveRequest, isOpen, Proposal, ProposalErrorCode, type RejectRequest } from "@wombat/shared/proposals";
 import { asError } from "../lib/errors.ts";
 import { call, ServiceError } from "./client.ts";
 import { keys } from "./keys.ts";
-import { forgetAgent } from "./query-client.ts";
+import { forgetAgent, proposalPath } from "./query-client.ts";
 import { refresh } from "./refresh.ts";
 
 // The command routes' bodies aren't read: what changed arrives through the agents and the log.
@@ -93,19 +93,27 @@ export const deleteAgentFn = async (agentId: string): Promise<void> => {
 
 export type DecideVars = { proposalId: string } & ({ decision: "approve"; version: number } | { decision: "reject"; reason?: string });
 
-const proposalPath = (proposalId: string): string => `/proposals/${encodeURIComponent(proposalId)}`;
+/**
+ * What an approve of version `sent` came to: "changed" when the proposal is still open at a newer version (the file
+ * changed since, and the agent's edits were applied to it again as a version to look at), else "decided".
+ */
+export const approveOutcome = (sent: number, after: Pick<Proposal, "status" | "version">): "decided" | "changed" =>
+  isOpen(after.status) && after.version > sent ? "changed" : "decided";
 
-/** Approves the version the user saw, or rejects. `proposal_changed` resolves as "changed": the refresh in onSettled shows the new version. */
+/**
+ * Approves the version the user saw, or rejects. `proposal_changed`, and an approve that made a new version instead,
+ * resolve as "changed": the refresh in onSettled shows the new version.
+ */
 export const decideFn = async (vars: DecideVars): Promise<"decided" | "changed"> => {
   try {
     if (vars.decision === "approve") {
-      await call("POST", `${proposalPath(vars.proposalId)}/approve`, Ignored, { version: vars.version } satisfies ApproveRequest);
-    } else {
-      await call("POST", `${proposalPath(vars.proposalId)}/reject`, Ignored, (vars.reason === undefined ? {} : { reason: vars.reason }) satisfies RejectRequest);
+      const after = await call("POST", `${proposalPath(vars.proposalId)}/approve`, Proposal, { version: vars.version } satisfies ApproveRequest);
+      return approveOutcome(vars.version, after);
     }
+    await call("POST", `${proposalPath(vars.proposalId)}/reject`, Ignored, (vars.reason === undefined ? {} : { reason: vars.reason }) satisfies RejectRequest);
     return "decided";
   } catch (error) {
-    if (error instanceof ServiceError && error.code === "proposal_changed") return "changed";
+    if (error instanceof ServiceError && error.code === ProposalErrorCode.enum.proposal_changed) return "changed";
     throw error;
   }
 };

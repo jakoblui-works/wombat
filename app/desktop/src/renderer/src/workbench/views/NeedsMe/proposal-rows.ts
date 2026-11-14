@@ -2,11 +2,7 @@ import type { AgentSummary } from "@wombat/shared/api";
 import { isOpen, type Proposal } from "@wombat/shared/proposals";
 
 import { ago } from "../../../lib/ago";
-import { agentTitle } from "../Chat/chat-params.ts";
-import { proposalLabel } from "../Proposal/proposal-label.ts";
-
-/** What the row shows for an agent that no longer exists. */
-export const AGENT_DELETED = "agent deleted";
+import { isOutsideWorkspace, proposalAgentTitle, proposalLabel } from "../Proposal/proposal-label.ts";
 
 export type ProposalRow = {
   key: string;
@@ -15,7 +11,6 @@ export type ProposalRow = {
   outsideWorkspace: boolean;
   agent: AgentSummary | undefined;
   agentTitle: string;
-  status: Proposal["status"];
   ago: string;
 };
 
@@ -30,10 +25,9 @@ export const proposalRows = (proposals: readonly Proposal[], agents: readonly Ag
         key: proposal.id,
         proposal,
         label: proposalLabel(proposal),
-        outsideWorkspace: proposal.target === "file" && proposal.outsideWorkspace,
+        outsideWorkspace: isOutsideWorkspace(proposal),
         agent,
-        agentTitle: agent === undefined ? AGENT_DELETED : agentTitle(agent.id, agent),
-        status: proposal.status,
+        agentTitle: proposalAgentTitle(proposal, agents),
         ago: ago(proposal.at, now),
       };
     });

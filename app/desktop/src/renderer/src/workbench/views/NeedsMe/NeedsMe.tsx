@@ -5,7 +5,10 @@ import { StateMark } from "../../../lib/state-mark";
 import { useDecide } from "../../../data/commands.ts";
 import { useAgents, useConnection, useProposals } from "../../../data/hooks.ts";
 import { needsMeCount } from "../../../data/needs-me.ts";
-import { proposalActions } from "../Proposal/proposal-actions.ts";
+import { proposalActions, proposalShows } from "../Proposal/proposal-actions.ts";
+import { PathText } from "../Proposal/PathText.tsx";
+import { OutsideWorkspace } from "../Proposal/OutsideWorkspace.tsx";
+import { AnswerError } from "../approvals/Answer/Answer.tsx";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useWorkbench } from "../../workbench-context.ts";
 import { AgentsError } from "../approvals/LogError/LogError.tsx";
@@ -31,44 +34,35 @@ const RequestRow = ({ row, onOpen }: { row: NeedsMeRow; onOpen: () => void }) =>
   );
 };
 
-/** The path with its file name kept whole: the folders truncate, the DOM text stays complete. */
-const PathText = ({ path }: { path: string }) => {
-  const cut = path.lastIndexOf("/") + 1;
-  return (
-    <span className="flex min-w-0 flex-1 text-sm font-medium text-fg-primary">
-      <span className="min-w-0 truncate [direction:rtl] [unicode-bidi:plaintext]">{path.slice(0, cut)}</span>
-      <span className="shrink-0">{path.slice(cut)}</span>
-    </span>
-  );
-};
-
 /**
  * One open proposal: what it changes, whose it is, its age, and Approve and Reject. Approve names the version this
- * row last read. `onOpen` is the hook for opening the proposal's tab.
+ * row last read; an approve that meets a newer version opens the tab instead (`onOpen`), so it's seen first.
  */
 const ProposalRowView = ({ row, onOpen }: { row: ProposalRow; onOpen: () => void }) => {
   const connection = useConnection();
   const decide = useDecide();
   const { proposal } = row;
   const actions = proposalActions(proposal, row.agent, connection.state);
+  const shows = proposalShows(proposal.status);
   const busy = decide.isPending;
+  // A version this row never showed: its tab shows it before anything is approved.
+  const approve = () => decide.mutate({ proposalId: proposal.id, decision: "approve", version: proposal.version }, { onSuccess: (result) => result === "changed" && onOpen() });
   return (
-    <div className="flex flex-col gap-1 rounded-md px-2.5 py-2 transition-colors hover:bg-surface-2">
+    <div role="group" aria-label={row.label} className="flex flex-col gap-1 rounded-md px-2.5 py-2 transition-colors hover:bg-surface-2">
       <button type="button" onClick={onOpen} className="focus-ring flex w-full min-w-0 flex-col gap-1 rounded-sm text-left">
         <span className="flex w-full min-w-0 items-center gap-2">
-          <PathText path={row.label} />
+          <PathText path={row.label} className="flex-1 text-sm font-medium text-fg-primary" />
           <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{row.ago}</span>
         </span>
         <span className="flex w-full min-w-0 items-center gap-1.5 text-sm text-fg-secondary">
           <span className="min-w-0 truncate">{row.agentTitle}</span>
-          {row.outsideWorkspace ? <span className="shrink-0 rounded-sm bg-surface-2 px-1 text-xs text-fg-tertiary">outside workspace</span> : null}
-          {proposal.status === "conflict" ? <span className="shrink-0 text-xs text-fg-tertiary">Conflict</span> : null}
-          {proposal.status === "applying" ? <span className="shrink-0 text-xs text-fg-tertiary">Applying</span> : null}
+          {row.outsideWorkspace ? <OutsideWorkspace /> : null}
+          {shows.mark === undefined ? null : <span className="shrink-0 text-xs text-fg-tertiary">{shows.mark}</span>}
         </span>
       </button>
       <div className="flex items-center gap-1.5">
-        {proposal.status === "conflict" ? null : (
-          <Button type="button" variant="secondary" size="xs" disabled={!actions.approve || busy} onClick={() => decide.mutate({ proposalId: proposal.id, decision: "approve", version: proposal.version })}>
+        {!shows.approve ? null : (
+          <Button type="button" variant="secondary" size="xs" disabled={!actions.approve || busy} onClick={approve}>
             Approve
           </Button>
         )}
@@ -76,15 +70,18 @@ const ProposalRowView = ({ row, onOpen }: { row: ProposalRow; onOpen: () => void
           Reject
         </Button>
       </div>
-      {decide.error ? <p role="alert" className="text-xs text-destructive">{decide.error.message}</p> : null}
+      <AnswerError error={decide.error ?? undefined} className="rounded-sm px-0 py-0.5 text-xs" />
     </div>
   );
 };
 
-/** The right sidebar: every waiting agent's request, newest first. A click opens the agent's chat at the request. */
+/**
+ * The right sidebar: every waiting agent's request, newest first, then the open proposals. A click opens the agent's
+ * chat at the request, or the proposal's tab.
+ */
 export const NeedsMe = () => {
   const agents = useAgents();
-  const { openAgentChat } = useWorkbench();
+  const { openAgentChat, openProposal } = useWorkbench();
   const proposals = useProposals();
   const now = useNow();
   const rows = agents.data === undefined ? undefined : needsMeRows(agents.data.agents, now);
@@ -95,7 +92,7 @@ export const NeedsMe = () => {
       <SidebarHeader title="Needs me" {...(count === undefined ? {} : { count })} />
       {agents.error && rows === undefined ? (
         <AgentsError error={agents.error} />
-      ) : rows === undefined ? null : rows.length === 0 ? (
+      ) : rows === undefined ? null : rows.length === 0 && proposalList.length === 0 ? (
         <p className="px-3 pt-3 text-sm text-fg-tertiary">Nothing needs you</p>
       ) : (
         <ScrollArea className="min-h-0 flex-1">
@@ -107,8 +104,7 @@ export const NeedsMe = () => {
               <section className="flex flex-col">
                 <h3 className="px-2.5 pt-3 pb-1 text-xs font-semibold text-fg-tertiary">Proposals</h3>
                 {proposalList.map((row) => (
-                  // Opening the proposal's tab is not built yet.
-                  <ProposalRowView key={row.key} row={row} onOpen={() => undefined} />
+                  <ProposalRowView key={row.key} row={row} onOpen={() => openProposal(row.proposal.id)} />
                 ))}
               </section>
             )}

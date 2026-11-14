@@ -5,7 +5,7 @@ import { access, lstat, open, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, sep } from "node:path";
 
 import { errorCode, isLinkLoop, isMissing, isMissingPath } from "@wombat/shared/errno";
-import { MAX_EDIT_OLD_BYTES, MAX_PROPOSAL_BYTES, type FileProposalKind } from "@wombat/shared/proposals";
+import { canRevise, MAX_EDIT_OLD_BYTES, MAX_PROPOSAL_BYTES, type FileProposalKind, type ProposalStatus } from "@wombat/shared/proposals";
 
 import { VersionChanged, versionOf, writeAtomic } from "../items/files.ts";
 import type { TextContent } from "../store/proposals.ts";
@@ -173,6 +173,10 @@ export const readText = async (realPath: string): Promise<TargetText | undefined
   }
 };
 
+/** Whether the file read as `now` (undefined or null: missing or unreadable) is still at `baseVersion`, the version a proposal was made on. */
+export const atBase = (now: TargetText | null | undefined, baseVersion: string | null): boolean =>
+  now !== null && now !== undefined && !("problem" in now) && now.version === baseVersion;
+
 /** An existing target's text and version, undefined when it's gone since; refuses one that isn't text that fits. */
 export const readTarget = async (realPath: string, path: string): Promise<{ text: string; version: string } | undefined> => {
   let file: TargetText | undefined;
@@ -201,16 +205,28 @@ export const written = async (realPath: string, intent: unknown): Promise<boolea
   return file !== undefined && !("problem" in file) && file.version === intent;
 };
 
-/** A file proposal's text as it is now; null when it's missing, can't be read as text, or its path leads somewhere else now. */
-export const currentText = async (realPath: string, kind: FileProposalKind): Promise<string | null> => {
+/**
+ * A file proposal's text and version as they are now; null when it's missing, can't be read as text, or its path
+ * leads somewhere else now.
+ */
+export const currentFile = async (realPath: string, kind: FileProposalKind): Promise<{ text: string; version: string } | null> => {
   try {
     if (await movedSince(realPath, kind)) return null;
     const file = await readText(realPath);
-    return file === undefined || "problem" in file ? null : file.text;
+    return file === undefined || "problem" in file ? null : file;
   } catch {
     return null;
   }
 };
+
+/**
+ * Whether a file edit's base is no longer the file as it is now (`now`, null when it can't be read): only for an edit
+ * the agent may still revise (pending or conflict); undefined for any other proposal.
+ */
+export const baseChanged = (
+  proposal: { kind: FileProposalKind; status: ProposalStatus; baseVersion: string | null },
+  now: TargetText | null,
+): boolean | undefined => (proposal.kind === "edit" && canRevise(proposal.status) ? !atBase(now, proposal.baseVersion) : undefined);
 
 const CATALOG_FILE = conflict(`The file is an item's file or a structure's settings, which only the item tools change, ${NOTHING_WRITTEN}. ${BY_HAND}`);
 const MOVED = conflict(
@@ -286,7 +302,7 @@ const write = async ({ proposal, content, holds }: FileWrite): Promise<Applied> 
     return { written: true };
   }
   let now = await at(kind, "read", () => readText(path));
-  if (now !== undefined && !("problem" in now) && now.version === baseVersion) {
+  if (baseVersion !== null && atBase(now, baseVersion)) {
     // The rename below would replace a file the service may not write, as long as its folder is writable.
     await at(kind, "check", () => access(path, constants.W_OK));
     const landed = await at(kind, "write", async () => {
