@@ -1,19 +1,18 @@
 // New versions of an open proposal: the agent's revision (the revise_proposal tool) and the user's draft (my version
 // on top of the agent's latest). Each runs in the decide queue, so it never interleaves with an approve or a reject.
-import { isDeepStrictEqual } from "node:util";
-
-import { myDraft, ProposalErrorCode, type FileProposal } from "@wombat/shared/proposals";
+import { MAX_PROPOSAL_VERSIONS, myDraft, ProposalErrorCode, sameAsAgents, type DraftRequest, type FileProposal } from "@wombat/shared/proposals";
 
 import { currentVersion, draftSlot } from "../store/proposal-rules.ts";
 import { fieldsOf } from "../store/proposals.ts";
 import type { ProposalChange, ProposalContent, Store, StoredProposal } from "../store/store.ts";
+import type { DistributiveOmit } from "../store/values.ts";
 import { checkText, textProblemClause } from "./file-target.ts";
 import type { ItemProposalRecord, ItemProposals } from "./item-proposals.ts";
 import { reviseFile, type Revision } from "./propose-file.ts";
 import { DraftRefused, itemsNotConfigured, notOwnOpenProposal, ownOpenProposal, PROPOSAL_UNCHANGED, ProposalError, ProposalRefused, toDraft } from "./refused.ts";
 
 /** My draft as the route takes it: a file's whole text, or an item's fields. */
-export type DraftContent = { text: string } | { fields: Record<string, unknown> };
+type DraftContent = DistributiveOmit<DraftRequest, "onVersion">;
 
 /** `rebuilt`: the version was made on the file or item as it is now, so it holds only this revision's changes. */
 export type RevisedResult = { revised: string; version: number; rebuilt?: true };
@@ -26,18 +25,21 @@ export const REBUILT =
 type NextVersion = { content: ProposalContent; baseVersion?: string | null };
 
 /** Whether a revision was rebuilt on the target as it is now: its new base is a version read from the target. */
-export const isRebuilt = (next: NextVersion) => typeof next.baseVersion === "string";
+const isRebuilt = (next: NextVersion) => typeof next.baseVersion === "string";
 
-/** Whether my draft's content is the agent's version it sits on, which would make "my version" no change at all. */
-export const sameAsAgents = (draft: ProposalContent, theirs: ProposalContent) =>
-  "text" in draft ? "text" in theirs && draft.text === theirs.text : "fields" in theirs && isDeepStrictEqual(draft.fields, theirs.fields);
+/** The refusal of an agent's revise of a proposal with `count` versions stored, or undefined while it may have another. */
+const versionCapRefusal = (count: number): string | undefined =>
+  count < MAX_PROPOSAL_VERSIONS
+    ? undefined
+    : `This proposal has ${String(count)} versions, the most one proposal may have. ${PROPOSAL_UNCHANGED} ` +
+      "Ask the user to decide on it as it is, or to reject it so you can propose anew.";
 
 /** The refusal of a draft equal to the agent's version; with an edit of mine current, how to show the agent's version again. */
-export const sameAsAgentsRefusal = (draftCurrent: boolean) =>
+const sameAsAgentsRefusal = (draftCurrent: boolean) =>
   `Your version is the same as the agent's, so there is nothing to save.${draftCurrent ? " To show the agent's version again, drop your edit." : ""}`;
 
 /** Which change an item proposal's revise asked for, or the refusal when it isn't `fields` alone. */
-export const itemRevisionOf = ({ edits, content, fields }: Revision): { fields: Record<string, unknown> } | { refusal: string } => {
+const itemRevisionOf = ({ edits, content, fields }: Revision): { fields: Record<string, unknown> } | { refusal: string } => {
   if (edits !== undefined || content !== undefined) {
     return { refusal: `This is an item proposal, so it takes no edits or content: send fields, the fields it should set instead. ${PROPOSAL_UNCHANGED}` };
   }
@@ -46,7 +48,7 @@ export const itemRevisionOf = ({ edits, content, fields }: Revision): { fields: 
 };
 
 /** Why my draft doesn't fit the proposal's target, or undefined when it does. */
-export const draftShapeRefusal = (target: StoredProposal["target"], content: DraftContent): string | undefined => {
+const draftShapeRefusal = (target: StoredProposal["target"], content: DraftContent): string | undefined => {
   if (target === "file" && !("text" in content)) return "This is a file proposal: send its whole text as text, not fields.";
   if (target === "item" && !("fields" in content)) return "This is an item proposal: send its fields, not text.";
   return undefined;
@@ -60,7 +62,7 @@ const draftChanged = (id: string, onVersion: number) =>
 
 const ITEMS_GONE = `The service has no items set up now, so an item proposal can't be revised. Tell the user. ${PROPOSAL_UNCHANGED}`;
 
-export type ReviserOptions = {
+type ReviserOptions = {
   store: Store;
   /** Runs a job in the queue approve and reject run in. */
   decide: <T>(job: () => Promise<T>) => Promise<T>;
@@ -74,7 +76,8 @@ export type ReviserOptions = {
 
 export const reviser = ({ store, decide, committed, items, holds, summaryOf }: ReviserOptions) => {
   const currentOf = (id: string) => {
-    const current = currentVersion(store.listVersions(id));
+    const n = currentVersion(store.listVersionHeads(id))?.n;
+    const current = n === undefined ? undefined : store.getVersion(id, n);
     if (current === undefined) throw new Error(`Proposal ${id} has no version stored.`);
     return current;
   };
@@ -89,19 +92,24 @@ export const reviser = ({ store, decide, committed, items, holds, summaryOf }: R
     return { content: { fields }, ...based };
   };
 
-  /** `agentId`'s new version of its open proposal `id`; throws ProposalRefused. Not counted toward the cap: no new proposal. */
+  /**
+   * `agentId`'s new version of its open proposal `id`; throws ProposalRefused. Not counted toward the open proposals'
+   * cap (no new proposal); refused at MAX_PROPOSAL_VERSIONS.
+   */
   const revise = (agentId: string, id: string, reason: string, revision: Revision): Promise<RevisedResult> =>
     decide(async () => {
       const stored = ownOpenProposal(store, agentId, id);
       if (stored === undefined) throw notOwnOpenProposal(id);
+      const full = versionCapRefusal(store.listVersionHeads(id).length);
+      if (full !== undefined) throw new ProposalRefused(full);
       const next = await nextVersion(stored, revision);
       committed(id, store.addAgentVersion(id, next.content, reason, next.baseVersion));
-      return { revised: id, version: currentOf(id).n, ...(isRebuilt(next) ? { rebuilt: true as const } : {}) };
+      return { revised: id, version: currentVersion(store.listVersionHeads(id))?.n ?? 0, ...(isRebuilt(next) ? { rebuilt: true as const } : {}) };
     });
 
   /** The draft's content once it passed its checks; throws DraftRefused. */
   const checkedDraft = async (stored: StoredProposal, onVersion: number, content: DraftContent): Promise<ProposalContent> => {
-    const theirs = store.listVersions(stored.id).find(({ n }) => n === onVersion);
+    const theirs = store.getVersion(stored.id, onVersion);
     if (theirs !== undefined && sameAsAgents(content, theirs.content)) throw new DraftRefused(sameAsAgentsRefusal(myDraft(store.listVersionHeads(stored.id)) !== undefined));
     if ("text" in content) {
       const checked = checkText(content.text);

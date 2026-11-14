@@ -7,6 +7,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { API_VERSION } from "@wombat/shared";
 import { ServerErrorCode } from "@wombat/shared/api";
+import { MAX_EDITS, ProposalReason } from "@wombat/shared/proposals";
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 
@@ -74,7 +75,7 @@ const handle = z.string().describe("An item's handle, like BUG-14 (an old handle
 const version = z
   .string()
   .describe(`The item's version from your last ${TOOL.getItem}. If the item changed since, re-read it and try again.`);
-const reason = z.string().describe("Why you propose this, for the user who approves or rejects it.");
+const reason = ProposalReason.describe("Why you propose this, for the user who approves or rejects it.");
 const fields = z
   .record(z.string(), z.unknown())
   .describe(
@@ -96,12 +97,14 @@ const createShape = {
 
 /** Replacements, each `old` occurring exactly once in `where` as the edits before it leave it. */
 const editList = (where: string) =>
-  z.array(
-    z.object({
-      old: z.string().describe(`Text that occurs exactly once in ${where} as the edits before this one leave it.`),
-      new: z.string().describe("The text that replaces it, taken literally."),
-    }),
-  );
+  z
+    .array(
+      z.object({
+        old: z.string().describe(`Text that occurs exactly once in ${where} as the edits before this one leave it.`),
+        new: z.string().describe("The text that replaces it, taken literally."),
+      }),
+    )
+    .max(MAX_EDITS, { error: `send at most ${String(MAX_EDITS)} edits in one call; combine neighbouring ones` });
 
 const proposeChangeShape = {
   path: z.string().describe("The file's path: absolute, or relative to the folder you work in."),
@@ -116,7 +119,7 @@ type ProposeChangeArgs = { path: string; reason: string; edits?: EditArgs; conte
 
 const reviseShape = {
   id: z.string().describe("The id your propose call answered."),
-  reason: z.string().describe("Why this version, for the user: what changed and why."),
+  reason: ProposalReason.describe("Why this version, for the user: what changed and why."),
   edits: editList("the text the proposal holds now (on a conflict: the file as it is now)")
     .optional()
     .describe("For a file proposal: the replacements, applied in order. Leave out `content` and `fields`."),
@@ -148,6 +151,9 @@ const text = (value: string, isError = false, aside?: string): CallToolResult =>
   ...(isError ? { isError: true } : {}),
 });
 
+/** The tools whose refusals leave a trace in the service's log: the agent id and the tool, nothing of the call. */
+const REFUSALS_LOGGED: ReadonlySet<string> = new Set([TOOL.proposeChange, TOOL.reviseProposal]);
+
 /** One McpServer for one request, every tool bound to the calling agent. */
 const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "proposals" | "log">, agentId: string) => {
   const server = new McpServer({ name: "wombat", version: String(API_VERSION) }, { capabilities: { tools: {} } });
@@ -160,7 +166,10 @@ const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "pro
         const result = await call(args);
         return text(JSON.stringify(result), false, asideOf?.(result));
       } catch (error) {
-        if (error instanceof AccessError || error instanceof ProposalRefused) return text(error.message, true);
+        if (error instanceof AccessError || error instanceof ProposalRefused) {
+          if (REFUSALS_LOGGED.has(tool)) log("tool_refused", { agentId, tool });
+          return text(error.message, true);
+        }
         // The details stay in the service: an unexpected error's message may name files or hidden items.
         log("tool_failed", { agentId, tool, error: errorName(error) });
         return text(`The Wombat service failed to run ${tool}. Try again; if it keeps failing, tell the user.`, true);

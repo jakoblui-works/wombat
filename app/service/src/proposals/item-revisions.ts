@@ -8,10 +8,10 @@ import { ItemWriteError, listed, type ItemChange } from "../items/write.ts";
 import { awaitsNewVersion } from "../store/proposal-rules.ts";
 import type { ItemChecks, ItemProposalsOptions } from "./item-proposals.ts";
 import { createInputOf, targetItem, type StoredItemProposal } from "./item-target.ts";
-import { DraftRefused, PROPOSAL_UNCHANGED, ProposalRefused } from "./refused.ts";
+import { ASK_TO_REJECT, DraftRefused, PROPOSAL_UNCHANGED, ProposalRefused } from "./refused.ts";
 
 /** A revision's checked fields, and the proposal's new base: the item's version now (null for a create); undefined keeps it. */
-export type CheckedItemRevision = { fields: Record<string, unknown>; baseVersion?: string | null };
+type CheckedItemRevision = { fields: Record<string, unknown>; baseVersion?: string | null };
 
 export type ItemRevisions = {
   /**
@@ -23,17 +23,21 @@ export type ItemRevisions = {
   checkItemDraft(stored: StoredItemProposal, fields: Record<string, unknown>): Promise<void>;
 };
 
-export type ItemRevisionsOptions = Pick<ItemProposalsOptions, "catalog" | "writer" | "viewOf" | "structureFor"> & { checks: ItemChecks };
+type ItemRevisionsOptions = Pick<ItemProposalsOptions, "catalog" | "writer" | "viewOf"> & { checks: ItemChecks };
 
 const NO_FIELDS = "A delete proposal has no fields to change.";
 
+/** For a structure the agent may not see now (hidden, gone or broken settings) as for a gone item: it names neither. */
+const UNREACHABLE = `The item this proposal changes, or the structure it adds one to, can't be reached anymore, so the proposal can't be revised. ${PROPOSAL_UNCHANGED} Tell the user, and ${ASK_TO_REJECT}.`;
+
 const SAME_FIELDS = `The fields are the same as your proposal's current ones, so they change nothing. ${PROPOSAL_UNCHANGED}`;
 
-export const itemRevisions = ({ catalog, writer, viewOf, structureFor, checks }: ItemRevisionsOptions): ItemRevisions => {
+export const itemRevisions = ({ catalog, writer, viewOf, checks }: ItemRevisionsOptions): ItemRevisions => {
   /** `fields` checked as a change of the target as it is now, and the item's version now (null for a create). */
   const checkedOnNow = async (stored: StoredItemProposal, fields: Record<string, unknown>): Promise<{ fields: Record<string, unknown>; version: string | null }> => {
     const current = viewOf(await catalog.snapshot());
-    const structure = structureFor(current, stored.structure);
+    const structure = current.structures.get(stored.structure);
+    if (structure === undefined) throw new ProposalRefused(UNREACHABLE);
     if (stored.kind === "create") return { fields: await checks.checkedCreate(current, structure, createInputOf(fields, stored.file).input), version: null };
     const target = targetItem(current.items, stored);
     if (target === "gone" || "movedTo" in target) {

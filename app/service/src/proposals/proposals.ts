@@ -4,7 +4,10 @@
 // the next start from what the target holds.
 import { MAX_OPEN_PROPOSALS, type FileProposal, type ProposalDetail, type ProposalStatus } from "@wombat/shared/proposals";
 
+import { openAccess } from "../items/access.ts";
+import type { Catalog } from "../items/catalog.ts";
 import { versionOfText } from "../items/files.ts";
+import type { Writer } from "../items/write.ts";
 import { errorName, type Log } from "../log.ts";
 import { currentVersion } from "../store/proposal-rules.ts";
 import { fieldsOf, textOf } from "../store/proposals.ts";
@@ -21,6 +24,7 @@ import {
   type ProposedItemChange,
   type StoredItemProposal,
 } from "./item-proposals.ts";
+import { noteSource } from "./note-source.ts";
 import { fileProposer } from "./propose-file.ts";
 import { reviser } from "./revise.ts";
 import { commonFields } from "./proposal-fields.ts";
@@ -29,21 +33,21 @@ import { itemsNotConfigured, notApprovable, notFound, ProposalError, ProposalRef
 type StoredFileProposal = Extract<StoredProposal, { target: "file" }>;
 
 /** How an approve whose write landed (or not) settles. */
-export const landedOutcome = (landed: Written | undefined): ApplyOutcome => {
+const landedOutcome = (landed: Written | undefined): ApplyOutcome => {
   if (landed === undefined) return { status: "pending" };
   const { itemId, itemHandle } = landed;
   return { status: "approved", ...(itemId === undefined ? {} : { itemId }), ...(itemHandle === undefined ? {} : { itemHandle }) };
 };
 
 /** The cap's refusal for an agent with `open` proposals counting toward it, or undefined while there is room. */
-export const capRefusal = (open: number): string | undefined =>
+const capRefusal = (open: number): string | undefined =>
   open < MAX_OPEN_PROPOSALS
     ? undefined
     : `You have ${String(open)} proposals waiting for the user's decision, and one agent may have at most ${String(MAX_OPEN_PROPOSALS)}. ` +
       "Wait until the user approves or rejects some of them before you propose more; keep working meanwhile.";
 
 /** A stored file proposal as the API sends it. */
-export const fileProposalOf = (stored: StoredFileProposal, heads: readonly ProposalVersionHead[], outsideWorkspace: boolean): FileProposal => ({
+const fileProposalOf = (stored: StoredFileProposal, heads: readonly ProposalVersionHead[], outsideWorkspace: boolean): FileProposal => ({
   ...commonFields(stored, heads),
   target: "file",
   path: stored.path,
@@ -51,7 +55,7 @@ export const fileProposalOf = (stored: StoredFileProposal, heads: readonly Propo
   kind: stored.kind,
 });
 
-export type ProposalsOptions = {
+type ProposalsOptions = {
   store: Store;
   /** The workspace root; a file outside its real path is marked. */
   workspace: string;
@@ -87,7 +91,7 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
   };
 
   const contentOf = (id: string, n: number) => {
-    const content = store.listVersions(id).find((version) => version.n === n);
+    const content = store.getVersion(id, n);
     if (content === undefined) throw new Error(`Proposal ${id} has no version ${String(n)} stored; it can't be read.`);
     return content;
   };
@@ -205,7 +209,7 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
       return side.itemProposalDetail(stored, fieldsOf(contentOf(id, n).content), heads);
     }
     const { text } = textOf(contentOf(id, n).content);
-    return { ...(await fileSummary(stored)), current: await currentText(stored.path), text, versions: heads };
+    return { ...(await fileSummary(stored)), current: await currentText(stored.path, stored.kind), text, versions: heads };
   };
 
   /** Approves version `version`, which must be current; a conflict or a new version to approve answers too. */
@@ -248,3 +252,20 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
 };
 
 export type Proposals = ReturnType<typeof createProposals>;
+
+type OpenProposalsOptions = Omit<ProposalsOptions, "items" | "holds"> & {
+  /** The items root's catalog and writer; without them there are no item tools, and every file is a plain one. */
+  items?: { catalog: Catalog; writer: Writer } | undefined;
+};
+
+/**
+ * The proposals with everything they work with: the item tools' access (undefined without items), the proposals
+ * over it, told which files the items own, and the note source for the agents' next messages.
+ */
+export const openProposals = ({ items, ...options }: OpenProposalsOptions) => {
+  const access = items === undefined ? undefined : openAccess({ catalog: items.catalog, writer: items.writer, store: options.store });
+  const holds = items === undefined ? undefined : (path: string) => items.catalog.holds(path);
+  const proposals = createProposals({ ...options, items: access, holds });
+  const notes = noteSource({ store: options.store, items: access, log: options.log });
+  return { access, proposals, notes };
+};

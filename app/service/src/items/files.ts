@@ -90,7 +90,9 @@ export const writeAtomic = async (path: string, data: string | Uint8Array, { cre
     }
   }
   try {
-    await writeFile(temp, data, { flag: "wx" });
+    // Created with the target's mode, so its content is never readable more widely than the target's; the umask may
+    // still drop bits, which the chmod puts back.
+    await writeFile(temp, data, { flag: "wx", ...(mode === undefined ? {} : { mode }) });
     if (mode !== undefined) await chmod(temp, mode);
     if (create) await linkNew(temp, path);
     else {

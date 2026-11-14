@@ -20,8 +20,7 @@ import { ItemWriteError, presentValues, type Writer } from "../items/write.ts";
 import type { VersionAuthor } from "../store/proposal-rules.ts";
 import { fieldsOf } from "../store/proposals.ts";
 import type { NewProposal, ProposalVersionHead, Store, StoredProposal } from "../store/store.ts";
-import { askAgain, BY_HAND, conflict, NOTHING_WRITTEN, type Applied, type ApplyTarget, type Written } from "./apply.ts";
-import { failureOutcome } from "./file-target.ts";
+import { askAgain, BY_HAND, conflict, failureOutcome, NOTHING_WRITTEN, type Applied, type ApplyTarget, type Written } from "./apply.ts";
 import { itemRevisions, type ItemRevisions } from "./item-revisions.ts";
 import { createFields, createInputOf, itemById, targetItem, type StoredItemProposal } from "./item-target.ts";
 import { commonFields } from "./proposal-fields.ts";
@@ -43,7 +42,7 @@ export type ProposedItemChange =
   | { kind: "delete"; handle: string; version: string };
 
 /** An item proposal that passed its checks: what to store, and its first version's fields. */
-export type CheckedItemProposal = { proposal: Extract<NewProposal, { target: "item" }>; fields: Record<string, unknown> };
+type CheckedItemProposal = { proposal: Extract<NewProposal, { target: "item" }>; fields: Record<string, unknown> };
 
 export type ItemProposals = ItemRevisions & {
   /** Runs `change`'s checks as `agentId` proposes it; throws the agent's refusal. Stores nothing. */
@@ -82,7 +81,7 @@ export type ItemProposalsOptions = {
 type ItemIntent = { itemId?: string | null; version?: string | null; path?: string | null };
 
 /** What a written check reads of the items now: the items, whether the proposal's structure was read whole, whether a delete's file is missing on disk. */
-export type ItemsNow = { items: readonly LoadedItem[]; structureRead: boolean; fileMissing: boolean };
+type ItemsNow = { items: readonly LoadedItem[]; structureRead: boolean; fileMissing: boolean };
 
 /** Whether a structure was read whole: it has settings, and no folder of it failed to read (its only problems without a field). */
 export const structureRead = (structures: readonly LoadedStructure[], id: string) =>
@@ -94,7 +93,7 @@ const itemOnly = (stored: StoredProposal): StoredItemProposal => {
 };
 
 /** The fields of a version by `by` that are locked in `structure` now: the agent's locks never bind my version. */
-export const bindingLocks = (structure: ValidStructure, kind: Change, names: string[], by: VersionAuthor) => (by === "me" ? [] : lockedNames(structure, kind, names));
+const bindingLocks = (structure: ValidStructure, kind: Change, names: string[], by: VersionAuthor) => (by === "me" ? [] : lockedNames(structure, kind, names));
 
 /** A stored item proposal as sent: its item's handle among `items` now, else the one the applying commit stored. */
 export const itemProposalOf = (stored: StoredItemProposal, heads: readonly ProposalVersionHead[], items: readonly LoadedItem[] = []): ItemProposalRecord => ({
@@ -166,7 +165,7 @@ type ItemChecksOptions = Pick<ItemProposalsOptions, "writer" | "checkStructure" 
  * The checks an agent's new or changed item runs before anything is stored, in the direct change's order, for its
  * proposal and its revision alike; each throws the agent's refusal and answers the fields to store (links as ids).
  */
-export const itemChecks = ({ writer, checkStructure, linksToIds, checkNewFile, agentWriteError }: ItemChecksOptions) => ({
+const itemChecks = ({ writer, checkStructure, linksToIds, checkNewFile, agentWriteError }: ItemChecksOptions) => ({
   checkedCreate: async (current: View, structure: ValidStructure, input: ItemInput): Promise<Record<string, unknown>> => {
     checkLevel(structure, "propose", "create");
     const properties = input.properties ?? {};
@@ -303,7 +302,7 @@ export const openItemProposals = ({
   };
 
   return {
-    ...itemRevisions({ catalog, writer, viewOf, structureFor, checks }),
+    ...itemRevisions({ catalog, writer, viewOf, checks }),
 
     checkItemProposal: (agentId, change, reason) => {
       if (change.kind === "create") return checkCreate(agentId, change.structure, change.input, reason);

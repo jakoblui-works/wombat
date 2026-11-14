@@ -9,11 +9,12 @@ import { Problem } from "@wombat/shared/items";
 import type { ProposalStatus } from "@wombat/shared/proposals";
 import { expect } from "vitest";
 
-import { openAccess, type Access } from "../src/items/access.ts";
+import type { Access } from "../src/items/access.ts";
 import { AccessError, type ItemInput } from "../src/items/refusals.ts";
 import { logToStderr, type Log } from "../src/log.ts";
 import type { ItemProposalDetail, ItemProposalRecord, ProposalResult } from "../src/proposals/item-proposals.ts";
-import { createProposals, type Proposals } from "../src/proposals/proposals.ts";
+import type { NoteSource } from "../src/proposals/note-source.ts";
+import { openProposals, type Proposals } from "../src/proposals/proposals.ts";
 import { openItems, writeRoot, type Opened } from "./items-fixtures.ts";
 
 /** In every name, title, body and value of the hidden structure, in mixed case; never in a visible one. */
@@ -177,15 +178,16 @@ const itemOnly = <T extends ItemProposalRecord = ItemProposalRecord>(proposal: {
   return proposal as T;
 };
 
-/** Access on `opened`'s catalog, writer and store, with the proposals over it (the items root as the workspace). */
+/** Access on `opened`'s catalog, writer and store, with the proposals and the note source over it (the items root as the workspace), wired as the server wires them. */
 export const withProposals = (
   { root, catalog, writer, store }: Pick<Opened, "root" | "catalog" | "writer" | "store">,
   { onProposal = () => undefined, log = logToStderr }: { onProposal?: (id: string, seq: number) => void; log?: Log } = {},
-): { access: TestAccess; proposals: Proposals } => {
-  const access = openAccess({ catalog, writer, store });
-  const proposals = createProposals({ store, workspace: root, agentFolder: () => root, onProposal, log, items: access, holds: (path) => catalog.holds(path) });
+): { access: TestAccess; proposals: Proposals; notes: NoteSource } => {
+  const { access, proposals, notes } = openProposals({ store, workspace: root, agentFolder: () => root, onProposal, log, items: { catalog, writer } });
+  if (access === undefined) throw new Error("openProposals gave no item access although the items were given.");
   return {
     proposals,
+    notes,
     access: {
       ...access,
       proposeCreate: (agentId, structure, input, reason) => proposals.proposeItem(agentId, { kind: "create", structure, input }, reason),
@@ -203,7 +205,7 @@ export const withProposals = (
   };
 };
 
-export type AccessSetup = Opened & { access: TestAccess; proposals: Proposals; announced: string[] };
+export type AccessSetup = Opened & { access: TestAccess; proposals: Proposals; notes: NoteSource; announced: string[] };
 
 /** The access module and the proposals on a fresh copy of `files` (ACCESS_FILES by default); proposal announcements are recorded. */
 export const openAccessRoot = (files: Record<string, string> = ACCESS_FILES, log?: Log): AccessSetup => {

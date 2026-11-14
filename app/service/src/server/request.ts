@@ -5,7 +5,7 @@ import type { z } from "zod";
 /** Thrown by a route on a request that breaks the contract; answered with invalid_request. */
 export class InvalidRequest extends Error {}
 
-export const describeIssues = (error: z.ZodError) =>
+const describeIssues = (error: z.ZodError) =>
   error.issues
     .map((issue) => (issue.path.length === 0 ? issue.message : `${issue.path.join(".")}: ${issue.message}`))
     .join("; ");

@@ -11,7 +11,8 @@ import { z } from "zod";
 import { Item, ItemSummary, knownItems, StructureSummary } from "./items.ts";
 import { DiffLine } from "./line-diff.ts";
 import { ProposalErrorCode, Timestamp } from "./proposals.ts";
-import { MAX_BODY_BYTES, queryInt } from "./routes.ts";
+import { queryInt } from "./query.ts";
+import { MAX_BODY_BYTES } from "./routes.ts";
 
 const Seq = z.int().nonnegative();
 const DbId = z.string().min(1);
@@ -570,7 +571,6 @@ export type ListItemsResponse = z.infer<typeof ListItemsResponse>;
 /** `GET /items/:handle`: one item by handle or alias, with its body. */
 export const GetItemResponse = Item;
 export type GetItemResponse = z.infer<typeof GetItemResponse>;
-
 
 // Log entries (lenient): an agent's stored history, read through `GET /agents/:id/log`.
 

@@ -11,7 +11,10 @@ import type { ProposalVersionRecord, StoredProposal } from "../store/store.ts";
 
 export type ProposalNote = Pick<ProposalNoteEntry, "outcomes"> & { reference?: NoteReference };
 
-/** A proposal as the note is built from it: what is stored, its versions, and its label for the agent. */
+/**
+ * A proposal as the note is built from it: what is stored, the versions a note reads (my current draft and the
+ * agent's version it edits; none needed otherwise), and its label for the agent.
+ */
 export type NoteSubject = { stored: StoredProposal; versions: readonly ProposalVersionRecord[]; label: string };
 
 /**
@@ -30,10 +33,10 @@ export const itemLabel = (kind: StoredProposal["kind"], handle: string | undefin
 const OUTCOME_OF: ReadonlyMap<ProposalStatus, NoteOutcomeKind> = new Map(OUTCOMES.map((status) => [status, NoteOutcomeKind.exclude(["approved_with_changes"]).parse(status)]));
 
 /** My changes as a note keeps them: the same text, none in any line, too large to keep, or the lines shown; unknown for an item. */
-export type MyChanges = "same" | "none" | "unknown" | "too_large" | { diff: DiffLine[]; continues: boolean };
+type MyChanges = "same" | "none" | "unknown" | "too_large" | { diff: DiffLine[]; continues: boolean };
 
 /** `from` against `to` within NOTE_DIFF_LIMITS. */
-export const boundedChanges = (from: string, to: string): MyChanges => {
+const boundedChanges = (from: string, to: string): MyChanges => {
   if (from === to) return "same";
   const all = lineDiffWithin(from, to, NOTE_DIFF_LIMITS.changes);
   if (all === undefined) return "too_large";
@@ -48,7 +51,7 @@ export const boundedChanges = (from: string, to: string): MyChanges => {
  * My changes to the agent's version when my version is current (undefined otherwise): the file text of the latest
  * agent version before it against mine. Unknown for an item, whose fields hold ids an agent never reads.
  */
-export const myChanges = (versions: readonly ProposalVersionRecord[]): MyChanges | undefined => {
+const myChanges = (versions: readonly ProposalVersionRecord[]): MyChanges | undefined => {
   const draft = myDraft(versions);
   if (draft === undefined) return undefined;
   const { mine, theirs } = draft;
@@ -57,7 +60,7 @@ export const myChanges = (versions: readonly ProposalVersionRecord[]): MyChanges
 };
 
 /** Called when my changes to a proposal couldn't be worked out; the note then says they are too large to show. */
-export type DiffFailed = (proposalId: string, error: unknown) => void;
+type DiffFailed = (proposalId: string, error: unknown) => void;
 
 const changesOf = ({ stored, versions }: NoteSubject, failed: DiffFailed | undefined): MyChanges | undefined => {
   try {

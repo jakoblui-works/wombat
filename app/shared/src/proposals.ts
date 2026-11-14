@@ -5,7 +5,7 @@
 import { z } from "zod";
 
 import { Item, Problem } from "./items.ts";
-import { queryInt } from "./routes.ts";
+import { queryInt } from "./query.ts";
 
 /** An ISO date-time with its offset, as every timestamp on the wire. */
 export const Timestamp = z.iso.datetime({ offset: true });
@@ -16,13 +16,37 @@ export const MAX_OPEN_PROPOSALS = 20;
 /** The largest text a file proposal holds, in bytes: the proposed text, and the file's text it is read against. */
 export const MAX_PROPOSAL_BYTES = 512 * 1024;
 
+/** The most edits one call applies, and one version stores to apply again (past it the version stores none). */
+export const MAX_EDITS = 100;
+
+/** The longest old text of one edit, in bytes of UTF-8: each edit searches the whole text for it. */
+export const MAX_EDIT_OLD_BYTES = 64 * 1024;
+
+/**
+ * The versions, the user's drafts counted, at which the agent's revise of a proposal is refused. The user's draft and
+ * approve's re-applied version never are, and may take a proposal past it.
+ */
+export const MAX_PROPOSAL_VERSIONS = 50;
+
+/** The longest reason, in bytes of UTF-8: an agent's for a proposal or a version, and the user's for a reject. */
+export const MAX_REASON_BYTES = 4 * 1024;
+
+const utf8Bytes = (text: string) => new TextEncoder().encode(text).byteLength;
+
+const REASON_ERROR = `reason must be at most ${String(MAX_REASON_BYTES / 1024)} KiB of UTF-8 text; shorten it`;
+
+/** A reason as a request takes it: at most MAX_REASON_BYTES. */
+export const ProposalReason = z
+  .string()
+  .max(MAX_REASON_BYTES, { error: REASON_ERROR })
+  .refine((reason) => utf8Bytes(reason) <= MAX_REASON_BYTES, { error: REASON_ERROR });
+
 // Status moves.
 
 /** `applying`: approved by the user and being written; nothing else may happen to it until that ends. */
 export const ProposalStatus = z.enum(["pending", "applying", "approved", "rejected", "conflict"]);
 export type ProposalStatus = z.infer<typeof ProposalStatus>;
 
-/** The status a new proposal is stored with. */
 export const INITIAL_STATUS: ProposalStatus = "pending";
 
 /**
@@ -64,7 +88,6 @@ export const isOpen = (status: ProposalStatus): boolean => PROPOSAL_EVENTS.some(
  */
 export const canDecide = (status: ProposalStatus): boolean => nextStatus(status, "approve") !== undefined;
 
-/** Whether the user may reject it now: a pending proposal or a conflict. */
 export const canReject = (status: ProposalStatus): boolean => nextStatus(status, "reject") !== undefined;
 
 /** Whether the agent may revise it, its new version replacing the current one: pending or conflict. */
@@ -161,7 +184,40 @@ export const myDraft = <T extends Pick<ProposalVersion, "n" | "by">>(versions: r
   return theirs === undefined ? undefined : { mine, theirs };
 };
 
-/** `GET /proposals/:id`: the proposal, its target as it is now (null when it doesn't exist), the current version's content and every version. */
+/**
+ * The agent's version my draft goes on (`DraftRequest.onVersion`): the one my current draft edits, else the current
+ * version. Not the proposal's `version` while my draft is current: that is my draft's number.
+ */
+export const draftBase = <T extends Pick<ProposalVersion, "n" | "by">>(versions: readonly T[]): number | undefined =>
+  myDraft(versions)?.theirs.n ?? currentVersion(versions)?.n;
+
+/** A version's content as a draft compares it: a file's whole text, or an item's fields. */
+type DraftComparable = { text: string } | { fields: Record<string, unknown> };
+
+const sameValue = (a: unknown, b: unknown): boolean => {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => sameValue(value, b[index]));
+  }
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => Object.hasOwn(b, key) && sameValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]))
+  );
+};
+
+/**
+ * Whether my draft's content is the agent's version it goes on, which would make "my version" no change at all: the
+ * same text, or the same fields whatever their keys' order.
+ */
+export const sameAsAgents = (draft: DraftComparable, theirs: DraftComparable): boolean =>
+  "text" in draft ? "text" in theirs && draft.text === theirs.text : "fields" in theirs && sameValue(draft.fields, theirs.fields);
+
+/**
+ * `GET /proposals/:id`: the proposal, its target as it is now (`current`: null when it doesn't exist, or a file that
+ * can't be read as text), the version's content and every version.
+ */
 export const ProposalDetail = z.discriminatedUnion("target", [
   FileProposal.extend({ current: z.string().nullable(), text: z.string(), versions: z.array(ProposalVersion) }),
   /** `fields`: field name → proposed value: `title`, `body` or property names, link values as ids. */
@@ -169,18 +225,25 @@ export const ProposalDetail = z.discriminatedUnion("target", [
 ]);
 export type ProposalDetail = z.infer<typeof ProposalDetail>;
 
-const knownTargets = new Set<unknown>(Proposal.options.map((option) => option.shape.target.value));
+const kindsOf = new Map<unknown, ReadonlySet<unknown>>(Proposal.options.map((option) => [option.shape.target.value, new Set<unknown>(option.shape.kind.options)]));
+const knownStatuses = new Set<unknown>(ProposalStatus.options);
 
-/** A newer service's target: a string this app doesn't know. Anything else malformed fails the parse. */
-const unknownTarget = (value: unknown) => {
+/**
+ * A newer service's entry: its target, status or kind (for a known target) is a string this app doesn't know.
+ * Anything else malformed fails the parse.
+ */
+const fromNewerService = (value: unknown) => {
   if (typeof value !== "object" || value === null) return false;
-  const { target } = value as { target?: unknown };
-  return typeof target === "string" && !knownTargets.has(target);
+  const { target, status, kind } = value as { target?: unknown; status?: unknown; kind?: unknown };
+  const kinds = kindsOf.get(target);
+  if (typeof target === "string" && kinds === undefined) return true;
+  if (typeof status === "string" && !knownStatuses.has(status)) return true;
+  return typeof kind === "string" && kinds !== undefined && !kinds.has(kind);
 };
 
-/** `GET /proposals`: the proposals matching ListProposalsQuery, oldest first; targets this app doesn't know are dropped. */
+/** `GET /proposals`: the proposals matching ListProposalsQuery, oldest first; entries with a target, status or kind this app doesn't know are dropped. */
 export const ListProposalsResponse = z.object({
-  proposals: z.preprocess((value) => (Array.isArray(value) ? value.filter((entry) => !unknownTarget(entry)) : value), z.array(ProposalSummary)),
+  proposals: z.preprocess((value) => (Array.isArray(value) ? value.filter((entry) => !fromNewerService(entry)) : value), z.array(ProposalSummary)),
 });
 export type ListProposalsResponse = z.infer<typeof ListProposalsResponse>;
 
@@ -219,12 +282,12 @@ export const ApproveRequest = z.strictObject({ version: versionNumber("version")
 export type ApproveRequest = z.infer<typeof ApproveRequest>;
 
 /** `POST /proposals/:id/reject`: the user's reason, if they give one. */
-export const RejectRequest = z.strictObject({ reason: z.string().exactOptional() });
+export const RejectRequest = z.strictObject({ reason: ProposalReason.exactOptional() });
 export type RejectRequest = z.infer<typeof RejectRequest>;
 
 /**
- * `PUT /proposals/:id/draft`: the user's edit of version `onVersion` (another current version answers
- * `proposal_changed`): a file's whole text, or an item's fields.
+ * `PUT /proposals/:id/draft`: the user's edit of the agent's version `onVersion` (`draftBase` of the versions; any
+ * other number answers `proposal_changed`): a file's whole text, or an item's fields.
  */
 export const DraftRequest = z.union(
   [
@@ -236,9 +299,10 @@ export const DraftRequest = z.union(
 export type DraftRequest = z.infer<typeof DraftRequest>;
 
 /**
- * The proposal routes' error codes: `proposal_not_found` for an unknown proposal id, `proposal_not_pending` for one
- * that can't be decided now (being applied, already decided), `proposal_changed` for a request naming a version that
- * is no longer the current one. The app refetches the proposal.
+ * The proposal routes' error codes: `proposal_not_found` for an unknown proposal id, a `?version=` it doesn't have,
+ * or a message's `proposalId` that isn't that agent's open proposal; `proposal_not_pending` for one that can't be
+ * decided now (being applied, already decided); `proposal_changed` for a request naming a version that is no longer
+ * the current one. The app refetches the proposal.
  */
 export const ProposalErrorCode = z.enum(["proposal_not_found", "proposal_not_pending", "proposal_changed"]);
 export type ProposalErrorCode = z.infer<typeof ProposalErrorCode>;

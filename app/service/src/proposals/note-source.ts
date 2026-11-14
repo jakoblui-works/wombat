@@ -1,6 +1,8 @@
 // Reads what an agent's next message tells it about its proposals; writes nothing. Labels need the items as they are
 // now (an item's handle), so they are read before the message is stored; everything else is read again, synchronously,
 // in the step that stores it, so an outcome told by another message meanwhile is not told twice.
+import { myDraft } from "@wombat/shared/proposals";
+
 import { errorName, type Log } from "../log.ts";
 import type { Store, StoredProposal } from "../store/store.ts";
 import type { ItemProposals, StoredItemProposal } from "./item-proposals.ts";
@@ -11,10 +13,10 @@ import { notFound, ownOpenProposal } from "./refused.ts";
 export type PreparedNote = { labels: ReadonlyMap<string, string>; outcomes: readonly string[]; reference: string | undefined };
 
 /** The note to store with a message, and the outcomes it delivers. */
-export type MessageNote = { note: ProposalNote | undefined; delivers: string[] };
+type MessageNote = { note: ProposalNote | undefined; delivers: string[] };
 
-export type NoteSourceOptions = {
-  store: Pick<Store, "undeliveredOutcomes" | "getProposal" | "listVersions">;
+type NoteSourceOptions = {
+  store: Pick<Store, "undeliveredOutcomes" | "getProposal" | "listVersionHeads" | "getVersion">;
   /** The item side, to label an item proposal by a handle the agent may see; without it items get a neutral label. */
   items?: Pick<ItemProposals, "agentHandlesOf"> | undefined;
   log?: Log | undefined;
@@ -49,7 +51,10 @@ export const noteSource = ({ store, items, log }: NoteSourceOptions) => {
 
   const subjectOf = (stored: StoredProposal, labels: ReadonlyMap<string, string>): NoteSubject | undefined => {
     const label = labels.get(stored.id);
-    return label === undefined ? undefined : { stored, versions: store.listVersions(stored.id), label };
+    if (label === undefined) return undefined;
+    const draft = myDraft(store.listVersionHeads(stored.id));
+    const versions = draft === undefined ? [] : [draft.theirs.n, draft.mine.n].flatMap((n) => store.getVersion(stored.id, n) ?? []);
+    return { stored, versions, label };
   };
 
   /**

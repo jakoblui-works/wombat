@@ -15,7 +15,6 @@ import { join } from "node:path";
 import { MAX_OPEN_PROPOSALS } from "@wombat/shared/proposals";
 import { describe, expect, onTestFinished, test } from "vitest";
 
-import { noteSource } from "../proposals/note-source.ts";
 import { promptOf, renderNote } from "../proposals/note.ts";
 import { ProposalRefused } from "../proposals/refused.ts";
 import { AccessError } from "./refusals.ts";
@@ -492,7 +491,7 @@ describe("hidden never reaches an agent", () => {
   });
 
   test("a revise's refusal and the note for my next message, with its prompt, carry nothing of a hidden structure: no handle, no conflict's reason, none of my changes", async () => {
-    const { access, proposals, store, root } = openAccessRoot();
+    const { access, proposals, notes, store, root } = openAccessRoot();
     const hiddenStrings = [MARKER, ...HIDDEN.ids, ...HIDDEN.handles, HIDDEN.structure, HIDDEN.name, "vault/"];
     const version = async (handle: string) => (await access.get(handle)).version;
     /** A proposal on an item of a structure hidden since it was stored. */
@@ -526,7 +525,6 @@ describe("hidden never reaches an agent", () => {
     const { message, problems } = refusal as { message: string; problems?: unknown };
     expect(leaks(JSON.stringify({ message, problems }), hiddenStrings), `the revise's refusal: ${message}`).toEqual([]);
 
-    const notes = noteSource({ store, items: access });
     const { note } = notes.current(AGENT, open, await notes.prepare(AGENT, open));
 
     expect(note?.outcomes.map(({ proposalId, outcome }) => ({ proposalId, outcome })).sort((a, b) => a.outcome.localeCompare(b.outcome))).toEqual([

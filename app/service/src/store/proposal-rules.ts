@@ -1,5 +1,5 @@
 // The store's status decisions, all derived from the shared contract so no status is named here.
-import { countsTowardCap, currentVersion, isOpen, myDraft, nextStatus, ProposalStatus, type ProposalEvent, type ProposalVersion } from "@wombat/shared/proposals";
+import { countsTowardCap, currentVersion, draftBase, isOpen, myDraft, nextStatus, ProposalStatus, type ProposalEvent, type ProposalVersion } from "@wombat/shared/proposals";
 
 export { currentVersion };
 
@@ -29,13 +29,9 @@ export const settleEvent = (status: ProposalStatus, outcome: ProposalStatus) =>
 
 export type VersionAuthor = ProposalVersion["by"];
 
-/**
- * Whether my draft may go on agent version `onVersion` (the latest agent version), and which earlier draft of mine
- * on it the new one replaces.
- */
+/** Whether my draft may go on agent version `onVersion` (draftBase), and which earlier draft of mine on it the new one replaces. */
 export const draftSlot = (versions: readonly { n: number; by: VersionAuthor }[], onVersion: number): { replaces?: number } | undefined => {
-  const latestAgent = versions.findLast((version) => version.by === "agent");
-  if (latestAgent?.n !== onVersion) return undefined;
+  if (draftBase(versions) !== onVersion) return undefined;
   const draft = myDraft(versions);
   return draft === undefined ? {} : { replaces: draft.mine.n };
 };

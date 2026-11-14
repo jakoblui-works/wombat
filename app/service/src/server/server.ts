@@ -36,7 +36,6 @@ import { bodyLimit } from "hono/body-limit";
 import { requireAgent } from "../agents/errors.ts";
 import { AgentError, type Manager } from "../agents/manager.ts";
 import { folderOf } from "../agents/resume.ts";
-import { openAccess } from "../items/access.ts";
 import { handlesById, summarize, withLinks } from "../items/api-view.ts";
 import { findByHandle, type Catalog } from "../items/catalog.ts";
 import type { Writer } from "../items/write.ts";
@@ -44,8 +43,7 @@ import type { Harness } from "../harness/harness.ts";
 import { harnessFeatures } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { ApproveStep } from "../proposals/apply.ts";
-import { noteSource } from "../proposals/note-source.ts";
-import { createProposals } from "../proposals/proposals.ts";
+import { openProposals } from "../proposals/proposals.ts";
 import { ITEMS_NOT_CONFIGURED, ProposalError } from "../proposals/refused.ts";
 import type { Store } from "../store/store.ts";
 import { listRepos, RepoError } from "../workspace.ts";
@@ -128,15 +126,13 @@ export const startServer = async ({
   // Proposal changes reach the alert stream through the manager's listeners, like agent changes.
   const onProposal = (id: string, seq: number) => manager.proposalCommitted(id, seq);
   const findAgent = (id: string) => store.listAgents().find((agent) => agent.id === id);
-  const access = items && writer ? openAccess({ catalog: items, writer, store }) : undefined;
-  const proposals = createProposals({
+  const { access, proposals, notes } = openProposals({
     store,
     workspace: workspaceRoot,
     agentFolder: (agentId) => folderOf(workspaceRoot, requireAgent(agentId, findAgent).repo),
     onProposal,
     log,
-    items: access,
-    holds: items && ((path) => items.holds(path)),
+    items: items && writer ? { catalog: items, writer } : undefined,
     onApproveStep,
   });
   // Before the server listens: no request may see a proposal a service death left applying.
@@ -289,7 +285,7 @@ export const startServer = async ({
     return c.json(checked(GetItemSchema, withLinks(found, structures, handles)) satisfies GetItemResponse);
   });
 
-  manager.setNoteSource(noteSource({ store, items: access, log }));
+  manager.setNoteSource(notes);
   proposalRoutes(app, proposals);
 
   app.get("/events", (c) => {

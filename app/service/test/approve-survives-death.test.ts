@@ -13,6 +13,8 @@ import { expect, onTestFinished, test } from "vitest";
 
 import { versionOfText } from "../src/items/files.ts";
 import type { ApproveStep } from "../src/proposals/apply.ts";
+import { createFields } from "../src/proposals/item-target.ts";
+import { fileRevision } from "../src/proposals/propose-file.ts";
 import { openStore, type Store } from "../src/store/store.ts";
 import { ACCESS_FILES, VISIBLE_IDS } from "./access-fixtures.ts";
 import { fakeSystemd } from "./fake-systemd.ts";
@@ -129,7 +131,7 @@ const TARGETS: Record<string, Target> = {
       writeFileSync(join(at.repo, "pairing-notes.md"), NOTES);
       return store.insertProposal(
         { target: "file", path: join(at.repo, "pairing-notes.md"), structure: null, itemId: null, file: null, kind: "edit", reason: "The rule changed.", baseVersion: versionOfText(NOTES), agentId: AGENT },
-        { text: NOTES_PROPOSED, edits: [NOTES_EDIT] },
+        fileRevision({ text: NOTES, source: "file", chain: [] }, { edits: [NOTES_EDIT] }).content,
       ).proposal.id;
     },
     writes: (at) => {
@@ -143,7 +145,7 @@ const TARGETS: Record<string, Target> = {
     propose: (_at, store) =>
       store.insertProposal(
         { target: "item", path: null, structure: "bugs", itemId: null, file: null, kind: "create", reason: "Seen twice.", baseVersion: null, agentId: AGENT },
-        { fields: { title: NEW_BUG_TITLE, note: "Seen on a fresh checkout" } },
+        { fields: createFields({ title: NEW_BUG_TITLE }, { note: "Seen on a fresh checkout" }) },
       ).proposal.id,
     writes: (at) => newBugs(at).length,
     after: async (_at, api) => {

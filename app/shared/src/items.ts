@@ -1,10 +1,10 @@
 // Items: a structure's settings (`_structure.yaml`, written by hand) and the items the service reads from the
-// item files. The settings schema is strict and refuses contradictions, since a
-// structure's rules are what the service enforces on agents; the shapes read through the API are lenient
-// (the app ignores unknown fields and kinds), like every response in `api.ts`.
+// item files. The settings schema is strict and refuses contradictions, since a structure's rules are what the
+// service enforces on agents; the shapes read through the API are lenient (the app ignores unknown fields and
+// kinds), like every response in `api.ts`.
 //
-// Every settings message starts with the key it's about and says what to write instead, so it reads alone:
-// the loader puts the issue's path in `Problem.field` and the message, unchanged, beside it.
+// Every settings message starts with the key it's about and says what to write instead, so it reads alone: the
+// loader puts the issue's path in `Problem.field` and the message, unchanged, beside it.
 import { z } from "zod";
 
 /** Keeps the items that match `item` and drops the rest (newer kinds we don't know). */

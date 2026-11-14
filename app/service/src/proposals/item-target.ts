@@ -9,7 +9,7 @@ export type StoredItemProposal = Extract<StoredProposal, { target: "item" }>;
 export const itemById = (items: readonly LoadedItem[], id: string | null | undefined) => (id == null ? undefined : items.find((item) => item.id === id));
 
 /** The item a proposal targets among `items` now: found, with its handle; `"gone"` (no item has its id, or it has no handle); or moved to another structure. */
-export type TargetItem = { item: LoadedItem; handle: string } | "gone" | { movedTo: string };
+type TargetItem = { item: LoadedItem; handle: string } | "gone" | { movedTo: string };
 
 /** The item update or delete proposal `stored` targets, as it is among `items` now. */
 export const targetItem = (items: readonly LoadedItem[], stored: StoredItemProposal): TargetItem => {
@@ -18,7 +18,7 @@ export const targetItem = (items: readonly LoadedItem[], stored: StoredItemPropo
   return item.structure === stored.structure ? { item, handle: item.handle } : { movedTo: item.structure };
 };
 
-export type CreateInput = ItemInput & { properties: Record<string, unknown> };
+type CreateInput = ItemInput & { properties: Record<string, unknown> };
 
 /**
  * A create's fields as the new item's input: its title, its body, the rest as properties, and the file the proposal

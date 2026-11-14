@@ -1,8 +1,6 @@
 // The routes the desktop app's page may call on the service, and the largest body the service takes. The service's
 // side is checked by service/src/server/app-routes.test.ts: every route here is served, every app route the
 // service serves is here (except the ones only the app's main process calls: /events, /shutdown; and /mcp).
-import { z } from "zod";
-
 /** One route the app may call; path parameters as `:name`. `query`: the route takes a query string. */
 export type AppRoute = { method: "GET" | "POST" | "PUT" | "DELETE"; pattern: string; query?: true };
 
@@ -39,12 +37,6 @@ export const MAX_BODY_BYTES = 1024 * 1024;
 const PARAM = /^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/;
 // Plain `key=value&…` pairs; the service checks the keys and values themselves.
 const QUERY = /^[A-Za-z0-9._~-]+=[A-Za-z0-9._~-]*(&[A-Za-z0-9._~-]+=[A-Za-z0-9._~-]*)*$/;
-
-/** A whole number from `min` to `max`, from a query-string value (digits only) or a number; `""`, `" "` and repeated keys fail with `message`. */
-export const queryInt = (message: string, min: number, max = Number.MAX_SAFE_INTEGER) =>
-  z
-    .union([z.number(), z.string().regex(/^\d+$/).transform(Number)], { error: message })
-    .pipe(z.int({ error: message }).min(min, { error: message }).max(max, { error: message }));
 
 const matches = (pattern: string, pathname: string): boolean => {
   const want = pattern.split("/");

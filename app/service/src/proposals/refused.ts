@@ -59,9 +59,9 @@ const notPending = (stored: StoredProposal, allowed: string) =>
 
 export const notApprovable = (stored: StoredProposal) => notPending(stored, "only a pending proposal can be approved");
 
-export const notRejectable = (stored: StoredProposal) => notPending(stored, "only a pending proposal or a conflict can be rejected");
+const notRejectable = (stored: StoredProposal) => notPending(stored, "only a pending proposal or a conflict can be rejected");
 
-export const notEditable = (stored: StoredProposal) => notPending(stored, "only a pending proposal can be edited");
+const notEditable = (stored: StoredProposal) => notPending(stored, "only a pending proposal can be edited");
 
 type Reads = Pick<Store, "getProposal" | "listVersionHeads">;
 
@@ -108,6 +108,7 @@ export const ownOpenProposal = (store: Pick<Store, "getProposal">, agentId: stri
 /** The revise refusal for a proposal that isn't the agent's open one, worded as for an unknown id. */
 export const notOwnOpenProposal = (id: string) =>
   new ProposalRefused(
-    `You have no open proposal with the id ${id}. Check the id your propose call answered; a proposal the user already ` +
-      "approved or rejected can't change anymore, so propose anew instead.",
+    `You have no open proposal with the id ${id}. Check the id your propose call answered. It may be being applied ` +
+      "right now: then wait for the outcome, which comes with the user's next message, and don't propose it again. A " +
+      "proposal the user already approved or rejected can't change anymore, so propose anew instead.",
   );

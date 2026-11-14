@@ -14,6 +14,7 @@
     "./private-file": "./src/private-file.ts",
     "./process-stat": "./src/process-stat.ts",
     "./proposals": "./src/proposals.ts",
+    "./query": "./src/query.ts",
     "./routes": "./src/routes.ts",
     "./state-dir": "./src/state-dir.ts"
   },

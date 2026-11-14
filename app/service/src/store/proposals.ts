@@ -28,7 +28,6 @@ export const fieldsOf = (content: ProposalContent): Record<string, unknown> => {
 
 export type ProposalVersionRecord = { n: number; by: VersionAuthor; content: ProposalContent; reason: string; at: string };
 
-/** A version without its content. */
 export type ProposalVersionHead = Omit<ProposalVersionRecord, "content">;
 
 /**
@@ -98,6 +97,8 @@ export type ProposalStore = {
   listProposals: (status?: ProposalStatus) => StoredProposal[];
   getProposal: (id: string) => StoredProposal | undefined;
   listVersions: (id: string) => ProposalVersionRecord[];
+  /** Version `n` with its content, undefined when it isn't stored. */
+  getVersion: (id: string, n: number) => ProposalVersionRecord | undefined;
   /** listVersions without reading any content. */
   listVersionHeads: (id: string) => ProposalVersionHead[];
   countOpen: (agentId: string) => number;
@@ -162,6 +163,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     takeVersionNumber: db.prepare("UPDATE proposals SET last_version = last_version + 1 WHERE id = ? RETURNING last_version"),
     deleteVersion: db.prepare("DELETE FROM proposal_versions WHERE proposal_id = ? AND n = ?"),
     versions: db.prepare("SELECT n, by, content, reason, at FROM proposal_versions WHERE proposal_id = ? ORDER BY n"),
+    version: db.prepare("SELECT n, by, content, reason, at FROM proposal_versions WHERE proposal_id = ? AND n = ?"),
     versionHeads: db.prepare("SELECT n, by, reason, at FROM proposal_versions WHERE proposal_id = ? ORDER BY n"),
     get: db.prepare("SELECT * FROM proposals WHERE id = ?"),
     list: db.prepare("SELECT * FROM proposals ORDER BY at, rowid"),
@@ -198,8 +200,14 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
 
   const listVersionHeads = (id: string): ProposalVersionHead[] => statements.versionHeads.all(id).map(headOf);
 
-  const listVersions = (id: string): ProposalVersionRecord[] =>
-    statements.versions.all(id).map((row) => ({ ...headOf(row), content: JSON.parse(asString(row.content)) as ProposalContent }));
+  const recordOf = (row: Record<string, unknown>): ProposalVersionRecord => ({ ...headOf(row), content: JSON.parse(asString(row.content)) as ProposalContent });
+
+  const listVersions = (id: string): ProposalVersionRecord[] => statements.versions.all(id).map(recordOf);
+
+  const getVersion = (id: string, n: number): ProposalVersionRecord | undefined => {
+    const row = statements.version.get(id, n);
+    return row === undefined ? undefined : recordOf(row);
+  };
 
   const changed = (id: string): ProposalChange => {
     const proposal = getProposal(id);
@@ -252,12 +260,12 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     });
   };
 
-  /** The proposal while `allows` its status for a new version, with its versions. */
+  /** The proposal while `allows` its status for a new version, with its versions' heads. */
   const revisable = (id: string, content: ProposalContent, allows: (status: ProposalStatus) => boolean) => {
     const stored = getProposal(id);
     if (stored === undefined || !allows(stored.status)) return undefined;
     checkFits(stored.target, content);
-    return { stored, versions: listVersions(id) };
+    return { stored, versions: listVersionHeads(id) };
   };
 
   const addAgentVersion = (id: string, content: ProposalContent, reason: string, baseVersion?: string | null) =>
@@ -352,6 +360,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     listProposals,
     getProposal,
     listVersions,
+    getVersion,
     listVersionHeads,
     countOpen: (agentId) => asNumber(statements.countIn.get(agentId, JSON.stringify(COUNTED_OPEN))?.n),
     listApplying: () => statements.listIn.all(JSON.stringify(APPLYING)).map(proposalOf),
