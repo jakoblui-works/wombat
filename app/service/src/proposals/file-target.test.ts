@@ -1,15 +1,17 @@
 // Reading the file a proposal targets: the text is the file's bytes exactly, under the version of those bytes, or a
-// problem. A truncated or repaired text stored under a version would be written over the file by an approve.
+// problem. A truncated or repaired text stored under a version would be written over the file by an approve. And a
+// path that became a symlink loop: the write answers a conflict and nothing reads as written, so the proposal is
+// settled either way and never stays in applying.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { MAX_PROPOSAL_BYTES } from "@wombat/shared/proposals";
 import { expect, onTestFinished, test } from "vitest";
 
-import { versionOf } from "../items/files.ts";
-import { readText } from "./file-target.ts";
+import { versionOf, versionOfText } from "../items/files.ts";
+import { readText, writeProposed, written } from "./file-target.ts";
 
 const tempDir = () => {
   const dir = mkdtempSync(join(tmpdir(), "wombat-target-"));
@@ -51,4 +53,20 @@ test("reading what isn't a regular file answers without waiting: nothing there, 
   expect(await readText(join(dir, "missing.md"))).toBeUndefined();
   expect(await readText(join(dir, "docs"))).toStrictEqual({ problem: "not_file" });
   expect(await readText(join(dir, "pipe"))).toStrictEqual({ problem: "not_file" });
+});
+
+test.each([
+  { what: "an edit's file", kind: "edit" as const, loop: "install.md" },
+  { what: "a new file's folder", kind: "create" as const, loop: "docs" },
+])("when $what became a symlink loop, the write ends in a conflict and nothing reads as written", async ({ kind, loop }) => {
+  const dir = tempDir();
+  // A link to itself.
+  symlinkSync(loop, join(dir, loop));
+  const path = kind === "edit" ? join(dir, loop) : join(dir, loop, "install.md");
+  const text = "# Install\n\nRun `pnpm install`.\n";
+
+  const applied = await writeProposed({ proposal: { path, kind, baseVersion: kind === "edit" ? versionOfText("# Install\n") : null }, content: { text } });
+
+  expect(applied, "a conflict, with what the user reads").toStrictEqual({ problem: { message: expect.any(String) as string } });
+  expect(await written(path, versionOfText(text))).toBe(false);
 });

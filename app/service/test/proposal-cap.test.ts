@@ -1,18 +1,23 @@
 // One cap for every way an agent proposes: at MAX_OPEN_PROPOSALS open proposals each propose tool is refused alike
 // with nothing stored, another agent isn't affected, and the cap never tells a hidden structure from a missing one.
+// And one limit on a proposal's versions: at MAX_PROPOSAL_VERSIONS the agent's revise is refused with nothing stored,
+// so a revise loop can't fill the database, while my own version is still saved.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { MAX_OPEN_PROPOSALS } from "@wombat/shared/proposals";
+import { MAX_OPEN_PROPOSALS, MAX_PROPOSAL_VERSIONS } from "@wombat/shared/proposals";
 import { expect, test } from "vitest";
 
 import { TOOL } from "../src/items/tools.ts";
+import { createProposals } from "../src/proposals/proposals.ts";
+import { ProposalRefused } from "../src/proposals/refused.ts";
 import type { NewProposal, Store } from "../src/store/store.ts";
 import { ACCESS_FILES, HIDDEN, VISIBLE_IDS } from "./access-fixtures.ts";
 import { writeRoot } from "./items-fixtures.ts";
 import { TEST_TIMEOUT_MS } from "./manager-fixtures.ts";
 import { callTool, type ToolAnswer } from "./mcp-fixtures.ts";
 import { serve, type Served } from "./server-fixtures.ts";
+import { open, tempDir, tempStorePath } from "./store-fixtures.ts";
 
 const FULL = { token: "token-of-the-agent-at-the-cap", agent: "agent-at-the-cap" };
 const OTHER = { token: "token-of-another-agent", agent: "agent-with-room" };
@@ -87,3 +92,23 @@ test(
   },
   TEST_TIMEOUT_MS,
 );
+
+test("at the versions limit the agent's revise is refused and stores nothing, and my own version is still saved", async () => {
+  const workspace = tempDir();
+  const store = open({ path: tempStorePath() });
+  const proposals = createProposals({ store, workspace, agentFolder: () => workspace, onProposal: () => undefined, log: () => undefined });
+  const { proposed: id } = await proposals.proposeFile(FULL.agent, join(workspace, "notes.md"), "The notes need a file.", { content: "# Notes\n\nRevision 1.\n" });
+  const revise = (n: number) => proposals.revise(FULL.agent, id, "Counted again.", { content: `# Notes\n\nRevision ${String(n)}.\n` });
+  // Straight into the store up to one below the limit; the last one through the revise, which is still taken there.
+  for (let n = 2; n < MAX_PROPOSAL_VERSIONS; n += 1) store.addAgentVersion(id, { text: `# Notes\n\nRevision ${String(n)}.\n` }, "Counted again.");
+  await revise(MAX_PROPOSAL_VERSIONS);
+  const atTheLimit = { versions: store.listVersions(id), seq: store.currentSeq() };
+  expect(atTheLimit.versions).toHaveLength(MAX_PROPOSAL_VERSIONS);
+
+  await expect(revise(MAX_PROPOSAL_VERSIONS + 1)).rejects.toBeInstanceOf(ProposalRefused);
+
+  expect({ versions: store.listVersions(id), seq: store.currentSeq() }, "nothing stored, no seq taken").toEqual(atTheLimit);
+  const mine = await proposals.putDraft(id, MAX_PROPOSAL_VERSIONS, { text: "# Notes\n\nMy own.\n" });
+  expect(mine).toMatchObject({ status: "pending", editedByMe: true });
+  expect(store.listVersions(id).at(-1)).toMatchObject({ by: "me", content: { text: "# Notes\n\nMy own.\n" } });
+});

@@ -8,8 +8,9 @@
 // service's own `names` stay inside it). A file proposal on a hidden structure's files is refused word for word like
 // one on a visible structure's, and the cap's refusal names nothing of the proposals it counts. What an agent is told
 // about its proposals later keeps to the same: a revise's refusal, and the note in front of my next message (its
-// labels, a conflict's reason, my changes) with the prompt made from it.
-import { chmodSync, mkdirSync } from "node:fs";
+// labels, a conflict's reason, my changes) with the prompt made from it. A revise of a proposal whose structure was
+// hidden since is refused word for word like one whose structure is gone, naming neither.
+import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 import { MAX_OPEN_PROPOSALS } from "@wombat/shared/proposals";
@@ -18,7 +19,7 @@ import { describe, expect, onTestFinished, test } from "vitest";
 import { promptOf, renderNote } from "../proposals/note.ts";
 import { ProposalRefused } from "../proposals/refused.ts";
 import { AccessError } from "./refusals.ts";
-import { ACCESS_FILES, AGENT, HIDDEN, MARKER, expectRefused, extraProblemKeys, leaks, openAccessRoot, refusal } from "../../test/access-fixtures.ts";
+import { ACCESS_FILES, AGENT, HIDDEN, MARKER, VISIBLE_IDS, expectRefused, extraProblemKeys, leaks, openAccessRoot, refusal } from "../../test/access-fixtures.ts";
 import { UUID } from "../../test/instructions-fixtures.ts";
 import { readAt, writeAt } from "../../test/items-fixtures.ts";
 
@@ -539,5 +540,33 @@ describe("hidden never reaches an agent", () => {
     for (const [what, text] of Object.entries({ "the stored note": JSON.stringify(note), "the note as the agent reads it": renderNote(note), "the prompt": promptOf(note, typed) })) {
       expect(leaks(text, hiddenStrings), `${what}: ${text}`).toEqual([]);
     }
+  });
+
+  test("a revise of an item proposal whose structure was hidden since is refused exactly like one whose structure is gone, and names nothing of it", async () => {
+    const SETTINGS = "bugs/_structure.yaml";
+    /** The refusal of a revise of a proposal on BUG-2, after `change` to the root. */
+    const refusedAfter = async (change: (root: string) => void) => {
+      const { access, proposals, store, root } = openAccessRoot();
+      const { proposed: id } = await access.proposeUpdate(AGENT, "BUG-2", { note: "Also in Chromium" }, (await access.get("BUG-2")).version, "Seen again");
+      change(root);
+      const before = store.listVersions(id);
+      let error: unknown;
+      try {
+        await proposals.revise(AGENT, id, "Shorter.", { fields: { note: "In Chromium too" } });
+      } catch (thrown) {
+        error = thrown;
+      }
+      expect(error, "the revise is refused").toBeInstanceOf(ProposalRefused);
+      expect(store.listVersions(id), "no version stored").toEqual(before);
+      const { message, problems } = error as { message: string; problems?: unknown };
+      return JSON.stringify({ message, problems }).replaceAll(id, "<id>");
+    };
+
+    const hidden = await refusedAfter((root) => writeAt(root, SETTINGS, readAt(root, SETTINGS).replace("access: propose", "access: hidden")));
+    const gone = await refusedAfter((root) => rmSync(join(root, SETTINGS)));
+
+    expect(hidden).toBe(gone);
+    // Case ignored: "bugs" is the structure's id and its name, "BUG-" starts its handles.
+    expect(leaks(hidden, ["bugs", "BUG-", VISIBLE_IDS.bug1, VISIBLE_IDS.bug2, "hero caption"]), hidden).toEqual([]);
   });
 });

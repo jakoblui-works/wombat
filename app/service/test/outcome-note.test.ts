@@ -2,7 +2,9 @@
 // each prompt with the prompt it received: the prompt is the stored note as `renderNote` renders it, then the typed
 // text, so the log shows exactly what the agent read; each outcome is told once, and told again only when its message
 // never reached the agent; a command carries no note; and a message or a revise names only the agent's own open
-// proposal. Proposals are made and decided through the proposals module on the manager's store.
+// proposal. Proposals are made and decided through the proposals module on the manager's store. One test runs on the
+// real server with an items root: there the note names an item by its handle, which only the server's own note source
+// (the one that reads the items) can tell.
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -13,7 +15,10 @@ import { renderNote } from "../src/proposals/note.ts";
 import { createProposals } from "../src/proposals/proposals.ts";
 import { ProposalRefused } from "../src/proposals/refused.ts";
 import { CONFIG_SILENT_FILE, FAKE_CONFIG, RESUME_REFUSED_FILE } from "./fake-agent.ts";
+import { ACCESS_FILES, VISIBLE_IDS } from "./access-fixtures.ts";
+import { writeRoot } from "./items-fixtures.ts";
 import { chunkTexts, REPO, setup, TEST_TIMEOUT_MS, waitFor } from "./manager-fixtures.ts";
+import { serve } from "./server-fixtures.ts";
 
 const LIMITS = '{ "maxFiles": 12 }\n';
 const POLICY = "export const RETRY = { attempts: 3, backoffMs: 250 };\n";
@@ -219,6 +224,28 @@ test(
     // The agent's own open proposal is taken by both.
     expect(await proposals.revise(agentId, mine, "A longer backoff.", { content: POLICY.replace("250", "500") })).toMatchObject({ revised: mine });
     expect((await say("Make it three attempts.", mine)).note?.reference).toMatchObject({ proposalId: mine });
+  },
+  TEST_TIMEOUT_MS,
+);
+
+test(
+  "on the server with items, the note for a decided item proposal names the item by its handle",
+  async () => {
+    const s = await serve({ itemsRoot: writeRoot(ACCESS_FILES) });
+    const { id: agentId } = await s.manager.start("fake-echo", REPO);
+    const { proposal } = s.store.insertProposal(
+      { target: "item", path: null, structure: "bugs", itemId: VISIBLE_IDS.bug2, kind: "update", file: null, reason: "Seen again", baseVersion: "9f2c", agentId },
+      { fields: { note: "Also in Chromium" } },
+    );
+    const rejected = await s.api("POST", `/proposals/${proposal.id}/reject`, { reason: "Not a duplicate." });
+    expect(rejected.status, rejected.text).toBe(200);
+
+    const sent = await s.api("POST", `/agents/${agentId}/messages`, { text: "Anything else in that bug?" });
+    expect(sent.status, sent.text).toBeLessThan(300);
+    await s.turnEnded(agentId);
+
+    const note = s.entries(agentId).find((entry): entry is ProposalNoteEntry => entry.type === "proposal_note");
+    expect(note?.outcomes).toMatchObject([{ proposalId: proposal.id, outcome: "rejected", label: "BUG-2" }]);
   },
   TEST_TIMEOUT_MS,
 );

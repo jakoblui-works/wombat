@@ -1,7 +1,9 @@
 // Approving a file proposal never replaces what the user didn't see: the proposals on a real store and a temp
 // workspace, approved after the file changed by hand in each way it can. Only the text of the version approved is
-// ever written, and only onto the file that version was made from, also after the agent revised the proposal.
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+// ever written, and only onto the file that version was made from, also after the agent revised the proposal. Nor
+// does it write anywhere else than the user saw: not where the path leads once a folder on it became a symlink, and
+// not onto a file that became the items' since.
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,6 +11,8 @@ import type { ProposalDetail } from "@wombat/shared/proposals";
 import { expect, onTestFinished, test } from "vitest";
 
 import { createProposals } from "../src/proposals/proposals.ts";
+import { ACCESS_FILES, openAccessRoot } from "./access-fixtures.ts";
+import { writeAt } from "./items-fixtures.ts";
 import { open, tempStorePath } from "./store-fixtures.ts";
 
 type Notes = { setup: string; rotation: string; review: string };
@@ -29,9 +33,15 @@ const SAME_LINE: Notes = { ...BASE, rotation: "Driver and navigator swap every t
 const LIMITS = '{ "maxFiles": 12 }';
 const AGENT = "agent-1";
 
+/** A fresh temp folder by its real path, removed after the test. */
+const tempFolder = () => {
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), "wombat-file-approve-")));
+  onTestFinished(() => rmSync(folder, { recursive: true, force: true }));
+  return folder;
+};
+
 const bench = () => {
-  const workspace = realpathSync(mkdtempSync(join(tmpdir(), "wombat-file-approve-")));
-  onTestFinished(() => rmSync(workspace, { recursive: true, force: true }));
+  const workspace = tempFolder();
   const store = open({ path: tempStorePath() });
   const proposals = createProposals({ store, workspace, agentFolder: () => workspace, onProposal: () => undefined, log: () => undefined });
   const path = join(workspace, "pairing-notes.md");
@@ -39,12 +49,13 @@ const bench = () => {
   return {
     store,
     proposals,
+    workspace,
     path,
     text,
-    /** Writes the notes and proposes EDITS on them. */
-    proposeEdit: async () => {
-      writeFileSync(path, notes(BASE));
-      return (await proposals.proposeFile(AGENT, path, "The rotation rule changed.", { edits: EDITS })).proposed;
+    /** Writes the notes (at `file`, else at `path`) and proposes EDITS on them. */
+    proposeEdit: async (file = path) => {
+      writeFileSync(file, notes(BASE));
+      return (await proposals.proposeFile(AGENT, file, "The rotation rule changed.", { edits: EDITS })).proposed;
     },
     proposeCreate: async (file: string) => (await proposals.proposeFile(AGENT, file, "The limits need a file of their own.", { content: LIMITS })).proposed,
   };
@@ -160,4 +171,45 @@ test("a read-only file stays as it is with the proposal still pending, and appro
   chmodSync(path, 0o644);
   expect(await proposals.approve(id, 1)).toMatchObject({ status: "approved" });
   expect(read(path)).toBe(notes(PROPOSED));
+});
+
+// The path was resolved when the agent proposed; what it leads to now is the agent's to change (its folder, a link in
+// it), so an approve that followed it would write wherever the agent points it.
+test.each([
+  { what: "an edit, to a folder outside the workspace holding the same file", kind: "edit", inWorkspace: false },
+  { what: "an edit, to another folder of the workspace holding the same file", kind: "edit", inWorkspace: true },
+  { what: "a new file, to a folder outside the workspace", kind: "create", inWorkspace: false },
+])("after the folder of a proposal's file was swapped for a symlink ($what), approving ends in a conflict and writes nothing there", async ({ kind, inWorkspace }) => {
+  const { proposals, workspace, proposeEdit, proposeCreate } = bench();
+  const docs = join(workspace, "docs");
+  mkdirSync(docs);
+  const elsewhere = inWorkspace ? join(workspace, "handbook") : tempFolder();
+  mkdirSync(elsewhere, { recursive: true });
+  const id = kind === "edit" ? await proposeEdit(join(docs, "pairing-notes.md")) : await proposeCreate(join(docs, "limits.json"));
+  // Byte for byte the file the proposal was made on, so only where it is tells them apart.
+  if (kind === "edit") writeFileSync(join(elsewhere, "pairing-notes.md"), notes(BASE));
+  const held = () => Object.fromEntries(readdirSync(elsewhere).map((name) => [name, read(join(elsewhere, name))]));
+  const before = held();
+  renameSync(docs, join(workspace, "docs-before"));
+  symlinkSync(elsewhere, docs);
+
+  const answer = await proposals.approve(id, 1);
+
+  expect(answer.status).toBe("conflict");
+  expect(answer.problem?.message).toBeTruthy();
+  expect(held(), "nothing written where the path leads now").toEqual(before);
+});
+
+test("a proposal on a plain file that became an item's file since ends in a conflict when approved, with nothing written", async () => {
+  const { proposals, root } = openAccessRoot({ ...ACCESS_FILES, "handbook/pairing-notes.md": notes(BASE) });
+  const file = join(root, "handbook", "pairing-notes.md");
+  const id = (await proposals.proposeFile(AGENT, file, "The rotation rule changed.", { edits: EDITS })).proposed;
+  // By hand the folder becomes a structure's, which reads every .md file in it as an item.
+  writeAt(root, "handbook/_structure.yaml", "version: 1\nid: handbook\nname: Handbook\nprefix: HB\naccess: edit\n");
+
+  const answer = await proposals.approve(id, 1);
+
+  expect(answer.status).toBe("conflict");
+  expect(answer.problem?.message).toBeTruthy();
+  expect(read(file)).toBe(notes(BASE));
 });
