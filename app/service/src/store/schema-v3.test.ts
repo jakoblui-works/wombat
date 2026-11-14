@@ -159,9 +159,11 @@ describe("store schema v3", () => {
       { seq: 3, type: "session_update" },
     ]);
     expect(store.readLog("a2").entries.map((entry) => entry.seq)).toEqual([6]);
-    expect(store.getProposal(PROPOSAL.id)).toEqual(PROPOSAL);
+    const { fields, ...stored } = PROPOSAL;
+    expect(store.getProposal(PROPOSAL.id)).toEqual({ ...stored, target: "item", path: null });
+    expect(store.listVersions(PROPOSAL.id).map((version) => version.content)).toEqual([{ fields }]);
     expect(store.nextHandleNumber(COUNTER.structure, 0), "the handle counter carries on").toBe(COUNTER.last + 1);
     store.close();
-    expect(version(path)).toBe(3);
+    expect(version(path)).toBe(4);
   });
 });

@@ -63,8 +63,8 @@ describe("proposal alerts", () => {
 
       expect(problems).toEqual([]);
       expect(Object.fromEntries(statuses)).toEqual({
-        [approved]: ["pending", "approved"],
-        [conflicted]: ["pending", "conflict"],
+        [approved]: ["pending", "applying", "approved"],
+        [conflicted]: ["pending", "applying", "conflict"],
         [rejected]: ["pending", "rejected"],
       });
       expect(previous, "the last proposal change is the store's current seq").toBe(s.store.currentSeq());

@@ -7,7 +7,7 @@ import { Item, Problem } from "./items.ts";
 
 const Timestamp = z.iso.datetime({ offset: true });
 
-/** The most proposals open (isOpen) at once. */
+/** The most proposals one agent may have counting toward the cap (countsTowardCap: pending plus conflict) at once. */
 export const MAX_OPEN_PROPOSALS = 20;
 
 /** The largest proposed content (a file's text, an item's fields), in bytes. */
@@ -18,6 +18,9 @@ export const MAX_PROPOSAL_BYTES = 512 * 1024;
 /** `applying`: approved by the user and being written; nothing else may happen to it until that ends. */
 export const ProposalStatus = z.enum(["pending", "applying", "approved", "rejected", "conflict"]);
 export type ProposalStatus = z.infer<typeof ProposalStatus>;
+
+/** The status a new proposal is stored with. */
+export const INITIAL_STATUS: ProposalStatus = "pending";
 
 /**
  * What can happen to a proposal:
@@ -63,6 +66,12 @@ export const canReject = (status: ProposalStatus): boolean => nextStatus(status,
 
 /** Whether a new version (the agent's revision, the user's draft) may replace the current one: pending or conflict. */
 export const canRevise = (status: ProposalStatus): boolean => canDecide(status) || nextStatus(status, "resolve") !== undefined;
+
+/**
+ * Whether it counts toward MAX_OPEN_PROPOSALS: pending or conflict. Unlike isOpen, a proposal being applied
+ * doesn't count.
+ */
+export const countsTowardCap = (status: ProposalStatus): boolean => status === "pending" || status === "conflict";
 
 // Read through the API (lenient: unknown fields are stripped).
 

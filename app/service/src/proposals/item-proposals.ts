@@ -12,7 +12,7 @@ import { checkHasId, checkLevel, checkLocks, lockedNames, newItem, type Family, 
 import { SETTINGS_FILE } from "../items/structures.ts";
 import { ItemWriteError, presentValues, type Writer } from "../items/write.ts";
 import type { Log } from "../log.ts";
-import type { NewProposal, Store, StoredProposal } from "../store/store.ts";
+import type { NewProposal, ProposalChange, Store, StoredProposal } from "../store/store.ts";
 
 /** Why deciding a proposal was refused; nothing changed. */
 export class ProposalError extends Error {
@@ -27,8 +27,13 @@ export class ProposalError extends Error {
 
 export type ProposalResult = { proposed: string };
 
-/** An item proposal as sent, with what it proposes, for the service's own callers. */
-export type ItemProposalRecord = ItemProposal & Pick<StoredProposal, "fields" | "baseVersion">;
+/** An item proposal as sent, with what its current version proposes, for the service's own callers. */
+export type ItemProposalRecord = ItemProposal & { fields: Record<string, unknown>; baseVersion: string | null };
+
+type StoredItemProposal = Extract<StoredProposal, { target: "item" }>;
+type NewItemProposal = Omit<Extract<NewProposal, { target: "item" }>, "target" | "path">;
+
+const isItemProposal = (stored: StoredProposal): stored is StoredItemProposal => stored.target === "item";
 
 export type ItemProposals = {
   proposeCreate(agentId: string, structureId: string, input: ItemInput, reason: string): Promise<ProposalResult>;
@@ -85,20 +90,43 @@ export const openItemProposals = ({
   };
 
   /** Stores a proposal and announces it once committed. */
-  const propose = (proposal: NewProposal): ProposalResult => {
-    const { proposal: stored, seq } = store.insertProposal(proposal);
+  const propose = (proposal: NewItemProposal, fields: Record<string, unknown>): ProposalResult => {
+    const { proposal: stored, seq } = store.insertProposal({ ...proposal, target: "item", path: null }, { fields });
     announce(stored.id, seq);
     return { proposed: stored.id };
   };
 
-  /**
-   * A stored proposal with its item's current handle (people see hidden structures too). The store keeps one version
-   * per proposal, the agent's.
-   */
-  const proposalOf = (stored: StoredProposal, items: LoadedItem[], handle?: string | null): ItemProposalRecord => {
-    const { itemId, ...rest } = stored;
+  const currentVersion = (id: string) => {
+    const versions = store.listVersions(id);
+    const latest = versions.at(-1);
+    if (latest === undefined || !("fields" in latest.content)) throw new Error(`Proposal ${id} has no item version stored; it can't be read.`);
+    return { n: latest.n, fields: latest.content.fields, editedByMe: versions.some((version) => version.by === "me") };
+  };
+
+  /** A stored proposal with its item's current handle (people see hidden structures too). */
+  const proposalOf = (stored: StoredItemProposal, items: LoadedItem[], handle?: string | null): ItemProposalRecord => {
+    const { itemId, decidedAt, problem, rejectReason } = stored;
     const found = itemId === null ? undefined : items.find((item) => item.id === itemId);
-    return { ...rest, target: "item", version: 1, editedByMe: false, handle: handle !== undefined ? handle : (found?.handle ?? null) };
+    const { n, fields, editedByMe } = currentVersion(stored.id);
+    return {
+      id: stored.id,
+      target: "item",
+      structure: stored.structure,
+      kind: stored.kind,
+      handle: handle !== undefined ? handle : (found?.handle ?? null),
+      file: stored.file,
+      fields,
+      reason: stored.reason,
+      baseVersion: stored.baseVersion,
+      status: stored.status,
+      agentId: stored.agentId,
+      version: n,
+      editedByMe,
+      at: stored.at,
+      ...(decidedAt === undefined ? {} : { decidedAt }),
+      ...(problem === undefined ? {} : { problem }),
+      ...(rejectReason === undefined ? {} : { rejectReason }),
+    };
   };
 
   /** Approvals and rejections one at a time, so a proposal is never applied twice. */
@@ -111,7 +139,7 @@ export const openItemProposals = ({
 
   const pending = (id: string) => {
     const stored = store.getProposal(id);
-    if (stored === undefined) throw new ProposalError(ProposalErrorCode.enum.proposal_not_found, `No proposal has the id ${id}. Refresh the proposals to see the current ones.`);
+    if (stored === undefined || !isItemProposal(stored)) throw new ProposalError(ProposalErrorCode.enum.proposal_not_found, `No proposal has the id ${id}. Refresh the proposals to see the current ones.`);
     if (!canDecide(stored.status)) {
       throw new ProposalError(
         ProposalErrorCode.enum.proposal_not_pending,
@@ -121,20 +149,15 @@ export const openItemProposals = ({
     return stored;
   };
 
-  /** Records the decision and announces it once committed. */
-  const finish = (id: string, items: LoadedItem[], status: Exclude<ProposalStatus, "pending">, problem?: Problem, created?: LoadedItem) => {
-    const change = store.setProposalStatus(id, status, problem, created?.id ?? undefined);
-    // Only a decision racing another (they're serialized here) finds it no longer pending.
-    if (change === undefined) {
-      pending(id);
-      throw new Error(`Proposal ${id} is pending but couldn't be decided; try again.`);
-    }
+  /** Announces a committed move; only a move racing another (they're serialized here) finds it refused. */
+  const moved = (id: string, change: ProposalChange | undefined) => {
+    if (change === undefined || !isItemProposal(change.proposal)) throw new Error(`Proposal ${id} changed while it was being decided; refresh the proposals and try again.`);
     announce(id, change.seq);
-    return proposalOf(change.proposal, items, created?.handle);
+    return change.proposal;
   };
 
   /** Applies a pending proposal, or says why it can't be: what changed since the agent read the item. */
-  const apply = async (stored: StoredProposal, snapshot: Snapshot): Promise<{ problem: Problem } | { created?: LoadedItem }> => {
+  const apply = async (stored: StoredItemProposal, fields: Record<string, unknown>, snapshot: Snapshot): Promise<{ problem: Problem } | { created?: LoadedItem }> => {
     const conflict = (message: string, field?: string) => ({ problem: { ...(field === undefined ? {} : { field }), message } });
     const view = viewOf(snapshot);
     const structure = view.structures.get(stored.structure);
@@ -145,14 +168,14 @@ export const openItemProposals = ({
     if (structure === undefined) {
       return conflict(`The structure ${stored.structure} is gone, or its ${SETTINGS_FILE} is broken, so nothing was applied. Fix its settings and ask the agent again, or reject the proposal.`);
     }
-    const locked = lockedNames(structure, stored.kind, Object.keys(stored.fields));
+    const locked = lockedNames(structure, stored.kind, Object.keys(fields));
     if (locked.length > 0) {
       return conflict(`${locked.join(", ")} became locked in ${stored.structure}, so nothing was applied. Make the change by hand if you still want it.`, locked[0]);
     }
 
     try {
       if (stored.kind === "create") {
-        const { title, body, ...properties } = stored.fields;
+        const { title, body, ...properties } = fields;
         const input = { title: title as string, ...(typeof body === "string" ? { body } : {}), ...(stored.file === null ? {} : { file: stored.file }) };
         const created = await writer.createItem(structure.id, newItem(input, properties));
         return { created };
@@ -161,7 +184,7 @@ export const openItemProposals = ({
       if (item?.handle == null) return conflict("The item was deleted, or its id changed by hand, since the agent read it, so nothing was applied. Reject the proposal, or ask the agent to read the item again.");
       if (item.structure !== stored.structure) return conflict(`The item moved to ${item.structure} since the agent read it, so nothing was applied. Reject the proposal, or ask the agent again.`);
       const baseVersion = stored.baseVersion ?? "";
-      if (stored.kind === "update") await writer.updateItem(item.handle, stored.fields, baseVersion);
+      if (stored.kind === "update") await writer.updateItem(item.handle, fields, baseVersion);
       else await writer.deleteItem(item.handle, baseVersion);
       return {};
     } catch (error) {
@@ -173,6 +196,13 @@ export const openItemProposals = ({
       return conflict(error.message, error.problems.length === 1 ? only?.field : undefined);
     }
   };
+
+  // An approval cut off (a crash, a failed settle) would leave its proposal applying, so it could never be approved
+  // or rejected again; the write is assumed not to have happened.
+  for (const stored of store.listApplying().filter(isItemProposal)) {
+    const change = store.settle(stored.id, { status: "pending" });
+    if (change !== undefined) announce(stored.id, change.seq);
+  }
 
   return {
     proposeCreate: async (agentId, structureId, input, reason) => {
@@ -190,16 +220,10 @@ export const openItemProposals = ({
         throw agentWriteError(current, error, { structure });
       }
 
-      return propose({
-        structure: structure.id,
-        itemId: null,
-        kind: "create",
-        fields: { title: input.title, ...(input.body === undefined ? {} : { body: input.body }), ...linked },
-        file: input.file ?? null,
-        reason,
-        baseVersion: null,
-        agentId,
-      });
+      return propose(
+        { structure: structure.id, itemId: null, kind: "create", file: input.file ?? null, reason, baseVersion: null, agentId },
+        { title: input.title, ...(input.body === undefined ? {} : { body: input.body }), ...linked },
+      );
     },
 
     proposeUpdate: async (agentId, handle, fields, version, reason) => {
@@ -214,7 +238,7 @@ export const openItemProposals = ({
       } catch (error) {
         throw agentWriteError(current, error, { handle, structure });
       }
-      return propose({ structure: structure.id, itemId: item.id, kind: "update", fields: linked, file: null, reason, baseVersion: version, agentId });
+      return propose({ structure: structure.id, itemId: item.id, kind: "update", file: null, reason, baseVersion: version, agentId }, linked);
     },
 
     proposeDelete: async (agentId, handle, version, reason) => {
@@ -228,28 +252,40 @@ export const openItemProposals = ({
       } catch (error) {
         throw agentWriteError(current, error, { handle, structure });
       }
-      return propose({ structure: structure.id, itemId: item.id, kind: "delete", fields: {}, file: null, reason, baseVersion: version, agentId });
+      return propose({ structure: structure.id, itemId: item.id, kind: "delete", file: null, reason, baseVersion: version, agentId }, {});
     },
 
     proposals: async (status) => {
       const { items } = await catalog.snapshot();
-      return store.listProposals(status).map((stored) => proposalOf(stored, items));
+      return store.listProposals(status).filter(isItemProposal).map((stored) => proposalOf(stored, items));
     },
 
     approve: (id) =>
       decide(async () => {
         const stored = pending(id);
         const snapshot = await catalog.snapshot();
-        const outcome = await apply(stored, snapshot);
-        if ("problem" in outcome) return finish(id, snapshot.items, "conflict", outcome.problem);
-        return finish(id, snapshot.items, "approved", undefined, outcome.created);
+        const { n, fields } = currentVersion(id);
+        moved(id, store.beginApplying(id, n, { kind: stored.kind, itemId: stored.itemId, version: n }));
+        let outcome: Awaited<ReturnType<typeof apply>>;
+        try {
+          outcome = await apply(stored, fields, snapshot);
+        } catch (error) {
+          const failed = store.settle(id, { status: "pending" });
+          if (failed !== undefined) announce(id, failed.seq);
+          throw error;
+        }
+        if ("problem" in outcome) return proposalOf(moved(id, store.settle(id, { status: "conflict", problem: outcome.problem })), snapshot.items);
+        const { created } = outcome;
+        const itemId = created?.id ?? undefined;
+        const approved = moved(id, store.settle(id, { status: "approved", ...(itemId === undefined ? {} : { itemId }) }));
+        return proposalOf(approved, snapshot.items, created?.handle);
       }),
 
     reject: (id) =>
       decide(async () => {
         pending(id);
         const { items } = await catalog.snapshot();
-        return finish(id, items, "rejected");
+        return proposalOf(moved(id, store.rejectProposal(id)), items);
       }),
   };
 };

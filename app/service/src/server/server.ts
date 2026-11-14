@@ -336,7 +336,7 @@ export const startServer = async ({
     return c.json(checked(ProposalSchema, await access.reject(c.req.param("id"))) satisfies Proposal);
   });
 
-  // In the app's contract already; the store keeps no versions or drafts to answer them with yet.
+  // In the app's contract, but not answered by this service.
   const notServedYet = (c: Context) =>
     errorResponse(
       c,

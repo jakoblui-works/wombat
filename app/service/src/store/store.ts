@@ -2,48 +2,27 @@ import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
 import type { AgentSummary, LogEntry } from "@wombat/shared/api";
-import type { Problem } from "@wombat/shared/items";
-import type { ItemProposalKind, ProposalStatus } from "@wombat/shared/proposals";
 import { ensurePrivateFile, tightenPrivateFile } from "@wombat/shared/private-file";
 
+import { openProposalStore, type ProposalStore } from "./proposals.ts";
+import { SCHEMA_VERSION, upgradeSchema } from "./schema.ts";
+import { asNumber, asString, type DistributiveOmit } from "./values.ts";
+
+export type {
+  ApplyOutcome,
+  FileEdit,
+  NewProposal,
+  ProposalChange,
+  ProposalContent,
+  ProposalVersionRecord,
+  StoredProposal,
+} from "./proposals.ts";
 
 /** The default cap on one agent's stored entries, in bytes of their stored JSON. */
 export const LOG_BYTES_PER_AGENT = 16 * 1024 * 1024;
 
-const SCHEMA_VERSION = 3;
-
-type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
-
 /** An entry as handed to `append`: the store adds `seq` and `agentId`, and `at` when it's missing. */
 export type NewLogEntry = DistributiveOmit<LogEntry, "seq" | "agentId" | "at"> & { at?: string };
-
-/**
- * A proposal as stored: it names its item by id (`itemId`, null for a create until it's approved), since handles
- * change by hand; the access module turns the id into the item's current handle.
- */
-export type StoredProposal = {
-  id: string;
-  structure: string;
-  itemId: string | null;
-  kind: ItemProposalKind;
-  /** Field name → proposed value: `title`, `body` or property names, link values as ids. */
-  fields: Record<string, unknown>;
-  file: string | null;
-  reason: string;
-  /** The item's version the change is based on; null for a create. */
-  baseVersion: string | null;
-  status: ProposalStatus;
-  agentId: string;
-  at: string;
-  decidedAt?: string;
-  problem?: Problem;
-};
-
-/** A proposal as handed to `insertProposal`: the store adds the id, `at` and the pending status. */
-export type NewProposal = Pick<StoredProposal, "structure" | "itemId" | "kind" | "fields" | "file" | "reason" | "baseVersion" | "agentId">;
-
-/** A proposal write and the seq it took, to alert about once it's committed. */
-export type ProposalChange = { proposal: StoredProposal; seq: number };
 
 export type StoreOptions = {
   path: string;
@@ -52,7 +31,7 @@ export type StoreOptions = {
   newDbId?: () => string;
 };
 
-export type Store = {
+export type Store = ProposalStore & {
   /** Random per database file; a different one means the history was deleted or replaced. */
   readonly dbId: string;
   /** The last seq handed out; 0 for a fresh database. */
@@ -70,67 +49,13 @@ export type Store = {
    * number on disk), remembered so a deleted item's number is never given again.
    */
   nextHandleNumber: (structure: string, floor: number) => number;
-  /** Stores a pending proposal, taking the next seq in the same transaction. */
-  insertProposal: (proposal: NewProposal) => ProposalChange;
-  /** Every proposal, or those with `status`, oldest first. */
-  listProposals: (status?: ProposalStatus) => StoredProposal[];
-  getProposal: (id: string) => StoredProposal | undefined;
   /**
-   * Decides a pending proposal (setting `decidedAt`, and `itemId` for an approved create), taking the next seq in
-   * the same transaction; undefined, and no seq taken, when it's missing or no longer pending.
+   * Runs `fn` as one transaction; store writes called inside it join it instead of committing on their own. `fn` must
+   * be synchronous. There's no savepoint: catching a store error inside `fn` keeps that call's earlier writes.
    */
-  setProposalStatus: (id: string, status: Exclude<ProposalStatus, "pending">, problem?: Problem, itemId?: string) => ProposalChange | undefined;
+  transaction: <T>(fn: () => T) => T;
   close: () => void;
 };
-
-// The seq counter lives in `meta` rather than coming from a rowid, which would reuse seqs after deletes.
-// `dropped_through` is the highest seq of the agent's entries the cap removed, which answers `truncated`.
-const SCHEMA_V1 = `
-  CREATE TABLE meta (key TEXT PRIMARY KEY, value ANY NOT NULL) STRICT;
-  CREATE TABLE agents (
-    id TEXT PRIMARY KEY,
-    started_at TEXT NOT NULL,
-    summary TEXT NOT NULL,
-    log_bytes INTEGER NOT NULL DEFAULT 0,
-    dropped_through INTEGER NOT NULL DEFAULT 0
-  ) STRICT;
-  CREATE TABLE log_entries (
-    seq INTEGER PRIMARY KEY,
-    agent_id TEXT NOT NULL,
-    bytes INTEGER NOT NULL,
-    body TEXT NOT NULL
-  ) STRICT;
-  CREATE INDEX log_entries_by_agent ON log_entries (agent_id, seq);
-`;
-
-// Items: `item_counters.last` is the last handle number given per structure id. A proposal names its item by id
-// (`item_id`, null for a pending create), since handles change by hand; `file` is a free-named create's path, kept
-// apart from `fields` so it can't collide with a property named `file`; `fields` and `problem` are JSON.
-const SCHEMA_V2 = `
-  CREATE TABLE item_counters (structure TEXT PRIMARY KEY, last INTEGER NOT NULL) STRICT;
-  CREATE TABLE proposals (
-    id TEXT PRIMARY KEY,
-    structure TEXT NOT NULL,
-    item_id TEXT,
-    kind TEXT NOT NULL CHECK (kind IN ('create', 'update', 'delete')),
-    fields TEXT NOT NULL,
-    file TEXT,
-    reason TEXT NOT NULL,
-    base_version TEXT,
-    status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'conflict')),
-    agent_id TEXT NOT NULL,
-    at TEXT NOT NULL,
-    decided_at TEXT,
-    problem TEXT
-  ) STRICT;
-  CREATE INDEX proposals_by_status ON proposals (status, at);
-`;
-
-// The summary row is JSON, so new summary fields need no column; summaries written before `pendingPermissions`
-// existed get it as [] (no request outlives the service that held it).
-const SCHEMA_V3 = `
-  UPDATE agents SET summary = json_insert(summary, '$.pendingPermissions', json('[]'));
-`;
 
 /** SQLite creates these with the database's mode; ones left looser are tightened on open. */
 const sideFiles = (path: string) => [`${path}-wal`, `${path}-shm`];
@@ -139,16 +64,6 @@ const makePrivate = (path: string) => {
   // Created before SQLite opens it, so it never exists with the umask's mode.
   ensurePrivateFile(path);
   for (const file of sideFiles(path)) tightenPrivateFile(file);
-};
-
-const asNumber = (value: unknown) => {
-  if (typeof value !== "number") throw new Error(`Expected a number in the database, got ${typeof value}.`);
-  return value;
-};
-
-const asString = (value: unknown) => {
-  if (typeof value !== "string") throw new Error(`Expected text in the database, got ${typeof value}.`);
-  return value;
 };
 
 /**
@@ -165,6 +80,7 @@ export const openStore = ({
   const db = new DatabaseSync(path);
 
   const transaction = <T>(fn: () => T): T => {
+    if (db.isTransaction) return fn();
     db.exec("BEGIN IMMEDIATE");
     try {
       const result = fn();
@@ -190,17 +106,7 @@ export const openStore = ({
     db.exec("PRAGMA synchronous = FULL");
     if (version < SCHEMA_VERSION) {
       // One transaction from any older version, so a failed upgrade leaves the file as it was.
-      transaction(() => {
-        if (version < 1) {
-          db.exec(SCHEMA_V1);
-          const insertMeta = db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)");
-          insertMeta.run("db_id", newDbId());
-          insertMeta.run("seq", 0);
-        }
-        if (version < 2) db.exec(SCHEMA_V2);
-        if (version < 3) db.exec(SCHEMA_V3);
-        db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-      });
+      transaction(() => upgradeSchema(db, version, newDbId));
     }
   } catch (error) {
     db.close();
@@ -233,17 +139,6 @@ export const openStore = ({
     nextHandleNumber: db.prepare(
       `INSERT INTO item_counters (structure, last) VALUES (?, ? + 1)
        ON CONFLICT (structure) DO UPDATE SET last = max(last, excluded.last - 1) + 1 RETURNING last`,
-    ),
-    insertProposal: db.prepare(
-      `INSERT INTO proposals (id, structure, item_id, kind, fields, file, reason, base_version, status, agent_id, at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?) RETURNING *`,
-    ),
-    listProposals: db.prepare("SELECT * FROM proposals ORDER BY at, rowid"),
-    listProposalsWith: db.prepare("SELECT * FROM proposals WHERE status = ? ORDER BY at, rowid"),
-    getProposal: db.prepare("SELECT * FROM proposals WHERE id = ?"),
-    decideProposal: db.prepare(
-      `UPDATE proposals SET status = ?, decided_at = ?, problem = ?, item_id = coalesce(?, item_id)
-       WHERE id = ? AND status = 'pending' RETURNING *`,
     ),
   };
 
@@ -332,65 +227,6 @@ export const openStore = ({
   const nextHandleNumber = (structure: string, floor: number) =>
     transaction(() => asNumber(statements.nextHandleNumber.get(structure, floor)?.last));
 
-  const proposalOf = (row: Record<string, unknown>): StoredProposal => {
-    const decidedAt = row.decided_at;
-    const problem = row.problem;
-    return {
-      id: asString(row.id),
-      structure: asString(row.structure),
-      itemId: row.item_id === null ? null : asString(row.item_id),
-      kind: asString(row.kind) as StoredProposal["kind"],
-      fields: JSON.parse(asString(row.fields)) as Record<string, unknown>,
-      file: row.file === null ? null : asString(row.file),
-      reason: asString(row.reason),
-      baseVersion: row.base_version === null ? null : asString(row.base_version),
-      status: asString(row.status) as ProposalStatus,
-      agentId: asString(row.agent_id),
-      at: asString(row.at),
-      ...(decidedAt === null || decidedAt === undefined ? {} : { decidedAt: asString(decidedAt) }),
-      ...(problem === null || problem === undefined ? {} : { problem: JSON.parse(asString(problem)) as Problem }),
-    };
-  };
-
-  const insertProposal = (proposal: NewProposal) => {
-    const fields = JSON.stringify(proposal.fields);
-    return transaction(() => {
-      const [seq = 0] = takeSeqs(1);
-      const row = statements.insertProposal.get(
-        randomUUID(),
-        proposal.structure,
-        proposal.itemId,
-        proposal.kind,
-        fields,
-        proposal.file,
-        proposal.reason,
-        proposal.baseVersion,
-        proposal.agentId,
-        now().toISOString(),
-      );
-      if (row === undefined) throw new Error("Storing the proposal returned no row.");
-      return { proposal: proposalOf(row), seq };
-    });
-  };
-
-  const listProposals = (status?: ProposalStatus) =>
-    (status === undefined ? statements.listProposals.all() : statements.listProposalsWith.all(status)).map(proposalOf);
-
-  const getProposal = (id: string) => {
-    const row = statements.getProposal.get(id);
-    return row === undefined ? undefined : proposalOf(row);
-  };
-
-  const setProposalStatus = (id: string, status: Exclude<ProposalStatus, "pending">, problem?: Problem, itemId?: string) => {
-    const problemText = problem === undefined ? null : JSON.stringify(problem);
-    return transaction(() => {
-      const row = statements.decideProposal.get(status, now().toISOString(), problemText, itemId ?? null, id);
-      if (row === undefined) return undefined;
-      const [seq = 0] = takeSeqs(1);
-      return { proposal: proposalOf(row), seq };
-    });
-  };
-
   return {
     dbId,
     currentSeq,
@@ -400,10 +236,8 @@ export const openStore = ({
     deleteAgent,
     readLog,
     nextHandleNumber,
-    insertProposal,
-    listProposals,
-    getProposal,
-    setProposalStatus,
+    ...openProposalStore(db, transaction, () => takeSeqs(1)[0] ?? 0, now),
+    transaction,
     close: () => db.close(),
   };
 };
