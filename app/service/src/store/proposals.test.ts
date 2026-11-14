@@ -1,6 +1,7 @@
 // The store's proposals: each write is one transaction that takes the next seq, a proposal is decided only
 // while pending, and what's stored reads back the same after a reopen, a proposed create's file included. The
-// database's own checks take exactly the values the shared contract lists, and a version number is given once.
+// database's own checks take exactly the values the shared contract lists, and a version number is given once. My
+// own version goes only on a pending proposal's latest agent version.
 import { DatabaseSync } from "node:sqlite";
 
 import { FileProposalKind, ItemProposalKind, ProposalStatus, ProposalVersion } from "@wombat/shared/proposals";
@@ -109,5 +110,41 @@ describe("store proposals", () => {
     }
     expect({ proposal: store.getProposal(id), versions: store.listVersions(id), seq: store.currentSeq() }).toEqual(before);
     expect(store.beginApplying(id, current, { version: "9f2c" })).toMatchObject({ seq: before.seq + 1, proposal: { status: "applying" } });
+  });
+
+  // The service checks before it saves, then the store decides again inside the write's transaction: a draft must not
+  // land on a proposal the agent revised or a decision changed in between, where approve would apply it unseen.
+  test("my draft goes only on a pending proposal's latest agent version and replaces my earlier one there; a conflict takes none and keeps the one it has", () => {
+    const store = open({ path: tempStorePath() });
+    const { id } = store.insertProposal(NEW_FILE, TEXT).proposal;
+    const versions = (of = id) => store.listVersions(of).map(({ n, by, content }) => ({ n, by, content }));
+    /** A store call that must refuse and leave the proposal, its versions and the seq as they were. */
+    const refused = (what: string, call: () => unknown, of = id) => {
+      const before = { proposal: store.getProposal(of), versions: versions(of), seq: store.currentSeq() };
+      expect(call(), what).toBeUndefined();
+      expect({ proposal: store.getProposal(of), versions: versions(of), seq: store.currentSeq() }, what).toEqual(before);
+    };
+    const mine = { text: "Run `pnpm install --frozen-lockfile`.\n" };
+
+    store.putDraft(id, 1, { text: "Run `pnpm i`.\n" });
+    store.putDraft(id, 1, mine);
+    const drafted = versions();
+    expect(drafted.map(({ by, content }) => ({ by, content })), "one draft of mine, the later one").toEqual([{ by: "agent", content: TEXT }, { by: "me", content: mine }]);
+    const draftNumber = drafted.at(-1)?.n ?? 0;
+    refused("a draft on my own draft's number", () => store.putDraft(id, draftNumber, { text: "Run `pnpm i --prod`.\n" }));
+    refused("a draft on a version that doesn't exist", () => store.putDraft(id, draftNumber + 1, { text: "Run `pnpm i --prod`.\n" }));
+
+    expect(store.addAgentVersion(id, { text: "Run `pnpm install` once.\n" }, "Shorter")).toBeDefined();
+    refused("a draft on the agent's earlier version", () => store.putDraft(id, 1, { text: "Run `pnpm i --prod`.\n" }));
+    refused("dropping my draft once the agent's revision is current", () => store.clearDraft(id));
+    expect(versions().map(({ by }) => by), "my draft stays as history").toEqual(["agent", "me", "agent"]);
+
+    // A proposal that ended as a conflict on my draft.
+    const conflicted = store.insertProposal(NEW_FILE, TEXT).proposal.id;
+    const onDraft = store.putDraft(conflicted, 1, mine) && versions(conflicted).at(-1)?.n;
+    expect(store.beginApplying(conflicted, onDraft ?? 0, { version: "9f2c" })).toBeDefined();
+    expect(store.settle(conflicted, { status: "conflict", problem: { message: "The file changed." } })).toMatchObject({ proposal: { status: "conflict" } });
+    refused("a draft on a conflict", () => store.putDraft(conflicted, 1, { text: "Run `pnpm i --prod`.\n" }), conflicted);
+    refused("dropping the draft a conflict ended on", () => store.clearDraft(conflicted), conflicted);
   });
 });

@@ -6,17 +6,22 @@
 // structure refuses edits and proposals alike without naming it, a handle with a hidden structure's prefix reads like
 // one with a prefix no structure has, and no problem an agent gets carries more than the shared Problem's keys (the
 // service's own `names` stay inside it). A file proposal on a hidden structure's files is refused word for word like
-// one on a visible structure's, and the cap's refusal names nothing of the proposals it counts.
+// one on a visible structure's, and the cap's refusal names nothing of the proposals it counts. What an agent is told
+// about its proposals later keeps to the same: a revise's refusal, and the note in front of my next message (its
+// labels, a conflict's reason, my changes) with the prompt made from it.
 import { chmodSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { MAX_OPEN_PROPOSALS } from "@wombat/shared/proposals";
 import { describe, expect, onTestFinished, test } from "vitest";
 
+import { noteSource } from "../proposals/note-source.ts";
+import { promptOf, renderNote } from "../proposals/note.ts";
 import { ProposalRefused } from "../proposals/refused.ts";
 import { AccessError } from "./refusals.ts";
 import { ACCESS_FILES, AGENT, HIDDEN, MARKER, expectRefused, extraProblemKeys, leaks, openAccessRoot, refusal } from "../../test/access-fixtures.ts";
 import { UUID } from "../../test/instructions-fixtures.ts";
+import { readAt, writeAt } from "../../test/items-fixtures.ts";
 
 /** The message with the name the agent typed replaced, so two refusals can be compared. */
 const withoutTyped = (message: string, typed: string) => message.replaceAll(typed, "<typed>");
@@ -484,5 +489,57 @@ describe("hidden never reaches an agent", () => {
     }
     expect(atTheCap).toBeInstanceOf(ProposalRefused);
     expect(leaks((atTheCap as Error).message, hiddenStrings)).toEqual([]);
+  });
+
+  test("a revise's refusal and the note for my next message, with its prompt, carry nothing of a hidden structure: no handle, no conflict's reason, none of my changes", async () => {
+    const { access, proposals, store, root } = openAccessRoot();
+    const hiddenStrings = [MARKER, ...HIDDEN.ids, ...HIDDEN.handles, HIDDEN.structure, HIDDEN.name, "vault/"];
+    const version = async (handle: string) => (await access.get(handle)).version;
+    /** A proposal on an item of a structure hidden since it was stored. */
+    const onHidden = () =>
+      store.insertProposal(
+        { target: "item", path: null, structure: HIDDEN.structure, itemId: HIDDEN.ids[0], kind: "update", file: null, reason: "A new codename", baseVersion: "9f2c", agentId: AGENT },
+        { fields: { codename: "Osprey" } },
+      ).proposal.id;
+
+    // Approved as my version, which links the bug to a hidden item (the user may; the fields hold its id).
+    const mine = (await access.proposeUpdate(AGENT, "BUG-1", { note: "Retry twice" }, await version("BUG-1"), "Once isn't enough")).proposed;
+    const drafted = await proposals.putDraft(mine, 1, { fields: { note: "Retry twice, then sign in", vault: HIDDEN.ids[1] } });
+    expect(await proposals.approve(mine, drafted.version)).toMatchObject({ status: "approved", editedByMe: true });
+    // Rejected, and one still open that my message is about.
+    const rejected = onHidden();
+    expect(store.rejectProposal(rejected, "Leave the codename.")).toBeDefined();
+    const open = onHidden();
+    // A conflict the hidden structure caused: by hand it takes the prefix of Bugs, and the problem the user reads says where.
+    const conflicted = (await access.proposeUpdate(AGENT, "BUG-2", { note: "Also in Chromium" }, await version("BUG-2"), "Seen again")).proposed;
+    writeAt(root, "vault/_structure.yaml", readAt(root, "vault/_structure.yaml").replace(`prefix: ${HIDDEN.prefix}`, "prefix: BUG"));
+    expect(await proposals.approve(conflicted, 1)).toMatchObject({ status: "conflict" });
+    expect(leaks(store.getProposal(conflicted)?.problem?.message ?? "", hiddenStrings), "the user's problem names the hidden structure (else this proves nothing)").not.toEqual([]);
+
+    let refusal: unknown;
+    try {
+      await proposals.revise(AGENT, conflicted, "Shorter.", { fields: { note: "In Chromium too" } });
+    } catch (thrown) {
+      refusal = thrown;
+    }
+    expect(refusal, "the revise is refused while the prefixes clash").toBeInstanceOf(Error);
+    const { message, problems } = refusal as { message: string; problems?: unknown };
+    expect(leaks(JSON.stringify({ message, problems }), hiddenStrings), `the revise's refusal: ${message}`).toEqual([]);
+
+    const notes = noteSource({ store, items: access });
+    const { note } = notes.current(AGENT, open, await notes.prepare(AGENT, open));
+
+    expect(note?.outcomes.map(({ proposalId, outcome }) => ({ proposalId, outcome })).sort((a, b) => a.outcome.localeCompare(b.outcome))).toEqual([
+      { proposalId: mine, outcome: "approved_with_changes" },
+      { proposalId: conflicted, outcome: "conflict" },
+      { proposalId: rejected, outcome: "rejected" },
+    ]);
+    expect(note?.outcomes.find(({ proposalId }) => proposalId === mine)?.label, "a visible item is named by its handle").toBe("BUG-1");
+    expect(note?.reference?.proposalId).toBe(open);
+    if (note === undefined) return;
+    const typed = "What happened to the bugs?";
+    for (const [what, text] of Object.entries({ "the stored note": JSON.stringify(note), "the note as the agent reads it": renderNote(note), "the prompt": promptOf(note, typed) })) {
+      expect(leaks(text, hiddenStrings), `${what}: ${text}`).toEqual([]);
+    }
   });
 });

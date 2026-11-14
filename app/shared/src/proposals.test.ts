@@ -1,15 +1,17 @@
 // The proposal contract the service and the app both read: which status moves exist (so a decided proposal is never
-// decided again and a conflict never approved), and a proposals list that skips a target this app doesn't know
-// instead of failing whole.
+// decided again and a conflict never approved), which version is mine while it is the current one, and a proposals
+// list that skips a target this app doesn't know instead of failing whole.
 import { expect, test } from "vitest";
 
 import {
   canDecide,
+  canDraft,
   canReject,
   canRevise,
   countsTowardCap,
   isOpen,
   ListProposalsResponse,
+  myDraft,
   nextStatus,
   PROPOSAL_EVENTS,
   ProposalStatus,
@@ -42,8 +44,23 @@ test("a status changes only by the contract's moves, and the predicates name the
   expect(statusesWhere(canDecide), "may be approved").toEqual(["pending"]);
   expect(statusesWhere(canReject), "may be rejected").toEqual(["conflict", "pending"]);
   expect(statusesWhere(canRevise), "may get a new version").toEqual(["conflict", "pending"]);
+  expect(statusesWhere(canDraft), "takes my own version").toEqual(["pending"]);
   expect(statusesWhere(countsTowardCap), "counts toward the cap").toEqual(["conflict", "pending"]);
   expect(statusesWhere(isOpen), "not decided yet").toEqual(["applying", "conflict", "pending"]);
+});
+
+// The app offers "drop my edit" and marks the row by this; the service saves, drops and approves by it.
+test("my draft is mine only while it is the current version, and it edits the agent's latest version before it", () => {
+  const agent = (n: number) => ({ n, by: "agent" as const });
+  const me = (n: number) => ({ n, by: "me" as const });
+
+  expect(myDraft([]), "no version").toBeUndefined();
+  expect(myDraft([agent(1)]), "the agent's version alone").toBeUndefined();
+  expect(myDraft([agent(1), agent(2)]), "the agent's versions alone").toBeUndefined();
+  expect(myDraft([agent(1), me(2)]), "my draft is current").toEqual({ mine: me(2), theirs: agent(1) });
+  expect(myDraft([agent(1), agent(3), me(5)]), "my draft on the agent's revision").toEqual({ mine: me(5), theirs: agent(3) });
+  expect(myDraft([agent(1), me(2), agent(3)]), "my draft superseded by a revise").toBeUndefined();
+  expect(myDraft([agent(1), me(2), agent(3), me(4)]), "a new draft after the revise").toEqual({ mine: me(4), theirs: agent(3) });
 });
 
 const common = { status: "pending", agentId: "agt_7f3c2a", version: 1, editedByMe: false, at: "2026-11-09T10:02:11.120Z" };

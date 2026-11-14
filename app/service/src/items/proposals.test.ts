@@ -3,13 +3,15 @@
 // rejecting touches no file, and a decided proposal can't be decided again. Proposing writes no file and takes no
 // handle number (nor may the writer's dry run), so an approved create gets the handle it would get alone. A
 // free-named create keeps its path in the proposal's own `file` (null for every other proposal), never in `fields`,
-// and approving writes exactly there, even in a structure with a property named `file`.
+// and approving writes exactly there, even in a structure with a property named `file`. A new item's fields are
+// checked as the writer checks them, also when the agent revises them or I edit them.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
 import { ACCESS_FILES, AGENT, expectRefused, openAccessRoot, snapshotFiles, withProposals, type TestAccess } from "../../test/access-fixtures.ts";
+import { DraftRefused } from "../proposals/refused.ts";
 import { openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 
 const BUG = "bugs/BUG-2-hero-caption.md";
@@ -94,6 +96,20 @@ describe("proposals", () => {
     const added = Object.keys(snapshotFiles(root)).filter((path) => !before.includes(path));
     expect(added, "the one file written").toEqual(["drafts/guides/setup.md"]);
     expect(readAt(root, "drafts/guides/setup.md")).toContain("# Setting up");
+  });
+
+  // Approve leaves a body that isn't text out of the item it writes: a check that did the same would pass it, and the
+  // proposal would then show a body that approving silently drops.
+  test("a proposed new item takes no body that isn't text, from the agent's revise or from my draft, and stays as it was", async () => {
+    const { access, proposals, store, root } = openAccessRoot();
+    const { proposed } = await access.proposeCreate(AGENT, "bugs", { title: "The footer link is broken", body: "\nOn every page.\n" }, "Found it");
+    const fields = { title: "The footer link is broken", body: 7 };
+    const before = { versions: store.listVersions(proposed), files: snapshotFiles(root) };
+
+    await expectRefused(proposals.revise(AGENT, proposed, "Shorter.", { fields }), "invalid_fields", "the agent's revise");
+    await expect(proposals.putDraft(proposed, 1, { fields }), "my draft").rejects.toBeInstanceOf(DraftRefused);
+
+    expect({ versions: store.listVersions(proposed), files: snapshotFiles(root) }).toEqual(before);
   });
 
   test("approving an update writes the field, and approving a delete removes the file", async () => {

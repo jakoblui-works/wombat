@@ -1,6 +1,6 @@
 // Approving a file proposal never replaces what the user didn't see: the proposals on a real store and a temp
 // workspace, approved after the file changed by hand in each way it can. Only the text of the version approved is
-// ever written, and only onto the file that version was made from.
+// ever written, and only onto the file that version was made from, also after the agent revised the proposal.
 import { chmodSync, existsSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -81,6 +81,39 @@ test("after a hand edit elsewhere in the file, approving writes nothing and leav
 
   expect(await proposals.approve(id, first.version)).toMatchObject({ status: "approved" });
   expect(read(path)).toBe(both);
+});
+
+// A revise of a pending proposal that took the file as it is now for its base would let approve write the proposed
+// text over the hand edit; only a conflict's revise is rebuilt on the file, and says so.
+test("a revise after a hand edit elsewhere keeps the proposal's base, so approving never writes text without the hand edit; a conflict's revise is rebuilt on the file", async () => {
+  const { proposals, path, text, proposeEdit } = bench();
+  const id = await proposeEdit();
+  writeFileSync(path, notes(ELSEWHERE));
+  // The old text is only in the proposed version: the file still says "every half hour".
+  const slower = { oldText: "after each finished test", newText: "after every second finished test" };
+
+  const revised = await proposals.revise(AGENT, id, "Slower.", { edits: [slower] });
+
+  expect(revised, "a pending proposal's revise isn't rebuilt").toEqual({ revised: id, version: revised.version });
+  const first = await proposals.approve(id, revised.version);
+  expect(read(path), "nothing was written").toBe(notes(ELSEWHERE));
+  expect(first.status).toBe("pending");
+  const both = notes({ ...ELSEWHERE, rotation: "Driver and navigator swap after every second finished test." });
+  expect(await text(id), "the hand edit with both of the agent's edits").toBe(both);
+  expect(await proposals.approve(id, first.version)).toMatchObject({ status: "approved" });
+  expect(read(path)).toBe(both);
+
+  // A hand edit to the line the proposal changes: a conflict, whose revise works on the file as it is now.
+  const conflicted = await proposeEdit();
+  writeFileSync(path, notes(SAME_LINE));
+  expect(await proposals.approve(conflicted, 1)).toMatchObject({ status: "conflict" });
+
+  const rebuilt = await proposals.revise(AGENT, conflicted, "Kept your twenty minutes.", { edits: [{ oldText: "every twenty minutes", newText: "every twenty minutes, or after each finished test" }] });
+
+  expect(rebuilt).toMatchObject({ revised: conflicted, rebuilt: true });
+  expect(read(path), "a revise writes nothing").toBe(notes(SAME_LINE));
+  expect(await proposals.approve(conflicted, rebuilt.version)).toMatchObject({ status: "approved" });
+  expect(read(path)).toBe(notes({ ...SAME_LINE, rotation: "Driver and navigator swap every twenty minutes, or after each finished test." }));
 });
 
 test("after a hand edit to the lines the proposal changes, approving ends in a conflict with nothing written", async () => {

@@ -41,7 +41,7 @@ describe("the /mcp tools", () => {
   });
 
   // The refusals and the instructions file name tools and fields by these names: an agent must find each on the list.
-  test("tools/list offers exactly the tool names, and propose_change takes path, reason, edits of old and new, and content", async () => {
+  test("tools/list offers exactly the tool names; propose_change takes path, reason, edits of old and new, and content; revise_proposal takes id, reason, the same edits, content and fields", async () => {
     const s = openMcp();
 
     const response = await mcpRequest(s, s.token, "tools/list");
@@ -51,6 +51,9 @@ describe("the /mcp tools", () => {
     const input = tools.find((tool) => tool.name === TOOL.proposeChange)?.inputSchema?.properties ?? {};
     expect(Object.keys(input).sort()).toEqual(["content", "edits", "path", "reason"]);
     expect(Object.keys(input.edits?.items?.properties ?? {}).sort()).toEqual(["new", "old"]);
+    const revise = tools.find((tool) => tool.name === TOOL.reviseProposal)?.inputSchema?.properties ?? {};
+    expect(Object.keys(revise).sort()).toEqual(["content", "edits", "fields", "id", "reason"]);
+    expect(Object.keys(revise.edits?.items?.properties ?? {}).sort()).toEqual(["new", "old"]);
   });
 
   test(

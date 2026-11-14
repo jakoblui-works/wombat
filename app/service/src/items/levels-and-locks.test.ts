@@ -1,12 +1,14 @@
 // Levels and locks at the boundary. A write in a `read` structure, a call of the
 // wrong family (a direct write in `propose`, a proposal in `edit`), or a change touching a locked field is refused
 // with the code that says what to do (naming the tool or the field), and changes no file and stores no proposal.
-// A create may set a locked title or body (every item needs them), never a locked property.
+// A create may set a locked title or body (every item needs them), never a locked property. The locks are for
+// agents: they bind an agent's revise of its proposal, never my own version of it.
 import type { AccessErrorCode } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
 import type { Access } from "./access.ts";
 import { AGENT, expectRefused, openAccessRoot, snapshotFiles } from "../../test/access-fixtures.ts";
+import { readAt } from "../../test/items-fixtures.ts";
 
 type Case = { what: string; code: AccessErrorCode; names?: string; call: (access: Access, version: (handle: string) => Promise<string>) => Promise<unknown> };
 
@@ -38,5 +40,24 @@ describe("levels and locks at the boundary", () => {
     if (names !== undefined) expect(message, `${what}: the message names ${names}`).toContain(names);
     expect(snapshotFiles(root)).toEqual(before);
     expect(await access.proposals()).toEqual([]);
+  });
+
+  // `repo` is locked for agents in bugs.
+  test("an agent's revise that sets a locked field is refused and stores nothing, while my own version may set it and approve writes it", async () => {
+    const { access, proposals, store, root } = openAccessRoot();
+    const { proposed } = await access.proposeUpdate(AGENT, "BUG-2", { note: "Seen in Zen" }, (await access.get("BUG-2")).version, "Seen again");
+    const fields = { note: "Seen in Zen", repo: "api" };
+    const before = { versions: store.listVersions(proposed), files: snapshotFiles(root) };
+
+    const message = await expectRefused(proposals.revise(AGENT, proposed, "It belongs to the api.", { fields }), "locked", "the agent's revise");
+
+    expect(message).toContain("repo");
+    expect({ versions: store.listVersions(proposed), files: snapshotFiles(root) }).toEqual(before);
+
+    const mine = await proposals.putDraft(proposed, 1, { fields });
+    const decided = await proposals.approve(proposed, mine.version);
+
+    expect(decided).toMatchObject({ status: "approved", editedByMe: true });
+    expect(readAt(root, "bugs/BUG-2-hero-caption.md")).toContain("repo: api");
   });
 });
