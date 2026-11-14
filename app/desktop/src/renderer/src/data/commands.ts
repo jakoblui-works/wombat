@@ -34,19 +34,24 @@ export const newCommandId = (): string => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
 
-export type SendMessageVars = { agentId: string; text: string; commandId: string };
+export type SendMessageVars = { agentId: string; text: string; commandId: string; proposalId?: string };
 export type StartAgentVars = StartAgentRequest & { text: string; commandId: string };
 export type AnswerPermissionVars = { agentId: string; requestId: string; kind: AnswerPermissionRequest["kind"] };
 export type SetConfigVars = SetConfigRequest & { agentId: string };
 
 /** The variables of one send, its commandId made now: build them once per user action. */
-export const sendMessageVars = (agentId: string, text: string): SendMessageVars => ({ agentId, text, commandId: newCommandId() });
+export const sendMessageVars = (agentId: string, text: string, proposalId?: string): SendMessageVars => ({
+  agentId,
+  text,
+  commandId: newCommandId(),
+  ...(proposalId === undefined ? {} : { proposalId }),
+});
 
 /** The variables of one start, the first message's commandId made now. */
 export const startAgentVars = (start: StartAgentRequest & { text: string }): StartAgentVars => ({ ...start, commandId: newCommandId() });
 
-export const sendMessageFn = async ({ agentId, text, commandId }: SendMessageVars): Promise<void> => {
-  await call("POST", `${agentPath(agentId)}/messages`, Ignored, { text, commandId } satisfies SendMessageRequest);
+export const sendMessageFn = async ({ agentId, text, commandId, proposalId }: SendMessageVars): Promise<void> => {
+  await call("POST", `${agentPath(agentId)}/messages`, Ignored, { text, commandId, ...(proposalId === undefined ? {} : { proposalId }) } satisfies SendMessageRequest);
 };
 
 /** A start's two steps: the agent, which exists from here on, and why its first message wasn't sent, if it wasn't. */
@@ -100,6 +105,9 @@ export type DecideVars = { proposalId: string } & ({ decision: "approve"; versio
 export const approveOutcome = (sent: number, after: Pick<Proposal, "status" | "version">): "decided" | "changed" =>
   isOpen(after.status) && after.version > sent ? "changed" : "decided";
 
+/** The service refused because the proposal has a newer version than the one the request named. */
+const isProposalChanged = (error: unknown): boolean => error instanceof ServiceError && error.code === ProposalErrorCode.enum.proposal_changed;
+
 /**
  * Approves the version the user saw, or rejects. `proposal_changed`, and an approve that made a new version instead,
  * resolve as "changed": the refresh in onSettled shows the new version.
@@ -113,7 +121,7 @@ export const decideFn = async (vars: DecideVars): Promise<"decided" | "changed">
     await call("POST", `${proposalPath(vars.proposalId)}/reject`, Ignored, (vars.reason === undefined ? {} : { reason: vars.reason }) satisfies RejectRequest);
     return "decided";
   } catch (error) {
-    if (error instanceof ServiceError && error.code === ProposalErrorCode.enum.proposal_changed) return "changed";
+    if (isProposalChanged(error)) return "changed";
     throw error;
   }
 };
@@ -132,7 +140,7 @@ export const draftFn = async (vars: DraftVars): Promise<Proposal | "changed"> =>
       ? await call("PUT", path, Proposal, { onVersion: vars.onVersion, text: vars.text } satisfies DraftRequest)
       : await call("DELETE", path, Proposal);
   } catch (error) {
-    if (error instanceof ServiceError && error.code === ProposalErrorCode.enum.proposal_changed) return "changed";
+    if (isProposalChanged(error)) return "changed";
     throw error;
   }
 };

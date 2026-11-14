@@ -564,10 +564,11 @@ const run = (scenario: FakeScenario) => {
           return { stopReason: "end_turn" };
         }
         case "call-tool": {
-          // The prompt is JSON `{ tool, arguments }`: the agent calls that tool on its wombat MCP server, at the URL
-          // and with the headers its session/new carried, as a real harness would, and replies with the result's text.
+          // The prompt's last line is JSON `{ tool, arguments }` (a note the service puts in front of a message comes
+          // before it): the agent calls that tool on its wombat MCP server, at the URL and with the headers its
+          // session/new carried, as a real harness would, and replies with the result's text.
           const [block] = prompt;
-          const { tool, arguments: args } = JSON.parse(block?.type === "text" ? block.text : "{}") as {
+          const { tool, arguments: args } = JSON.parse((block?.type === "text" ? block.text : "{}").split("\n").at(-1) ?? "{}") as {
             tool: string;
             arguments: Record<string, unknown>;
           };

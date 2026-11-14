@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react";
 
 import type { FileProposalKind } from "@wombat/shared/proposals";
+import { fileSide } from "../proposal-label.ts";
 import { LazyMonacoDiff } from "../../Diff/MonacoDiff/LazyMonacoDiff.tsx";
 
 /**
@@ -19,4 +20,4 @@ export const FileProposal = ({
   current: string | null;
   text: string;
   edit?: ComponentProps<typeof LazyMonacoDiff>["edit"];
-}) => <LazyMonacoDiff path={path} oldText={kind === "create" ? "" : (current ?? "")} newText={text} lineNumbers edit={edit} className="min-h-0 flex-1" />;
+}) => <LazyMonacoDiff path={path} oldText={fileSide({ kind, current })} newText={text} lineNumbers edit={edit} className="min-h-0 flex-1" />;

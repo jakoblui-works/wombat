@@ -9,7 +9,9 @@ import { useDecide } from "../../../data/commands.ts";
 import { useAgents, useConnection, useProposal } from "../../../data/hooks.ts";
 import { keys } from "../../../data/keys.ts";
 import { refresh } from "../../../data/refresh.ts";
-import { useActiveTab } from "../../workbench-context.ts";
+import { useHarnessFeatures } from "../Chat/harness-features.ts";
+import { setReference } from "../Chat/Composer/unsent.ts";
+import { useActiveTab, useWorkbench } from "../../workbench-context.ts";
 import type { ViewProps } from "../../registry.ts";
 import { AnswerError, DecisionSlot, OutcomeMark, Waiting } from "../approvals/Answer/Answer.tsx";
 import { Note } from "../approvals/Note/Note.tsx";
@@ -94,6 +96,8 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
   const agents = useAgents();
   const connection = useConnection();
   const decide = useDecide();
+  const features = useHarnessFeatures(agents.data?.agents.find(({ id }) => id === read.data?.agentId)?.harness);
+  const workbench = useWorkbench();
   const [rejecting, setRejecting] = useState(false);
   const queryClient = useQueryClient();
   const active = isProposalTab(useActiveTab(), proposalId);
@@ -113,7 +117,7 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
   const agent = agents.data?.agents.find(({ id }) => id === proposal.agentId);
   const by = agents.data === undefined ? undefined : proposalAgentTitle(proposal, agents.data.agents);
   const state = proposalTabState(proposal);
-  const actions = proposalActions(proposal, agent, connection.state);
+  const actions = proposalActions(proposal, agent, connection.state, features);
   const busy = decide.isPending || saving;
   const viewingEarlier = viewing !== undefined && viewing !== proposal.version;
   const shown = viewingEarlier ? earlier.data : proposal;
@@ -144,6 +148,11 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
   };
   const reject = (reason: string | undefined) =>
     decide.mutate({ proposalId, decision: "reject", ...(reason === undefined ? {} : { reason }) }, { onSuccess: () => setRejecting(false) });
+  const askForChanges = () => {
+    if (agent === undefined) return;
+    setReference(agent.id, proposalId);
+    workbench.openAgentChat(agent.id);
+  };
   const Icon = proposal.target === "file" ? FilePen : SquarePen;
 
   return (
@@ -154,6 +163,9 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
           <PathText path={label} className="font-mono text-xs text-fg-primary" />
           {kind === undefined ? null : <span className="shrink-0 text-xs text-fg-tertiary">{kind}</span>}
           {isOutsideWorkspace(proposal) ? <OutsideWorkspace /> : null}
+        </div>
+        {/* Their own row: the path takes the first, so the picker, the status and three buttons keep their width. */}
+        <div className="flex min-h-7 items-center gap-2">
           {proposal.versions.length > 1 ? (
             <VersionPicker versions={proposal.versions} current={proposal.version} shown={viewingEarlier ? viewing : proposal.version} agentTitle={by ?? "agent"} onPick={(version) => void pick(version)} />
           ) : null}
@@ -162,6 +174,11 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
             outcome={state.outcome === undefined ? undefined : <OutcomeMark allowed={state.outcome.allowed}>{state.outcome.label}</OutcomeMark>}
           >
             <span className="ml-auto flex shrink-0 gap-2">
+              {state.reject && !viewingEarlier ? (
+                <Button variant="secondary" size="sm" disabled={!actions.revise || busy} onClick={askForChanges}>
+                  Ask for changes
+                </Button>
+              ) : null}
               {state.reject && !viewingEarlier ? (
                 <Button variant="secondary" size="sm" aria-expanded={rejecting} disabled={!actions.reject || busy} onClick={() => setRejecting(true)}>
                   Reject

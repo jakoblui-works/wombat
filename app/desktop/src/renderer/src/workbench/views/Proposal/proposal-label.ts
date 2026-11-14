@@ -1,5 +1,5 @@
 import type { AgentSummary } from "@wombat/shared/api";
-import type { Proposal } from "@wombat/shared/proposals";
+import type { FileProposalKind, Proposal } from "@wombat/shared/proposals";
 
 import { agentTitle } from "../Chat/chat-params.ts";
 
@@ -26,3 +26,6 @@ export const proposalKindWord = (proposal: Pick<Proposal, "target" | "kind">): "
   if (proposal.kind === "create") return proposal.target === "file" ? "new file" : "new item";
   return proposal.kind === "delete" ? "delete" : undefined;
 };
+
+/** The left side of a file proposal's diff: the file as it is now, empty for a new file or one that can't be read. One rule for the tab's diff and a draft's base. */
+export const fileSide = ({ kind, current }: { kind: FileProposalKind; current: string | null }): string => (kind === "create" ? "" : (current ?? ""));

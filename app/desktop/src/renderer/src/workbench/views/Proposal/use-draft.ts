@@ -6,6 +6,7 @@ import { useDraft } from "../../../data/commands.ts";
 import { keys } from "../../../data/keys.ts";
 import { proposalVersionQuery } from "../../../data/query-client.ts";
 import { asError } from "../../../lib/errors.ts";
+import { fileSide } from "./proposal-label.ts";
 import { type DraftEvent, type DraftSave, draftSave, type DraftState, draftStep, type ReviseNotice, type SaveError, type SaveOutcome, shownVersion } from "./draft-state.ts";
 
 /** How long after the last change my text is saved. */
@@ -91,7 +92,7 @@ export const useDraftEditor = (proposalId: string, proposal: FileDetail | undefi
       }
       const now = state.current;
       if (now?.generation !== at.generation || theirs === undefined) return undefined;
-      const next = draftSave(now, theirs, read.kind === "create" ? "" : (read.current ?? ""));
+      const next = draftSave(now, theirs, fileSide(read));
       if (next === undefined) return shownVersion(now);
       dispatch({ type: "sent", save: next });
       const outcome = await send(next, now, byApprove);

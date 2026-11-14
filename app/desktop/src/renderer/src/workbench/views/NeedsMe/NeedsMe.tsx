@@ -6,6 +6,7 @@ import { useDecide } from "../../../data/commands.ts";
 import { useAgents, useConnection, useProposals } from "../../../data/hooks.ts";
 import { needsMeCount } from "../../../data/needs-me.ts";
 import { proposalActions, proposalShows } from "../Proposal/proposal-actions.ts";
+import { useHarnessFeatures } from "../Chat/harness-features.ts";
 import { PathText } from "../Proposal/PathText.tsx";
 import { OutsideWorkspace } from "../Proposal/OutsideWorkspace.tsx";
 import { AnswerError } from "../approvals/Answer/Answer.tsx";
@@ -42,7 +43,7 @@ const ProposalRowView = ({ row, onOpen }: { row: ProposalRow; onOpen: () => void
   const connection = useConnection();
   const decide = useDecide();
   const { proposal } = row;
-  const actions = proposalActions(proposal, row.agent, connection.state);
+  const actions = proposalActions(proposal, row.agent, connection.state, useHarnessFeatures(row.agent?.harness));
   const shows = proposalShows(proposal.status);
   const busy = decide.isPending;
   // A version this row never showed: its tab shows it before anything is approved.

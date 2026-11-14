@@ -1,25 +1,28 @@
-import type { AgentSummary } from "@wombat/shared/api";
+import { type AgentSummary, chatAccess } from "@wombat/shared/api";
 import { canDecide, canDraft, canReject, canRevise, isOpen, type ProposalStatus } from "@wombat/shared/proposals";
 
 import type { ConnectionState } from "../../../../../shared/bridge.ts";
+import { featuresOrAssumed } from "../Chat/harness-features.ts";
 
 export type ProposalActions = { approve: boolean; reject: boolean; revise: boolean; draft: boolean };
 
 /**
  * Which of a proposal's buttons are enabled. Deciding and drafting need the service, so none is enabled while not
  * connected; Approve and Reject are off while the proposal is being applied (canDecide and canReject say no then).
- * Revising sends the agent a message, so it needs the agent to exist.
+ * Revising sends the agent a message, so the agent must exist, not be stopped, and take a message at all (`chatAccess`
+ * by its harness's `features`, undefined while they are unknown): otherwise the chat would open on a box that can't send.
  */
 export const proposalActions = (
   proposal: { status: ProposalStatus },
-  agent: Pick<AgentSummary, "id"> | undefined,
+  agent: Pick<AgentSummary, "id" | "state" | "hasProcess"> | undefined,
   connection: ConnectionState["state"],
+  features: readonly string[] | undefined,
 ): ProposalActions => {
   const connected = connection === "connected";
   return {
     approve: connected && canDecide(proposal.status),
     reject: connected && canReject(proposal.status),
-    revise: connected && agent !== undefined && canRevise(proposal.status),
+    revise: connected && agent !== undefined && agent.state !== "stopped" && chatAccess(agent, featuresOrAssumed(features)) !== "closed" && canRevise(proposal.status),
     draft: connected && canDraft(proposal.status),
   };
 };
