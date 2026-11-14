@@ -51,6 +51,11 @@ export type ItemProposals = ItemRevisions & {
   itemProposalsOf(stored: readonly StoredItemProposal[]): Promise<ItemProposalRecord[]>;
   /** As `itemProposalsOf`, with its item as it is now (null when gone), the version read's `fields` and every version's head. */
   itemProposalDetail(stored: StoredItemProposal, fields: Record<string, unknown>, heads: readonly ProposalVersionHead[]): Promise<ItemProposalDetail>;
+  /**
+   * For the agent: each stored item proposal's handle when its item is one the agent may see now; a gone item's the
+   * handle it had, while its structure is visible. Proposals left out have no handle the agent may be told.
+   */
+  agentHandlesOf(stored: readonly StoredItemProposal[]): Promise<Map<string, string>>;
   /** What an approve writes an item proposal through. */
   itemTarget: ApplyTarget;
 };
@@ -118,6 +123,14 @@ export const itemWritten = (stored: StoredItemProposal, now: ItemsNow): Written 
   if (stored.kind === "delete") return intent.path != null && now.fileMissing && itemById(now.items, stored.itemId) === undefined ? { written: true } : undefined;
   const item = itemById(now.items, stored.itemId);
   return item !== undefined && intent.version != null && item.version === intent.version ? { written: true } : undefined;
+};
+
+/** The handle the agent may be told for an item proposal, by `view`: never one of an item or structure hidden from it. */
+const agentHandle = (view: View, stored: StoredItemProposal): string | undefined => {
+  const visible = itemById(view.items, stored.itemId);
+  if (visible !== undefined) return visible.handle ?? undefined;
+  const exists = itemById(view.snapshot.items, stored.itemId) !== undefined;
+  return !exists && view.structures.has(stored.structure) ? stored.itemHandle : undefined;
 };
 
 /** Whether nothing is at `path` on disk; any other failure to tell throws. */
@@ -284,6 +297,17 @@ export const openItemProposals = ({
       if (stored.length === 0) return [];
       const { items } = await catalog.snapshot();
       return stored.map((proposal) => itemProposalOf(proposal, store.listVersionHeads(proposal.id), items));
+    },
+
+    agentHandlesOf: async (stored) => {
+      const handles = new Map<string, string>();
+      if (stored.length === 0) return handles;
+      const current = await view();
+      for (const proposal of stored) {
+        const handle = agentHandle(current, proposal);
+        if (handle !== undefined) handles.set(proposal.id, handle);
+      }
+      return handles;
     },
 
     itemProposalDetail: async (stored, fields, heads) => {

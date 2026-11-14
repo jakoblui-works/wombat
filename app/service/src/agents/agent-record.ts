@@ -97,20 +97,25 @@ export const createAgentRecord = (deps: AgentRecordDeps) => {
   /**
    * Stores the entries and tells listeners; every entry of the agent's log is written through here. Only for an agent
    * without a process (a message that resumes it, the end of a turn whose resume failed); otherwise `appendLog`.
+   * `alongside` runs in the same transaction, with the entries' seqs; its throw stores nothing.
    */
-  const storeEntries = (agentId: string, entries: NewLogEntry[]) => {
+  const storeEntries = (agentId: string, entries: NewLogEntry[], alongside?: (seqs: number[]) => void) => {
     const stored = entries.map((entry) => ({ ...entry, at: entry.at ?? now() }));
-    const seqs = store.append(agentId, stored);
+    const seqs = store.transaction(() => {
+      const appended = store.append(agentId, stored);
+      alongside?.(appended);
+      return appended;
+    });
     const last = seqs.at(-1);
     if (last !== undefined) emit({ seq: last, agentId, type: "log" });
     return { stored, seqs };
   };
 
   /** Stores the entries (`storeEntries`) and folds each one as stored. */
-  const appendLog = (proc: Proc, entries: NewLogEntry[]) => {
+  const appendLog = (proc: Proc, entries: NewLogEntry[], alongside?: (seqs: number[]) => void) => {
     const { agentId } = proc;
     if (!proc.fold) throw new Error(`Can't log for agent ${agentId} before its session started.`);
-    const { stored, seqs } = storeEntries(agentId, entries);
+    const { stored, seqs } = storeEntries(agentId, entries, alongside);
     const fold = foldTurn(
       proc.fold,
       proc.sessionId,

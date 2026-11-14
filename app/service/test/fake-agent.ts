@@ -38,6 +38,7 @@ export const SCENARIOS = [
   "prompt-error",
   "stop-error",
   "replay",
+  "echo",
 ] as const;
 
 export type FakeScenario = (typeof SCENARIOS)[number];
@@ -422,6 +423,9 @@ const run = (scenario: FakeScenario) => {
         case "reply":
           await send(client, sessionId, text("Hello"));
           await send(client, sessionId, text(" from the fake agent."));
+          return { stopReason: "end_turn" };
+        case "echo":
+          await send(client, sessionId, text(prompt.map((block) => (block.type === "text" ? block.text : "")).join("")));
           return { stopReason: "end_turn" };
         case "permission": {
           const toolCallId = randomUUID();

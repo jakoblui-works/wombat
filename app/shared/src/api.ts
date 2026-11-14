@@ -584,6 +584,37 @@ export const SERVICE_STOP_REASON = { error: "error", stopped: "stopped" } as con
 /** The ACP session an update or permission request came from; one agent may run more than one (sub-agents). */
 const SessionId = z.string().exactOptional();
 
+/** One line of a line diff, as `lineDiff` (`@wombat/shared/line-diff`) gives it. */
+const NoteDiffLine = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("context"), text: z.string(), oldLine: z.number().int(), newLine: z.number().int() }),
+  z.object({ kind: z.literal("removed"), text: z.string(), oldLine: z.number().int() }),
+  z.object({ kind: z.literal("added"), text: z.string(), newLine: z.number().int() }),
+]);
+
+/**
+ * My changes to the agent's version (the one approved, or my draft on a reference): `diff`, the changed lines with a
+ * little context (`diffContinues` when unchanged lines follow its last one), or only `diffTooLarge` past the limits.
+ */
+const NoteDiff = {
+  diff: z.array(NoteDiffLine).exactOptional(),
+  diffContinues: z.literal(true).exactOptional(),
+  diffTooLarge: z.literal(true).exactOptional(),
+};
+
+/** A proposal's label: the path of a file, the handle of an item. */
+const NoteOutcome = z.object({
+  proposalId: z.string(),
+  label: z.string(),
+  outcome: z.enum(["approved", "approved_with_changes", "rejected", "conflict"]),
+  reason: z.string().exactOptional(),
+  ...NoteDiff,
+});
+export type NoteOutcome = z.infer<typeof NoteOutcome>;
+
+/** The proposal a message was written from; the diff from the agent's version to my draft, when there is one. */
+const NoteReference = z.object({ proposalId: z.string(), label: z.string(), ...NoteDiff });
+export type NoteReference = z.infer<typeof NoteReference>;
+
 export const LogEntry = z.discriminatedUnion("type", [
   z.object({
     ...logEntryFields,
@@ -607,6 +638,13 @@ export const LogEntry = z.discriminatedUnion("type", [
     requestId: z.string(),
     kind: PermissionKind,
   }),
+  /** What the agent is told in front of the `user_message` stored right after it, and nothing else. */
+  z.object({
+    ...logEntryFields,
+    type: z.literal("proposal_note"),
+    outcomes: z.array(NoteOutcome),
+    reference: NoteReference.exactOptional(),
+  }),
   /**
    * Ends each turn. Besides ACP's stop reasons, the service writes those in `SERVICE_STOP_REASON`. Older logs may
    * lack these two, leaving such a turn without an end.
@@ -614,6 +652,7 @@ export const LogEntry = z.discriminatedUnion("type", [
   z.object({ ...logEntryFields, type: z.literal("turn_ended"), stopReason: z.string().min(1) }),
 ]);
 export type LogEntry = z.infer<typeof LogEntry>;
+export type ProposalNoteEntry = Extract<LogEntry, { type: "proposal_note" }>;
 
 const logEntryTypes = new Set<unknown>(LogEntry.options.map((option) => option.shape.type.value));
 const updateKinds: Record<SessionUpdate["sessionUpdate"], true> = {

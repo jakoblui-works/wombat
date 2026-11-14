@@ -105,10 +105,16 @@ export type ProposalStore = {
   /** The agent's proposals in OUTCOMES whose outcome it hasn't been told, oldest outcome first. */
   undeliveredOutcomes: (agentId: string) => StoredProposal[];
   /**
-   * Marks the outcomes as delivered with log seq `seq`, taking no seq: call it inside the transaction that appends
-   * that entry. Proposals no longer undelivered outcomes are skipped; returns how many were marked.
+   * Delivered means the prompt of the note stored as log seq `seq` was handed to the agent, or may have been. Marks
+   * the outcomes so, taking no seq: call it inside the transaction that appends that note. Proposals no longer
+   * undelivered outcomes are skipped; returns how many were marked.
    */
   markDelivered: (ids: readonly string[], seq: number) => number;
+  /**
+   * The note stored as log seq `seq` is known never to have reached the agent: its outcomes are undelivered again.
+   * Takes no seq; call it inside the transaction that appends the entry saying so. Returns how many were cleared.
+   */
+  markNotDelivered: (seq: number) => number;
 };
 
 type Transaction = <T>(fn: () => T) => T;
@@ -169,6 +175,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
       `UPDATE proposals SET noted_seq = ?
        WHERE id IN (SELECT value FROM json_each(?)) AND noted_seq IS NULL AND status IN (SELECT value FROM json_each(?))`,
     ),
+    markNotDelivered: db.prepare("UPDATE proposals SET noted_seq = NULL WHERE noted_seq = ?"),
     // Moving into any status clears `noted_seq`, so each outcome is delivered once, a later one too.
     move: db.prepare(
       `UPDATE proposals SET status = ?, decided_at = ?, problem = ?, reject_reason = ?, intent = ?,
@@ -351,5 +358,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     undeliveredOutcomes: (agentId) => statements.undelivered.all(agentId, JSON.stringify(OUTCOMES)).map(proposalOf),
     markDelivered: (ids, seq) =>
       transaction(() => Number(statements.markDelivered.run(seq, JSON.stringify(ids), JSON.stringify(OUTCOMES)).changes)),
+    // 0 marks the outcomes from before the note existed, which are never told.
+    markNotDelivered: (seq) => (seq > 0 ? transaction(() => Number(statements.markNotDelivered.run(seq).changes)) : 0),
   };
 };

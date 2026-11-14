@@ -1,5 +1,5 @@
-// An edit's lines, old against new, pure: what the chat's edit card shows. Myers' diff (the fewest lines removed and
-// added), after the lines both texts start and end with are set aside.
+// Two texts' lines, old against new, pure: what the chat's edit card shows and what an agent is told of my changes.
+// Myers' diff (the fewest lines removed and added), after the lines both texts start and end with are set aside.
 
 /** One line of a diff: unchanged (both numbers), removed (its old number) or added (its new number); numbers from 1. */
 export type DiffLine =

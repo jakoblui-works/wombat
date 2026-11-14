@@ -44,6 +44,7 @@ import type { Harness } from "../harness/harness.ts";
 import { harnessFeatures } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { ApproveStep } from "../proposals/apply.ts";
+import { noteSource } from "../proposals/note-source.ts";
 import { createProposals } from "../proposals/proposals.ts";
 import { ITEMS_NOT_CONFIGURED, ProposalError } from "../proposals/refused.ts";
 import type { Store } from "../store/store.ts";
@@ -288,6 +289,7 @@ export const startServer = async ({
     return c.json(checked(GetItemSchema, withLinks(found, structures, handles)) satisfies GetItemResponse);
   });
 
+  manager.setNoteSource(noteSource({ store, items: access, log }));
   proposalRoutes(app, proposals);
 
   app.get("/events", (c) => {

@@ -9,6 +9,7 @@
     "./discovery": "./src/discovery.ts",
     "./errno": "./src/errno.ts",
     "./items": "./src/items.ts",
+    "./line-diff": "./src/line-diff.ts",
     "./log-fold": "./src/log-fold.ts",
     "./private-file": "./src/private-file.ts",
     "./process-stat": "./src/process-stat.ts",
@@ -24,6 +25,7 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@agentclientprotocol/sdk": "2.4.0"
+    "@agentclientprotocol/sdk": "2.4.0",
+    "fast-check": "4.10.2"
   }
 }

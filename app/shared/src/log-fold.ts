@@ -291,6 +291,9 @@ export const foldEntry = (state: FoldState, entry: FoldEntry, options: FoldOptio
     case "session_update":
       foldUpdate(state, entry, session, options);
       break;
+    // What the agent was told along with the next message: it places nothing and leaves the run and the activity.
+    case "proposal_note":
+      break;
     // Entry types from a newer service.
     default:
       break;
