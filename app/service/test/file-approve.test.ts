@@ -127,6 +127,28 @@ test("a revise after a hand edit elsewhere keeps the proposal's base, so approvi
   expect(read(path)).toBe(notes({ ...SAME_LINE, rotation: "Driver and navigator swap every twenty minutes, or after each finished test." }));
 });
 
+// The tab warns that approving re-applies the agent's edits from `baseChanged`: on while the file differs from what
+// the current version was made on, off once approve re-applied the edits to the file as it is now, and absent where
+// no re-apply can happen (a new file, a decided proposal).
+test("baseChanged says the file changed since the current version was made, only for an open edit", async () => {
+  const { proposals, path, workspace, proposeEdit, proposeCreate } = bench();
+  const baseChanged = async (id: string) => ((await proposals.get(id)) as Extract<ProposalDetail, { target: "file" }>).baseChanged;
+  const id = await proposeEdit();
+
+  expect(await baseChanged(id) ?? false, "no hand edit").toBe(false);
+  writeFileSync(path, notes(ELSEWHERE));
+  expect(await baseChanged(id), "a hand edit the edits still fit").toBe(true);
+
+  const reapplied = await proposals.approve(id, 1);
+  expect(reapplied.status).toBe("pending");
+  expect(await baseChanged(id) ?? false, "re-applied on the file as it is now").toBe(false);
+
+  expect(await proposals.approve(id, reapplied.version)).toMatchObject({ status: "approved" });
+  expect(await baseChanged(id), "decided").toBeUndefined();
+
+  expect(await baseChanged(await proposeCreate(join(workspace, "limits.json"))), "a new file").toBeUndefined();
+});
+
 test("after a hand edit to the lines the proposal changes, approving ends in a conflict with nothing written", async () => {
   const { proposals, path, proposeEdit } = bench();
   const id = await proposeEdit();
