@@ -216,6 +216,32 @@ test("a proposal note leaves the last message, the activity and the message runs
   expect(read(log.slice(0, 7)).activity).toMatchObject({ kind: "tool" });
 });
 
+// The service stores a note when the user's message is handed over; the chat shows it in front of that message, and
+// only once the message is there.
+test("a proposal note is placed directly before the user message after it, and not before one comes", () => {
+  const noteOn = (label: string): Body => ({ type: "proposal_note", outcomes: [{ proposalId: `prp_${label}`, label, outcome: "approved" }] });
+  const read = (...bodies: Body[]) =>
+    itemsOf(...bodies).map((item) => (item.kind === "proposal_note" ? ["note", item.outcomes.map(({ label }) => label).join()] : shape(item)));
+
+  expect(read(noteOn("hours.md"), user("Thanks."))).toEqual([
+    ["note", "hours.md"],
+    ["user", "Thanks."],
+  ]);
+  expect(read(user("Change the hours."), message("Proposed."), turnEnded(), noteOn("hours.md"), noteOn("menu.md"), user("Now the prices."), message("On it"))).toEqual([
+    ["user", "Change the hours."],
+    ["agent", "Proposed."],
+    ["turn_end", "end_turn"],
+    ["note", "hours.md"],
+    ["note", "menu.md"],
+    ["user", "Now the prices."],
+    ["agent", "On it"],
+  ]);
+  expect(read(user("Change the hours."), message("Proposed."), noteOn("hours.md"))).toEqual([
+    ["user", "Change the hours."],
+    ["agent", "Proposed."],
+  ]);
+});
+
 test.each<[string, string | undefined]>([
   ["main entries carrying the agent's own sessionId", MAIN],
   ["main entries from before sessionId was stored", undefined],

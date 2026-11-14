@@ -78,3 +78,42 @@ test("an agent's proposals: Approve on a row writes the file, a row opens its ta
   expect(readFileSync(prices, "utf8")).toBe(pricesBefore);
   await expect(needsMe(page).getByText(prices)).toHaveCount(0, { timeout: WAIT_MS });
 });
+
+// Editing in a proposal's tab: the right side of its diff (Monaco's `.monaco-diff-editor .editor.modified`) takes
+// typing, the text is saved as my draft, and Approve writes my text.
+test("text typed on a proposal's right side is saved as my draft, and Approve writes it", async ({ sandbox }) => {
+  await sandbox.startService(sandbox.workspace);
+  const menu = path.join(sandbox.workspace, REPO, "menu.md");
+  writeFileSync(menu, "# Menu\n\nRye loaf: 5.80\nBaguette: 2.10\n");
+  const agentId = await startAgent(sandbox, "fake-call-tool");
+  await propose(sandbox, agentId, menu, [{ old: "Rye loaf: 5.80", new: "Rye loaf: 6.10" }]);
+  const id = (await proposalOn(sandbox, menu))?.id ?? "";
+
+  const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
+  await waitForConnection(page, "connected");
+  const toggle = page.getByRole("button", { name: /^Needs me\b/ });
+  if ((await toggle.getAttribute("aria-pressed")) !== "true") await click(toggle);
+  await click(needsMe(page).getByRole("button").filter({ hasText: menu }));
+  const tab = page.locator(".dv-groupview .dv-content-container").filter({ hasText: menu });
+  const right = tab.locator(".monaco-diff-editor .editor.modified");
+
+  // Click into the line "Baguette: 2.10" on the right, go to its end and type, as the user would.
+  const line = right.locator(".view-line").filter({ hasText: "Baguette: 2.10" });
+  await expect(line).toBeVisible({ timeout: WAIT_MS });
+  await line.click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" (until noon)");
+  const mine = "# Menu\n\nRye loaf: 6.10\nBaguette: 2.10 (until noon)\n";
+
+  type Detail = { status: string; text: string; versions: { n: number; by: string }[] };
+  const read = async (): Promise<Detail> => (await sandbox.api("GET", `/proposals/${encodeURIComponent(id)}`)).json as Detail;
+  await waitUntil("my draft saved", WAIT_MS, async () => {
+    const { text, versions } = await read();
+    const current = versions.reduce((top, v) => (v.n > top.n ? v : top));
+    return current.by === "me" && text === mine ? true : undefined;
+  });
+
+  await click(tab.getByRole("button", { name: "Approve", exact: true }));
+  await waitUntil("the proposal approved", WAIT_MS, async () => ((await read()).status === "approved" ? true : undefined));
+  expect(readFileSync(menu, "utf8")).toBe(mine);
+});
