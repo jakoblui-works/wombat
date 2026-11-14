@@ -4,7 +4,8 @@ import type { Problem } from "@wombat/shared/items";
 import type { ProposalContent, StoredProposal } from "../store/store.ts";
 
 /** The named points of an approve, for a caller that must act exactly there (the crash tests stop the process). */
-export type ApproveStep = "after_applying_commit" | "after_write";
+export const APPROVE_STEPS = ["after_applying_commit", "after_write"] as const;
+export type ApproveStep = (typeof APPROVE_STEPS)[number];
 
 /** A write that landed; `itemId` and `itemHandle` name the item a create made. */
 export type Written = { written: true; itemId?: string; itemHandle?: string };
@@ -28,3 +29,13 @@ export type ApplyTarget = {
   write: (stored: StoredProposal, content: ProposalContent) => Promise<Applied>;
   written: (stored: StoredProposal) => Promise<Written | undefined>;
 };
+
+/** Nothing written, with the problem the user reads on the proposal; `field` names the field it's about. */
+export const conflict = (message: string, field?: string): Applied => ({ problem: { ...(field === undefined ? {} : { field }), message } });
+
+export const NOTHING_WRITTEN = "so nothing was written";
+
+/** What the user can do about a proposal the target changed under: `what` is the target ("file", "item"). */
+export const askAgain = (what: string) => `Reject the proposal, or ask the agent to read the ${what} again and propose anew.`;
+
+export const BY_HAND = "Make the change by hand if you still want it, or reject the proposal.";

@@ -126,11 +126,12 @@ export const startServer = async ({
   };
   // Proposal changes reach the alert stream through the manager's listeners, like agent changes.
   const onProposal = (id: string, seq: number) => manager.proposalCommitted(id, seq);
+  const findAgent = (id: string) => store.listAgents().find((agent) => agent.id === id);
   const access = items && writer ? openAccess({ catalog: items, writer, store }) : undefined;
   const proposals = createProposals({
     store,
     workspace: workspaceRoot,
-    agentFolder: (agentId) => folderOf(workspaceRoot, requireAgent(agentId, (id) => store.listAgents().find((agent) => agent.id === id)).repo),
+    agentFolder: (agentId) => folderOf(workspaceRoot, requireAgent(agentId, findAgent).repo),
     onProposal,
     log,
     items: access,
@@ -181,7 +182,7 @@ export const startServer = async ({
   app.get("/agents/:id/log", (c) => {
     const query = readQuery(c, ListLogQuery);
     const agentId = c.req.param("id");
-    requireAgent(agentId, (id) => store.listAgents().find((agent) => agent.id === id));
+    requireAgent(agentId, findAgent);
     const { after, limit = defaultLogLimit } = query;
     const { entries, truncated } = store.readLog(agentId, after, limit);
     return c.json({ dbId: store.dbId, seq: store.currentSeq(), entries, truncated } satisfies ListLogResponse);

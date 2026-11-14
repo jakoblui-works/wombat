@@ -28,7 +28,7 @@ export const AGENT_STATUS: Record<AgentErrorCode, ContentfulStatusCode> = {
   unsupported: 409,
 };
 
-/** No route sends `items_not_writable` yet: a writer failure on approve falls through to `internal_error`. */
+/** No route sends `items_not_writable` yet: a writer failure on approve settles the proposal as a conflict. */
 export const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {
   items_not_configured: 409,
   structure_not_found: 404,

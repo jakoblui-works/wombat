@@ -8,13 +8,14 @@ import { errorCode, isAlreadyThere, isMissing, isMissingPath } from "@wombat/sha
 import { MAX_PROPOSAL_BYTES, type FileProposalKind } from "@wombat/shared/proposals";
 
 import { NoHardLinks, VersionChanged, versionOf, writeAtomic } from "../items/files.ts";
+import type { TextContent } from "../store/proposals.ts";
 import type { FileEdit } from "../store/store.ts";
 import { isWithin } from "../workspace.ts";
 import { applyEdits, type EditProblem } from "./edits.ts";
-import type { Applied } from "./apply.ts";
+import { askAgain, BY_HAND, conflict, NOTHING_WRITTEN, type Applied } from "./apply.ts";
 import { ProposalRefused } from "./refused.ts";
 
-export type Target = { realPath: string; outsideWorkspace: boolean; exists: boolean };
+export type Target = { realPath: string; exists: boolean };
 
 export type TextProblem = "too_large" | "not_utf8";
 
@@ -34,12 +35,16 @@ export const checkText = (data: Uint8Array | string): { text: string } | { probl
   }
 };
 
+const TEXT_ONLY = "so it can't be proposed. Proposals are for text files only.";
+
+/** What's wrong with `subject`'s text ("The proposed text", a path), as the start of a sentence. */
+const textProblemClause = (problem: TextProblem, subject: string) =>
+  problem === "too_large" ? `${subject} is larger than ${String(MAX_PROPOSAL_BYTES / 1024)} KiB, the most a proposal can hold` : `${subject} isn't UTF-8 text`;
+
 /** The refusal for a checkText problem; `subject` starts the sentence ("The proposed text", a path). */
 export const textRefusal = (problem: TextProblem, subject: string) =>
   new ProposalRefused(
-    problem === "too_large"
-      ? `${subject} is larger than ${String(MAX_PROPOSAL_BYTES / 1024)} KiB, the most a proposal can hold. Propose a smaller change, or tell the user what you'd change.`
-      : `${subject} isn't UTF-8 text, so it can't be proposed. Proposals are for text files only.`,
+    `${textProblemClause(problem, subject)}${problem === "too_large" ? ". Propose a smaller change, or tell the user what you'd change." : `, ${TEXT_ONLY}`}`,
   );
 
 /** Tells whether a real path lies outside the workspace, judged against the workspace's real path. */
@@ -51,7 +56,7 @@ export const workspaceMark = async (workspace: string) => {
 const unreadable = (path: string, error: unknown) =>
   new ProposalRefused(`${path} can't be read (${errorCode(error)}). Check the path, or tell the user what you'd change there.`);
 
-const notRegular = (path: string) => new ProposalRefused(`${path} isn't a regular file, so it can't be proposed. Proposals are for text files only.`);
+const notRegular = (path: string) => new ProposalRefused(`${path} isn't a regular file, ${TEXT_ONLY}`);
 
 /** The real path, or undefined when nothing is there. */
 const realOrMissing = async (given: string, path: string) => {
@@ -85,17 +90,16 @@ const entryAt = async (path: string, shown: string) => {
  * Where `path` (absolute, or relative to the agent's folder) points: an existing regular file's real path, or a new
  * file's (its folder's real path plus its name, the folder existing). Refuses anything else with ProposalRefused.
  */
-export const resolveTarget = async (path: string, agentFolder: string, workspace: string): Promise<Target> => {
+export const resolveTarget = async (path: string, agentFolder: string): Promise<Target> => {
   // dirname and basename drop a trailing separator, which would turn `file/` into `file`.
   if (path.endsWith(sep)) throw new ProposalRefused(`${path} ends with ${sep}. Give the path of a file, without a trailing ${sep}.`);
   const given = isAbsolute(path) ? path : `${agentFolder}${sep}${path}`;
-  const outside = await workspaceMark(workspace);
   const existing = await realOrMissing(given, path);
   if (existing !== undefined) {
     const stats = await statOf(existing, path);
     if (stats.isDirectory()) throw new ProposalRefused(`${path} is a folder. Propose a change to a file in it, or a new file there.`);
     if (!stats.isFile()) throw notRegular(path);
-    return { realPath: existing, outsideWorkspace: outside(existing), exists: true };
+    return { realPath: existing, exists: true };
   }
   // A link to nothing: a create would land on the link, not where it points.
   if ((await entryAt(given, path))?.isSymbolicLink() === true) {
@@ -112,7 +116,7 @@ export const resolveTarget = async (path: string, agentFolder: string, workspace
   if ((await entryAt(realPath, path)) !== undefined) {
     throw new ProposalRefused(`${path} leads to something that already exists but can't be resolved. Give the real path of the file instead.`);
   }
-  return { realPath, outsideWorkspace: outside(realPath), exists: false };
+  return { realPath, exists: false };
 };
 
 export type TargetText = { text: string; version: string } | { problem: TextProblem | "not_file" };
@@ -148,27 +152,29 @@ export const readText = async (realPath: string): Promise<TargetText | undefined
   }
 };
 
-/** An existing target's text and version; refuses a file gone since, or one that isn't text that fits. */
-export const readTarget = async (realPath: string, path: string): Promise<{ text: string; version: string }> => {
+/** An existing target's text and version, undefined when it's gone since; refuses one that isn't text that fits. */
+export const readTarget = async (realPath: string, path: string): Promise<{ text: string; version: string } | undefined> => {
   let file: TargetText | undefined;
   try {
     file = await readText(realPath);
   } catch (error) {
     throw unreadable(path, error);
   }
-  if (file === undefined) throw new ProposalRefused(`${path} doesn't exist anymore. Check the path; for a new file send content instead of edits.`);
+  if (file === undefined) return undefined;
   if ("problem" in file) throw file.problem === "not_file" ? notRegular(path) : textRefusal(file.problem, path);
   return file;
 };
 
-/** Whether the file at `realPath` is now exactly `intent`'s version: an approve's write landed. Unreadable reads as not. */
+/** Whether the file at `realPath` is now exactly `intent`'s version: an approve's write landed. Missing reads as not; throws when it can't be read. */
 export const written = async (realPath: string, intent: unknown): Promise<boolean> => {
+  let file: TargetText | undefined;
   try {
-    const file = await readText(realPath);
-    return file !== undefined && !("problem" in file) && file.version === intent;
-  } catch {
-    return false;
+    file = await readText(realPath);
+  } catch (error) {
+    if (isMissingPath(error)) return false;
+    throw error;
   }
+  return file !== undefined && !("problem" in file) && file.version === intent;
 };
 
 /** A file proposal's text as it is now; null when it's missing or can't be read as text. */
@@ -181,26 +187,15 @@ export const currentText = async (realPath: string): Promise<string | null> => {
   }
 };
 
-const conflict = (message: string): Applied => ({ problem: { message } });
+const ASK_AGAIN = askAgain("file");
 
-const NOTHING_WRITTEN = "so nothing was written";
-const ASK_AGAIN = "Reject the proposal, or ask the agent to read the file again and propose anew.";
-
-const CATALOG_FILE = conflict(
-  `The file is an item's file or a structure's settings, which only the item tools change, ${NOTHING_WRITTEN}. Make the change by hand if you still want it, or reject the proposal.`,
-);
+const CATALOG_FILE = conflict(`The file is an item's file or a structure's settings, which only the item tools change, ${NOTHING_WRITTEN}. ${BY_HAND}`);
 const EXISTS = conflict(`A file was made at this path since the agent proposed creating it, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
 const GONE = conflict(`The file was deleted or moved since the agent read it, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
 const NO_EDITS = conflict(`The file changed since this version was made, and the version has no edits to apply to it again, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
 
 const textConflict = (problem: TextProblem | "not_file", what: string) =>
-  conflict(
-    problem === "not_file"
-      ? `The path no longer leads to a regular file, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`
-      : problem === "too_large"
-        ? `${what} is larger than ${String(MAX_PROPOSAL_BYTES / 1024)} KiB, the most a proposal can hold, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`
-        : `${what} isn't UTF-8 text, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`,
-  );
+  conflict(`${problem === "not_file" ? "The path no longer leads to a regular file" : textProblemClause(problem, what)}, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
 
 const editConflict = (problem: EditProblem) => {
   const { edit } = problem;
@@ -222,7 +217,7 @@ const revised = (now: TargetText | undefined, edits: readonly FileEdit[] | undef
 
 export type FileWrite = {
   proposal: { path: string; kind: FileProposalKind; baseVersion: string | null };
-  content: { text: string; edits?: readonly FileEdit[] | undefined };
+  content: TextContent;
   /** Whether the items catalog holds the path; undefined without items. */
   holds?: ((realPath: string) => Promise<boolean>) | undefined;
 };

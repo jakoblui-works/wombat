@@ -43,6 +43,7 @@ export const appRoutes = (agentId: string): { method: string; path: string; body
   { method: "POST", path: "/proposals/prop_1/approve", body: { version: 1 } },
   { method: "POST", path: "/proposals/prop_1/reject", body: {} },
   { method: "GET", path: "/proposals/prop_1" },
+  { method: "GET", path: "/proposals/prop_1?version=1" },
   { method: "PUT", path: "/proposals/prop_1/draft", body: { onVersion: 1, text: "Refused draft" } },
   { method: "DELETE", path: "/proposals/prop_1/draft" },
   { method: "GET", path: "/no-such-route" },

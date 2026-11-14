@@ -14,7 +14,7 @@ import { stringify } from "yaml";
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { findByHandle, isClash, loadItem, readRoot, type LoadedItem, type LoadedStructure, type NamedProblem, type ProblemNames, type RootRead, type ValidStructure } from "./catalog.ts";
-import { NoHardLinks, queueWrite, readAtVersion, removeUnchanged, VersionChanged, versionOf, writeAtomic, type VersionedFile } from "./files.ts";
+import { NoHardLinks, queueWrite, readAtVersion, removeUnchanged, VersionChanged, versionOfText, writeAtomic, type VersionedFile } from "./files.ts";
 import { bodyEdit, checkedText, parseItemFile, readsBackAs, setKeyEdits, titleEdit, type ParsedItemFile } from "./item-file.ts";
 import { inFolder, isIncluded, isSkippedPath, joinRootPath, SETTINGS_FILE, throughSymlink } from "./structures.ts";
 import { formatHandle, setOwn, validateProperties, type LinkLookup } from "./validate.ts";
@@ -189,7 +189,7 @@ const checkProperties = (structure: ValidStructure, data: Record<string, unknown
 
 /** The item as written, from its text, with the value problems it kept; the write checked that it parses. */
 const loadedItem = (structure: ValidStructure, path: string, text: string, links: LinkLookup): LoadedItem =>
-  loadItem(structure, path, parseItemFile(text) as ParsedItemFile, versionOf(Buffer.from(text, "utf8")), links).item;
+  loadItem(structure, path, parseItemFile(text) as ParsedItemFile, versionOfText(text), links).item;
 
 const missingFolder = (file: string) => `the folder of ${file} doesn't exist; create it first or pick an existing folder`;
 
@@ -430,7 +430,7 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
           await checkCreate(root, change.structureId, change.item, change.unseen);
           return undefined;
         case "update":
-          return versionOf(Buffer.from((await checkUpdate(root, change.handle, change.fields, change.baseVersion)).text, "utf8"));
+          return versionOfText((await checkUpdate(root, change.handle, change.fields, change.baseVersion)).text);
         case "delete":
           await checkDelete(root, change.handle, change.baseVersion);
           return undefined;

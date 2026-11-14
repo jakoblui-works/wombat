@@ -9,11 +9,10 @@
 import { z } from "zod";
 
 import { Item, ItemSummary, knownItems, StructureSummary } from "./items.ts";
-import { ProposalErrorCode } from "./proposals.ts";
-import { MAX_BODY_BYTES } from "./routes.ts";
+import { ProposalErrorCode, Timestamp } from "./proposals.ts";
+import { MAX_BODY_BYTES, queryInt } from "./routes.ts";
 
 const Seq = z.int().nonnegative();
-const Timestamp = z.iso.datetime({ offset: true });
 const DbId = z.string().min(1);
 
 /** `"."` (the workspace root) or relative segments: no absolute, `..`, `.`, empty segments, backslashes or control characters. */
@@ -54,12 +53,6 @@ export type AnswerPermissionRequest = z.infer<typeof AnswerPermissionRequest>;
 /** `POST /agents/:id/config`: a select's value id, or a boolean's value. Idempotent, so it carries no commandId. */
 export const SetConfigRequest = z.strictObject({ configId: z.string().min(1), value: z.union([z.string(), z.boolean()]) });
 export type SetConfigRequest = z.infer<typeof SetConfigRequest>;
-
-/** A whole number from `min` to `max`, from a query-string value (digits only) or a number; `""`, `" "` and repeated keys fail with `message`. */
-const queryInt = (message: string, min: number, max = Number.MAX_SAFE_INTEGER) =>
-  z
-    .union([z.number(), z.string().regex(/^\d+$/).transform(Number)], { error: message })
-    .pipe(z.int({ error: message }).min(min, { error: message }).max(max, { error: message }));
 
 /** `GET /agents/:id/log?after=&limit=`: entries with `seq` above `after`, at most `limit` of them. */
 export const ListLogQuery = z.strictObject(
@@ -154,8 +147,8 @@ export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
  * The items routes' error codes: `items_not_configured` when the service runs without an items root (the app hides
  * the items views), `structure_not_found` and `item_not_found` for an unknown structure id or handle (the app
  * refetches the structures). The proposal routes add the ProposalErrorCode codes. `items_not_writable` is reserved
- * for a write the items root's filesystem can't take; no route sends it yet: such a failure on approve answers
- * `internal_error`.
+ * for a write the items root's filesystem can't take; no route sends it yet: such a failure on approve settles the
+ * proposal as a conflict.
  */
 export const ItemsErrorCode = z.enum([
   "items_not_configured",
@@ -169,8 +162,8 @@ export type ItemsErrorCode = z.infer<typeof ItemsErrorCode>;
 /**
  * Why the item writer refused a write; nothing on disk changed. Internal to the service, never sent. On /mcp the
  * access module turns each one but `items_not_writable` into an AccessErrorCode refusal (the agent gets its message);
- * approving a proposal turns them into a `conflict` proposal. `items_not_writable` fails the call: /mcp answers the
- * agent with a generic failure, approve answers `internal_error`.
+ * approving a proposal turns every one of them into a `conflict` proposal. `items_not_writable` fails an /mcp call:
+ * the agent gets a generic failure.
  */
 export const ItemWriteErrorCode = z.enum([
   "stale_version",

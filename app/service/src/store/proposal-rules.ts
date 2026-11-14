@@ -1,5 +1,5 @@
 // The store's status decisions, all derived from the shared contract so no status is named here.
-import { countsTowardCap, isOpen, nextStatus, ProposalStatus, type ProposalEvent } from "@wombat/shared/proposals";
+import { countsTowardCap, isOpen, nextStatus, ProposalStatus, type ProposalEvent, type ProposalVersion } from "@wombat/shared/proposals";
 
 const statusesWhere = (test: (status: ProposalStatus) => boolean) => ProposalStatus.options.filter(test);
 
@@ -22,7 +22,11 @@ const SETTLE_EVENTS = ["applied", "conflicted", "apply_failed"] as const satisfi
 export const settleEvent = (status: ProposalStatus, outcome: ProposalStatus) =>
   SETTLE_EVENTS.find((event) => nextStatus(status, event) === outcome);
 
-export type VersionAuthor = "agent" | "me";
+export type VersionAuthor = ProposalVersion["by"];
+
+/** A proposal's current version: the one with the highest stored `n`; undefined when none is stored. */
+export const currentVersion = <T extends { n: number }>(versions: readonly T[]): T | undefined =>
+  versions.reduce<T | undefined>((highest, version) => (highest === undefined || version.n > highest.n ? version : highest), undefined);
 
 /**
  * Whether my draft may go on agent version `onVersion` (the latest agent version), and which earlier draft of mine
@@ -31,6 +35,6 @@ export type VersionAuthor = "agent" | "me";
 export const draftSlot = (versions: readonly { n: number; by: VersionAuthor }[], onVersion: number): { replaces?: number } | undefined => {
   const latestAgent = versions.findLast((version) => version.by === "agent");
   if (latestAgent?.n !== onVersion) return undefined;
-  const current = versions.at(-1);
+  const current = currentVersion(versions);
   return current !== undefined && current.by === "me" && current.n > onVersion ? { replaces: current.n } : {};
 };

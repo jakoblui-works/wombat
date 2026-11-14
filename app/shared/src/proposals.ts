@@ -1,16 +1,19 @@
 // Proposals: changes an agent proposed to a plain file or an item, kept by the service until the user approves or
-// rejects them in the app. Request bodies are strict, responses lenient, as in `api.ts`. Only this module builds or
-// compares a proposal's status: the service and the app ask nextStatus and the predicates below.
+// rejects them in the app. Request bodies are strict, responses lenient, as in `api.ts`. This module owns the status
+// moves and the predicates on a status: the service and the app ask nextStatus and the predicates below, never
+// compare statuses themselves.
 import { z } from "zod";
 
 import { Item, Problem } from "./items.ts";
+import { queryInt } from "./routes.ts";
 
-const Timestamp = z.iso.datetime({ offset: true });
+/** An ISO date-time with its offset, as every timestamp on the wire. */
+export const Timestamp = z.iso.datetime({ offset: true });
 
 /** The most proposals one agent may have counting toward the cap (countsTowardCap: pending plus conflict) at once. */
 export const MAX_OPEN_PROPOSALS = 20;
 
-/** The largest proposed content (a file's text, an item's fields), in bytes. */
+/** The largest text a file proposal holds, in bytes: the proposed text, and the file's text it is read against. */
 export const MAX_PROPOSAL_BYTES = 512 * 1024;
 
 // Status moves.
@@ -169,7 +172,7 @@ export type ListProposalsResponse = z.infer<typeof ListProposalsResponse>;
 export const ListProposalsQuery = z.strictObject(
   {
     status: z
-      .enum(ProposalStatus.options, { error: "status must be one of pending, applying, approved, rejected or conflict" })
+      .enum(ProposalStatus.options, { error: `status must be one of ${ProposalStatus.options.slice(0, -1).join(", ")} or ${ProposalStatus.options.at(-1) ?? ""}` })
       .exactOptional(),
   },
   {
@@ -179,10 +182,19 @@ export const ListProposalsQuery = z.strictObject(
 );
 export type ListProposalsQuery = z.infer<typeof ListProposalsQuery>;
 
+const versionError = (key: string) => `${key} must be a whole number of 1 or more: one of the proposal's versions`;
+
 const versionNumber = (key: string) => {
-  const error = `${key} must be a whole number of 1 or more: the proposal's version you saw`;
+  const error = versionError(key);
   return z.int({ error }).positive({ error });
 };
+
+/** `GET /proposals/:id?version=`: one version's content instead of the current version's. */
+export const ProposalDetailQuery = z.strictObject(
+  { version: queryInt(versionError("version"), 1).exactOptional() },
+  { error: (issue) => (issue.code === "unrecognized_keys" ? "unknown query parameter; send only version" : undefined) },
+);
+export type ProposalDetailQuery = z.infer<typeof ProposalDetailQuery>;
 
 /** `POST /proposals/:id/approve`: the version approved; another current version answers `proposal_changed`. */
 export const ApproveRequest = z.strictObject({ version: versionNumber("version") });

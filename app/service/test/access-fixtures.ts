@@ -12,7 +12,7 @@ import { expect } from "vitest";
 import { openAccess, type Access } from "../src/items/access.ts";
 import { AccessError, type ItemInput } from "../src/items/refusals.ts";
 import { logToStderr, type Log } from "../src/log.ts";
-import type { ItemProposalRecord, ProposalResult } from "../src/proposals/item-proposals.ts";
+import type { ItemProposalDetail, ItemProposalRecord, ProposalResult } from "../src/proposals/item-proposals.ts";
 import { createProposals, type Proposals } from "../src/proposals/proposals.ts";
 import { openItems, writeRoot, type Opened } from "./items-fixtures.ts";
 
@@ -166,15 +166,15 @@ export type TestAccess = Access & {
   proposeCreate(agentId: string, structureId: string, input: ItemInput, reason: string): Promise<ProposalResult>;
   proposeUpdate(agentId: string, handle: string, fields: Record<string, unknown>, version: string, reason: string): Promise<ProposalResult>;
   proposeDelete(agentId: string, handle: string, version: string, reason: string): Promise<ProposalResult>;
-  /** The item proposals, or those with `status`. */
-  proposals(status?: ProposalStatus): Promise<ItemProposalRecord[]>;
+  /** The item proposals, or those with `status`, each read with its current version's fields. */
+  proposals(status?: ProposalStatus): Promise<ItemProposalDetail[]>;
   approve(id: string, version: number): Promise<ItemProposalRecord>;
   reject(id: string, reason?: string): Promise<ItemProposalRecord>;
 };
 
-const itemOnly = (proposal: { target: string }): ItemProposalRecord => {
+const itemOnly = <T extends ItemProposalRecord = ItemProposalRecord>(proposal: { target: string }): T => {
   expect(proposal.target, "an item proposal").toBe("item");
-  return proposal as ItemProposalRecord;
+  return proposal as T;
 };
 
 /** Access on `opened`'s catalog, writer and store, with the proposals over it (the items root as the workspace). */
@@ -183,7 +183,7 @@ export const withProposals = (
   { onProposal = () => undefined, log = logToStderr }: { onProposal?: (id: string, seq: number) => void; log?: Log } = {},
 ): { access: TestAccess; proposals: Proposals } => {
   const access = openAccess({ catalog, writer, store });
-  const proposals = createProposals({ store, workspace: root, agentFolder: () => root, onProposal, log, items: access });
+  const proposals = createProposals({ store, workspace: root, agentFolder: () => root, onProposal, log, items: access, holds: (path) => catalog.holds(path) });
   return {
     proposals,
     access: {
@@ -191,7 +191,12 @@ export const withProposals = (
       proposeCreate: (agentId, structure, input, reason) => proposals.proposeItem(agentId, { kind: "create", structure, input }, reason),
       proposeUpdate: (agentId, handle, fields, version, reason) => proposals.proposeItem(agentId, { kind: "update", handle, fields, version }, reason),
       proposeDelete: (agentId, handle, version, reason) => proposals.proposeItem(agentId, { kind: "delete", handle, version }, reason),
-      proposals: async (status) => (await proposals.list(status)).filter((proposal) => proposal.target === "item").map(itemOnly),
+      proposals: async (status) =>
+        Promise.all(
+          (await proposals.list(status))
+            .filter((proposal) => proposal.target === "item")
+            .map(async (proposal) => itemOnly<ItemProposalDetail>(await proposals.get(proposal.id))),
+        ),
       approve: async (id, version) => itemOnly(await proposals.approve(id, version)),
       reject: async (id, reason) => itemOnly(await proposals.reject(id, reason)),
     },

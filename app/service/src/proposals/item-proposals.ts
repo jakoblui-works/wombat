@@ -17,17 +17,19 @@ import type { Catalog, LoadedItem, LoadedStructure, Snapshot, ValidStructure } f
 import { checkHasId, checkLevel, checkLocks, lockedNames, newItem, type Family, type ItemInput } from "../items/refusals.ts";
 import { SETTINGS_FILE } from "../items/structures.ts";
 import { ItemWriteError, presentValues, type Writer } from "../items/write.ts";
-import type { NewProposal, ProposalContent, Store, StoredProposal } from "../store/store.ts";
-import type { Applied, ApplyTarget, Written } from "./apply.ts";
+import { fieldsOf } from "../store/proposals.ts";
+import type { NewProposal, ProposalVersionHead, Store, StoredProposal } from "../store/store.ts";
+import { askAgain, BY_HAND, conflict, NOTHING_WRITTEN, type Applied, type ApplyTarget, type Written } from "./apply.ts";
 import { failureOutcome } from "./file-target.ts";
 import { commonFields } from "./proposal-fields.ts";
 
 export type ProposalResult = { proposed: string };
 
-/** An item proposal as sent, with what its current version proposes, for the service's own callers. */
-export type ItemProposalRecord = ItemProposal & { fields: Record<string, unknown>; baseVersion: string | null };
+/** An item proposal as sent, with its base version, for the service's own callers; no version's content. */
+export type ItemProposalRecord = ItemProposal & { baseVersion: string | null };
 
-export type ItemProposalDetail = ItemProposalRecord & { current: Item | null; versions: ProposalVersion[] };
+/** `fields`: what the version read proposes. */
+export type ItemProposalDetail = ItemProposalRecord & { fields: Record<string, unknown>; current: Item | null; versions: ProposalVersion[] };
 
 export type StoredItemProposal = Extract<StoredProposal, { target: "item" }>;
 
@@ -45,8 +47,8 @@ export type ItemProposals = {
   checkItemProposal(agentId: string, change: ProposedItemChange, reason: string): Promise<CheckedItemProposal>;
   /** For people (HTTP): the stored item proposals as sent, each with its item's handle now, or the one it had. */
   itemProposalsOf(stored: readonly StoredItemProposal[]): Promise<ItemProposalRecord[]>;
-  /** As `itemProposalsOf`, with its item as it is now (null when gone), version `n`'s fields and every version. */
-  itemProposalDetail(stored: StoredItemProposal, n: number): Promise<ItemProposalDetail>;
+  /** As `itemProposalsOf`, with its item as it is now (null when gone), the version read's `fields` and every version's head. */
+  itemProposalDetail(stored: StoredItemProposal, fields: Record<string, unknown>, heads: readonly ProposalVersionHead[]): Promise<ItemProposalDetail>;
   /** What an approve writes an item proposal through. */
   itemTarget: ApplyTarget;
 };
@@ -83,26 +85,32 @@ const itemOnly = (stored: StoredProposal): StoredItemProposal => {
   return stored;
 };
 
-const fieldsOf = (id: string, content: ProposalContent) => {
-  if (!("fields" in content)) throw new Error(`Proposal ${id}'s version holds no item fields; it can't be read.`);
-  return content.fields;
-};
-
 const itemById = (items: readonly LoadedItem[], id: string | null | undefined) => (id == null ? undefined : items.find((item) => item.id === id));
+
+/** A stored item proposal as sent: its item's handle among `items` now, else the one the applying commit stored. */
+export const itemProposalOf = (stored: StoredItemProposal, heads: readonly ProposalVersionHead[], items: readonly LoadedItem[] = []): ItemProposalRecord => ({
+  ...commonFields(stored, heads),
+  target: "item",
+  structure: stored.structure,
+  kind: stored.kind,
+  handle: itemById(items, stored.itemId)?.handle ?? stored.itemHandle ?? null,
+  file: stored.file,
+  baseVersion: stored.baseVersion,
+});
 
 /**
  * Whether the write `intent` describes is what the items hold now: the created item exists, the update's version is
- * there, the deleted item's file is gone. Throws when a create's structure wasn't read whole: an item missing from
- * it may still have been made, and settling it pending would let a second approve make another.
+ * there, the deleted item's file is gone and no item has its id. Throws when the structure wasn't read whole: an item
+ * missing from it may still be there or have been made, and settling it pending would let a second approve write again.
  */
 export const itemWritten = (stored: StoredItemProposal, now: ItemsNow): Written | undefined => {
   const intent = (stored.intent ?? {}) as ItemIntent;
+  if (!now.structureRead) throw new Error(`Proposal ${stored.id}'s structure can't be read whole, so whether its ${stored.kind} was written can't be told.`);
   if (stored.kind === "create") {
-    if (!now.structureRead) throw new Error(`Proposal ${stored.id}'s structure can't be read whole, so whether its item was made can't be told.`);
     const made = itemById(now.items, intent.itemId);
     return made?.id == null ? undefined : { written: true, itemId: made.id, ...(made.handle === null ? {} : { itemHandle: made.handle }) };
   }
-  if (stored.kind === "delete") return intent.path != null && now.fileMissing ? { written: true } : undefined;
+  if (stored.kind === "delete") return intent.path != null && now.fileMissing && itemById(now.items, stored.itemId) === undefined ? { written: true } : undefined;
   const item = itemById(now.items, stored.itemId);
   return item !== undefined && intent.version != null && item.version === intent.version ? { written: true } : undefined;
 };
@@ -118,20 +126,18 @@ const missing = async (path: string) => {
   }
 };
 
-const conflict = (message: string, field?: string): Applied => ({ problem: { ...(field === undefined ? {} : { field }), message } });
+const ASK_AGAIN = askAgain("item");
 
-const ITEM_GONE = conflict("The item was deleted, or its id changed by hand, since the agent read it, so nothing was applied. Reject the proposal, or ask the agent to read the item again.");
+const ITEM_GONE = conflict(`The item was deleted, or its id changed by hand, since the agent read it, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
 
-const ITEM_CHANGED = conflict(
-  "The item changed (edited, renamed or deleted) since the agent read it, so nothing was applied. Reject the proposal, or ask the agent to read the item again and propose anew.",
-);
+const ITEM_CHANGED = conflict(`The item changed (edited, renamed or deleted) since the agent read it, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
 
 /** What a failed item write settles to: a conflict for what changed, a retry for a target the user can fix; undefined for the unexpected. */
 const writeFailure = (error: unknown, stored: StoredItemProposal): Applied | undefined => {
   if (!(error instanceof ItemWriteError)) return failureOutcome(error, stored.kind === "create" ? "create" : "edit", "write");
   if (error.code === ItemWriteErrorCode.enum.stale_version || error.code === ItemWriteErrorCode.enum.item_not_found) return ITEM_CHANGED;
   if (error.code === ItemWriteErrorCode.enum.items_not_writable) {
-    return conflict(`${error.message} Nothing was applied: keep the items root on a local filesystem and ask the agent to propose again, or reject the proposal.`);
+    return conflict(`${error.message} Nothing was written: keep the items root on a local filesystem and ask the agent to propose again, or reject the proposal.`);
   }
   const [only] = error.problems;
   return conflict(error.message, error.problems.length === 1 ? only?.field : undefined);
@@ -206,28 +212,6 @@ export const openItemProposals = ({
     };
   };
 
-  const currentVersion = (id: string) => {
-    const versions = store.listVersions(id);
-    const latest = versions.at(-1);
-    if (latest === undefined) throw new Error(`Proposal ${id} has no version stored; it can't be read.`);
-    return { fields: fieldsOf(id, latest.content), versions };
-  };
-
-  /** A stored proposal with its item's handle now, or the one the applying commit stored (people see hidden structures too). */
-  const proposalOf = (stored: StoredItemProposal, items: readonly LoadedItem[]): ItemProposalRecord => {
-    const { fields, versions } = currentVersion(stored.id);
-    return {
-      ...commonFields(stored, versions),
-      target: "item",
-      structure: stored.structure,
-      kind: stored.kind,
-      handle: itemById(items, stored.itemId)?.handle ?? stored.itemHandle ?? null,
-      file: stored.file,
-      fields,
-      baseVersion: stored.baseVersion,
-    };
-  };
-
   /** Applies a proposal, or says why it can't be: what changed since the agent read the item. */
   const write = async (stored: StoredItemProposal, fields: Record<string, unknown>): Promise<Applied> => {
     const snapshot = await catalog.snapshot();
@@ -235,14 +219,14 @@ export const openItemProposals = ({
     const structure = current.structures.get(stored.structure);
     const access = current.hiddenStructures.has(stored.structure) ? "hidden" : structure?.settings.access;
     if (access === "hidden" || access === "read") {
-      return conflict(`${stored.structure} is now ${access}, so agents' changes no longer apply to it and nothing was applied. Make the change by hand if you still want it.`, "access");
+      return conflict(`${stored.structure} is now ${access}: agents' changes no longer apply to it, ${NOTHING_WRITTEN}. ${BY_HAND}`, "access");
     }
     if (structure === undefined) {
-      return conflict(`The structure ${stored.structure} is gone, or its ${SETTINGS_FILE} is broken, so nothing was applied. Fix its settings and ask the agent again, or reject the proposal.`);
+      return conflict(`The structure ${stored.structure} is gone, or its ${SETTINGS_FILE} is broken, ${NOTHING_WRITTEN}. Fix its settings and ask the agent again, or reject the proposal.`);
     }
     const locked = lockedNames(structure, stored.kind, Object.keys(fields));
     if (locked.length > 0) {
-      return conflict(`${locked.join(", ")} became locked in ${stored.structure}, so nothing was applied. Make the change by hand if you still want it.`, locked[0]);
+      return conflict(`${locked.join(", ")} became locked in ${stored.structure}, ${NOTHING_WRITTEN}. ${BY_HAND}`, locked[0]);
     }
 
     try {
@@ -255,7 +239,7 @@ export const openItemProposals = ({
       }
       const item = itemById(snapshot.items, stored.itemId);
       if (item?.handle == null || (stored.kind === "delete" && ((stored.intent ?? {}) as ItemIntent).path == null)) return ITEM_GONE;
-      if (item.structure !== stored.structure) return conflict(`The item moved to ${item.structure} since the agent read it, so nothing was applied. Reject the proposal, or ask the agent again.`);
+      if (item.structure !== stored.structure) return conflict(`The item moved to ${item.structure} since the agent read it, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
       const baseVersion = stored.baseVersion ?? "";
       if (stored.kind === "update") await writer.updateItem(item.handle, fields, baseVersion);
       else await writer.deleteItem(item.handle, baseVersion);
@@ -292,25 +276,23 @@ export const openItemProposals = ({
     itemProposalsOf: async (stored) => {
       if (stored.length === 0) return [];
       const { items } = await catalog.snapshot();
-      return stored.map((proposal) => proposalOf(proposal, items));
+      return stored.map((proposal) => itemProposalOf(proposal, store.listVersionHeads(proposal.id), items));
     },
 
-    itemProposalDetail: async (stored, n) => {
+    itemProposalDetail: async (stored, fields, heads) => {
       const { structures, items } = await catalog.snapshot();
-      const chosen = store.listVersions(stored.id).find((version) => version.n === n)?.content;
-      if (chosen === undefined) throw new Error(`Proposal ${stored.id} has no version ${String(n)} stored; it can't be read.`);
       const item = itemById(items, stored.itemId);
       return {
-        ...proposalOf(stored, items),
-        fields: fieldsOf(stored.id, chosen),
+        ...itemProposalOf(stored, heads, items),
+        fields,
         current: item === undefined ? null : withLinks(item, structures, handlesById(items)),
-        versions: store.listVersionHeads(stored.id),
+        versions: [...heads],
       };
     },
 
     itemTarget: {
-      intentOf: (stored, content) => intentOf(itemOnly(stored), fieldsOf(stored.id, content)),
-      write: (stored, content) => write(itemOnly(stored), fieldsOf(stored.id, content)),
+      intentOf: (stored, content) => intentOf(itemOnly(stored), fieldsOf(content)),
+      write: (stored, content) => write(itemOnly(stored), fieldsOf(content)),
       written: async (stored) => {
         const item = itemOnly(stored);
         const { structures, items } = await catalog.snapshot();

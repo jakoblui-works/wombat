@@ -12,6 +12,9 @@ import { errorCode, isMissing } from "@wombat/shared/errno";
 /** sha256 (hex) of a file's bytes: an item's version. */
 export const versionOf = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
+/** versionOf the text's UTF-8 bytes: the version a file holding exactly `text` has. */
+export const versionOfText = (text: string) => versionOf(Buffer.from(text, "utf8"));
+
 export type VersionedFile = { bytes: Buffer; text: string; version: string };
 
 /** The file's bytes, text and version; undefined when it doesn't exist (any other read error throws). */

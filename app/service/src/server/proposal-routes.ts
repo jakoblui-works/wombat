@@ -6,29 +6,17 @@ import {
   ListProposalsResponse as ListProposalsSchema,
   Proposal as ProposalSchema,
   ProposalDetail as ProposalDetailSchema,
+  ProposalDetailQuery,
   RejectRequest,
   type ListProposalsResponse,
   type Proposal,
   type ProposalDetail,
 } from "@wombat/shared/proposals";
 import type { Context, Hono } from "hono";
-import { z } from "zod";
 
 import type { Proposals } from "../proposals/proposals.ts";
 import { errorResponse, SERVER_STATUS } from "./errors.ts";
 import { checked, readBody, readQuery } from "./request.ts";
-
-/** `GET /proposals/:id?version=n`: one version's content instead of the current version's. */
-const DetailQuery = z.strictObject(
-  {
-    version: z
-      .string()
-      .regex(/^[1-9][0-9]*$/, { error: "version must be a whole number of 1 or more: one of the proposal's versions" })
-      .transform(Number)
-      .exactOptional(),
-  },
-  { error: (issue) => (issue.code === "unrecognized_keys" ? "unknown query parameter; send only version" : undefined) },
-);
 
 export const proposalRoutes = (app: Hono, proposals: Proposals) => {
   app.get("/proposals", async (c) => {
@@ -37,7 +25,7 @@ export const proposalRoutes = (app: Hono, proposals: Proposals) => {
   });
 
   app.get("/proposals/:id", async (c) => {
-    const { version } = readQuery(c, DetailQuery);
+    const { version } = readQuery(c, ProposalDetailQuery);
     return c.json(checked(ProposalDetailSchema, await proposals.get(c.req.param("id"), version)) satisfies ProposalDetail);
   });
 

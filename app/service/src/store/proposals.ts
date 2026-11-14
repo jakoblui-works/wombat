@@ -4,13 +4,27 @@ import type { DatabaseSync } from "node:sqlite";
 import type { Problem } from "@wombat/shared/items";
 import { canRevise, INITIAL_STATUS, nextStatus, type FileProposalKind, type ItemProposalKind, type ProposalEvent, type ProposalStatus } from "@wombat/shared/proposals";
 
-import { APPLYING, COUNTED_OPEN, draftSlot, isOutcome, OUTCOMES, settleEvent, type VersionAuthor } from "./proposal-rules.ts";
+import { APPLYING, COUNTED_OPEN, currentVersion, draftSlot, isOutcome, OUTCOMES, settleEvent, type VersionAuthor } from "./proposal-rules.ts";
 import { asNullableString, asNumber, asString, type DistributiveOmit } from "./values.ts";
 
 export type FileEdit = { oldText: string; newText: string };
 
 /** What one version proposes: a file's whole text (with the edits it came from, if any), or an item's fields. */
 export type ProposalContent = { text: string; edits?: FileEdit[] } | { fields: Record<string, unknown> };
+
+export type TextContent = Extract<ProposalContent, { text: string }>;
+
+/** A file proposal's version content; throws for an item's (a caller bug). */
+export const textOf = (content: ProposalContent): TextContent => {
+  if (!("text" in content)) throw new Error("A file proposal's version must hold text, not an item's fields.");
+  return content;
+};
+
+/** An item proposal's version fields; throws for a file's text (a caller bug). */
+export const fieldsOf = (content: ProposalContent): Record<string, unknown> => {
+  if (!("fields" in content)) throw new Error("An item proposal's version must hold fields, not a file's text.");
+  return content.fields;
+};
 
 export type ProposalVersionRecord = { n: number; by: VersionAuthor; content: ProposalContent; reason: string; at: string };
 
@@ -95,10 +109,9 @@ export type ProposalStore = {
 
 type Transaction = <T>(fn: () => T) => T;
 
-const contentFits = (target: StoredProposal["target"], content: ProposalContent) => (target === "file" ? "text" in content : "fields" in content);
-
 const checkFits = (target: StoredProposal["target"], content: ProposalContent) => {
-  if (!contentFits(target, content)) throw new Error(`${target === "file" ? "A file" : "An item"} proposal's version must hold ${target === "file" ? "text" : "fields"}.`);
+  if (target === "file") textOf(content);
+  else fieldsOf(content);
 };
 
 const proposalOf = (row: Record<string, unknown>): StoredProposal => {
@@ -170,6 +183,8 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     reason: asString(row.reason),
     at: asString(row.at),
   });
+
+  const listVersionHeads = (id: string): ProposalVersionHead[] => statements.versionHeads.all(id).map(headOf);
 
   const listVersions = (id: string): ProposalVersionRecord[] =>
     statements.versions.all(id).map((row) => ({ ...headOf(row), content: JSON.parse(asString(row.content)) as ProposalContent }));
@@ -259,7 +274,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
   const clearDraft = (id: string) =>
     transaction(() => {
       const stored = getProposal(id);
-      const current = listVersions(id).at(-1);
+      const current = currentVersion(listVersionHeads(id));
       if (stored === undefined || !canRevise(stored.status) || current?.by !== "me") return undefined;
       statements.deleteVersion.run(id, current.n);
       return changed(id);
@@ -268,7 +283,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
   const beginApplying = (id: string, version: number, intent: unknown, itemHandle: string | null = null) => {
     const intentText = JSON.stringify(intent);
     const columns = () => ({ problem: null, rejectReason: null, intent: intentText, itemId: null, itemHandle });
-    return moving(id, () => listVersions(id).at(-1)?.n === version, "approve", columns);
+    return moving(id, () => currentVersion(listVersionHeads(id))?.n === version, "approve", columns);
   };
 
   const settle = (id: string, outcome: ApplyOutcome) =>
@@ -323,7 +338,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     listProposals,
     getProposal,
     listVersions,
-    listVersionHeads: (id) => statements.versionHeads.all(id).map(headOf),
+    listVersionHeads,
     countOpen: (agentId) => asNumber(statements.countIn.get(agentId, JSON.stringify(COUNTED_OPEN))?.n),
     listApplying: () => statements.listIn.all(JSON.stringify(APPLYING)).map(proposalOf),
     undeliveredOutcomes: (agentId) => statements.undelivered.all(agentId, JSON.stringify(OUTCOMES)).map(proposalOf),

@@ -1,6 +1,7 @@
 import { ItemsErrorCode } from "@wombat/shared/api";
 import { canDecide, canReject, nextStatus, ProposalErrorCode } from "@wombat/shared/proposals";
 
+import { currentVersion } from "../store/proposal-rules.ts";
 import type { Store, StoredProposal } from "../store/store.ts";
 
 /** A propose call refused for a reason the agent can act on, which the message states; nothing was stored. */
@@ -53,7 +54,7 @@ export const toApprove = (store: Reads, id: string, version: number): StoredProp
   const stored = store.getProposal(id);
   if (stored === undefined) throw notFound(id);
   if (!canDecide(stored.status)) throw notApprovable(stored);
-  const current = store.listVersionHeads(id).at(-1)?.n;
+  const current = currentVersion(store.listVersionHeads(id))?.n;
   if (current !== version) {
     throw new ProposalError(
       ProposalErrorCode.enum.proposal_changed,
