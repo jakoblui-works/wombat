@@ -39,13 +39,17 @@ const readProposals = () => call("GET", "/proposals", ListProposalsResponse);
 /** A proposal's route: its detail, and the prefix of its commands. */
 export const proposalPath = (proposalId: string): string => `/proposals/${encodeURIComponent(proposalId)}`;
 
-const readProposal = (proposalId: string) => () => call("GET", proposalPath(proposalId), ProposalDetail);
+const readProposal = (proposalId: string, version?: number) => () =>
+  call("GET", version === undefined ? proposalPath(proposalId) : `${proposalPath(proposalId)}?version=${String(version)}`, ProposalDetail);
 
 export const agentsQuery = () => queryOptions({ queryKey: keys.agents, queryFn: readAgents });
 export const harnessesQuery = () => queryOptions({ queryKey: keys.harnesses, queryFn: readHarnesses });
 export const reposQuery = () => queryOptions({ queryKey: keys.repos, queryFn: readRepos });
 export const proposalsQuery = () => queryOptions({ queryKey: keys.proposals, queryFn: readProposals });
 export const proposalQuery = (proposalId: string) => queryOptions({ queryKey: keys.proposal(proposalId), queryFn: readProposal(proposalId) });
+/** One version of a proposal (`?version=`); its `current` is the target as it was at the read. */
+export const proposalVersionQuery = (proposalId: string, version: number) =>
+  queryOptions({ queryKey: keys.proposalVersion(proposalId, version), queryFn: readProposal(proposalId, version) });
 
 /** Entries asked for per log read. */
 export const LOG_PAGE_LIMIT = 500;

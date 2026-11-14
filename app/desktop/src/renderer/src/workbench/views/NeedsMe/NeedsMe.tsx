@@ -52,11 +52,13 @@ const ProposalRowView = ({ row, onOpen }: { row: ProposalRow; onOpen: () => void
       <button type="button" onClick={onOpen} className="focus-ring flex w-full min-w-0 flex-col gap-1 rounded-sm text-left">
         <span className="flex w-full min-w-0 items-center gap-2">
           <PathText path={row.label} className="flex-1 text-sm font-medium text-fg-primary" />
+          {row.kind === undefined ? null : <span className="shrink-0 text-xs text-fg-tertiary">{row.kind}</span>}
           <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{row.ago}</span>
         </span>
         <span className="flex w-full min-w-0 items-center gap-1.5 text-sm text-fg-secondary">
           <span className="min-w-0 truncate">{row.agentTitle}</span>
           {row.outsideWorkspace ? <OutsideWorkspace /> : null}
+          {row.edited ? <span className="shrink-0 text-xs text-fg-tertiary">edited</span> : null}
           {shows.mark === undefined ? null : <span className="shrink-0 text-xs text-fg-tertiary">{shows.mark}</span>}
         </span>
       </button>

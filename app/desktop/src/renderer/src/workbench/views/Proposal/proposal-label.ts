@@ -20,3 +20,9 @@ export const proposalAgentTitle = (proposal: Pick<Proposal, "agentId">, agents: 
 
 /** Whether the proposal changes a file outside the workspace (an item never is). */
 export const isOutsideWorkspace = (proposal: Proposal): boolean => proposal.target === "file" && proposal.outsideWorkspace;
+
+/** The word beside a proposal's label for what it does: a new file, a new item or a delete; undefined for an edit or update. */
+export const proposalKindWord = (proposal: Pick<Proposal, "target" | "kind">): "new file" | "new item" | "delete" | undefined => {
+  if (proposal.kind === "create") return proposal.target === "file" ? "new file" : "new item";
+  return proposal.kind === "delete" ? "delete" : undefined;
+};

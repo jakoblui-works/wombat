@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { ConnectionState } from "../../../shared/bridge.ts";
-import { agentLogQuery, agentsQuery, harnessesQuery, proposalQuery, proposalsQuery, reposQuery } from "./query-client.ts";
+import { agentLogQuery, agentsQuery, harnessesQuery, proposalQuery, proposalsQuery, proposalVersionQuery, reposQuery } from "./query-client.ts";
 
 export const useAgents = () => useQuery(agentsQuery());
 
@@ -14,8 +14,12 @@ export const useRepos = () => useQuery({ ...reposQuery(), refetchOnMount: "alway
 
 export const useProposals = () => useQuery(proposalsQuery());
 
-/** One proposal with its versions and content; read again by an alert for this proposal and after a reconnect. */
-export const useProposal = (proposalId: string) => useQuery(proposalQuery(proposalId));
+/**
+ * One proposal with its versions and the current version's content, read again by an alert for this proposal and
+ * after a reconnect; with `version`, that version's content instead, read once.
+ */
+export const useProposal = (proposalId: string, version?: number) =>
+  useQuery(version === undefined ? proposalQuery(proposalId) : proposalVersionQuery(proposalId, version));
 
 export const useAgentLog = (agentId: string) => useQuery(agentLogQuery(useQueryClient(), agentId));
 
