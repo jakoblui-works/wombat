@@ -289,14 +289,8 @@ const write = async ({ proposal, content, holds }: FileWrite): Promise<Applied> 
   if ("problem" in checked) return textConflict(checked.problem, "The proposed text");
   if (kind === "create") {
     if ((await at(kind, "read", () => readText(path))) !== undefined) return EXISTS;
-    try {
-      // Linked into place: fails with EEXIST rather than replace a file made meanwhile.
-      await at(kind, "write", () => writeAtomic(path, checked.text, { create: true }));
-    } catch (error) {
-      // Removing the temp file can fail after the link landed: the file then holds exactly the proposed text.
-      if (await written(path, versionOf(Buffer.from(checked.text, "utf8")))) return { written: true };
-      throw error;
-    }
+    // Linked into place: fails with EEXIST rather than replace a file made meanwhile.
+    await at(kind, "write", () => writeAtomic(path, checked.text, { create: true }));
     return { written: true };
   }
   let now = await at(kind, "read", () => readText(path));

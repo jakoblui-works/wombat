@@ -55,6 +55,8 @@ export const findByHandle = (items: readonly LoadedItem[], handle: string): Load
   items.find((item) => item.handle === handle) ?? items.find((item) => item.aliases.includes(handle));
 
 export type Catalog = {
+  /** The items root, as given. */
+  root: string;
   /** The structures and their items, invalid ones included, from one read. */
   snapshot(): Promise<Snapshot>;
   /** Whether a file at `path` (absolute, symlinks resolved) is or would be one of the catalog's: `isCatalogFile`. */
@@ -460,5 +462,5 @@ export const openCatalog = ({ root, store, log }: CatalogOptions): Catalog => {
       });
     }
   };
-  return { snapshot, holds: (path) => isCatalogFile(root, path) };
+  return { root, snapshot, holds: (path) => isCatalogFile(root, path) };
 };

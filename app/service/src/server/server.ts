@@ -126,14 +126,14 @@ export const startServer = async ({
   };
   // Proposal changes reach the alert stream through the manager's listeners, like agent changes.
   const onProposal = (id: string, seq: number) => manager.proposalCommitted(id, seq);
-  const access = items && writer ? openAccess({ catalog: items, writer, store, onProposal, log }) : undefined;
+  const access = items && writer ? openAccess({ catalog: items, writer, store }) : undefined;
   const proposals = createProposals({
     store,
     workspace: workspaceRoot,
     agentFolder: (agentId) => folderOf(workspaceRoot, requireAgent(agentId, (id) => store.listAgents().find((agent) => agent.id === id)).repo),
     onProposal,
     log,
-    itemProposals: access,
+    items: access,
     holds: items && ((path) => items.holds(path)),
     onApproveStep,
   });

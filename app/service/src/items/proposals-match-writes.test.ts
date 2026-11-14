@@ -5,9 +5,8 @@
 // conflict at approval. Messages aren't compared: proposals refuse in the writer's words.
 import { describe, expect, test } from "vitest";
 
-import type { Access } from "./access.ts";
 import { AccessError } from "./refusals.ts";
-import { AGENT, openAccessRoot } from "../../test/access-fixtures.ts";
+import { AGENT, openAccessRoot, type TestAccess } from "../../test/access-fixtures.ts";
 
 /** The twins of each kind: `edit` is written directly, `propose` takes proposals; ids, prefixes and folders differ. */
 const TWINS = {
@@ -100,11 +99,11 @@ const outcome = async (call: () => Promise<unknown>) => {
 };
 
 /** The change as the given twin's family makes it. */
-const run = async (access: Access, level: Level, change: Change) => {
+const run = async (access: TestAccess, level: Level, change: Change) => {
   const { prefix } = TWINS.named[level];
   if (change.kind === "create") {
     const { id } = TWINS[change.twin][level];
-    const input = change.input as Parameters<Access["create"]>[2];
+    const input = change.input as Parameters<TestAccess["create"]>[2];
     return outcome(() => (level === "edit" ? access.create(AGENT, id, input) : access.proposeCreate(AGENT, id, input, "Asked for in review.")));
   }
   const handle = `${prefix}-${String(change.item)}`;

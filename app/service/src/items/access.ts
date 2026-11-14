@@ -7,7 +7,6 @@
 import { ItemWriteErrorCode } from "@wombat/shared/api";
 import type { Problem } from "@wombat/shared/items";
 
-import { logToStderr, type Log } from "../log.ts";
 import { openItemProposals, type ItemProposals } from "../proposals/item-proposals.ts";
 import type { Store } from "../store/store.ts";
 import { findByHandle, isClash, linkOfField, unknownTargetMessage, type Catalog, type LoadedItem, type NamedProblem, type Snapshot, type ValidStructure } from "./catalog.ts";
@@ -45,14 +44,8 @@ type AgentItems = {
 
 export type Access = AgentItems & ItemProposals;
 
-export type AccessOptions = {
-  catalog: Catalog;
-  writer: Writer;
-  store: Store;
-  /** Called after every proposal write (stored or decided) is committed, with the seq it took. */
-  onProposal: (id: string, seq: number) => void;
-  log?: Log;
-};
+/** `store` is read for the item proposals' versions; proposals are stored and decided by createProposals. */
+export type AccessOptions = { catalog: Catalog; writer: Writer; store: Store };
 
 /** At most this many search hits; `truncated` says there were more. */
 export const SEARCH_LIMIT = 50;
@@ -329,7 +322,7 @@ const matches = (structure: ValidStructure, item: LoadedItem, query: string) => 
   return texts.some((text) => text?.toLowerCase().includes(query));
 };
 
-export const openAccess = ({ catalog, writer, store, onProposal, log = logToStderr }: AccessOptions): Access => {
+export const openAccess = ({ catalog, writer, store }: AccessOptions): Access => {
   const view = async () => viewOf(await catalog.snapshot());
 
   /**
@@ -436,6 +429,6 @@ export const openAccess = ({ catalog, writer, store, onProposal, log = logToStde
 
   return {
     ...agent,
-    ...openItemProposals({ catalog, writer, store, onProposal, log, viewOf, structureFor, itemFor, checkStructure, linksToIds, checkNewFile, agentWriteError }),
+    ...openItemProposals({ catalog, writer, store, viewOf, structureFor, itemFor, checkStructure, linksToIds, checkNewFile, agentWriteError }),
   };
 };

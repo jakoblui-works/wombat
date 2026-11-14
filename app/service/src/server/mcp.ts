@@ -1,6 +1,6 @@
 // `/mcp`: the tools for agents, over MCP's streamable HTTP (stateless, JSON answers). Only an agent's own token
-// opens it. Every item call goes through Access as that agent, so access levels, locks and hidden structures hold
-// exactly as Access decides them; propose_change goes through the proposals as that agent. Answers and refusals
+// opens it. Every item call is checked by Access as that agent, so access levels, locks and hidden structures hold
+// exactly as Access decides them; every propose tool stores through the proposals, under one cap. Answers and refusals
 // are tool results; nothing here names a structure id, so the tool list carries nothing of a hidden one.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -25,7 +25,7 @@ export type McpOptions = {
   /** Without it (no items configured) every item tool answers that the items aren't set up. */
   access: Access | undefined;
   /** Works with or without items. */
-  proposals: Pick<Proposals, "proposeFile">;
+  proposals: Pick<Proposals, "proposeFile" | "proposeItem">;
   /** The agent a bearer token belongs to, while it runs: the manager's live token map. */
   agentForToken: (token: string) => string | undefined;
   port: () => number;
@@ -237,10 +237,8 @@ const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "pro
         "Proposes a new item in a structure open to proposals; the user approves or rejects it. Answers the proposal's id.",
       inputSchema: z.object({ ...createShape, reason }),
     },
-    run(
-      TOOL.proposeCreate,
-      (a, { structure: id, reason: why, ...input }: CreateArgs & { structure: string; reason: string }) =>
-        a.proposeCreate(agentId, id, itemInput(input), why),
+    run(TOOL.proposeCreate, (_a, { structure: id, reason: why, ...input }: CreateArgs & { structure: string; reason: string }) =>
+      proposals.proposeItem(agentId, { kind: "create", structure: id, input: itemInput(input) }, why),
     ),
   );
   server.registerTool(
@@ -251,10 +249,8 @@ const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "pro
         "Answers the proposal's id.",
       inputSchema: z.object({ handle, fields, version, reason }),
     },
-    run(
-      TOOL.proposeUpdate,
-      (a, args: { handle: string; fields: Record<string, unknown>; version: string; reason: string }) =>
-        a.proposeUpdate(agentId, args.handle, args.fields, args.version, args.reason),
+    run(TOOL.proposeUpdate, (_a, args: { handle: string; fields: Record<string, unknown>; version: string; reason: string }) =>
+      proposals.proposeItem(agentId, { kind: "update", handle: args.handle, fields: args.fields, version: args.version }, args.reason),
     ),
   );
   server.registerTool(
@@ -264,8 +260,8 @@ const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "pro
         "Proposes deleting an item in a structure open to proposals; the user approves or rejects it. Answers the proposal's id.",
       inputSchema: z.object({ handle, version, reason }),
     },
-    run(TOOL.proposeDelete, (a, args: { handle: string; version: string; reason: string }) =>
-      a.proposeDelete(agentId, args.handle, args.version, args.reason),
+    run(TOOL.proposeDelete, (_a, args: { handle: string; version: string; reason: string }) =>
+      proposals.proposeItem(agentId, { kind: "delete", handle: args.handle, version: args.version }, args.reason),
     ),
   );
   server.registerTool(

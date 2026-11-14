@@ -1,5 +1,5 @@
 import { ItemsErrorCode } from "@wombat/shared/api";
-import { canDecide, canReject, ProposalErrorCode } from "@wombat/shared/proposals";
+import { canDecide, canReject, nextStatus, ProposalErrorCode } from "@wombat/shared/proposals";
 
 import type { Store, StoredProposal } from "../store/store.ts";
 
@@ -36,7 +36,10 @@ export const notFound = (id: string) =>
 const notPending = (stored: StoredProposal, allowed: string) =>
   new ProposalError(
     ProposalErrorCode.enum.proposal_not_pending,
-    `Proposal ${stored.id} is ${stored.status}; ${allowed}. Refresh the proposals to see its state.`,
+    nextStatus(stored.status, "applied") === undefined
+      ? `Proposal ${stored.id} is ${stored.status}; ${allowed}. Refresh the proposals to see its state.`
+      : `Proposal ${stored.id} is being applied: the service is writing it now, or couldn't tell at its start whether its write landed. ` +
+          "Refresh the proposals in a moment; if it stays this way, make the items root or the file's folder readable for the service and restart the service.",
   );
 
 export const notApprovable = (stored: StoredProposal) => notPending(stored, "only a pending proposal can be approved");

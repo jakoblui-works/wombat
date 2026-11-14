@@ -45,7 +45,8 @@ export type NewItem = {
 };
 
 export type Writer = {
-  createItem(structureId: string, item: NewItem): Promise<LoadedItem>;
+  /** `id` is the new item's id when the caller chose it beforehand (an approve's intent); a fresh one otherwise. */
+  createItem(structureId: string, item: NewItem, id?: string): Promise<LoadedItem>;
   /** One or more fields, title and body included; refused when the file changed since `baseVersion`. */
   updateItem(handle: string, fields: Record<string, unknown>, baseVersion: string): Promise<LoadedItem>;
   /** The handle's number stays taken: the store's counter never goes back. */
@@ -60,9 +61,9 @@ export type Writer = {
    * root's write queue. Resolves when the write would go through as of now, and throws the ItemWriteError the
    * write would throw otherwise. It writes nothing (no file, no temp file) and takes no handle number. A create's
    * `unseen` folders read as missing, as in `checkNewFile`. A write made later still checks everything again: a
-   * file can change in between.
+   * file can change in between. An update's check resolves with the version its file would have after the write.
    */
-  check(change: ItemChange): Promise<void>;
+  check(change: ItemChange): Promise<string | undefined>;
 };
 
 /** A change as `check` takes it: the arguments of createItem, updateItem or deleteItem. */
@@ -378,11 +379,10 @@ const checkUpdate = async (root: string, handle: string, fields: Record<string, 
 const checkDelete = async (root: string, handle: string, baseVersion: string) => writableItem(root, await readRoot(root), handle, baseVersion, "deleted");
 
 export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
-  createItem: (structureId, item) =>
+  createItem: (structureId, item, id = randomUUIDv7()) =>
     queueWrite(root, async () => {
       const { read, structure, title, textFor } = await checkCreate(root, structureId, item);
       const { settings } = structure;
-      const id = randomUUIDv7();
       const handle = formatHandle(settings.prefix, store.nextHandleNumber(settings.id, read.floors.get(settings.prefix) ?? 0));
       const text = textFor(id, handle);
       if (text === undefined) throw new Error(`The new item ${handle} passed its read-back check with stand-in values but not with the real ones.`);
@@ -428,13 +428,12 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
       switch (change.kind) {
         case "create":
           await checkCreate(root, change.structureId, change.item, change.unseen);
-          return;
+          return undefined;
         case "update":
-          await checkUpdate(root, change.handle, change.fields, change.baseVersion);
-          return;
+          return versionOf(Buffer.from((await checkUpdate(root, change.handle, change.fields, change.baseVersion)).text, "utf8"));
         case "delete":
           await checkDelete(root, change.handle, change.baseVersion);
-          return;
+          return undefined;
       }
     }),
 });

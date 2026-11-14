@@ -10,12 +10,12 @@ import { AgentError } from "../agents/errors.ts";
 import { versionOf } from "../items/files.ts";
 import { TOOL } from "../items/tools.ts";
 import type { Log } from "../log.ts";
-import type { FileEdit, NewProposal, ProposalChange, ProposalContent, ProposalVersionHead, Store, StoredProposal } from "../store/store.ts";
+import type { ApplyOutcome, FileEdit, NewProposal, ProposalChange, ProposalContent, ProposalVersionHead, Store, StoredProposal } from "../store/store.ts";
 import { announcer } from "./announce.ts";
-import type { Applied, ApplyTarget, ApproveStep } from "./apply.ts";
+import type { Applied, ApplyTarget, ApproveStep, Written } from "./apply.ts";
 import { applyEdits, type EditProblem } from "./edits.ts";
 import { checkText, currentText, readTarget, resolveTarget, textRefusal, workspaceMark, writeProposed, written } from "./file-target.ts";
-import type { ItemProposalDetail, ItemProposalRecord, ItemProposals, ProposalResult } from "./item-proposals.ts";
+import type { ItemProposalDetail, ItemProposalRecord, ItemProposals, ProposalResult, ProposedItemChange, StoredItemProposal } from "./item-proposals.ts";
 import { commonFields } from "./proposal-fields.ts";
 import { itemsNotConfigured, notApprovable, notFound, ProposalError, ProposalRefused, toApprove, toReject } from "./refused.ts";
 
@@ -23,6 +23,13 @@ import { itemsNotConfigured, notApprovable, notFound, ProposalError, ProposalRef
 export type FileChange = { edits?: readonly FileEdit[] | undefined; content?: string | undefined };
 
 type StoredFileProposal = Extract<StoredProposal, { target: "file" }>;
+
+/** How an approve whose write landed (or not) settles. */
+export const landedOutcome = (landed: Written | undefined): ApplyOutcome => {
+  if (landed === undefined) return { status: "pending" };
+  const { itemId, itemHandle } = landed;
+  return { status: "approved", ...(itemId === undefined ? {} : { itemId }), ...(itemHandle === undefined ? {} : { itemHandle }) };
+};
 
 /** The cap's refusal for an agent with `open` proposals counting toward it, or undefined while there is room. */
 export const capRefusal = (open: number): string | undefined =>
@@ -92,15 +99,15 @@ export type ProposalsOptions = {
   /** Called once per committed proposal change, with the seq it took. */
   onProposal: (id: string, seq: number) => void;
   log: Log;
-  /** The item proposals' own reads and decisions, while items are set up. */
-  itemProposals?: Pick<ItemProposals, "proposals" | "detail" | "approve" | "reject"> | undefined;
+  /** The item side (its checks, reads and write target), while items are set up. */
+  items?: ItemProposals | undefined;
   /** Whether the items catalog holds a file (the item tools change it, never a file proposal); undefined without items. */
   holds?: ((realPath: string) => Promise<boolean>) | undefined;
   /** Called synchronously at each named step of an approve. */
   onApproveStep?: ((step: ApproveStep) => void) | undefined;
 };
 
-export const createProposals = ({ store, workspace, agentFolder, onProposal, log, itemProposals, holds, onApproveStep }: ProposalsOptions) => {
+export const createProposals = ({ store, workspace, agentFolder, onProposal, log, items, holds, onApproveStep }: ProposalsOptions) => {
   const announce = announcer(onProposal, log);
 
   /** Announces a committed change; a refused one here means another change got there first. */
@@ -124,24 +131,43 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
     return content;
   };
 
+  const itemSide = () => {
+    if (items === undefined) throw itemsNotConfigured();
+    return items;
+  };
+
   /** The order of every approve, in the decide queue: the current version, the applying commit, the write, the settle. */
-  const applying = async (id: string, version: number, target: ApplyTarget): Promise<StoredProposal> => {
+  const applying = async (id: string, version: number): Promise<StoredProposal> => {
     const stored = toApprove(store, id, version);
+    const target = stored.target === "file" ? fileTarget : itemSide().itemTarget;
     const { content, reason } = contentOf(id, version);
-    const begun = store.beginApplying(id, version, target.intentOf(content));
-    if (begun === undefined) throw notApprovable(stored);
+    const { intent, itemHandle } = await target.intentOf(stored, content);
+    const begun = store.beginApplying(id, version, intent, itemHandle);
+    if (begun === undefined) {
+      // Something changed the proposal while the intent was worked out: the refusal says what.
+      throw notApprovable(toApprove(store, id, version));
+    }
     announce(id, begun.seq);
     onApproveStep?.("after_applying_commit");
     let applied: Applied;
     try {
       applied = await target.write(begun.proposal, content);
     } catch (error) {
-      committed(id, store.settle(id, { status: "pending" }));
-      throw error;
+      // A failure after the write landed (a temp file left behind) must settle approved, or approving again writes twice.
+      // When that can't be told, the row stays applying for the next start's check.
+      const landed = await target.written(begun.proposal).catch(() => {
+        throw error;
+      });
+      if (landed === undefined) {
+        committed(id, store.settle(id, { status: "pending" }));
+        throw error;
+      }
+      applied = landed;
     }
+    if ("retry" in applied) applied = (await target.written(begun.proposal)) ?? applied;
     if ("written" in applied) {
       onApproveStep?.("after_write");
-      return committed(id, store.settle(id, { status: "approved" }));
+      return committed(id, store.settle(id, landedOutcome(applied)));
     }
     if ("problem" in applied) return committed(id, store.settle(id, { status: "conflict", problem: applied.problem }));
     if ("retry" in applied) return committed(id, store.settle(id, { status: "pending", problem: applied.retry }));
@@ -150,18 +176,26 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
   };
 
   const fileTarget: ApplyTarget = {
-    intentOf: (content) => {
+    intentOf: (_stored, content) => {
       if (!("text" in content)) throw new Error("A file proposal's version holds no text; it can't be approved.");
-      return versionOf(Buffer.from(content.text, "utf8"));
+      return Promise.resolve({ intent: versionOf(Buffer.from(content.text, "utf8")) });
     },
     write: async (stored, content) => {
       if (stored.target !== "file" || !("text" in content)) throw new Error(`Proposal ${stored.id} isn't a file proposal; it can't be written as one.`);
       return writeProposed({ proposal: stored, content, holds });
     },
-    written: async (stored) => stored.target === "file" && (await written(stored.path, stored.intent)),
+    written: async (stored) => (stored.target === "file" && (await written(stored.path, stored.intent)) ? { written: true } : undefined),
   };
 
   const fileSummary = async (stored: StoredFileProposal) => fileProposalOf(stored, store.listVersionHeads(stored.id), (await workspaceMark(workspace))(stored.path));
+
+  /** A stored proposal of either target as the API sends it. */
+  const summaryOf = async (stored: StoredProposal): Promise<FileProposal | ItemProposalRecord> => {
+    if (stored.target === "file") return fileSummary(stored);
+    const [item] = await itemSide().itemProposalsOf([stored]);
+    if (item === undefined) throw new Error(`Proposal ${stored.id} couldn't be read as an item proposal.`);
+    return item;
+  };
 
   /** Stores a proposal, unless its agent is at the cap, and announces it. Synchronous, so no other call stores between the count and the insert. */
   const insert = (proposal: NewProposal, firstVersion: ProposalContent): ProposalResult => {
@@ -205,13 +239,21 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
     return insert({ ...proposal, kind: "edit", baseVersion: current.version }, { text: checked.text, edits });
   };
 
-  /** Every proposal, or those with `status`, oldest first, as the API lists them. */
+  /** A proposed item change by `agentId`, stored once it passed its checks. */
+  const proposeItem = async (agentId: string, change: ProposedItemChange, reason: string): Promise<ProposalResult> => {
+    const { proposal, fields } = await itemSide().checkItemProposal(agentId, change, reason);
+    return insert(proposal, { fields });
+  };
+
+  /** Every proposal, or those with `status`, oldest first, as the API lists them; item proposals only while items are set up. */
   const list = async (status?: ProposalStatus): Promise<(FileProposal | ItemProposalRecord)[]> => {
-    const items = new Map((itemProposals === undefined ? [] : await itemProposals.proposals(status)).map((proposal) => [proposal.id, proposal]));
+    const stored = store.listProposals(status);
+    const itemRows = stored.filter((proposal): proposal is StoredItemProposal => proposal.target === "item");
+    const itemsById = new Map((items === undefined ? [] : await items.itemProposalsOf(itemRows)).map((proposal) => [proposal.id, proposal]));
     const outside = await workspaceMark(workspace);
-    return store.listProposals(status).flatMap((stored): (FileProposal | ItemProposalRecord)[] => {
-      if (stored.target === "file") return [fileProposalOf(stored, store.listVersionHeads(stored.id), outside(stored.path))];
-      const item = items.get(stored.id);
+    return stored.flatMap((proposal): (FileProposal | ItemProposalRecord)[] => {
+      if (proposal.target === "file") return [fileProposalOf(proposal, store.listVersionHeads(proposal.id), outside(proposal.path))];
+      const item = itemsById.get(proposal.id);
       return item === undefined ? [] : [item];
     });
   };
@@ -228,56 +270,47 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
         `Proposal ${id} has no version ${String(n)}; its versions are ${heads.map((head) => String(head.n)).join(", ")}. Ask for one of those.`,
       );
     }
-    if (stored.target === "item") {
-      if (itemProposals === undefined) throw itemsNotConfigured();
-      return itemProposals.detail(id, n);
-    }
+    if (stored.target === "item") return itemSide().itemProposalDetail(stored, n);
     const { content } = contentOf(id, n);
     if (!("text" in content)) throw new Error(`Proposal ${id}'s version ${String(n)} holds no text; it can't be read.`);
     return { ...(await fileSummary(stored)), current: await currentText(stored.path), text: content.text, versions: heads };
   };
 
   /** Approves version `version`, which must be current; a conflict or a new version to approve answers too. */
-  const approve = (id: string, version: number): Promise<FileProposal | ItemProposalRecord> =>
-    decide(async () => {
-      if (store.getProposal(id)?.target === "item") {
-        if (itemProposals === undefined) throw itemsNotConfigured();
-        return itemProposals.approve(id, version);
-      }
-      const stored = await applying(id, version, fileTarget);
-      if (stored.target !== "file") throw new Error(`Proposal ${id} changed its target while it was being approved.`);
-      return fileSummary(stored);
-    });
+  const approve = (id: string, version: number): Promise<FileProposal | ItemProposalRecord> => decide(async () => summaryOf(await applying(id, version)));
 
   /** Rejects a pending proposal or a conflict; nothing is written. */
   const reject = (id: string, reason?: string): Promise<FileProposal | ItemProposalRecord> =>
     decide(async () => {
-      const stored = toReject(store, id);
-      if (stored.target === "item") {
-        if (itemProposals === undefined) throw itemsNotConfigured();
-        return itemProposals.reject(id, reason);
-      }
-      const rejected = committed(id, store.rejectProposal(id, reason));
-      if (rejected.target !== "file") throw new Error(`Proposal ${id} changed its target while it was being rejected.`);
-      return fileSummary(rejected);
+      if (toReject(store, id).target === "item" && items === undefined) throw itemsNotConfigured();
+      return summaryOf(committed(id, store.rejectProposal(id, reason)));
     });
 
   /**
-   * Settles every file proposal a service death left applying, from what its file holds: written with the intent →
-   * approved, else pending. Run before the server takes requests.
+   * Settles every proposal a service death left applying, from what its target holds: written with the intent →
+   * approved, else pending. Run before the server takes requests. An item proposal waits while items aren't set up,
+   * and one whose items can't be read waits for the next start: settling it pending could make a create twice.
    */
   const settleAtStart = async () => {
     for (const stored of store.listApplying()) {
-      if (stored.target !== "file") continue;
-      const status = (await fileTarget.written(stored)) ? "approved" : "pending";
-      const change = store.settle(stored.id, { status });
+      const target = stored.target === "file" ? fileTarget : items?.itemTarget;
+      if (target === undefined) continue;
+      let landed: Written | undefined;
+      try {
+        landed = await target.written(stored);
+      } catch (error) {
+        log("proposal_settle_failed", { proposalId: stored.id, error: error instanceof Error ? error.name : "unknown" });
+        continue;
+      }
+      const outcome = landedOutcome(landed);
+      const change = store.settle(stored.id, outcome);
       if (change === undefined) continue;
       announce(stored.id, change.seq);
-      log("proposal_settled_at_start", { proposalId: stored.id, status });
+      log("proposal_settled_at_start", { proposalId: stored.id, status: outcome.status });
     }
   };
 
-  return { proposeFile, list, get, approve, reject, settleAtStart };
+  return { proposeFile, proposeItem, list, get, approve, reject, settleAtStart };
 };
 
 export type Proposals = ReturnType<typeof createProposals>;

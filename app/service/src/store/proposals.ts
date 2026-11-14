@@ -24,6 +24,8 @@ export type ProposalVersionHead = Omit<ProposalVersionRecord, "content">;
 export type StoredProposal = {
   id: string;
   itemId: string | null;
+  /** The item's handle as the applying commit found it, so an approved delete still names its item; absent before. */
+  itemHandle?: string;
   file: string | null;
   reason: string;
   /** The target's version the change is based on; null for a create. */
@@ -43,13 +45,13 @@ export type StoredProposal = {
 );
 
 /** A proposal as handed to `insertProposal`: the store adds the id, `at` and the status. */
-export type NewProposal = DistributiveOmit<StoredProposal, "id" | "status" | "at" | "decidedAt" | "problem" | "rejectReason" | "intent">;
+export type NewProposal = DistributiveOmit<StoredProposal, "id" | "itemHandle" | "status" | "at" | "decidedAt" | "problem" | "rejectReason" | "intent">;
 
 /** A proposal write and the seq it took, to alert about once it's committed. */
 export type ProposalChange = { proposal: StoredProposal; seq: number };
 
-/** How a write that began with `beginApplying` ended; `itemId` names an approved create's new item. */
-export type ApplyOutcome = { status: "approved"; itemId?: string } | { status: "conflict"; problem?: Problem } | { status: "pending"; problem?: Problem };
+/** How a write that began with `beginApplying` ended; `itemId` and `itemHandle` name an approved create's new item. */
+export type ApplyOutcome = { status: "approved"; itemId?: string; itemHandle?: string } | { status: "conflict"; problem?: Problem } | { status: "pending"; problem?: Problem };
 
 /**
  * Every write but `markDelivered` is one transaction that takes one seq; a refused one (an unknown id, a move the
@@ -65,8 +67,8 @@ export type ProposalStore = {
    */
   putDraft: (id: string, onVersion: number, content: ProposalContent) => ProposalChange | undefined;
   clearDraft: (id: string) => ProposalChange | undefined;
-  /** `version` must be the current version; `intent` is JSON. */
-  beginApplying: (id: string, version: number, intent: unknown) => ProposalChange | undefined;
+  /** `version` must be the current version; `intent` is JSON. A given `itemHandle` replaces the stored one. */
+  beginApplying: (id: string, version: number, intent: unknown, itemHandle?: string | null) => ProposalChange | undefined;
   settle: (id: string, outcome: ApplyOutcome) => ProposalChange | undefined;
   /**
    * Settles a write that began with `beginApplying` back to pending, nothing written, with `content` as a new agent
@@ -100,7 +102,7 @@ const checkFits = (target: StoredProposal["target"], content: ProposalContent) =
 };
 
 const proposalOf = (row: Record<string, unknown>): StoredProposal => {
-  const { decided_at: decidedAt, problem, reject_reason: rejectReason, intent } = row;
+  const { decided_at: decidedAt, problem, reject_reason: rejectReason, intent, item_handle: itemHandle } = row;
   const common = {
     id: asString(row.id),
     itemId: asNullableString(row.item_id),
@@ -113,6 +115,7 @@ const proposalOf = (row: Record<string, unknown>): StoredProposal => {
     ...(decidedAt === null ? {} : { decidedAt: asString(decidedAt) }),
     ...(problem === null ? {} : { problem: JSON.parse(asString(problem)) as Problem }),
     ...(rejectReason === null ? {} : { rejectReason: asString(rejectReason) }),
+    ...(itemHandle === null ? {} : { itemHandle: asString(itemHandle) }),
     ...(intent === null ? {} : { intent: JSON.parse(asString(intent)) as unknown }),
   };
   const target = asString(row.target);
@@ -122,7 +125,7 @@ const proposalOf = (row: Record<string, unknown>): StoredProposal => {
 };
 
 /** What a status move writes besides the status; each move states all of it. */
-type MoveColumns = { problem: string | null; rejectReason: string | null; intent: string | null; itemId: string | null };
+type MoveColumns = { problem: string | null; rejectReason: string | null; intent: string | null; itemId: string | null; itemHandle?: string | null };
 
 export const openProposalStore = (db: DatabaseSync, transaction: Transaction, takeSeq: () => number, now: () => Date): ProposalStore => {
   const statements = {
@@ -151,7 +154,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     // Moving into any status clears `noted_seq`, so each outcome is delivered once, a later one too.
     move: db.prepare(
       `UPDATE proposals SET status = ?, decided_at = ?, problem = ?, reject_reason = ?, intent = ?,
-         item_id = coalesce(?, item_id), noted_seq = NULL
+         item_id = coalesce(?, item_id), item_handle = coalesce(?, item_handle), noted_seq = NULL
        WHERE id = ? AND status = ? RETURNING *`,
     ),
   };
@@ -181,9 +184,9 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
   const move = (stored: StoredProposal, event: ProposalEvent, columns: (stored: StoredProposal) => MoveColumns) => {
     const next = nextStatus(stored.status, event);
     if (next === undefined) return undefined;
-    const { problem, rejectReason, intent, itemId } = columns(stored);
+    const { problem, rejectReason, intent, itemId, itemHandle = null } = columns(stored);
     const decidedAt = isOutcome(next) ? now().toISOString() : null;
-    const row = statements.move.get(next, decidedAt, problem, rejectReason, intent, itemId, stored.id, stored.status);
+    const row = statements.move.get(next, decidedAt, problem, rejectReason, intent, itemId, itemHandle, stored.id, stored.status);
     return row === undefined ? undefined : proposalOf(row);
   };
 
@@ -262,9 +265,9 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
       return changed(id);
     });
 
-  const beginApplying = (id: string, version: number, intent: unknown) => {
+  const beginApplying = (id: string, version: number, intent: unknown, itemHandle: string | null = null) => {
     const intentText = JSON.stringify(intent);
-    const columns = () => ({ problem: null, rejectReason: null, intent: intentText, itemId: null });
+    const columns = () => ({ problem: null, rejectReason: null, intent: intentText, itemId: null, itemHandle });
     return moving(id, () => listVersions(id).at(-1)?.n === version, "approve", columns);
   };
 
@@ -278,6 +281,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
         rejectReason: null,
         intent: null,
         itemId: "itemId" in outcome ? (outcome.itemId ?? null) : null,
+        itemHandle: "itemHandle" in outcome ? (outcome.itemHandle ?? null) : null,
       });
       return move(stored, event, columns) === undefined ? undefined : changed(id);
     });
@@ -295,9 +299,10 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
       return changed(id);
     });
 
+  // Only a conflict's problem stays: a pending proposal's (a retry's) says to approve again, which no longer applies.
   const rejectProposal = (id: string, reason?: string) =>
     moving(id, () => true, "reject", (stored) => ({
-      problem: stored.problem === undefined ? null : JSON.stringify(stored.problem),
+      problem: stored.problem === undefined || nextStatus(stored.status, "resolve") === undefined ? null : JSON.stringify(stored.problem),
       rejectReason: reason ?? null,
       intent: null,
       itemId: null,

@@ -9,8 +9,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { openAccess, type Access } from "./access.ts";
-import { ACCESS_FILES, AGENT, expectRefused, openAccessRoot, snapshotFiles } from "../../test/access-fixtures.ts";
+import { ACCESS_FILES, AGENT, expectRefused, openAccessRoot, snapshotFiles, withProposals, type TestAccess } from "../../test/access-fixtures.ts";
 import { openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 
 const BUG = "bugs/BUG-2-hero-caption.md";
@@ -53,7 +52,7 @@ describe("proposals", () => {
     const footer = { title: "The footer link is broken", properties: { note: "On every page" } };
 
     /** Approves one bug proposal after `before` ran on the same root, and returns the handle it got. */
-    const approvedAfter = async (before: (access: Access) => Promise<void>) => {
+    const approvedAfter = async (before: (access: TestAccess) => Promise<void>) => {
       const { access, root } = openAccessRoot(files);
       await access.list("bugs");
       const untouched = snapshotFiles(root);
@@ -124,8 +123,7 @@ describe("proposals", () => {
   test("a proposal stays stored and answered when announcing it fails", async () => {
     const opened = openItems(writeRoot(ACCESS_FILES));
     const logged: string[] = [];
-    const access = openAccess({
-      ...opened,
+    const { access } = withProposals(opened, {
       onProposal: () => {
         throw new Error("listener broke");
       },

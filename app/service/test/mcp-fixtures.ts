@@ -10,7 +10,6 @@ import { expect, onTestFinished } from "vitest";
 
 import type { Access } from "../src/items/access.ts";
 import type { LogFields } from "../src/log.ts";
-import { createProposals } from "../src/proposals/proposals.ts";
 import { mcpRoutes } from "../src/server/mcp.ts";
 import { ACCESS_FILES, openAccessRoot, type AccessSetup } from "./access-fixtures.ts";
 import { writeRoot } from "./items-fixtures.ts";
@@ -49,14 +48,14 @@ export type McpApp = AccessSetup & {
  * default), with STUB_TOKEN as the one live agent token. `access` replaces the real access module, for failures.
  */
 export const openMcp = ({ files = ACCESS_FILES, access }: { files?: Record<string, string>; access?: Access } = {}): McpApp => {
-  const opened = openAccessRoot(files);
-  const port = 4123;
   const logs: McpApp["logs"] = [];
   const log = (event: string, fields: LogFields) => logs.push({ event, fields });
+  // The stub agent works in the items root.
+  const opened = openAccessRoot(files, log);
+  const port = 4123;
   const app = mcpRoutes({
     access: access ?? opened.access,
-    // The stub agent works in the items root.
-    proposals: createProposals({ store: opened.store, workspace: opened.root, agentFolder: () => opened.root, onProposal: () => undefined, log }),
+    proposals: opened.proposals,
     agentForToken: (sent) => (sent === STUB_TOKEN ? STUB_AGENT : undefined),
     port: () => port,
     // The service's limit; the limit itself is tested on the running server.

@@ -6,10 +6,14 @@ import { join, relative } from "node:path";
 
 import type { AccessErrorCode } from "@wombat/shared/api";
 import { Problem } from "@wombat/shared/items";
+import type { ProposalStatus } from "@wombat/shared/proposals";
 import { expect } from "vitest";
 
 import { openAccess, type Access } from "../src/items/access.ts";
-import { AccessError } from "../src/items/refusals.ts";
+import { AccessError, type ItemInput } from "../src/items/refusals.ts";
+import { logToStderr, type Log } from "../src/log.ts";
+import type { ItemProposalRecord, ProposalResult } from "../src/proposals/item-proposals.ts";
+import { createProposals, type Proposals } from "../src/proposals/proposals.ts";
 import { openItems, writeRoot, type Opened } from "./items-fixtures.ts";
 
 /** In every name, title, body and value of the hidden structure, in mixed case; never in a visible one. */
@@ -157,19 +161,50 @@ export const snapshotFiles = (root: string): Record<string, string> => {
   return files;
 };
 
-export type AccessSetup = Opened & { access: Access; announced: string[] };
+/** Access with the item proposal calls the tests make, each as the item tools make it through the proposals. */
+export type TestAccess = Access & {
+  proposeCreate(agentId: string, structureId: string, input: ItemInput, reason: string): Promise<ProposalResult>;
+  proposeUpdate(agentId: string, handle: string, fields: Record<string, unknown>, version: string, reason: string): Promise<ProposalResult>;
+  proposeDelete(agentId: string, handle: string, version: string, reason: string): Promise<ProposalResult>;
+  /** The item proposals, or those with `status`. */
+  proposals(status?: ProposalStatus): Promise<ItemProposalRecord[]>;
+  approve(id: string, version: number): Promise<ItemProposalRecord>;
+  reject(id: string, reason?: string): Promise<ItemProposalRecord>;
+};
 
-/** The access module on a fresh copy of `files` (ACCESS_FILES by default); proposal announcements are recorded. */
-export const openAccessRoot = (files: Record<string, string> = ACCESS_FILES): AccessSetup => {
+const itemOnly = (proposal: { target: string }): ItemProposalRecord => {
+  expect(proposal.target, "an item proposal").toBe("item");
+  return proposal as ItemProposalRecord;
+};
+
+/** Access on `opened`'s catalog, writer and store, with the proposals over it (the items root as the workspace). */
+export const withProposals = (
+  { root, catalog, writer, store }: Pick<Opened, "root" | "catalog" | "writer" | "store">,
+  { onProposal = () => undefined, log = logToStderr }: { onProposal?: (id: string, seq: number) => void; log?: Log } = {},
+): { access: TestAccess; proposals: Proposals } => {
+  const access = openAccess({ catalog, writer, store });
+  const proposals = createProposals({ store, workspace: root, agentFolder: () => root, onProposal, log, items: access });
+  return {
+    proposals,
+    access: {
+      ...access,
+      proposeCreate: (agentId, structure, input, reason) => proposals.proposeItem(agentId, { kind: "create", structure, input }, reason),
+      proposeUpdate: (agentId, handle, fields, version, reason) => proposals.proposeItem(agentId, { kind: "update", handle, fields, version }, reason),
+      proposeDelete: (agentId, handle, version, reason) => proposals.proposeItem(agentId, { kind: "delete", handle, version }, reason),
+      proposals: async (status) => (await proposals.list(status)).filter((proposal) => proposal.target === "item").map(itemOnly),
+      approve: async (id, version) => itemOnly(await proposals.approve(id, version)),
+      reject: async (id, reason) => itemOnly(await proposals.reject(id, reason)),
+    },
+  };
+};
+
+export type AccessSetup = Opened & { access: TestAccess; proposals: Proposals; announced: string[] };
+
+/** The access module and the proposals on a fresh copy of `files` (ACCESS_FILES by default); proposal announcements are recorded. */
+export const openAccessRoot = (files: Record<string, string> = ACCESS_FILES, log?: Log): AccessSetup => {
   const opened = openItems(writeRoot(files));
   const announced: string[] = [];
-  const access = openAccess({
-    catalog: opened.catalog,
-    writer: opened.writer,
-    store: opened.store,
-    onProposal: (id) => announced.push(id),
-  });
-  return { ...opened, access, announced };
+  return { ...opened, ...withProposals(opened, { onProposal: (id) => announced.push(id), ...(log === undefined ? {} : { log }) }), announced };
 };
 
 /** The AccessError a call was refused with; fails the test when it resolved or threw something else. */

@@ -368,8 +368,8 @@ export const openInstructions = ({ catalog, workspaceRoot, itemsRoot, log = logT
 
 /** The writer with the instructions file refreshed after each write, before the write's call answers. */
 export const refreshingWriter = (writer: Writer, refresh: () => Promise<void>): Writer => ({
-  createItem: async (structureId, item) => {
-    const created = await writer.createItem(structureId, item);
+  createItem: async (structureId, item, id) => {
+    const created = await writer.createItem(structureId, item, id);
     await refresh();
     return created;
   },
