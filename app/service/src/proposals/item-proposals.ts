@@ -23,6 +23,7 @@ import type { NewProposal, ProposalVersionHead, Store, StoredProposal } from "..
 import { askAgain, BY_HAND, conflict, NOTHING_WRITTEN, type Applied, type ApplyTarget, type Written } from "./apply.ts";
 import { failureOutcome } from "./file-target.ts";
 import { itemRevisions, type ItemRevisions } from "./item-revisions.ts";
+import { createFields, createInputOf, itemById, targetItem, type StoredItemProposal } from "./item-target.ts";
 import { commonFields } from "./proposal-fields.ts";
 
 export type ProposalResult = { proposed: string };
@@ -33,7 +34,7 @@ export type ItemProposalRecord = ItemProposal & { baseVersion: string | null };
 /** `fields`: what the version read proposes. */
 export type ItemProposalDetail = ItemProposalRecord & { fields: Record<string, unknown>; current: Item | null; versions: ProposalVersion[] };
 
-export type StoredItemProposal = Extract<StoredProposal, { target: "item" }>;
+export type { StoredItemProposal };
 
 /** A proposed item change as the item tools take it. */
 export type ProposedItemChange =
@@ -94,8 +95,6 @@ const itemOnly = (stored: StoredProposal): StoredItemProposal => {
 
 /** The fields of a version by `by` that are locked in `structure` now: the agent's locks never bind my version. */
 export const bindingLocks = (structure: ValidStructure, kind: Change, names: string[], by: VersionAuthor) => (by === "me" ? [] : lockedNames(structure, kind, names));
-
-const itemById = (items: readonly LoadedItem[], id: string | null | undefined) => (id == null ? undefined : items.find((item) => item.id === id));
 
 /** A stored item proposal as sent: its item's handle among `items` now, else the one the applying commit stored. */
 export const itemProposalOf = (stored: StoredItemProposal, heads: readonly ProposalVersionHead[], items: readonly LoadedItem[] = []): ItemProposalRecord => ({
@@ -161,6 +160,45 @@ const writeFailure = (error: unknown, stored: StoredItemProposal): Applied | und
   return conflict(error.message, error.problems.length === 1 ? only?.field : undefined);
 };
 
+type ItemChecksOptions = Pick<ItemProposalsOptions, "writer" | "checkStructure" | "linksToIds" | "checkNewFile" | "agentWriteError">;
+
+/**
+ * The checks an agent's new or changed item runs before anything is stored, in the direct change's order, for its
+ * proposal and its revision alike; each throws the agent's refusal and answers the fields to store (links as ids).
+ */
+export const itemChecks = ({ writer, checkStructure, linksToIds, checkNewFile, agentWriteError }: ItemChecksOptions) => ({
+  checkedCreate: async (current: View, structure: ValidStructure, input: ItemInput): Promise<Record<string, unknown>> => {
+    checkLevel(structure, "propose", "create");
+    const properties = input.properties ?? {};
+    checkLocks(structure, "create", Object.keys(properties));
+    const linked = presentValues(linksToIds(current, structure, properties));
+    checkStructure(current, structure);
+    await checkNewFile(current, structure, input.file, "propose");
+    try {
+      await writer.check({ kind: "create", structureId: structure.id, item: newItem(input, linked), unseen: current.hiddenFolders });
+    } catch (error) {
+      throw agentWriteError(current, error, { structure });
+    }
+    return createFields(input, linked);
+  },
+
+  /** `handle`, the item's; `named`, the handle the agent gave, which a refusal names. */
+  checkedUpdate: async (current: View, structure: ValidStructure, handle: string, fields: Record<string, unknown>, baseVersion: string, named = handle): Promise<Record<string, unknown>> => {
+    checkLevel(structure, "propose", "update");
+    checkLocks(structure, "update", Object.keys(fields));
+    checkStructure(current, structure);
+    const linked = linksToIds(current, structure, fields);
+    try {
+      await writer.check({ kind: "update", handle, fields: linked, baseVersion });
+    } catch (error) {
+      throw agentWriteError(current, error, { handle: named, structure });
+    }
+    return linked;
+  },
+});
+
+export type ItemChecks = ReturnType<typeof itemChecks>;
+
 export const openItemProposals = ({
   catalog,
   writer,
@@ -174,42 +212,23 @@ export const openItemProposals = ({
   agentWriteError,
 }: ItemProposalsOptions): ItemProposals => {
   const view = async () => viewOf(await catalog.snapshot());
+  const checks = itemChecks({ writer, checkStructure, linksToIds, checkNewFile, agentWriteError });
 
   const checkCreate = async (agentId: string, structureId: string, input: ItemInput, reason: string): Promise<CheckedItemProposal> => {
     const current = await view();
     const structure = structureFor(current, structureId);
-    checkLevel(structure, "propose", "create");
-    const properties = input.properties ?? {};
-    checkLocks(structure, "create", Object.keys(properties));
-    const linked = presentValues(linksToIds(current, structure, properties));
-    checkStructure(current, structure);
-    await checkNewFile(current, structure, input.file, "propose");
-    try {
-      await writer.check({ kind: "create", structureId: structure.id, item: newItem(input, linked), unseen: current.hiddenFolders });
-    } catch (error) {
-      throw agentWriteError(current, error, { structure });
-    }
     return {
       proposal: { target: "item", path: null, structure: structure.id, itemId: null, kind: "create", file: input.file ?? null, reason, baseVersion: null, agentId },
-      fields: { title: input.title, ...(input.body === undefined ? {} : { body: input.body }), ...linked },
+      fields: await checks.checkedCreate(current, structure, input),
     };
   };
 
   const checkUpdate = async (agentId: string, handle: string, fields: Record<string, unknown>, version: string, reason: string): Promise<CheckedItemProposal> => {
     const current = await view();
     const { item, structure, handle: target } = itemFor(current, handle);
-    checkLevel(structure, "propose", "update");
-    checkLocks(structure, "update", Object.keys(fields));
-    checkStructure(current, structure);
-    const linked = linksToIds(current, structure, fields);
-    try {
-      await writer.check({ kind: "update", handle: target, fields: linked, baseVersion: version });
-    } catch (error) {
-      throw agentWriteError(current, error, { handle, structure });
-    }
     return {
       proposal: { target: "item", path: null, structure: structure.id, itemId: item.id, kind: "update", file: null, reason, baseVersion: version, agentId },
-      fields: linked,
+      fields: await checks.checkedUpdate(current, structure, target, fields, version, handle),
     };
   };
 
@@ -249,18 +268,17 @@ export const openItemProposals = ({
 
     try {
       if (stored.kind === "create") {
-        const { title, body, ...properties } = fields;
-        const input = { title: title as string, ...(typeof body === "string" ? { body } : {}), ...(stored.file === null ? {} : { file: stored.file }) };
+        const { written } = createInputOf(fields, stored.file);
         const { itemId } = (stored.intent ?? {}) as ItemIntent;
-        const created = await writer.createItem(structure.id, newItem(input, properties), itemId ?? undefined);
+        const created = await writer.createItem(structure.id, newItem(written, written.properties), itemId ?? undefined);
         return created.id === null ? { written: true } : { written: true, itemId: created.id, ...(created.handle === null ? {} : { itemHandle: created.handle }) };
       }
-      const item = itemById(snapshot.items, stored.itemId);
-      if (item?.handle == null || (stored.kind === "delete" && ((stored.intent ?? {}) as ItemIntent).path == null)) return ITEM_GONE;
-      if (item.structure !== stored.structure) return conflict(`The item moved to ${item.structure} since the agent read it, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
+      const target = targetItem(snapshot.items, stored);
+      if (target === "gone" || (stored.kind === "delete" && ((stored.intent ?? {}) as ItemIntent).path == null)) return ITEM_GONE;
+      if ("movedTo" in target) return conflict(`The item moved to ${target.movedTo} since the agent read it, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
       const baseVersion = stored.baseVersion ?? "";
-      if (stored.kind === "update") await writer.updateItem(item.handle, fields, baseVersion);
-      else await writer.deleteItem(item.handle, baseVersion);
+      if (stored.kind === "update") await writer.updateItem(target.handle, fields, baseVersion);
+      else await writer.deleteItem(target.handle, baseVersion);
       return { written: true };
     } catch (error) {
       const applied = writeFailure(error, stored);
@@ -285,7 +303,7 @@ export const openItemProposals = ({
   };
 
   return {
-    ...itemRevisions({ catalog, writer, viewOf, structureFor, checkStructure, linksToIds, agentWriteError }),
+    ...itemRevisions({ catalog, writer, viewOf, structureFor, checks }),
 
     checkItemProposal: (agentId, change, reason) => {
       if (change.kind === "create") return checkCreate(agentId, change.structure, change.input, reason);

@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
 import type { Problem } from "@wombat/shared/items";
-import { canRevise, INITIAL_STATUS, nextStatus, type FileProposalKind, type ItemProposalKind, type ProposalEvent, type ProposalStatus } from "@wombat/shared/proposals";
+import { canDraft, canRevise, INITIAL_STATUS, myDraft, nextStatus, type FileProposalKind, type ItemProposalKind, type ProposalEvent, type ProposalStatus } from "@wombat/shared/proposals";
 
-import { APPLYING, awaitsNewVersion, COUNTED_OPEN, currentVersion, draftSlot, takesDraft, isOutcome, OUTCOMES, settleEvent, type VersionAuthor } from "./proposal-rules.ts";
+import { APPLYING, awaitsNewVersion, COUNTED_OPEN, currentVersion, draftSlot, isOutcome, OUTCOMES, settleEvent, type VersionAuthor } from "./proposal-rules.ts";
 import { asNullableString, asNumber, asString, type DistributiveOmit } from "./values.ts";
 
 export type FileEdit = { oldText: string; newText: string };
@@ -80,10 +80,10 @@ export type ProposalStore = {
   addAgentVersion: (id: string, content: ProposalContent, reason: string, baseVersion?: string | null) => ProposalChange | undefined;
   /**
    * My edit of agent version `onVersion`, which must be the latest agent version. It gets a new number, replacing my
-   * draft already on it; no number is ever given twice. Only while pending (`takesDraft`); a stored problem goes.
+   * draft already on it; no number is ever given twice. Only while pending (`canDraft`); a stored problem goes.
    */
   putDraft: (id: string, onVersion: number, content: ProposalContent) => ProposalChange | undefined;
-  /** Drops my current draft, only while pending (`takesDraft`). */
+  /** Drops my current draft, only while pending (`canDraft`). */
   clearDraft: (id: string) => ProposalChange | undefined;
   /** `version` must be the current version; `intent` is JSON. A given `itemHandle` replaces the stored one. */
   beginApplying: (id: string, version: number, intent: unknown, itemHandle?: string | null) => ProposalChange | undefined;
@@ -276,7 +276,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
 
   const putDraft = (id: string, onVersion: number, content: ProposalContent) =>
     transaction(() => {
-      const found = revisable(id, content, takesDraft);
+      const found = revisable(id, content, canDraft);
       const slot = found === undefined ? undefined : draftSlot(found.versions, onVersion);
       if (found === undefined || slot === undefined) return undefined;
       if (slot.replaces !== undefined) statements.deleteVersion.run(id, slot.replaces);
@@ -288,9 +288,9 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
   const clearDraft = (id: string) =>
     transaction(() => {
       const stored = getProposal(id);
-      const current = currentVersion(listVersionHeads(id));
-      if (stored === undefined || !takesDraft(stored.status) || current?.by !== "me") return undefined;
-      statements.deleteVersion.run(id, current.n);
+      const draft = myDraft(listVersionHeads(id));
+      if (stored === undefined || !canDraft(stored.status) || draft === undefined) return undefined;
+      statements.deleteVersion.run(id, draft.mine.n);
       return changed(id);
     });
 

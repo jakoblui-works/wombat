@@ -5,7 +5,7 @@
 import { MAX_OPEN_PROPOSALS, type FileProposal, type ProposalDetail, type ProposalStatus } from "@wombat/shared/proposals";
 
 import { versionOfText } from "../items/files.ts";
-import type { Log } from "../log.ts";
+import { errorName, type Log } from "../log.ts";
 import { currentVersion } from "../store/proposal-rules.ts";
 import { fieldsOf, textOf } from "../store/proposals.ts";
 import type { ApplyOutcome, NewProposal, ProposalChange, ProposalContent, ProposalVersionHead, Store, StoredProposal } from "../store/store.ts";
@@ -123,7 +123,7 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
         committed(id, store.settle(id, { status: "pending" }));
         throw error;
       }
-      log("proposal_landed_after_error", { proposalId: id, error: error instanceof Error ? error.name : "unknown" });
+      log("proposal_landed_after_error", { proposalId: id, error: errorName(error) });
       applied = landed;
     }
     // The write reported that nothing landed: a check that can't tell leaves that report standing.
@@ -231,7 +231,7 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
       try {
         landed = await target.written(stored);
       } catch (error) {
-        log("proposal_settle_failed", { proposalId: stored.id, error: error instanceof Error ? error.name : "unknown" });
+        log("proposal_settle_failed", { proposalId: stored.id, error: errorName(error) });
         continue;
       }
       const outcome = landedOutcome(landed);

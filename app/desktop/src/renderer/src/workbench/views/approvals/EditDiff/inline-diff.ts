@@ -1,6 +1,6 @@
 // What the chat shows of an edit, pure: each of its diffs' changed lines with a little context around them, or, past a
 // size, nothing (the diff tab shows it then).
-import { type DiffLine, lineDiffWithin } from "@wombat/shared/line-diff";
+import { type DiffLine, lineDiffWithin, withContext } from "@wombat/shared/line-diff";
 
 import type { EditDiff } from "../edit-request.ts";
 
@@ -20,23 +20,20 @@ const rowsOf = ({ oldText, newText }: EditDiff, budget: number): { rows: InlineR
   // Shown lines are at least the changed ones, so a diff with more changes than the budget is too large before it's done.
   const lines = lineDiffWithin(oldText ?? "", newText, budget);
   if (lines === undefined) return undefined;
-  const shown = new Set<number>();
-  lines.forEach((line, index) => {
-    if (line.kind === "context") return;
-    for (let at = Math.max(0, index - CONTEXT_LINES); at <= Math.min(lines.length - 1, index + CONTEXT_LINES); at += 1) shown.add(at);
-  });
-  if (shown.size > budget) return undefined;
+  const shown = withContext(lines, CONTEXT_LINES);
+  if (shown.length > budget) return undefined;
   const rows: InlineRow[] = [];
   let last: number | undefined;
-  lines.forEach((line, index) => {
-    if (!shown.has(index)) return;
+  for (const index of shown) {
+    const line = lines[index];
+    if (line === undefined) continue;
     if (last !== undefined && index > last + 1) rows.push({ kind: "gap", count: index - last - 1 });
     rows.push(line);
     last = index;
-  });
+  }
   return {
     rows,
-    shown: shown.size,
+    shown: shown.length,
     added: lines.filter(({ kind }) => kind === "added").length,
     removed: lines.filter(({ kind }) => kind === "removed").length,
   };

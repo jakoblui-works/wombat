@@ -1,4 +1,4 @@
-import type { Log } from "../log.ts";
+import { errorName, type Log } from "../log.ts";
 
 /** Announces a committed proposal change; a failing listener never makes the committed change look failed. */
 export const announcer =
@@ -7,6 +7,6 @@ export const announcer =
     try {
       onProposal(id, seq);
     } catch (error) {
-      log("proposal_alert_failed", { proposalId: id, seq, error: error instanceof Error ? error.name : "unknown" });
+      log("proposal_alert_failed", { proposalId: id, seq, error: errorName(error) });
     }
   };

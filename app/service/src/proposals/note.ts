@@ -1,12 +1,12 @@
 // What an agent is told about its proposals, pure: the note that travels in front of the user's next message (the
 // outcomes it hasn't been told, and the proposal the message is about) and the text it reads. The log stores the note;
 // the prompt is `renderNote` of it followed by the typed text, so what the agent read can be rebuilt from the log.
-import type { NoteOutcome, NoteReference, ProposalNoteEntry } from "@wombat/shared/api";
-import { lineDiffWithin, type DiffLine } from "@wombat/shared/line-diff";
-import type { ProposalStatus } from "@wombat/shared/proposals";
+import { NoteOutcomeKind, type NoteOutcome, type NoteReference, type ProposalNoteEntry } from "@wombat/shared/api";
+import { lineDiffWithin, withContext, type DiffLine } from "@wombat/shared/line-diff";
+import { myDraft, type ProposalStatus } from "@wombat/shared/proposals";
 
 import { TOOL } from "../items/tools.ts";
-import { currentVersion } from "../store/proposal-rules.ts";
+import { OUTCOMES } from "../store/proposal-rules.ts";
 import type { ProposalVersionRecord, StoredProposal } from "../store/store.ts";
 
 export type ProposalNote = Pick<ProposalNoteEntry, "outcomes"> & { reference?: NoteReference };
@@ -26,32 +26,18 @@ export const carriesNote = (text: string) => !text.startsWith("/");
 /** An item proposal's label when the agent may not be told a handle: a create that made nothing, or any other. */
 export const itemLabel = (kind: StoredProposal["kind"], handle: string | undefined) => handle ?? (kind === "create" ? "a new item" : "an item");
 
-const OUTCOME_OF: Record<ProposalStatus, Exclude<NoteOutcome["outcome"], "approved_with_changes"> | undefined> = {
-  pending: undefined,
-  applying: undefined,
-  approved: "approved",
-  rejected: "rejected",
-  conflict: "conflict",
-};
+/** What the agent is told each outcome status is: the kind of the same name. An outcome status without one fails here, when the service loads. */
+const OUTCOME_OF: ReadonlyMap<ProposalStatus, NoteOutcomeKind> = new Map(OUTCOMES.map((status) => [status, NoteOutcomeKind.exclude(["approved_with_changes"]).parse(status)]));
 
-/** The changed lines of `diff` with up to `context` unchanged lines around each run of them. */
-export const changedLines = (diff: readonly DiffLine[], context: number = NOTE_DIFF_LIMITS.context): DiffLine[] => {
-  const kept = new Array<boolean>(diff.length).fill(false);
-  diff.forEach((line, index) => {
-    if (line.kind === "context") return;
-    for (let at = Math.max(0, index - context); at <= Math.min(diff.length - 1, index + context); at += 1) kept[at] = true;
-  });
-  return diff.filter((_, index) => kept[index]);
-};
-
-/** My changes as a note keeps them: none, too large to keep, or the lines shown; unknown for an item. */
-export type MyChanges = "none" | "unknown" | "too_large" | { diff: DiffLine[]; continues: boolean };
+/** My changes as a note keeps them: the same text, none in any line, too large to keep, or the lines shown; unknown for an item. */
+export type MyChanges = "same" | "none" | "unknown" | "too_large" | { diff: DiffLine[]; continues: boolean };
 
 /** `from` against `to` within NOTE_DIFF_LIMITS. */
 export const boundedChanges = (from: string, to: string): MyChanges => {
+  if (from === to) return "same";
   const all = lineDiffWithin(from, to, NOTE_DIFF_LIMITS.changes);
   if (all === undefined) return "too_large";
-  const diff = changedLines(all);
+  const diff = withContext(all, NOTE_DIFF_LIMITS.context).flatMap((index) => all[index] ?? []);
   if (diff.length === 0) return "none";
   const bytes = diff.reduce((sum, line) => sum + Buffer.byteLength(line.text), 0);
   if (diff.length > NOTE_DIFF_LIMITS.lines || bytes > NOTE_DIFF_LIMITS.bytes) return "too_large";
@@ -63,10 +49,10 @@ export const boundedChanges = (from: string, to: string): MyChanges => {
  * agent version before it against mine. Unknown for an item, whose fields hold ids an agent never reads.
  */
 export const myChanges = (versions: readonly ProposalVersionRecord[]): MyChanges | undefined => {
-  const mine = currentVersion(versions);
-  if (mine?.by !== "me") return undefined;
-  const theirs = versions.findLast((version) => version.by === "agent" && version.n < mine.n);
-  if (theirs === undefined || !("text" in theirs.content) || !("text" in mine.content)) return "unknown";
+  const draft = myDraft(versions);
+  if (draft === undefined) return undefined;
+  const { mine, theirs } = draft;
+  if (!("text" in theirs.content) || !("text" in mine.content)) return "unknown";
   return boundedChanges(theirs.content.text, mine.content.text);
 };
 
@@ -84,6 +70,7 @@ const changesOf = ({ stored, versions }: NoteSubject, failed: DiffFailed | undef
 
 const diffFields = (changes: MyChanges | undefined): Pick<NoteOutcome, "diff" | "diffContinues" | "diffTooLarge"> => {
   if (changes === "too_large") return { diffTooLarge: true };
+  if (changes === "none") return { diff: [] };
   if (typeof changes !== "object") return {};
   return { diff: changes.diff, ...(changes.continues ? { diffContinues: true } : {}) };
 };
@@ -101,10 +88,11 @@ const reasonOf = (stored: StoredProposal, outcome: NoteOutcome["outcome"]): stri
 
 const outcomeOf = (subject: NoteSubject, failed: DiffFailed | undefined): NoteOutcome | undefined => {
   const { stored, label } = subject;
-  const told = OUTCOME_OF[stored.status];
+  const told = OUTCOME_OF.get(stored.status);
   if (told === undefined) return undefined;
-  const changes = told === "approved" ? changesOf(subject, failed) : undefined;
-  const outcome = changes === undefined || changes === "none" ? told : "approved_with_changes";
+  const mine = told === "approved" && myDraft(subject.versions) !== undefined;
+  const changes = mine ? changesOf(subject, failed) : undefined;
+  const outcome = mine ? "approved_with_changes" : told;
   const reason = reasonOf(stored, outcome);
   return { proposalId: stored.id, label, outcome, ...(reason === undefined ? {} : { reason }), ...diffFields(changes) };
 };
@@ -143,10 +131,11 @@ const renderDiff = (lines: readonly DiffLine[], continues: boolean) => {
   return out.join("\n");
 };
 
-/** The lines that show my changes in an outcome or a reference, after `intro`. */
-const renderChanges = ({ diff, diffContinues, diffTooLarge }: NoteReference, intro: string, tooLarge: string) => {
+/** The lines that show my changes in an outcome or a reference: `intro` and the diff, `tooLarge`, or `newlineOnly` when no line changed. */
+const renderChanges = ({ diff, diffContinues, diffTooLarge }: NoteReference, intro: string, tooLarge: string, newlineOnly: string) => {
   if (diffTooLarge === true) return [tooLarge];
-  return diff === undefined ? [] : [intro, renderDiff(diff, diffContinues === true)];
+  if (diff === undefined) return [];
+  return diff.length === 0 ? [newlineOnly] : [intro, renderDiff(diff, diffContinues === true)];
 };
 
 const OUTCOME_TEXT: Record<NoteOutcome["outcome"], string> = {
@@ -161,7 +150,14 @@ const renderOutcome = (told: NoteOutcome) => {
   const lines = [`- ${indented(label, "  ")} (proposal ${proposalId}): ${OUTCOME_TEXT[outcome]}`];
   if (reason !== undefined) lines.push(`  ${outcome === "rejected" ? "The user's reason" : "The problem"}: ${indented(reason, "  ")}`);
   else if (outcome === "rejected") lines.push("  The user gave no reason.");
-  lines.push(...renderChanges(told, "  The user's changes:", "  The user's changes are too large to show here; read the file to see what was applied."));
+  lines.push(
+    ...renderChanges(
+      told,
+      "  The user's changes:",
+      "  The user's changes are too large to show here; read the file to see what was applied.",
+      "  The user changed only the final newline; every line was applied as you proposed it.",
+    ),
+  );
   return lines.join("\n");
 };
 
@@ -172,6 +168,7 @@ const renderReference = (reference: NoteReference) =>
       reference,
       "The user has edited it; their version differs from yours:",
       "The user has edited it, but their changes are too large to show here and aren't in the file yet; ask the user what they changed.",
+      "The user has edited it, but only its final newline; every line reads as in your version.",
     ),
   ].join("\n");
 

@@ -1,7 +1,7 @@
 // Reads what an agent's next message tells it about its proposals; writes nothing. Labels need the items as they are
 // now (an item's handle), so they are read before the message is stored; everything else is read again, synchronously,
 // in the step that stores it, so an outcome told by another message meanwhile is not told twice.
-import type { Log } from "../log.ts";
+import { errorName, type Log } from "../log.ts";
 import type { Store, StoredProposal } from "../store/store.ts";
 import type { ItemProposals, StoredItemProposal } from "./item-proposals.ts";
 import { itemLabel, noteFor, type NoteSubject, type ProposalNote } from "./note.ts";
@@ -28,13 +28,13 @@ export const noteSource = ({ store, items, log }: NoteSourceOptions) => {
       return await items.agentHandlesOf(itemRows);
     } catch (error) {
       // The items can't be read now: the message still goes, its items labelled without a handle.
-      log?.("note_handles_failed", { error: error instanceof Error ? error.name : "unknown" });
+      log?.("note_handles_failed", { error: errorName(error) });
       return new Map();
     }
   };
 
   const diffFailed = (proposalId: string, error: unknown) => {
-    log?.("note_diff_failed", { proposalId, error: error instanceof Error ? error.name : "unknown" });
+    log?.("note_diff_failed", { proposalId, error: errorName(error) });
   };
 
   /** Reads the labels for a message from `agentId` about `proposalId`. */

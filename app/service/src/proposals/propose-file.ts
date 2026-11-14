@@ -10,22 +10,26 @@ import type { FileEdit, NewProposal, ProposalContent, ProposalVersionRecord, Sto
 import { applyEdits, type EditProblem } from "./edits.ts";
 import { checkText, isThere, readTarget, resolveTarget, textRefusal } from "./file-target.ts";
 import type { ProposalResult } from "./item-proposals.ts";
-import { PROPOSAL_UNCHANGED, ProposalRefused } from "./refused.ts";
+import { ASK_TO_REJECT, PROPOSAL_UNCHANGED, ProposalRefused } from "./refused.ts";
 
 /** A proposed file change as the agent sends it: exactly one of non-empty `edits` (an existing file) or `content` (a new one). */
 export type FileChange = { edits?: readonly FileEdit[] | undefined; content?: string | undefined };
 
 const NOTHING_PROPOSED = "Nothing was proposed.";
 
+/** The refusals of a change that isn't exactly one of non-empty `edits` or `content`: `both` given, or `neither`. */
+type ChangeRefusals = { both: string; neither: string };
+
+const PROPOSE_REFUSALS: ChangeRefusals = {
+  both: "Send either edits (to change an existing file) or content (for a new file), not both.",
+  neither: "Send edits (a non-empty list of { old, new }) to change an existing file, or content for a new file.",
+};
+
 /** Which change was asked for, or the refusal when it isn't exactly one of non-empty `edits` or `content`. */
-export const changeOf = ({ edits, content }: FileChange): { edits: readonly FileEdit[] } | { content: string } | { refusal: string } => {
-  if (edits !== undefined && content !== undefined) {
-    return { refusal: "Send either edits (to change an existing file) or content (for a new file), not both." };
-  }
+export const changeOf = ({ edits, content }: FileChange, refusals: ChangeRefusals = PROPOSE_REFUSALS): { edits: readonly FileEdit[] } | { content: string } | { refusal: string } => {
+  if (edits !== undefined && content !== undefined) return { refusal: refusals.both };
   if (content !== undefined) return { content };
-  if (edits === undefined || edits.length === 0) {
-    return { refusal: "Send edits (a non-empty list of { old, new }) to change an existing file, or content for a new file." };
-  }
+  if (edits === undefined || edits.length === 0) return { refusal: refusals.neither };
   return { edits };
 };
 
@@ -39,28 +43,38 @@ export const targetRefusal = (change: { edits: readonly FileEdit[] } | { content
   return undefined;
 };
 
-const UNREVISED = PROPOSAL_UNCHANGED;
 const REPLACE_WHOLE = "To replace the whole text, send content instead of edits.";
 
 /** What edits apply to: the file (a propose), the text a pending proposal holds now, or the file now (a conflict's revise). */
 export type EditSource = "file" | "proposal" | "fileNow";
 
+/** Per source: how its text is named, what to read again, what to send instead, the refusal's last sentence, and why edits or content that leave its text as it is are refused. */
 const EDIT_SOURCES = {
-  file: { text: "the file", reread: "Read the file again", instead: "For a new file, send content instead of edits.", outcome: NOTHING_PROPOSED },
+  file: {
+    text: "the file",
+    reread: "Read the file again",
+    instead: "For a new file, send content instead of edits.",
+    outcome: NOTHING_PROPOSED,
+    sameEdits: "Your edits change nothing: the file's text after them is the same as now.",
+    sameContent: "The content is the same as the file's text now, so it changes nothing.",
+  },
   proposal: {
     text: "your proposal's current text",
     reread: "Check the text your proposal holds now (your last version, or the user's edit of it)",
     instead: REPLACE_WHOLE,
-    outcome: UNREVISED,
+    outcome: PROPOSAL_UNCHANGED,
+    sameEdits: "Your edits change nothing: your proposal's current text after them is the same as before.",
+    sameContent: "The content is the same as your proposal's current text, so it changes nothing.",
   },
-  fileNow: { text: "the file as it is now", reread: "Read the file again", instead: REPLACE_WHOLE, outcome: UNREVISED },
+  fileNow: {
+    text: "the file as it is now",
+    reread: "Read the file again",
+    instead: REPLACE_WHOLE,
+    outcome: PROPOSAL_UNCHANGED,
+    sameEdits: "Your edits change nothing: the file as it is now after them is the same as before.",
+    sameContent: `The content is the same as the file's text now, so there is nothing left to propose: ${ASK_TO_REJECT}.`,
+  },
 } as const satisfies Record<EditSource, Record<string, string>>;
-
-/** Why content equal to `source`'s text is refused, with what to do instead. */
-const SAME_CONTENT: Record<Exclude<EditSource, "file">, string> = {
-  proposal: "The content is the same as your proposal's current text, so it changes nothing.",
-  fileNow: "The content is the same as the file's text now, so there is nothing left to propose: ask the user to reject this proposal.",
-};
 
 /** The refusal for an edit that can't apply to `source`'s text. */
 export const editRefusal = (problem: EditProblem, source: EditSource = "file"): string => {
@@ -82,10 +96,9 @@ export const itemsFileRefusal = (path: string, call: "propose" | "revise" = "pro
   const itemTools = `Use the item tools instead: ${TOOL.getItem} to read an item, then ${TOOL.proposeUpdate}, ${TOOL.proposeCreate} or ${TOOL.proposeDelete}`;
   return call === "propose"
     ? `${path} belongs to the items, so ${tool} can't change it. ${itemTools}. ${NOTHING_PROPOSED}`
-    : `${path} belongs to the items now, so ${tool} can't change it. ${UNREVISED} ${itemTools}, and ask the user to reject this proposal.`;
+    : `${path} belongs to the items now, so ${tool} can't change it. ${PROPOSAL_UNCHANGED} ${itemTools}, and ${ASK_TO_REJECT}.`;
 };
 
-const UNCHANGED = `Your edits change nothing: the file's text after them is the same as now. ${NOTHING_PROPOSED}`;
 const FOLDER_GONE =
   "The folder you work in is gone from the workspace, so a relative path can't be resolved. Give the file's absolute path.";
 
@@ -125,65 +138,58 @@ export const fileProposer = ({ agentFolder, holds, insert }: FileProposerOptions
     }
     const current = await readTarget(target.realPath, path);
     if (current === undefined) throw new ProposalRefused(missingRefusal(path));
-    const applied = applyEdits(current.text, asked.edits);
-    if ("problem" in applied) throw new ProposalRefused(editRefusal(applied.problem));
-    if (applied.text === current.text) throw new ProposalRefused(UNCHANGED);
-    const checked = checkText(applied.text);
-    if ("problem" in checked) throw textRefusal(checked.problem, "The text after your edits");
-    const edits = asked.edits.map(({ oldText, newText }) => ({ oldText, newText }));
-    return insert({ ...proposal, kind: "edit", baseVersion: current.version }, { text: checked.text, edits });
+    const { content } = fileRevision({ text: current.text, source: "file", chain: [] }, asked);
+    return insert({ ...proposal, kind: "edit", baseVersion: current.version }, content);
   };
 };
 
 /** A revise's change as the agent sends it: exactly one of non-empty `edits` or `content` for a file, `fields` for an item. */
 export type Revision = FileChange & { fields?: Record<string, unknown> | undefined };
 
-/** Which change a file proposal's revise asked for, or the refusal when it isn't exactly one of non-empty `edits` or `content`. */
-export const fileRevisionOf = ({ edits, content, fields }: Revision): { edits: readonly FileEdit[] } | { content: string } | { refusal: string } => {
-  if (fields !== undefined) {
-    return { refusal: `This is a file proposal, so it takes no fields: send edits (a list of { old, new }) or content (the whole new text). ${UNREVISED}` };
-  }
-  if (edits !== undefined && content !== undefined) return { refusal: `Send either edits or content (the whole new text), not both. ${UNREVISED}` };
-  if (content !== undefined) return { content };
-  if (edits === undefined || edits.length === 0) {
-    return { refusal: `Send edits (a non-empty list of { old, new }) or content (the whole new text) for the new version. ${UNREVISED}` };
-  }
-  return { edits };
+const REVISE_REFUSALS: ChangeRefusals = {
+  both: `Send either edits or content (the whole new text), not both. ${PROPOSAL_UNCHANGED}`,
+  neither: `Send edits (a non-empty list of { old, new }) or content (the whole new text) for the new version. ${PROPOSAL_UNCHANGED}`,
 };
 
-/** Where a revise's change applies: the proposal's own text while pending, the file as it is now on a conflict. */
-export type RevisionSource = Exclude<EditSource, "file">;
+/** Which change a file proposal's revise asked for, or the refusal when it isn't exactly one of non-empty `edits` or `content`. */
+export const fileRevisionOf = (revision: Revision): { edits: readonly FileEdit[] } | { content: string } | { refusal: string } => {
+  if (revision.fields !== undefined) {
+    return { refusal: `This is a file proposal, so it takes no fields: send edits (a list of { old, new }) or content (the whole new text). ${PROPOSAL_UNCHANGED}` };
+  }
+  return changeOf(revision, REVISE_REFUSALS);
+};
 
 /**
- * What a revise works on: `text` from `source`; `baseVersion`, the proposal's new base (undefined keeps it);
+ * What a new version is made on: `text` from `source`; `baseVersion`, the proposal's new base (undefined keeps it);
  * `chain`, the edits from the base to `text` that the new version's edits extend, undefined when there are none.
  */
-export type RevisionBase = { text: string; source: RevisionSource; baseVersion?: string | null; chain?: readonly FileEdit[] | undefined };
+export type RevisionBase = { text: string; source: EditSource; baseVersion?: string | null; chain?: readonly FileEdit[] | undefined };
 
 /** A file revision's new version: its content and new base (undefined keeps it). */
 export type FileRevision = { content: TextContent; baseVersion?: string | null };
 
-const unrevisable = (message: string) => new ProposalRefused(`${message} ${UNREVISED}`);
+const unrevisable = (message: string) => new ProposalRefused(`${message} ${PROPOSAL_UNCHANGED}`);
 
-/** The new version a revise makes on `base`; throws ProposalRefused. */
+/** The new version `asked` makes on `base` (a proposal's first edits, on the file, or a revise); throws ProposalRefused. */
 export const fileRevision = (base: RevisionBase, asked: { edits: readonly FileEdit[] } | { content: string }): FileRevision => {
   const based = base.baseVersion === undefined ? {} : { baseVersion: base.baseVersion };
+  const { outcome, sameContent, sameEdits } = EDIT_SOURCES[base.source];
   if ("content" in asked) {
-    if (asked.content === base.text) throw unrevisable(SAME_CONTENT[base.source]);
+    if (asked.content === base.text) throw new ProposalRefused(`${sameContent} ${outcome}`);
     const checked = checkText(asked.content);
     if ("problem" in checked) throw textRefusal(checked.problem, "The content");
     return { content: { text: checked.text }, ...based };
   }
   const applied = applyEdits(base.text, asked.edits);
   if ("problem" in applied) throw new ProposalRefused(editRefusal(applied.problem, base.source));
-  if (applied.text === base.text) throw unrevisable(`Your edits change nothing: ${EDIT_SOURCES[base.source].text} after them is the same as before.`);
+  if (applied.text === base.text) throw new ProposalRefused(`${sameEdits} ${outcome}`);
   const checked = checkText(applied.text);
   if ("problem" in checked) throw textRefusal(checked.problem, "The text after your edits");
   const edits = base.chain === undefined ? undefined : [...base.chain, ...asked.edits.map(({ oldText, newText }) => ({ oldText, newText }))];
   return { content: { text: checked.text, ...(edits === undefined ? {} : { edits }) }, ...based };
 };
 
-const CREATED_MEANWHILE = `The file exists now, so a proposal to create it can't be approved. ${UNREVISED} Propose an edit to it with ${TOOL.proposeChange} and ask the user to reject this proposal.`;
+const CREATED_MEANWHILE = `The file exists now, so a proposal to create it can't be approved. ${PROPOSAL_UNCHANGED} Propose an edit to it with ${TOOL.proposeChange} and ${ASK_TO_REJECT}.`;
 
 /**
  * Checks a revise of file proposal `stored` whose current version is `current`, and makes its new version. A pending

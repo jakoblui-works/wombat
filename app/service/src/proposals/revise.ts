@@ -2,9 +2,9 @@
 // on top of the agent's latest). Each runs in the decide queue, so it never interleaves with an approve or a reject.
 import { isDeepStrictEqual } from "node:util";
 
-import { ProposalErrorCode, type FileProposal } from "@wombat/shared/proposals";
+import { myDraft, ProposalErrorCode, type FileProposal } from "@wombat/shared/proposals";
 
-import { awaitsNewVersion, currentVersion, draftSlot } from "../store/proposal-rules.ts";
+import { currentVersion, draftSlot } from "../store/proposal-rules.ts";
 import { fieldsOf } from "../store/proposals.ts";
 import type { ProposalChange, ProposalContent, Store, StoredProposal } from "../store/store.ts";
 import { checkText, textProblemClause } from "./file-target.ts";
@@ -15,19 +15,33 @@ import { DraftRefused, itemsNotConfigured, notOwnOpenProposal, ownOpenProposal, 
 /** My draft as the route takes it: a file's whole text, or an item's fields. */
 export type DraftContent = { text: string } | { fields: Record<string, unknown> };
 
-export type RevisedResult = { revised: string; version: number };
+/** `rebuilt`: the version was made on the file or item as it is now, so it holds only this revision's changes. */
+export type RevisedResult = { revised: string; version: number; rebuilt?: true };
+
+/** What the agent is told with a rebuilt version, so it doesn't take it for an extension of its earlier ones. */
+export const REBUILT =
+  "The proposal was a conflict, so this version was rebuilt on the file or item as it is now: it holds only this revision's changes, none of your earlier versions'.";
 
 /** A new version and the proposal's new base (undefined keeps it). */
 type NextVersion = { content: ProposalContent; baseVersion?: string | null };
 
-const UNREVISED = PROPOSAL_UNCHANGED;
+/** Whether a revision was rebuilt on the target as it is now: its new base is a version read from the target. */
+export const isRebuilt = (next: NextVersion) => typeof next.baseVersion === "string";
+
+/** Whether my draft's content is the agent's version it sits on, which would make "my version" no change at all. */
+export const sameAsAgents = (draft: ProposalContent, theirs: ProposalContent) =>
+  "text" in draft ? "text" in theirs && draft.text === theirs.text : "fields" in theirs && isDeepStrictEqual(draft.fields, theirs.fields);
+
+/** The refusal of a draft equal to the agent's version; with an edit of mine current, how to show the agent's version again. */
+export const sameAsAgentsRefusal = (draftCurrent: boolean) =>
+  `Your version is the same as the agent's, so there is nothing to save.${draftCurrent ? " To show the agent's version again, drop your edit." : ""}`;
 
 /** Which change an item proposal's revise asked for, or the refusal when it isn't `fields` alone. */
 export const itemRevisionOf = ({ edits, content, fields }: Revision): { fields: Record<string, unknown> } | { refusal: string } => {
   if (edits !== undefined || content !== undefined) {
-    return { refusal: `This is an item proposal, so it takes no edits or content: send fields, the fields it should set instead. ${UNREVISED}` };
+    return { refusal: `This is an item proposal, so it takes no edits or content: send fields, the fields it should set instead. ${PROPOSAL_UNCHANGED}` };
   }
-  if (fields === undefined) return { refusal: `Send fields, the fields the proposal should set instead of the ones it sets now. ${UNREVISED}` };
+  if (fields === undefined) return { refusal: `Send fields, the fields the proposal should set instead of the ones it sets now. ${PROPOSAL_UNCHANGED}` };
   return { fields };
 };
 
@@ -44,9 +58,7 @@ const draftChanged = (id: string, onVersion: number) =>
     `Version ${String(onVersion)} isn't the agent's latest version of proposal ${id}. Refresh the proposal and edit its current version.`,
   );
 
-const SAME_FIELDS = `The fields are the same as your proposal's current ones, so they change nothing. ${UNREVISED}`;
-
-const ITEMS_GONE = `The service has no items set up now, so an item proposal can't be revised. Tell the user. ${UNREVISED}`;
+const ITEMS_GONE = `The service has no items set up now, so an item proposal can't be revised. Tell the user. ${PROPOSAL_UNCHANGED}`;
 
 export type ReviserOptions = {
   store: Store;
@@ -73,10 +85,8 @@ export const reviser = ({ store, decide, committed, items, holds, summaryOf }: R
     const asked = itemRevisionOf(revision);
     if ("refusal" in asked) throw new ProposalRefused(asked.refusal);
     if (items === undefined) throw new ProposalRefused(ITEMS_GONE);
-    const { fields, version } = await items.checkItemRevision(stored, asked.fields);
-    const rebased = awaitsNewVersion(stored.status);
-    if (!rebased && isDeepStrictEqual(fields, fieldsOf(current.content))) throw new ProposalRefused(SAME_FIELDS);
-    return { content: { fields }, ...(rebased ? { baseVersion: version } : {}) };
+    const { fields, ...based } = await items.checkItemRevision(stored, asked.fields, fieldsOf(current.content));
+    return { content: { fields }, ...based };
   };
 
   /** `agentId`'s new version of its open proposal `id`; throws ProposalRefused. Not counted toward the cap: no new proposal. */
@@ -86,11 +96,13 @@ export const reviser = ({ store, decide, committed, items, holds, summaryOf }: R
       if (stored === undefined) throw notOwnOpenProposal(id);
       const next = await nextVersion(stored, revision);
       committed(id, store.addAgentVersion(id, next.content, reason, next.baseVersion));
-      return { revised: id, version: currentOf(id).n };
+      return { revised: id, version: currentOf(id).n, ...(isRebuilt(next) ? { rebuilt: true as const } : {}) };
     });
 
   /** The draft's content once it passed its checks; throws DraftRefused. */
-  const checkedDraft = async (stored: StoredProposal, content: DraftContent): Promise<ProposalContent> => {
+  const checkedDraft = async (stored: StoredProposal, onVersion: number, content: DraftContent): Promise<ProposalContent> => {
+    const theirs = store.listVersions(stored.id).find(({ n }) => n === onVersion);
+    if (theirs !== undefined && sameAsAgents(content, theirs.content)) throw new DraftRefused(sameAsAgentsRefusal(myDraft(store.listVersionHeads(stored.id)) !== undefined));
     if ("text" in content) {
       const checked = checkText(content.text);
       if ("problem" in checked) throw new DraftRefused(`${textProblemClause(checked.problem, "The text")}. Change it and save again.`);
@@ -115,7 +127,7 @@ export const reviser = ({ store, decide, committed, items, holds, summaryOf }: R
   /** Saves my version on the agent's current version `onVersion`, replacing my earlier one on it. */
   const putDraft = (id: string, onVersion: number, content: DraftContent) =>
     decide(async () => {
-      const checked = await checkedDraft(toDraftOn(id, onVersion, content), content);
+      const checked = await checkedDraft(toDraftOn(id, onVersion, content), onVersion, content);
       toDraftOn(id, onVersion, content);
       return summaryOf(committed(id, store.putDraft(id, onVersion, checked)));
     });
@@ -124,7 +136,7 @@ export const reviser = ({ store, decide, committed, items, holds, summaryOf }: R
   const clearDraft = (id: string) =>
     decide(async () => {
       toDraft(store, id);
-      if (currentVersion(store.listVersionHeads(id))?.by !== "me") {
+      if (myDraft(store.listVersionHeads(id)) === undefined) {
         throw new DraftRefused(`Proposal ${id} has no edit of yours to drop: it shows the agent's version already.`);
       }
       return summaryOf(committed(id, store.clearDraft(id)));

@@ -1,7 +1,7 @@
 import { ItemsErrorCode } from "@wombat/shared/api";
-import { canDecide, canReject, canRevise, nextStatus, ProposalErrorCode } from "@wombat/shared/proposals";
+import { canDecide, canDraft, canReject, canRevise, nextStatus, ProposalErrorCode } from "@wombat/shared/proposals";
 
-import { currentVersion, takesDraft } from "../store/proposal-rules.ts";
+import { currentVersion } from "../store/proposal-rules.ts";
 import type { Store, StoredProposal } from "../store/store.ts";
 
 /** A propose call refused for a reason the agent can act on, which the message states; nothing was stored. */
@@ -22,6 +22,9 @@ export class DraftRefused extends Error {
 
 /** Ends every refusal of a revise: the proposal stays as it was. */
 export const PROPOSAL_UNCHANGED = "Your proposal is unchanged.";
+
+/** What a revise refusal asks of the agent when its proposal can no longer be approved at all. */
+export const ASK_TO_REJECT = "ask the user to reject this proposal";
 
 type DecisionErrorCode = ProposalErrorCode | typeof ItemsErrorCode.enum.items_not_configured;
 
@@ -89,7 +92,7 @@ export const toReject = (store: Reads, id: string): StoredProposal => {
 export const toDraft = (store: Reads, id: string): StoredProposal => {
   const stored = store.getProposal(id);
   if (stored === undefined) throw notFound(id);
-  if (!takesDraft(stored.status)) throw notEditable(stored);
+  if (!canDraft(stored.status)) throw notEditable(stored);
   return stored;
 };
 

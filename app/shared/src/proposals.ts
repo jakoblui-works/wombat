@@ -67,8 +67,11 @@ export const canDecide = (status: ProposalStatus): boolean => nextStatus(status,
 /** Whether the user may reject it now: a pending proposal or a conflict. */
 export const canReject = (status: ProposalStatus): boolean => nextStatus(status, "reject") !== undefined;
 
-/** Whether a new version (the agent's revision, the user's draft) may replace the current one: pending or conflict. */
+/** Whether the agent may revise it, its new version replacing the current one: pending or conflict. */
 export const canRevise = (status: ProposalStatus): boolean => canDecide(status) || nextStatus(status, "resolve") !== undefined;
+
+/** Whether the user may save or drop a draft of it: only while it may be approved, so never on a conflict. */
+export const canDraft = (status: ProposalStatus): boolean => canDecide(status);
 
 /**
  * Whether it counts toward MAX_OPEN_PROPOSALS: pending or conflict. Unlike isOpen, a proposal being applied
@@ -142,6 +145,21 @@ export const ProposalVersion = z.object({
   reason: z.string(),
 });
 export type ProposalVersion = z.infer<typeof ProposalVersion>;
+
+/** A proposal's current version: the one with the highest `n`; undefined when there is none. */
+export const currentVersion = <T extends { n: number }>(versions: readonly T[]): T | undefined =>
+  versions.reduce<T | undefined>((highest, version) => (highest === undefined || version.n > highest.n ? version : highest), undefined);
+
+/**
+ * My draft while it is the current version: `mine`, and `theirs`, the agent's version it edits (the latest agent
+ * version before it); undefined when the current version is the agent's. `versions` in the order of their numbers.
+ */
+export const myDraft = <T extends Pick<ProposalVersion, "n" | "by">>(versions: readonly T[]): { mine: T; theirs: T } | undefined => {
+  const mine = currentVersion(versions);
+  if (mine?.by !== "me") return undefined;
+  const theirs = versions.findLast((version) => version.by === "agent" && version.n < mine.n);
+  return theirs === undefined ? undefined : { mine, theirs };
+};
 
 /** `GET /proposals/:id`: the proposal, its target as it is now (null when it doesn't exist), the current version's content and every version. */
 export const ProposalDetail = z.discriminatedUnion("target", [

@@ -9,6 +9,7 @@
 import { z } from "zod";
 
 import { Item, ItemSummary, knownItems, StructureSummary } from "./items.ts";
+import { DiffLine } from "./line-diff.ts";
 import { ProposalErrorCode, Timestamp } from "./proposals.ts";
 import { MAX_BODY_BYTES, queryInt } from "./routes.ts";
 
@@ -584,28 +585,26 @@ export const SERVICE_STOP_REASON = { error: "error", stopped: "stopped" } as con
 /** The ACP session an update or permission request came from; one agent may run more than one (sub-agents). */
 const SessionId = z.string().exactOptional();
 
-/** One line of a line diff, as `lineDiff` (`@wombat/shared/line-diff`) gives it. */
-const NoteDiffLine = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("context"), text: z.string(), oldLine: z.number().int(), newLine: z.number().int() }),
-  z.object({ kind: z.literal("removed"), text: z.string(), oldLine: z.number().int() }),
-  z.object({ kind: z.literal("added"), text: z.string(), newLine: z.number().int() }),
-]);
-
 /**
  * My changes to the agent's version (the one approved, or my draft on a reference): `diff`, the changed lines with a
- * little context (`diffContinues` when unchanged lines follow its last one), or only `diffTooLarge` past the limits.
+ * little context (`diffContinues` when unchanged lines follow its last one; empty when my text differs in no line,
+ * only in its final newline), or only `diffTooLarge` past the limits.
  */
 const NoteDiff = {
-  diff: z.array(NoteDiffLine).exactOptional(),
+  diff: z.array(DiffLine).exactOptional(),
   diffContinues: z.literal(true).exactOptional(),
   diffTooLarge: z.literal(true).exactOptional(),
 };
+
+/** What the agent is told a decision was: `approved_with_changes` when my version was the one approved. */
+export const NoteOutcomeKind = z.enum(["approved", "approved_with_changes", "rejected", "conflict"]);
+export type NoteOutcomeKind = z.infer<typeof NoteOutcomeKind>;
 
 /** A proposal's label: the path of a file, the handle of an item. */
 const NoteOutcome = z.object({
   proposalId: z.string(),
   label: z.string(),
-  outcome: z.enum(["approved", "approved_with_changes", "rejected", "conflict"]),
+  outcome: NoteOutcomeKind,
   reason: z.string().exactOptional(),
   ...NoteDiff,
 });
@@ -667,11 +666,31 @@ const updateKinds: Record<SessionUpdate["sessionUpdate"], true> = {
   config_option_update: true,
 };
 
-/** An entry of a type, or carrying a session update kind, that this app doesn't know (newer service). */
+const noteOutcomeKinds = new Set<unknown>(NoteOutcomeKind.options);
+const diffLineKinds = new Set<unknown>(DiffLine.options.map((option) => option.shape.kind.value));
+
+/** Whether `value` is a list holding an object whose `key` is a string not in `known`. */
+const holdsUnknown = (value: unknown, key: string, known: ReadonlySet<unknown>) =>
+  Array.isArray(value) &&
+  value.some((element: unknown) => {
+    if (typeof element !== "object" || element === null) return false;
+    const kind = (element as Record<string, unknown>)[key];
+    return typeof kind === "string" && !known.has(kind);
+  });
+
+/** Whether a diff (an outcome's or the reference's) holds a line kind this app doesn't know. */
+const unknownDiff = (part: unknown) => typeof part === "object" && part !== null && holdsUnknown((part as { diff?: unknown }).diff, "kind", diffLineKinds);
+
+/** A `proposal_note` with an outcome kind or a diff line kind this app doesn't know (newer service). */
+const isUnknownNote = ({ outcomes, reference }: { outcomes?: unknown; reference?: unknown }) =>
+  holdsUnknown(outcomes, "outcome", noteOutcomeKinds) || (Array.isArray(outcomes) && outcomes.some(unknownDiff)) || unknownDiff(reference);
+
+/** An entry of a type, or carrying a session update kind or note kinds, that this app doesn't know (newer service). */
 const isUnknownLogEntry = (data: unknown) => {
   if (typeof data !== "object" || data === null) return false;
   const { type, update } = data as { type?: unknown; update?: unknown };
   if (typeof type === "string" && !logEntryTypes.has(type)) return true;
+  if (type === "proposal_note") return isUnknownNote(data);
   if (type === "session_update" && typeof update === "object" && update !== null) {
     const updateKind = (update as { sessionUpdate?: unknown }).sessionUpdate;
     return typeof updateKind === "string" && !Object.hasOwn(updateKinds, updateKind);
@@ -680,8 +699,8 @@ const isUnknownLogEntry = (data: unknown) => {
 };
 
 /**
- * Parses one entry from the service. Returns undefined for entry types and session update
- * kinds this app doesn't know (newer service); throws on a malformed known entry.
+ * Parses one entry from the service. Returns undefined for entry types, session update kinds and note kinds this app
+ * doesn't know (newer service); throws on a malformed known entry.
  */
 export const parseLogEntry = (data: unknown): LogEntry | undefined => (isUnknownLogEntry(data) ? undefined : LogEntry.parse(data));
 

@@ -13,9 +13,10 @@ import { z } from "zod";
 import { SEARCH_LIMIT, type Access } from "../items/access.ts";
 import { AccessError, type ItemInput } from "../items/refusals.ts";
 import { TOOL } from "../items/tools.ts";
-import type { Log } from "../log.ts";
+import { errorName, type Log } from "../log.ts";
 import type { Proposals } from "../proposals/proposals.ts";
 import { ProposalRefused } from "../proposals/refused.ts";
+import { REBUILT, type RevisedResult } from "../proposals/revise.ts";
 import { errorResponse, SERVER_STATUS } from "./errors.ts";
 import { refuseForeignHost } from "./port-rules.ts";
 
@@ -142,8 +143,8 @@ const itemInput = ({ title, body, properties, file }: CreateArgs): ItemInput => 
   ...(file === undefined ? {} : { file }),
 });
 
-const text = (value: string, isError = false): CallToolResult => ({
-  content: [{ type: "text", text: value }],
+const text = (value: string, isError = false, aside?: string): CallToolResult => ({
+  content: [{ type: "text", text: value }, ...(aside === undefined ? [] : [{ type: "text" as const, text: aside }])],
   ...(isError ? { isError: true } : {}),
 });
 
@@ -151,16 +152,17 @@ const text = (value: string, isError = false): CallToolResult => ({
 const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "proposals" | "log">, agentId: string) => {
   const server = new McpServer({ name: "wombat", version: String(API_VERSION) }, { capabilities: { tools: {} } });
 
-  /** Runs one tool: its answer as JSON in one text block, a refusal as an error with its message. */
+  /** Runs one tool: its answer as JSON in one text block (then `asideOf` its answer, if any, in a second), a refusal as an error with its message. */
   const answer =
-    <A>(tool: string, call: (args: A) => Promise<unknown>) =>
+    <A, R>(tool: string, call: (args: A) => Promise<R>, asideOf?: (result: R) => string | undefined) =>
     async (args: A): Promise<CallToolResult> => {
       try {
-        return text(JSON.stringify(await call(args)));
+        const result = await call(args);
+        return text(JSON.stringify(result), false, asideOf?.(result));
       } catch (error) {
         if (error instanceof AccessError || error instanceof ProposalRefused) return text(error.message, true);
         // The details stay in the service: an unexpected error's message may name files or hidden items.
-        log("tool_failed", { agentId, tool, error: error instanceof Error ? error.name : "unknown" });
+        log("tool_failed", { agentId, tool, error: errorName(error) });
         return text(`The Wombat service failed to run ${tool}. Try again; if it keeps failing, tell the user.`, true);
       }
     };
@@ -301,11 +303,15 @@ const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "pro
         "Revises one of your own proposals that the user hasn't decided yet (pending, or a conflict) in place, instead " +
         "of proposing anew: for a file, send `edits` to the text the proposal holds now, or the whole new `content`; " +
         "on a conflict, edits apply to the file as it is now. For an item, send the `fields` it should set. The user " +
-        "sees it as a new version of the same proposal. Answers the proposal's id and the new version's number.",
+        "sees it as a new version of the same proposal. Answers the proposal's id and the new version's number; " +
+        "`rebuilt` when, on a conflict, the version was rebuilt on the file or item as it is now and so holds only this " +
+        "revision's changes, none of your earlier versions'.",
       inputSchema: z.object(reviseShape),
     },
-    answer(TOOL.reviseProposal, ({ id, reason: why, edits, content, fields: given }: ReviseArgs) =>
-      proposals.revise(agentId, id, why, { edits: fileEdits(edits), content, fields: given }),
+    answer(
+      TOOL.reviseProposal,
+      ({ id, reason: why, edits, content, fields: given }: ReviseArgs) => proposals.revise(agentId, id, why, { edits: fileEdits(edits), content, fields: given }),
+      (result: RevisedResult) => (result.rebuilt === true ? REBUILT : undefined),
     ),
   );
   return server;
