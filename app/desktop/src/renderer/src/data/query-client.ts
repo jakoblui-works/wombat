@@ -10,10 +10,10 @@ import {
   parseLogEntry,
 } from "@wombat/shared/api";
 import type { FoldEntry } from "@wombat/shared/log-fold";
-import { ListProposalsResponse } from "@wombat/shared/proposals";
+import { ListProposalsResponse, ProposalDetail } from "@wombat/shared/proposals";
 import { bySeq } from "./by-seq.ts";
 import { call } from "./client.ts";
-import { keys, logAgentId } from "./keys.ts";
+import { keys, logAgentId, proposalIdOf } from "./keys.ts";
 
 /** A parsed entry, or an unreadable one kept in its place (the log fold's entry). */
 export type AgentLogEntry = FoldEntry;
@@ -36,10 +36,13 @@ const readHarnesses = () => call("GET", "/harnesses", ListHarnessesResponse);
 const readRepos = () => call("GET", "/repos", ListReposResponse);
 const readProposals = () => call("GET", "/proposals", ListProposalsResponse);
 
+const readProposal = (proposalId: string) => () => call("GET", `/proposals/${encodeURIComponent(proposalId)}`, ProposalDetail);
+
 export const agentsQuery = () => queryOptions({ queryKey: keys.agents, queryFn: readAgents });
 export const harnessesQuery = () => queryOptions({ queryKey: keys.harnesses, queryFn: readHarnesses });
 export const reposQuery = () => queryOptions({ queryKey: keys.repos, queryFn: readRepos });
 export const proposalsQuery = () => queryOptions({ queryKey: keys.proposals, queryFn: readProposals });
+export const proposalQuery = (proposalId: string) => queryOptions({ queryKey: keys.proposal(proposalId), queryFn: readProposal(proposalId) });
 
 /** Entries asked for per log read. */
 export const LOG_PAGE_LIMIT = 500;
@@ -104,6 +107,8 @@ export const queryFor = (queryClient: QueryClient, key: QueryKey): (() => Promis
   });
   const agentId = logAgentId(key);
   if (agentId !== undefined) return again(agentLogQuery(queryClient, agentId)).read;
+  const proposalId = proposalIdOf(key);
+  if (proposalId !== undefined) return again(proposalQuery(proposalId)).read;
   const lists = [again(agentsQuery()), again(harnessesQuery()), again(reposQuery()), again(proposalsQuery())];
   return lists.find((list) => hashKey(list.queryKey) === hashKey(key))?.read;
 };

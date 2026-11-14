@@ -5,7 +5,7 @@ import { hashKey, type QueryClient } from "@tanstack/react-query";
 
 import type { Alert, ListAgentsResponse } from "@wombat/shared/api";
 import type { ConnectionState, WombatBridge } from "../../../shared/bridge.ts";
-import { keys, logAgentId } from "./keys.ts";
+import { keys, logAgentId, proposalIdOf } from "./keys.ts";
 import { forgetAgent } from "./query-client.ts";
 import { refresh } from "./refresh.ts";
 
@@ -16,6 +16,12 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
       .getQueryCache()
       .findAll({ queryKey: keys.logs })
       .flatMap((query) => logAgentId(query.queryKey) ?? []);
+
+  const cachedProposals = (): string[] =>
+    queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ["proposal"] })
+      .flatMap((query) => proposalIdOf(query.queryKey) ?? []);
 
   // The store the cached data comes from: the dbId of the agents list, or of the alerts since it was reset.
   let store = queryClient.getQueryData<ListAgentsResponse>(keys.agents)?.dbId;
@@ -53,6 +59,7 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
         break;
       case "proposal":
         void refresh(queryClient, keys.proposals);
+        void refresh(queryClient, keys.proposal(alert.proposalId));
         break;
     }
   };
@@ -77,6 +84,7 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
       if (seenConnected) {
         void refresh(queryClient, keys.agents).then(dropUnlisted);
         void refresh(queryClient, keys.proposals);
+        for (const proposalId of cachedProposals()) void refresh(queryClient, keys.proposal(proposalId));
         for (const agentId of cachedLogs()) void refresh(queryClient, keys.log(agentId));
       }
       seenConnected = true;

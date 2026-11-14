@@ -11,8 +11,9 @@ import {
   type SetConfigRequest,
   type StartAgentRequest,
 } from "@wombat/shared/api";
+import type { ApproveRequest, RejectRequest } from "@wombat/shared/proposals";
 import { asError } from "../lib/errors.ts";
-import { call } from "./client.ts";
+import { call, ServiceError } from "./client.ts";
 import { keys } from "./keys.ts";
 import { forgetAgent } from "./query-client.ts";
 import { refresh } from "./refresh.ts";
@@ -90,6 +91,25 @@ export const deleteAgentFn = async (agentId: string): Promise<void> => {
   await call("DELETE", agentPath(agentId), Ignored);
 };
 
+export type DecideVars = { proposalId: string } & ({ decision: "approve"; version: number } | { decision: "reject"; reason?: string });
+
+const proposalPath = (proposalId: string): string => `/proposals/${encodeURIComponent(proposalId)}`;
+
+/** Approves the version the user saw, or rejects. `proposal_changed` resolves as "changed": the refresh in onSettled shows the new version. */
+export const decideFn = async (vars: DecideVars): Promise<"decided" | "changed"> => {
+  try {
+    if (vars.decision === "approve") {
+      await call("POST", `${proposalPath(vars.proposalId)}/approve`, Ignored, { version: vars.version } satisfies ApproveRequest);
+    } else {
+      await call("POST", `${proposalPath(vars.proposalId)}/reject`, Ignored, (vars.reason === undefined ? {} : { reason: vars.reason }) satisfies RejectRequest);
+    }
+    return "decided";
+  } catch (error) {
+    if (error instanceof ServiceError && error.code === "proposal_changed") return "changed";
+    throw error;
+  }
+};
+
 const refreshAgent = (queryClient: QueryClient, agentId: string): Promise<void> =>
   Promise.all([refresh(queryClient, keys.agents), refresh(queryClient, keys.log(agentId))]).then(() => undefined);
 
@@ -126,6 +146,13 @@ export const deleteAgentMutation = (queryClient: QueryClient) =>
     },
   });
 
+export const decideMutation = (queryClient: QueryClient) =>
+  mutationOptions({
+    mutationFn: decideFn,
+    onSettled: (_data, _error, { proposalId }) =>
+      Promise.all([refresh(queryClient, keys.proposals), refresh(queryClient, keys.proposal(proposalId))]).then(() => undefined),
+  });
+
 export const useStartAgent = () => useMutation(startAgentMutation(useQueryClient()));
 export const useSendMessage = () => useMutation(sendMessageMutation(useQueryClient()));
 export const useAnswerPermission = () => useMutation(answerPermissionMutation(useQueryClient()));
@@ -133,4 +160,5 @@ export const useSetConfig = () => useMutation(setConfigMutation(useQueryClient()
 export const useContextBreakdown = () => useMutation(contextBreakdownMutation());
 export const useCancelTurn = () => useMutation(cancelTurnMutation(useQueryClient()));
 export const useStopAgent = () => useMutation(stopAgentMutation(useQueryClient()));
+export const useDecide = () => useMutation(decideMutation(useQueryClient()));
 export const useDeleteAgent = () => useMutation(deleteAgentMutation(useQueryClient()));

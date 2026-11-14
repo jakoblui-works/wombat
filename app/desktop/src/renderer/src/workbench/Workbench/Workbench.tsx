@@ -6,11 +6,11 @@ import type { ListAgentsResponse } from "@wombat/shared/api";
 import type { ConnectionState } from "../../../../shared/bridge.ts";
 import { isSettled, NO_RESTART, restartAttempt, showsBanner } from "@/lib/connection-state";
 import { cn } from "@/lib/utils";
-import { useAgents, useConnection } from "../../data/hooks.ts";
+import { useAgents, useConnection, useProposals } from "../../data/hooks.ts";
 import { keys } from "../../data/keys.ts";
 // Registers the activities and their views, which the workbench reads from the registry.
 import "../activities.ts";
-import { needsMe } from "../../data/needs-me.ts";
+import { needsMeCount } from "../../data/needs-me.ts";
 import { defaultLayout, restoreLayout, type SavedLayout } from "../layout.ts";
 import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
@@ -106,6 +106,7 @@ const agentsAnswered = (state: QueryState<ListAgentsResponse> | undefined, conne
 export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const queryClient = useQueryClient();
   const agents = useAgents();
+  const proposals = useProposals();
   const connectionState = useConnection();
   const { state: connection, message: connectionMessage } = connectionState;
   const [api, setApi] = useState<DockviewApi>();
@@ -316,7 +317,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
             <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
               <TitleBar
                 right={rightView}
-                count={agentList === undefined ? 0 : needsMe(agentList).length}
+                count={agentList === undefined ? 0 : needsMeCount(agentList, proposals.data?.proposals ?? [])}
                 rightOpen={!chrome.sidebars.rightCollapsed}
                 onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
               />
