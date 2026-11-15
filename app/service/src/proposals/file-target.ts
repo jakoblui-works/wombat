@@ -174,7 +174,7 @@ export const readText = async (realPath: string): Promise<TargetText | undefined
 };
 
 /** Whether the file read as `now` (undefined or null: missing or unreadable) is still at `baseVersion`, the version a proposal was made on. */
-export const atBase = (now: TargetText | null | undefined, baseVersion: string | null): boolean =>
+const atBase = (now: TargetText | null | undefined, baseVersion: string | null): boolean =>
   now !== null && now !== undefined && !("problem" in now) && now.version === baseVersion;
 
 /** An existing target's text and version, undefined when it's gone since; refuses one that isn't text that fits. */

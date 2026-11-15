@@ -14,7 +14,7 @@ import { inputText, problemsByField, typedValue, UNKNOWN_ITEM, valueText, withFi
 type Fields = Readonly<Record<string, unknown>>;
 
 /** My fields, editable: `change` saves them as I type, `now` right away (a drop or a restore). */
-export type ItemEdit = { value: Fields; change: (fields: Record<string, unknown>, now: boolean) => void };
+type ItemEdit = { value: Fields; change: (fields: Record<string, unknown>, now: boolean) => void };
 
 type Option = { value: string; label: string };
 

@@ -2,9 +2,9 @@
 // so the rest of the page, and the registry under node, never load it.
 import { useEffect, useRef } from "react";
 
+import { asEditorText } from "../../../../lib/editor-text.ts";
 import { languageOf, MONACO_HOST_CLASS, MONACO_THEME, monaco } from "../../../../lib/monaco.ts";
 import { cn } from "../../../../lib/utils";
-import { asEditorText } from "../../Proposal/line-endings.ts";
 
 type Props = {
   path: string;
@@ -15,9 +15,9 @@ type Props = {
   lineNumbers?: boolean | undefined;
   /**
    * Makes the right side editable, with the gutter's arrows that drop a hunk. Every change, typed or dropped, calls
-   * `onChange` with the whole right-side text (in the model's line endings, without a leading byte order mark). The editor keeps its own text: a
-   * `newText` it reported through `onChange`, or with the lines it holds, leaves it; only a new `path` or another
-   * `newText` replaces it. A new `oldText` changes only the left side.
+   * `onChange` with the whole right-side text (in the model's line endings, without a leading byte order mark). The
+   * editor keeps its own text: a `newText` it reported through `onChange`, or with the lines it holds, leaves it; only
+   * a new `path` or another `newText` replaces it. A new `oldText` changes only the left side.
    */
   edit?: { onChange: (text: string) => void } | undefined;
 };

@@ -13,7 +13,7 @@ export const PROPOSAL_VIEW = "proposal";
 export const PROPOSAL_TITLE = "Proposal";
 
 /** What the proposal tab's rules look at: the proposals as the service lists them, undefined until they're read. */
-export type ProposalsContext = { proposals: readonly Pick<Proposal, "id" | "status">[] | undefined };
+type ProposalsContext = { proposals: readonly Pick<Proposal, "id" | "status">[] | undefined };
 
 /** The tab's proposal: "unknown" while the proposals aren't read, undefined when the service doesn't list it. */
 const listed = (params: unknown, { proposals }: ProposalsContext): Pick<Proposal, "id" | "status"> | "unknown" | undefined => {

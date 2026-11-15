@@ -2,13 +2,7 @@
 // start with a mark, and the service writes exactly what it gets.
 import { lineDiffWithin } from "@wombat/shared/line-diff";
 
-const BREAK = /\r\n|\r|\n/;
-const BOM = "\uFEFF";
-
-const withoutBom = (text: string): string => (text.startsWith(BOM) ? text.slice(BOM.length) : text);
-
-/** `text` as the editor gives it back: every line break a "\n", no leading byte order mark. */
-export const asEditorText = (text: string): string => withoutBom(text).replace(new RegExp(BREAK, "g"), "\n");
+import { BOM, BREAK, withoutBom } from "../../../lib/editor-text.ts";
 
 type Line = { text: string; end: string };
 

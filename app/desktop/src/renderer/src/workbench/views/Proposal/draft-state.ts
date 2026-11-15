@@ -12,7 +12,7 @@ export type DraftContent<K extends DraftKey> = Pick<DraftValues, K>;
 /**
  * After the agent revised what I was editing: `draft`, the version holding my saved edits, now a previous one
  * (undefined when there is none); `lost`, whether edits past it (typed, or on their way to be saved) were dropped. With
- * no edits of mine to keep or lose, `version`: the agent's new version the editor now shows.
+ * no edits of mine to keep or lose, `version`: the new version the editor now shows (the agent's revision, or its edits applied again by Approve).
  */
 export type ReviseNotice = { draft: number | undefined; lost: boolean } | { version: number };
 

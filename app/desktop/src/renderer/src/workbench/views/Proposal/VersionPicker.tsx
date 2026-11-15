@@ -5,7 +5,7 @@ import { ago, useNow } from "../../../lib/ago";
 const REASON_CHARS = 80;
 
 /** One version as the picker lists it: "v2 · you · 4m", the agent's title for its own, then the reason (cut short) and whether it's current. */
-export const versionEntry = (version: ProposalVersion, agentTitle: string, current: number, now: number): string => {
+const versionEntry = (version: ProposalVersion, agentTitle: string, current: number, now: number): string => {
   const reason = version.reason.length > REASON_CHARS ? `${version.reason.slice(0, REASON_CHARS - 1)}…` : version.reason;
   return [`v${String(version.n)}`, version.by === "me" ? "you" : agentTitle, ago(version.at, now), version.n === current ? "current" : "", reason]
     .filter((part) => part !== "")

@@ -4,7 +4,7 @@ import { canDecide, canDraft, canReject, canRevise, isOpen, type Proposal, type 
 import type { ConnectionState } from "../../../../../shared/bridge.ts";
 import { featuresOrAssumed } from "../Chat/harness-features.ts";
 
-export type ProposalActions = { approve: boolean; reject: boolean; revise: boolean; draft: boolean };
+type ProposalActions = { approve: boolean; reject: boolean; revise: boolean; draft: boolean };
 
 /**
  * Which of a proposal's buttons are enabled. Deciding and drafting need the service, so none is enabled while not

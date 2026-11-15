@@ -50,7 +50,7 @@ const refusedProblems = (error: SaveError | undefined): readonly Problem[] =>
   error?.error instanceof ServiceError && error.error.code === ServerErrorCode.enum.invalid_request ? (error.error.problems ?? []) : [];
 
 const revisedLine = (notice: ReviseNotice): string => {
-  if ("version" in notice) return `Revised by the agent; this is v${String(notice.version)}.`;
+  if ("version" in notice) return `A new version, v${String(notice.version)}, is shown.`;
   const { draft, lost } = notice;
   if (draft === undefined) return "Revised by the agent before your edits were saved; they were made on the previous version and aren't kept.";
   return lost
@@ -232,7 +232,7 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
             : `Couldn't save your edits: ${draft.error.error.message.replace(/\.$/, "")}. They're saved again when you type, or press Approve to retry.`}
         </p>
       )}
-      {draft.notice === undefined || state.outcome !== undefined ? null : <Notice tone="plain">{revisedLine(draft.notice)}</Notice>}
+      {draft.notice === undefined || state.outcome !== undefined || decide.data === "changed" ? null : <Notice tone="plain">{revisedLine(draft.notice)}</Notice>}
       {viewingEarlier ? (
         <div className="flex items-center gap-2 border-b border-line px-3 py-1.5 text-sm text-fg-secondary">
           <span>An earlier version, v{viewing}, read-only.</span>

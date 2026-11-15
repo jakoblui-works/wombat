@@ -63,8 +63,9 @@ export const NOTE_NEWLINE_ONLY = "Only the final newline changed.";
 export const NOTE_CONTINUES = "More lines follow that didn't change.";
 
 /**
- * A stored diff as rows (gaps worked out from the lines' numbers, one before the first line when it isn't line 1) and the fixed lines that go with them: too large,
- * only the final newline differing (an empty diff), and unchanged lines continuing after the last one.
+ * A stored diff as rows (gaps worked out from the lines' numbers, one before the first line when it isn't line 1) and
+ * the fixed lines that go with them: too large, only the final newline differing (an empty diff), and unchanged lines
+ * continuing after the last one.
  */
 export const storedDiffRows = ({ diff, diffContinues, diffTooLarge }: StoredDiff): { rows: InlineRow[]; says: string[] } => {
   if (diffTooLarge === true) return { rows: [], says: [NOTE_TOO_LARGE] };

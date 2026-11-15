@@ -13,7 +13,6 @@ export type FieldRow = {
   proposed: unknown;
   /** My draft's value, when my draft holds the field. */
   mine?: unknown;
-  editable: boolean;
   /** The agent's version sets it and my draft leaves it out. */
   dropped: boolean;
 };
@@ -33,14 +32,12 @@ const valueIn = (item: Item | null, name: string): unknown => {
 
 /**
  * The rows of an item proposal: `item` as it is now (null for a create), `versionFields` the agent's version's fields,
- * `draftFields` my draft's while it holds any change of mine. A delete's rows are the item's own fields, read-only;
- * without `kind`, a proposal with an item and no fields is taken for one.
+ * `draftFields` my draft's while it holds any change of mine. A delete's rows are the item's own fields, read-only.
  */
-export const fieldRows = (item: Item | null, versionFields: Fields, draftFields: Fields | undefined, kind?: ItemProposalKind): FieldRow[] => {
-  const isDelete = kind === undefined ? item !== null && Object.keys(versionFields).length === 0 : kind === "delete";
-  if (isDelete) {
+export const fieldRows = (item: Item | null, versionFields: Fields, draftFields: Fields | undefined, kind: ItemProposalKind): FieldRow[] => {
+  if (kind === "delete") {
     if (item === null) return [];
-    return ordered(["title", "body", ...Object.keys(item.properties)]).map((name) => ({ name, old: valueIn(item, name), proposed: undefined, editable: false, dropped: false }));
+    return ordered(["title", "body", ...Object.keys(item.properties)]).map((name) => ({ name, old: valueIn(item, name), proposed: undefined, dropped: false }));
   }
   const extra = draftFields === undefined ? [] : Object.keys(draftFields).filter((name) => !Object.hasOwn(versionFields, name));
   return ordered([...Object.keys(versionFields), ...extra]).map((name) => {
@@ -51,7 +48,6 @@ export const fieldRows = (item: Item | null, versionFields: Fields, draftFields:
       old: valueIn(item, name),
       proposed,
       ...(held ? { mine: draftFields[name] } : {}),
-      editable: true,
       dropped: draftFields !== undefined && Object.hasOwn(versionFields, name) && !held,
     };
   });

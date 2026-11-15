@@ -28,7 +28,7 @@ import {
 } from "./draft-state.ts";
 
 /** How long after the last change my text is saved. */
-export const SAVE_DELAY_MS = 800;
+const SAVE_DELAY_MS = 800;
 
 /** What a draft of one kind takes from the proposal it edits, and its reducer and save from draft-state.ts. */
 type DraftSource<K extends DraftKey> = {
@@ -57,7 +57,7 @@ const ITEM: DraftSource<"fields"> = {
   body: (fields) => ({ fields }),
 };
 
-export type DraftEditor<V> = {
+type DraftEditor<V> = {
   /** The value the editor shows when it (re)mounts, undefined until the proposal is read. */
   value: V | undefined;
   notice: ReviseNotice | undefined;

@@ -17,7 +17,7 @@ export const proposalTabLabel = (proposal: ProposalDetail): string => {
   return typeof title === "string" && title.trim() !== "" ? `${proposal.structure}: ${title}` : proposalLabel(proposal);
 };
 
-export const AGENT_DELETED = "agent deleted";
+const AGENT_DELETED = "agent deleted";
 
 /** Whose proposal it is: its agent's title, or AGENT_DELETED once the agent is gone from `agents`. */
 export const proposalAgentTitle = (proposal: Pick<Proposal, "agentId">, agents: readonly AgentSummary[]): string => {

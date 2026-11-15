@@ -96,7 +96,7 @@ export const deleteAgentFn = async (agentId: string): Promise<void> => {
   await call("DELETE", agentPath(agentId), Ignored);
 };
 
-export type DecideVars = { proposalId: string } & ({ decision: "approve"; version: number } | { decision: "reject"; reason?: string });
+type DecideVars = { proposalId: string } & ({ decision: "approve"; version: number } | { decision: "reject"; reason?: string });
 
 /**
  * What an approve of version `sent` came to: "changed" when the proposal is still open at a newer version (the file
@@ -112,7 +112,7 @@ const isProposalChanged = (error: unknown): boolean => error instanceof ServiceE
  * Approves the version the user saw, or rejects. `proposal_changed`, and an approve that made a new version instead,
  * resolve as "changed": the refresh in onSettled shows the new version.
  */
-export const decideFn = async (vars: DecideVars): Promise<"decided" | "changed"> => {
+const decideFn = async (vars: DecideVars): Promise<"decided" | "changed"> => {
   try {
     if (vars.decision === "approve") {
       const after = await call("POST", `${proposalPath(vars.proposalId)}/approve`, Proposal, { version: vars.version } satisfies ApproveRequest);
@@ -129,14 +129,14 @@ export const decideFn = async (vars: DecideVars): Promise<"decided" | "changed">
 /** What a draft saves: a file's whole text, or an item's fields (links as ids). */
 export type DraftBody = { text: string } | { fields: Record<string, unknown> };
 
-export type DraftVars = { proposalId: string } & ({ action: "save"; onVersion: number; body: DraftBody } | { action: "clear" });
+type DraftVars = { proposalId: string } & ({ action: "save"; onVersion: number; body: DraftBody } | { action: "clear" });
 
 /**
  * Saves my text or fields as my version of a proposal, or drops my version. Answers the proposal after it, or
  * "changed" when the save named an agent version that is no longer the latest (the agent revised): the refresh in
  * onSettled shows the new version.
  */
-export const draftFn = async (vars: DraftVars): Promise<Proposal | "changed"> => {
+const draftFn = async (vars: DraftVars): Promise<Proposal | "changed"> => {
   const path = `${proposalPath(vars.proposalId)}/draft`;
   try {
     return vars.action === "save"
@@ -187,13 +187,13 @@ export const deleteAgentMutation = (queryClient: QueryClient) =>
     },
   });
 
-export const decideMutation = (queryClient: QueryClient) =>
+const decideMutation = (queryClient: QueryClient) =>
   mutationOptions({
     mutationFn: decideFn,
     onSettled: (_data, _error, { proposalId }) => refreshProposal(queryClient, proposalId),
   });
 
-export const draftMutation = (queryClient: QueryClient) =>
+const draftMutation = (queryClient: QueryClient) =>
   mutationOptions({ mutationFn: draftFn, onSettled: (_data, _error, { proposalId }) => refreshProposal(queryClient, proposalId) });
 
 export const useStartAgent = () => useMutation(startAgentMutation(useQueryClient()));
