@@ -4,7 +4,7 @@
 // edit or a parallel write is never overwritten unseen.
 import { createHash, randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
-import { chmod, link, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { link, open, readFile, rename, rm, stat, unlink } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { errorCode, isMissing } from "@wombat/shared/errno";
@@ -92,15 +92,35 @@ export const writeAtomic = async (path: string, data: string | Uint8Array, { cre
   try {
     // Created with the target's mode, so its content is never readable more widely than the target's; the umask may
     // still drop bits, which the chmod puts back.
-    await writeFile(temp, data, { flag: "wx", ...(mode === undefined ? {} : { mode }) });
-    if (mode !== undefined) await chmod(temp, mode);
+    const file = await open(temp, "wx", mode);
+    try {
+      await file.writeFile(data);
+      if (mode !== undefined) await file.chmod(mode);
+      // On disk before the rename: a crash after it must not leave the target holding a file whose data never landed.
+      await file.sync();
+    } finally {
+      await file.close();
+    }
     if (create) await linkNew(temp, path);
     else {
       await expectVersion(path, expectedVersion);
       await rename(temp, path);
     }
+    await syncFolder(dirname(path));
   } finally {
     await rm(temp, { force: true });
+  }
+};
+
+/** Makes a rename or link in `folder` durable; a filesystem that can't sync a folder (EINVAL) gets no folder sync. */
+const syncFolder = async (folder: string) => {
+  const handle = await open(folder, "r");
+  try {
+    await handle.sync();
+  } catch (error) {
+    if (errorCode(error) !== "EINVAL") throw error;
+  } finally {
+    await handle.close();
   }
 };
 
