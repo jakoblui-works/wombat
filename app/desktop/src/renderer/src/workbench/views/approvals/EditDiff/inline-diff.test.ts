@@ -19,6 +19,7 @@ const SECOND_HUNK: DiffLine[] = [
 
 test.each<[string, Parameters<typeof storedDiffRows>[0], ReturnType<typeof storedDiffRows>]>([
   ["two hunks have the unchanged lines between them as one gap", { diff: [...FIRST_HUNK, ...SECOND_HUNK] }, { rows: [...FIRST_HUNK, { kind: "gap", count: 6 }, ...SECOND_HUNK], says: [] }],
+  ["a first line past line 1 has the unchanged lines before it as a gap", { diff: SECOND_HUNK }, { rows: [{ kind: "gap", count: 8 }, ...SECOND_HUNK], says: [] }],
   ["unchanged lines after the last one are said to follow", { diff: FIRST_HUNK, diffContinues: true }, { rows: FIRST_HUNK, says: [NOTE_CONTINUES] }],
   ["an empty diff: only the final newline changed", { diff: [] }, { rows: [], says: [NOTE_NEWLINE_ONLY] }],
   ["a diff too large to store", { diffTooLarge: true }, { rows: [], says: [NOTE_TOO_LARGE] }],

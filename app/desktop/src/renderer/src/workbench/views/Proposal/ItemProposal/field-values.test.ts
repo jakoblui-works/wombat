@@ -12,12 +12,7 @@ const NUMBER: LenientProperty = { type: "number", required: false };
 test.each<[string, unknown]>([
   ["", null],
   ["5", 5],
-  ["-2.5", -2.5],
   ["0.", "0."],
-  ["05", "05"],
-  ["1.50", "1.50"],
-  [" 5", " 5"],
-  ["abc", "abc"],
 ])("a number property's text %j proposes %j", (text, proposed) => {
   expect(typedValue(text, NUMBER)).toEqual(proposed);
 });

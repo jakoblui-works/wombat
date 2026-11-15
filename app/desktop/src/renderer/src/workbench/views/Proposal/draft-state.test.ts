@@ -136,6 +136,17 @@ test.each<[string, (editor: Editor, service: Service) => void]>([
     },
   ],
   [
+    "the agent revises with nothing of mine: the notice names its new version, and my next typing clears it",
+    (editor, service) => {
+      service.revise(AGENT_AGAIN);
+      editor.read();
+      expect(editor.now().seed).toBe(AGENT_AGAIN);
+      expect(editor.now().notice).toEqual({ version: service.current() });
+      editor.type(MINE);
+      expect(editor.now().notice).toBeUndefined();
+    },
+  ],
+  [
     "my own save read back before its answer leaves what I typed since in the editor",
     (editor, service) => {
       editor.type(MINE);
