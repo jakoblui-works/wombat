@@ -2,6 +2,7 @@
 // level and locks bind it), and the user's draft, checked as the user's own write would be (no agent locks).
 import { isDeepStrictEqual } from "node:util";
 
+import { viewOf } from "../items/agent-view.ts";
 import { newItem } from "../items/refusals.ts";
 import { TOOL } from "../items/tools.ts";
 import { ItemWriteError, listed, type ItemChange } from "../items/write.ts";
@@ -23,7 +24,7 @@ export type ItemRevisions = {
   checkItemDraft(stored: StoredItemProposal, fields: Record<string, unknown>): Promise<void>;
 };
 
-type ItemRevisionsOptions = Pick<ItemProposalsOptions, "catalog" | "writer" | "viewOf"> & { checks: ItemChecks };
+type ItemRevisionsOptions = Pick<ItemProposalsOptions, "catalog" | "writer"> & { checks: ItemChecks };
 
 const NO_FIELDS = "A delete proposal has no fields to change.";
 
@@ -32,7 +33,7 @@ const UNREACHABLE = `The item this proposal changes, or the structure it adds on
 
 const SAME_FIELDS = `The fields are the same as your proposal's current ones, so they change nothing. ${PROPOSAL_UNCHANGED}`;
 
-export const itemRevisions = ({ catalog, writer, viewOf, checks }: ItemRevisionsOptions): ItemRevisions => {
+export const itemRevisions = ({ catalog, writer, checks }: ItemRevisionsOptions): ItemRevisions => {
   /** `fields` checked as a change of the target as it is now, and the item's version now (null for a create). */
   const checkedOnNow = async (stored: StoredItemProposal, fields: Record<string, unknown>): Promise<{ fields: Record<string, unknown>; version: string | null }> => {
     const current = viewOf(await catalog.snapshot());

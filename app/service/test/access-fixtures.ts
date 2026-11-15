@@ -178,7 +178,7 @@ const itemOnly = <T extends ItemProposalRecord = ItemProposalRecord>(proposal: {
   return proposal as T;
 };
 
-/** Access on `opened`'s catalog, writer and store, with the proposals and the note source over it (the items root as the workspace), wired as the server wires them. */
+/** Access on `opened`'s catalog, writer and store, with the proposals and the note source beside it (the items root as the workspace), wired as the server wires them. */
 export const withProposals = (
   { root, catalog, writer, store }: Pick<Opened, "root" | "catalog" | "writer" | "store">,
   { onProposal = () => undefined, log = logToStderr }: { onProposal?: (id: string, seq: number) => void; log?: Log } = {},

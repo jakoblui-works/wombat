@@ -119,8 +119,10 @@ describe("proposals", () => {
     expect(readAt(root, BUG)).toContain("note: Fixed by the grid");
 
     const removal = await access.proposeDelete(AGENT, "BUG-2", (await access.get("BUG-2")).version, "A duplicate");
-    expect((await access.approve(removal.proposed, 1)).status).toBe("approved");
+    const decided = await access.approve(removal.proposed, 1);
+    expect(decided.status).toBe("approved");
     expect(existsSync(join(root, BUG))).toBe(false);
+    expect(decided.handle, "the deleted item's proposal still names it").toBe("BUG-2");
   });
 
   test("rejecting marks the proposal rejected and touches no file", async () => {

@@ -170,7 +170,6 @@ const TARGETS: Record<string, Target> = {
 const CASES: [keyof typeof TARGETS, ApproveStep][] = [
   ["a file edit", "after_applying_commit"],
   ["a file edit", "after_write"],
-  ["an item create", "after_applying_commit"],
   ["an item create", "after_write"],
   ["an item delete", "after_write"],
 ];

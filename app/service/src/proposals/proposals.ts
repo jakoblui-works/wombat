@@ -17,6 +17,7 @@ import type { Applied, ApplyTarget, ApproveStep, Written } from "./apply.ts";
 import { baseChanged, currentFile, workspaceMark, writeProposed, written } from "./file-target.ts";
 import {
   itemProposalOf,
+  openItemProposals,
   type ItemProposalDetail,
   type ItemProposalRecord,
   type ItemProposals,
@@ -262,13 +263,14 @@ type OpenProposalsOptions = Omit<ProposalsOptions, "items" | "holds"> & {
 };
 
 /**
- * The proposals with everything they work with: the item tools' access (undefined without items), the proposals
- * over it, told which files the items own, and the note source for the agents' next messages.
+ * The proposals with everything they work with: the item tools' access and the item side of proposals (both
+ * undefined without items), the proposals told which files the items own, and the note source for the agents' next messages.
  */
 export const openProposals = ({ items, ...options }: OpenProposalsOptions) => {
-  const access = items === undefined ? undefined : openAccess({ catalog: items.catalog, writer: items.writer, store: options.store });
+  const access = items === undefined ? undefined : openAccess(items);
+  const itemProposals = items === undefined ? undefined : openItemProposals({ ...items, store: options.store });
   const holds = items === undefined ? undefined : (path: string) => items.catalog.holds(path);
-  const proposals = createProposals({ ...options, items: access, holds });
-  const notes = noteSource({ store: options.store, items: access, log: options.log });
+  const proposals = createProposals({ ...options, items: itemProposals, holds });
+  const notes = noteSource({ store: options.store, items: itemProposals, log: options.log });
   return { access, proposals, notes };
 };

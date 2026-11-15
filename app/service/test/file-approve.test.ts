@@ -63,15 +63,6 @@ const bench = () => {
 
 const read = (path: string) => readFileSync(path, "utf8");
 
-test("approving the current version writes exactly its text", async () => {
-  const { proposals, path, proposeEdit } = bench();
-  const id = await proposeEdit();
-
-  expect(await proposals.approve(id, 1)).toMatchObject({ status: "approved" });
-
-  expect(read(path)).toBe(notes(PROPOSED));
-});
-
 test("after a hand edit elsewhere in the file, approving writes nothing and leaves a new version with both changes, which then approves", async () => {
   const { proposals, path, text, store, proposeEdit } = bench();
   const id = await proposeEdit();

@@ -11,10 +11,11 @@ import { isMissing } from "@wombat/shared/errno";
 import type { Item } from "@wombat/shared/items";
 import type { ItemProposal, ProposalVersion } from "@wombat/shared/proposals";
 
-import type { View } from "../items/access.ts";
+import { agentWriteError, itemFor, structureFor, viewOf, type View } from "../items/agent-view.ts";
 import { handlesById, withLinks } from "../items/api-view.ts";
-import type { Catalog, LoadedItem, LoadedStructure, Snapshot, ValidStructure } from "../items/catalog.ts";
-import { checkHasId, checkLevel, checkLocks, lockedNames, newItem, type Change, type Family, type ItemInput } from "../items/refusals.ts";
+import type { Catalog, LoadedItem, LoadedStructure, ValidStructure } from "../items/catalog.ts";
+import { writeGuards, type WriteGuards } from "../items/guards.ts";
+import { lockedNames, newItem, type Change, type ItemInput } from "../items/refusals.ts";
 import { SETTINGS_FILE } from "../items/structures.ts";
 import { ItemWriteError, presentValues, type Writer } from "../items/write.ts";
 import type { VersionAuthor } from "../store/proposal-rules.ts";
@@ -60,19 +61,7 @@ export type ItemProposals = ItemRevisions & {
   itemTarget: ApplyTarget;
 };
 
-/** The view functions come from access.ts, which alone decides what an agent may read about a structure. */
-export type ItemProposalsOptions = {
-  catalog: Catalog;
-  writer: Writer;
-  store: Store;
-  viewOf: (snapshot: Snapshot) => View;
-  structureFor: (view: View, id: string) => ValidStructure;
-  itemFor: (view: View, handle: string) => { item: LoadedItem; structure: ValidStructure; handle: string };
-  checkStructure: (view: View, structure: ValidStructure) => void;
-  linksToIds: (view: View, structure: ValidStructure, values: Record<string, unknown>) => Record<string, unknown>;
-  checkNewFile: (view: View, structure: ValidStructure, file: unknown, family: Family) => Promise<void>;
-  agentWriteError: (view: View, error: unknown, subject: { handle?: string; structure: ValidStructure }) => unknown;
-};
+export type ItemProposalsOptions = { catalog: Catalog; writer: Writer; store: Store };
 
 /**
  * What an item approve's applying commit stores: a create's new id; an update's resulting file version; a delete's
@@ -159,20 +148,13 @@ const writeFailure = (error: unknown, stored: StoredItemProposal): Applied | und
   return conflict(error.message, error.problems.length === 1 ? only?.field : undefined);
 };
 
-type ItemChecksOptions = Pick<ItemProposalsOptions, "writer" | "checkStructure" | "linksToIds" | "checkNewFile" | "agentWriteError">;
-
 /**
- * The checks an agent's new or changed item runs before anything is stored, in the direct change's order, for its
- * proposal and its revision alike; each throws the agent's refusal and answers the fields to store (links as ids).
+ * The checks an agent's new or changed item runs before anything is stored, for its proposal and its revision alike:
+ * the guards, then the writer's dry run. Each throws the agent's refusal and answers the fields to store (links as ids).
  */
-const itemChecks = ({ writer, checkStructure, linksToIds, checkNewFile, agentWriteError }: ItemChecksOptions) => ({
+const itemChecks = (writer: Writer, guards: WriteGuards) => ({
   checkedCreate: async (current: View, structure: ValidStructure, input: ItemInput): Promise<Record<string, unknown>> => {
-    checkLevel(structure, "propose", "create");
-    const properties = input.properties ?? {};
-    checkLocks(structure, "create", Object.keys(properties));
-    const linked = presentValues(linksToIds(current, structure, properties));
-    checkStructure(current, structure);
-    await checkNewFile(current, structure, input.file, "propose");
+    const linked = presentValues(await guards.create(current, structure, input, "propose"));
     try {
       await writer.check({ kind: "create", structureId: structure.id, item: newItem(input, linked), unseen: current.hiddenFolders });
     } catch (error) {
@@ -183,10 +165,7 @@ const itemChecks = ({ writer, checkStructure, linksToIds, checkNewFile, agentWri
 
   /** `handle`, the item's; `named`, the handle the agent gave, which a refusal names. */
   checkedUpdate: async (current: View, structure: ValidStructure, handle: string, fields: Record<string, unknown>, baseVersion: string, named = handle): Promise<Record<string, unknown>> => {
-    checkLevel(structure, "propose", "update");
-    checkLocks(structure, "update", Object.keys(fields));
-    checkStructure(current, structure);
-    const linked = linksToIds(current, structure, fields);
+    const linked = guards.update(current, structure, fields, "propose");
     try {
       await writer.check({ kind: "update", handle, fields: linked, baseVersion });
     } catch (error) {
@@ -198,20 +177,10 @@ const itemChecks = ({ writer, checkStructure, linksToIds, checkNewFile, agentWri
 
 export type ItemChecks = ReturnType<typeof itemChecks>;
 
-export const openItemProposals = ({
-  catalog,
-  writer,
-  store,
-  viewOf,
-  structureFor,
-  itemFor,
-  checkStructure,
-  linksToIds,
-  checkNewFile,
-  agentWriteError,
-}: ItemProposalsOptions): ItemProposals => {
+export const openItemProposals = ({ catalog, writer, store }: ItemProposalsOptions): ItemProposals => {
   const view = async () => viewOf(await catalog.snapshot());
-  const checks = itemChecks({ writer, checkStructure, linksToIds, checkNewFile, agentWriteError });
+  const guards = writeGuards(writer);
+  const checks = itemChecks(writer, guards);
 
   const checkCreate = async (agentId: string, structureId: string, input: ItemInput, reason: string): Promise<CheckedItemProposal> => {
     const current = await view();
@@ -234,9 +203,7 @@ export const openItemProposals = ({
   const checkDelete = async (agentId: string, handle: string, version: string, reason: string): Promise<CheckedItemProposal> => {
     const current = await view();
     const { item, structure, handle: target } = itemFor(current, handle);
-    checkLevel(structure, "propose", "delete");
-    checkStructure(current, structure);
-    checkHasId(item, target);
+    guards.remove(current, structure, item, target, "propose");
     try {
       await writer.check({ kind: "delete", handle: target, baseVersion: version });
     } catch (error) {
@@ -302,7 +269,7 @@ export const openItemProposals = ({
   };
 
   return {
-    ...itemRevisions({ catalog, writer, viewOf, checks }),
+    ...itemRevisions({ catalog, writer, checks }),
 
     checkItemProposal: (agentId, change, reason) => {
       if (change.kind === "create") return checkCreate(agentId, change.structure, change.input, reason);
