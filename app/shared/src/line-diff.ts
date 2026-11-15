@@ -1,11 +1,14 @@
-// An edit's lines, old against new, pure: what the chat's edit card shows. Myers' diff (the fewest lines removed and
-// added), after the lines both texts start and end with are set aside.
+// Two texts' lines, old against new, pure: what the chat's edit card shows and what an agent is told of my changes.
+// Myers' diff (the fewest lines removed and added), after the lines both texts start and end with are set aside.
+import { z } from "zod";
 
 /** One line of a diff: unchanged (both numbers), removed (its old number) or added (its new number); numbers from 1. */
-export type DiffLine =
-  | { kind: "context"; text: string; oldLine: number; newLine: number }
-  | { kind: "removed"; text: string; oldLine: number }
-  | { kind: "added"; text: string; newLine: number };
+export const DiffLine = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("context"), text: z.string(), oldLine: z.number().int(), newLine: z.number().int() }),
+  z.object({ kind: z.literal("removed"), text: z.string(), oldLine: z.number().int() }),
+  z.object({ kind: z.literal("added"), text: z.string(), newLine: z.number().int() }),
+]);
+export type DiffLine = z.infer<typeof DiffLine>;
 
 /** A text's lines: split on "\n", where a trailing "\n" ends the last line rather than starting an empty one. */
 const linesOf = (text: string): string[] => {
@@ -120,3 +123,13 @@ export const lineDiffWithin = (oldText: string, newText: string, maxChanges: num
 
 /** The lines of `oldText` and `newText` (split on "\n"; a trailing "\n" ends the last line) as a line diff. */
 export const lineDiff = (oldText: string, newText: string): DiffLine[] => lineDiffWithin(oldText, newText, Number.POSITIVE_INFINITY) ?? [];
+
+/** The positions in `diff` of its changed lines and of up to `context` unchanged lines around each run of them, in order. */
+export const withContext = (diff: readonly DiffLine[], context: number): number[] => {
+  const kept = new Array<boolean>(diff.length).fill(false);
+  diff.forEach((line, index) => {
+    if (line.kind === "context") return;
+    for (let at = Math.max(0, index - context); at <= Math.min(diff.length - 1, index + context); at += 1) kept[at] = true;
+  });
+  return kept.flatMap((keep, index) => (keep ? [index] : []));
+};

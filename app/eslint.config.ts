@@ -62,11 +62,6 @@ export default defineConfig(
     },
   },
   {
-    // Over the limit; remove this override once the file is split.
-    files: ["service/src/items/access.ts"],
-    rules: { "max-lines": "off" },
-  },
-  {
     // shadcn's generated components keep their own style, so the shadcn CLI can update them.
     files: ["desktop/src/renderer/src/components/ui/**"],
     rules: { "func-style": "off" },

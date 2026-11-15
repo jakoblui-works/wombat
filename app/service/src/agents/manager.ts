@@ -6,6 +6,7 @@ import { emptyFold } from "@wombat/shared/log-fold";
 import type { CacheState, Harness } from "../harness/harness.ts";
 import { defaultHarnesses, findHarness } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
+import { noteSource, type NoteSource } from "../proposals/note-source.ts";
 import type { Store } from "../store/store.ts";
 import { createAgentProcess, START_TIMEOUT_MS, startFailure, type AgentProcessDeps } from "./agent-process.ts";
 import { createAgentRecord } from "./agent-record.ts";
@@ -167,6 +168,12 @@ export const createManager = ({
     hasProcess,
     hasPendingTurn: (agentId) => hasPendingTurn(agentId),
   });
+  // Until the server gives one that sees the items, items are labelled without a handle.
+  let notes: NoteSource = noteSource({ store, log });
+  /** Where the agents' messages read what to tell them about their proposals. */
+  const setNoteSource = (source: NoteSource) => {
+    notes = source;
+  };
   const { send, cancel, hasPendingTurn } = createTurns({
     log,
     assertOpen,
@@ -185,6 +192,9 @@ export const createManager = ({
     liveProc,
     canResumeAgent,
     ensureRunning,
+    notes: () => notes,
+    markDelivered: store.markDelivered,
+    markNotDelivered: store.markNotDelivered,
   });
 
   const start = async (harnessId: string, repo: string): Promise<AgentSummary> => {
@@ -305,6 +315,7 @@ export const createManager = ({
     shutdown,
     onCommitted,
     setMcpUrl,
+    setNoteSource,
     agentForToken,
     proposalCommitted,
     liveCache,

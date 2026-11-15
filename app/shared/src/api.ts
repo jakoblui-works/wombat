@@ -8,11 +8,13 @@
 // the stream open and isn't an alert.
 import { z } from "zod";
 
-import { Item, ItemSummary, knownItems, Proposal, ProposalStatus, StructureSummary } from "./items.ts";
+import { Item, ItemSummary, knownItems, Problem, StructureSummary } from "./items.ts";
+import { DiffLine } from "./line-diff.ts";
+import { ProposalErrorCode, Timestamp } from "./proposals.ts";
+import { queryInt } from "./query.ts";
 import { MAX_BODY_BYTES } from "./routes.ts";
 
 const Seq = z.int().nonnegative();
-const Timestamp = z.iso.datetime({ offset: true });
 const DbId = z.string().min(1);
 
 /** `"."` (the workspace root) or relative segments: no absolute, `..`, `.`, empty segments, backslashes or control characters. */
@@ -42,6 +44,8 @@ export const SendMessageRequest = z.strictObject({
     .string()
     .regex(/^[A-Za-z0-9_-]{1,64}$/, { message: "commandId must be 1-64 letters, digits, - or _" })
     .exactOptional(),
+  /** The proposal the message is about, when the user writes from one. */
+  proposalId: z.string().min(1).exactOptional(),
 });
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 
@@ -51,12 +55,6 @@ export type AnswerPermissionRequest = z.infer<typeof AnswerPermissionRequest>;
 /** `POST /agents/:id/config`: a select's value id, or a boolean's value. Idempotent, so it carries no commandId. */
 export const SetConfigRequest = z.strictObject({ configId: z.string().min(1), value: z.union([z.string(), z.boolean()]) });
 export type SetConfigRequest = z.infer<typeof SetConfigRequest>;
-
-/** A whole number from `min` to `max`, from a query-string value (digits only) or a number; `""`, `" "` and repeated keys fail with `message`. */
-const queryInt = (message: string, min: number, max = Number.MAX_SAFE_INTEGER) =>
-  z
-    .union([z.number(), z.string().regex(/^\d+$/).transform(Number)], { error: message })
-    .pipe(z.int({ error: message }).min(min, { error: message }).max(max, { error: message }));
 
 /** `GET /agents/:id/log?after=&limit=`: entries with `seq` above `after`, at most `limit` of them. */
 export const ListLogQuery = z.strictObject(
@@ -71,26 +69,14 @@ export const ListLogQuery = z.strictObject(
 );
 export type ListLogQuery = z.infer<typeof ListLogQuery>;
 
-/** `GET /proposals?status=`: every proposal, or those with one status. */
-export const ListProposalsQuery = z.strictObject(
-  {
-    status: z
-      .enum(ProposalStatus.options, { error: "status must be one of pending, approved, rejected or conflict" })
-      .exactOptional(),
-  },
-  {
-    error: (issue) =>
-      issue.code === "unrecognized_keys" ? "unknown query parameter; send only status" : undefined,
-  },
-);
-export type ListProposalsQuery = z.infer<typeof ListProposalsQuery>;
-
 // Responses (lenient)
 
 const ErrorDetail = z.object({
   code: z.string(),
   message: z.string(),
   hint: z.string().exactOptional(),
+  /** Where a refused request breaks the rules, each by its field; the message lists them too. Unknown shapes are dropped. */
+  problems: knownItems(Problem).exactOptional(),
 });
 
 export const ErrorBody = z.object({ error: ErrorDetail });
@@ -162,18 +148,11 @@ export const AgentErrorCode = z.enum([
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 
 /**
- * `POST /proposals/:id/approve` and `/reject`: `proposal_not_found` for an unknown proposal id,
- * `proposal_not_pending` for one already decided. The app refetches the proposals.
- */
-export const ProposalErrorCode = z.enum(["proposal_not_found", "proposal_not_pending"]);
-export type ProposalErrorCode = z.infer<typeof ProposalErrorCode>;
-
-/**
  * The items routes' error codes: `items_not_configured` when the service runs without an items root (the app hides
  * the items views), `structure_not_found` and `item_not_found` for an unknown structure id or handle (the app
  * refetches the structures). The proposal routes add the ProposalErrorCode codes. `items_not_writable` is reserved
- * for a write the items root's filesystem can't take; no route sends it yet: such a failure on approve answers
- * `internal_error`.
+ * for a write the items root's filesystem can't take; no route sends it yet: such a failure on approve settles the
+ * proposal as a conflict.
  */
 export const ItemsErrorCode = z.enum([
   "items_not_configured",
@@ -187,8 +166,8 @@ export type ItemsErrorCode = z.infer<typeof ItemsErrorCode>;
 /**
  * Why the item writer refused a write; nothing on disk changed. Internal to the service, never sent. On /mcp the
  * access module turns each one but `items_not_writable` into an AccessErrorCode refusal (the agent gets its message);
- * approving a proposal turns them into a `conflict` proposal. `items_not_writable` fails the call: /mcp answers the
- * agent with a generic failure, approve answers `internal_error`.
+ * approving a proposal turns every one of them into a `conflict` proposal. `items_not_writable` fails an /mcp call:
+ * the agent gets a generic failure.
  */
 export const ItemWriteErrorCode = z.enum([
   "stale_version",
@@ -581,7 +560,7 @@ export const SessionUpdate = z.discriminatedUnion("sessionUpdate", [
 ]);
 export type SessionUpdate = z.infer<typeof SessionUpdate>;
 
-// Items and proposals (lenient), read by the app; the shapes live in `items.ts`.
+// Items (lenient), read by the app; the shapes live in `items.ts`, the proposals' in `proposals.ts`.
 
 /** `GET /structures`: every structure under the items root, hidden ones and broken settings included. */
 export const ListStructuresResponse = z.object({ structures: z.array(StructureSummary) });
@@ -595,10 +574,6 @@ export type ListItemsResponse = z.infer<typeof ListItemsResponse>;
 export const GetItemResponse = Item;
 export type GetItemResponse = z.infer<typeof GetItemResponse>;
 
-/** `GET /proposals`: the proposals matching ListProposalsQuery. */
-export const ListProposalsResponse = z.object({ proposals: z.array(Proposal) });
-export type ListProposalsResponse = z.infer<typeof ListProposalsResponse>;
-
 // Log entries (lenient): an agent's stored history, read through `GET /agents/:id/log`.
 
 const logEntryFields = { seq: Seq, agentId: z.string(), at: Timestamp };
@@ -611,6 +586,35 @@ export const SERVICE_STOP_REASON = { error: "error", stopped: "stopped" } as con
 
 /** The ACP session an update or permission request came from; one agent may run more than one (sub-agents). */
 const SessionId = z.string().exactOptional();
+
+/**
+ * My changes to the agent's version (the one approved, or my draft on a reference): `diff`, the changed lines with a
+ * little context (`diffContinues` when unchanged lines follow its last one; empty when my text differs in no line,
+ * only in its final newline), or only `diffTooLarge` past the limits.
+ */
+const NoteDiff = {
+  diff: z.array(DiffLine).exactOptional(),
+  diffContinues: z.literal(true).exactOptional(),
+  diffTooLarge: z.literal(true).exactOptional(),
+};
+
+/** What the agent is told a decision was: `approved_with_changes` when my version was the one approved. */
+export const NoteOutcomeKind = z.enum(["approved", "approved_with_changes", "rejected", "conflict"]);
+export type NoteOutcomeKind = z.infer<typeof NoteOutcomeKind>;
+
+/** A proposal's label: the path of a file, the handle of an item. */
+const NoteOutcome = z.object({
+  proposalId: z.string(),
+  label: z.string(),
+  outcome: NoteOutcomeKind,
+  reason: z.string().exactOptional(),
+  ...NoteDiff,
+});
+export type NoteOutcome = z.infer<typeof NoteOutcome>;
+
+/** The proposal a message was written from; the diff from the agent's version to my draft, when there is one. */
+const NoteReference = z.object({ proposalId: z.string(), label: z.string(), ...NoteDiff });
+export type NoteReference = z.infer<typeof NoteReference>;
 
 export const LogEntry = z.discriminatedUnion("type", [
   z.object({
@@ -635,6 +639,13 @@ export const LogEntry = z.discriminatedUnion("type", [
     requestId: z.string(),
     kind: PermissionKind,
   }),
+  /** What the agent is told in front of the `user_message` stored right after it, and nothing else. */
+  z.object({
+    ...logEntryFields,
+    type: z.literal("proposal_note"),
+    outcomes: z.array(NoteOutcome),
+    reference: NoteReference.exactOptional(),
+  }),
   /**
    * Ends each turn. Besides ACP's stop reasons, the service writes those in `SERVICE_STOP_REASON`. Older logs may
    * lack these two, leaving such a turn without an end.
@@ -642,6 +653,7 @@ export const LogEntry = z.discriminatedUnion("type", [
   z.object({ ...logEntryFields, type: z.literal("turn_ended"), stopReason: z.string().min(1) }),
 ]);
 export type LogEntry = z.infer<typeof LogEntry>;
+export type ProposalNoteEntry = Extract<LogEntry, { type: "proposal_note" }>;
 
 const logEntryTypes = new Set<unknown>(LogEntry.options.map((option) => option.shape.type.value));
 const updateKinds: Record<SessionUpdate["sessionUpdate"], true> = {
@@ -656,11 +668,31 @@ const updateKinds: Record<SessionUpdate["sessionUpdate"], true> = {
   config_option_update: true,
 };
 
-/** An entry of a type, or carrying a session update kind, that this app doesn't know (newer service). */
+const noteOutcomeKinds = new Set<unknown>(NoteOutcomeKind.options);
+const diffLineKinds = new Set<unknown>(DiffLine.options.map((option) => option.shape.kind.value));
+
+/** Whether `value` is a list holding an object whose `key` is a string not in `known`. */
+const holdsUnknown = (value: unknown, key: string, known: ReadonlySet<unknown>) =>
+  Array.isArray(value) &&
+  value.some((element: unknown) => {
+    if (typeof element !== "object" || element === null) return false;
+    const kind = (element as Record<string, unknown>)[key];
+    return typeof kind === "string" && !known.has(kind);
+  });
+
+/** Whether a diff (an outcome's or the reference's) holds a line kind this app doesn't know. */
+const unknownDiff = (part: unknown) => typeof part === "object" && part !== null && holdsUnknown((part as { diff?: unknown }).diff, "kind", diffLineKinds);
+
+/** A `proposal_note` with an outcome kind or a diff line kind this app doesn't know (newer service). */
+const isUnknownNote = ({ outcomes, reference }: { outcomes?: unknown; reference?: unknown }) =>
+  holdsUnknown(outcomes, "outcome", noteOutcomeKinds) || (Array.isArray(outcomes) && outcomes.some(unknownDiff)) || unknownDiff(reference);
+
+/** An entry of a type, or carrying a session update kind or note kinds, that this app doesn't know (newer service). */
 const isUnknownLogEntry = (data: unknown) => {
   if (typeof data !== "object" || data === null) return false;
   const { type, update } = data as { type?: unknown; update?: unknown };
   if (typeof type === "string" && !logEntryTypes.has(type)) return true;
+  if (type === "proposal_note") return isUnknownNote(data);
   if (type === "session_update" && typeof update === "object" && update !== null) {
     const updateKind = (update as { sessionUpdate?: unknown }).sessionUpdate;
     return typeof updateKind === "string" && !Object.hasOwn(updateKinds, updateKind);
@@ -669,8 +701,8 @@ const isUnknownLogEntry = (data: unknown) => {
 };
 
 /**
- * Parses one entry from the service. Returns undefined for entry types and session update
- * kinds this app doesn't know (newer service); throws on a malformed known entry.
+ * Parses one entry from the service. Returns undefined for entry types, session update kinds and note kinds this app
+ * doesn't know (newer service); throws on a malformed known entry.
  */
 export const parseLogEntry = (data: unknown): LogEntry | undefined => (isUnknownLogEntry(data) ? undefined : LogEntry.parse(data));
 

@@ -1,9 +1,8 @@
 // The routes the desktop app's page may call on the service, and the largest body the service takes. The service's
 // side is checked by service/src/server/app-routes.test.ts: every route here is served, every app route the
 // service serves is here (except the ones only the app's main process calls: /events, /shutdown; and /mcp).
-
 /** One route the app may call; path parameters as `:name`. `query`: the route takes a query string. */
-export type AppRoute = { method: "GET" | "POST" | "DELETE"; pattern: string; query?: true };
+export type AppRoute = { method: "GET" | "POST" | "PUT" | "DELETE"; pattern: string; query?: true };
 
 /** Every route the app's page may call (the bridge's allow-list, checked in main). */
 export const APP_ROUTES: readonly AppRoute[] = [
@@ -24,6 +23,9 @@ export const APP_ROUTES: readonly AppRoute[] = [
   { method: "GET", pattern: "/structures/:id/items" },
   { method: "GET", pattern: "/items/:handle" },
   { method: "GET", pattern: "/proposals", query: true },
+  { method: "GET", pattern: "/proposals/:id", query: true },
+  { method: "PUT", pattern: "/proposals/:id/draft" },
+  { method: "DELETE", pattern: "/proposals/:id/draft" },
   { method: "POST", pattern: "/proposals/:id/approve" },
   { method: "POST", pattern: "/proposals/:id/reject" },
 ];

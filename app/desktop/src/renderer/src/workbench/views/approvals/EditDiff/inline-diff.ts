@@ -1,7 +1,8 @@
 // What the chat shows of an edit, pure: each of its diffs' changed lines with a little context around them, or, past a
 // size, nothing (the diff tab shows it then).
+import { type DiffLine, lineDiffWithin, withContext } from "@wombat/shared/line-diff";
+
 import type { EditDiff } from "../edit-request.ts";
-import { type DiffLine, lineDiffWithin } from "../line-diff.ts";
 
 /** Unchanged lines shown before and after each run of changed lines. */
 export const CONTEXT_LINES = 3;
@@ -19,23 +20,20 @@ const rowsOf = ({ oldText, newText }: EditDiff, budget: number): { rows: InlineR
   // Shown lines are at least the changed ones, so a diff with more changes than the budget is too large before it's done.
   const lines = lineDiffWithin(oldText ?? "", newText, budget);
   if (lines === undefined) return undefined;
-  const shown = new Set<number>();
-  lines.forEach((line, index) => {
-    if (line.kind === "context") return;
-    for (let at = Math.max(0, index - CONTEXT_LINES); at <= Math.min(lines.length - 1, index + CONTEXT_LINES); at += 1) shown.add(at);
-  });
-  if (shown.size > budget) return undefined;
+  const shown = withContext(lines, CONTEXT_LINES);
+  if (shown.length > budget) return undefined;
   const rows: InlineRow[] = [];
   let last: number | undefined;
-  lines.forEach((line, index) => {
-    if (!shown.has(index)) return;
+  for (const index of shown) {
+    const line = lines[index];
+    if (line === undefined) continue;
     if (last !== undefined && index > last + 1) rows.push({ kind: "gap", count: index - last - 1 });
     rows.push(line);
     last = index;
-  });
+  }
   return {
     rows,
-    shown: shown.size,
+    shown: shown.length,
     added: lines.filter(({ kind }) => kind === "added").length,
     removed: lines.filter(({ kind }) => kind === "removed").length,
   };
@@ -55,4 +53,35 @@ export const inlineDiff = (diffs: readonly EditDiff[]): InlineDiff => {
     removed += part.removed;
   }
   return { kind: "shown", parts, added, removed };
+};
+
+/** A stored diff's fields, as a `proposal_note` carries them. */
+export type StoredDiff = { diff?: readonly DiffLine[] | undefined; diffContinues?: true | undefined; diffTooLarge?: true | undefined };
+
+export const NOTE_TOO_LARGE = "The changes were too large to show.";
+export const NOTE_NEWLINE_ONLY = "Only the final newline changed.";
+export const NOTE_CONTINUES = "More lines follow that didn't change.";
+
+/**
+ * A stored diff as rows (gaps worked out from the lines' numbers, one before the first line when it isn't line 1) and
+ * the fixed lines that go with them: too large, only the final newline differing (an empty diff), and unchanged lines
+ * continuing after the last one.
+ */
+export const storedDiffRows = ({ diff, diffContinues, diffTooLarge }: StoredDiff): { rows: InlineRow[]; says: string[] } => {
+  if (diffTooLarge === true) return { rows: [], says: [NOTE_TOO_LARGE] };
+  const says: string[] = [];
+  const rows: InlineRow[] = [];
+  if (diff?.length === 0) says.push(NOTE_NEWLINE_ONLY);
+  let old = 0;
+  let now = 0;
+  for (const line of diff ?? []) {
+    // Unchanged lines left out since the last row (or the start), counted on the side this line has a number on.
+    const skipped = "oldLine" in line ? line.oldLine - old - 1 : line.newLine - now - 1;
+    if (skipped > 0) rows.push({ kind: "gap", count: skipped });
+    rows.push(line);
+    if ("oldLine" in line) old = line.oldLine;
+    if ("newLine" in line) now = line.newLine;
+  }
+  if (diffContinues === true) says.push(NOTE_CONTINUES);
+  return { rows, says };
 };

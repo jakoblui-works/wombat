@@ -11,4 +11,6 @@ export const TOOL = {
   proposeCreate: "propose_create",
   proposeUpdate: "propose_update",
   proposeDelete: "propose_delete",
+  proposeChange: "propose_change",
+  reviseProposal: "revise_proposal",
 } as const;

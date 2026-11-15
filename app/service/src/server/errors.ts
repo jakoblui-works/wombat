@@ -1,4 +1,5 @@
 import type { AgentErrorCode, ErrorBody, ErrorCode, ItemsErrorCode, ServerErrorCode } from "@wombat/shared/api";
+import { Problem } from "@wombat/shared/items";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
@@ -28,7 +29,7 @@ export const AGENT_STATUS: Record<AgentErrorCode, ContentfulStatusCode> = {
   unsupported: 409,
 };
 
-/** No route sends `items_not_writable` yet: a writer failure on approve falls through to `internal_error`. */
+/** No route sends `items_not_writable` yet: a writer failure on approve settles the proposal as a conflict. */
 export const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {
   items_not_configured: 409,
   structure_not_found: 404,
@@ -36,16 +37,25 @@ export const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {
   items_not_writable: 500,
   proposal_not_found: 404,
   proposal_not_pending: 409,
+  proposal_changed: 409,
 };
 
-/** An ErrorBody response: every refusal and failure the service sends has this shape. */
+/** An ErrorBody response: every refusal and failure the service sends has this shape. Problems go out with only the shared Problem's keys. */
 export const errorResponse = (
   c: Context,
   status: ContentfulStatusCode,
   code: ErrorCode,
   message: string,
   hint?: string,
+  problems?: readonly Problem[],
 ) => {
-  const body: ErrorBody = { error: { code, message, ...(hint === undefined ? {} : { hint }) } };
+  const body: ErrorBody = {
+    error: {
+      code,
+      message,
+      ...(hint === undefined ? {} : { hint }),
+      ...(problems === undefined ? {} : { problems: problems.map((problem) => Problem.parse(problem)) }),
+    },
+  };
   return c.json(body, status);
 };

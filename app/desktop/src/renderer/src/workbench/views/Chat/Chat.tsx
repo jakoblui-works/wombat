@@ -15,7 +15,7 @@ import { useReveal } from "../../../lib/use-reveal.ts";
 import { type Arrivals, NO_ARRIVALS, trackArrivals } from "./arrivals.ts";
 import { type ChatBlock, chatBlocks, streamingKey } from "./chat-blocks.ts";
 import { CHAT_VIEW, ChatParams } from "./chat-params.ts";
-import { featuresOrAssumed } from "./harness-features.ts";
+import { featuresOrAssumed, useHarnessFeatures } from "./harness-features.ts";
 import { type LiveState, liveState } from "../approvals/live-state.ts";
 import { sameBlock } from "./same-item.ts";
 import { useChatModel } from "../approvals/use-chat-model.ts";
@@ -29,6 +29,7 @@ import { Markdown } from "./Markdown/Markdown.tsx";
 import { safePrefix } from "./Markdown/safe-prefix.ts";
 import { Permission } from "./Permission/Permission.tsx";
 import { Plan } from "./Plan/Plan.tsx";
+import { ProposalNote } from "./ProposalNote/ProposalNote.tsx";
 import { Reasoning } from "./Reasoning/Reasoning.tsx";
 import { ToolCalls } from "./ToolCall/ToolCall.tsx";
 import { WorkingLine } from "./WorkingLine/WorkingLine.tsx";
@@ -99,6 +100,8 @@ const StaticItemView = ({ item }: { item: StaticItem }): ReactNode => {
           <Markdown text={item.text} className="max-w-3/4 rounded-lg border border-line bg-surface-2 px-3.5 py-2 text-base text-fg-primary" />
         </div>
       );
+    case "proposal_note":
+      return <ProposalNote note={item} />;
     case "agent":
       return <AgentText text={item.text} />;
     case "reasoning":
@@ -180,7 +183,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const answers = useAnswer(agentId);
   const harnesses = useHarnesses();
   const harness = harnesses.data?.find(({ id }) => id === agent?.harness);
-  const features = harnesses.data === undefined ? undefined : (harness?.features ?? []);
+  const features = useHarnessFeatures(agent?.harness);
   // While the agent is still loading it counts as running: only a known agent without a process isn't.
   const access = agent === undefined ? "running" : chatAccess(agent, featuresOrAssumed(features));
   const setConfig = useSetConfig();

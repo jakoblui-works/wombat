@@ -1,26 +1,33 @@
-// `/mcp`: the item tools for agents, over MCP's streamable HTTP (stateless, JSON answers). Only an agent's own token
-// opens it, and every call goes through Access as that agent, so access levels, locks and hidden structures hold
-// exactly as Access decides them. Answers and refusals are tool results; nothing here names a structure id, so the
-// tool list carries nothing of a hidden one.
+// `/mcp`: the tools for agents, over MCP's streamable HTTP (stateless, JSON answers). Only an agent's own token
+// opens it. Every item call is checked by Access as that agent, so access levels, locks and hidden structures hold
+// exactly as Access decides them; every propose tool stores through the proposals, under one cap. Answers and refusals
+// are tool results; nothing here names a structure id, so the tool list carries nothing of a hidden one.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { API_VERSION } from "@wombat/shared";
 import { ServerErrorCode } from "@wombat/shared/api";
+import { MAX_EDITS, ProposalReason } from "@wombat/shared/proposals";
 import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 
-import { AccessError, SEARCH_LIMIT, type Access, type ItemInput } from "../items/access.ts";
+import { SEARCH_LIMIT, type Access } from "../items/access.ts";
+import { AccessError, type ItemInput } from "../items/refusals.ts";
 import { TOOL } from "../items/tools.ts";
-import type { Log } from "../log.ts";
+import { errorName, type Log } from "../log.ts";
+import type { Proposals } from "../proposals/proposals.ts";
+import { ProposalRefused } from "../proposals/refused.ts";
+import { REBUILT, type RevisedResult } from "../proposals/revise.ts";
 import { errorResponse, SERVER_STATUS } from "./errors.ts";
 import { refuseForeignHost } from "./port-rules.ts";
 
 type McpEnv = { Variables: { agentId: string } };
 
 export type McpOptions = {
-  /** Without it (no items configured) every tool answers that the items aren't set up. */
+  /** Without it (no items configured) every item tool answers that the items aren't set up. */
   access: Access | undefined;
+  /** Works with or without items. */
+  proposals: Pick<Proposals, "proposeFile" | "proposeItem" | "revise">;
   /** The agent a bearer token belongs to, while it runs: the manager's live token map. */
   agentForToken: (token: string) => string | undefined;
   port: () => number;
@@ -68,7 +75,7 @@ const handle = z.string().describe("An item's handle, like BUG-14 (an old handle
 const version = z
   .string()
   .describe(`The item's version from your last ${TOOL.getItem}. If the item changed since, re-read it and try again.`);
-const reason = z.string().describe("Why you propose this, for the user who approves or rejects it.");
+const reason = ProposalReason.describe("Why you propose this, for the user who approves or rejects it.");
 const fields = z
   .record(z.string(), z.unknown())
   .describe(
@@ -88,6 +95,46 @@ const createShape = {
     .describe("Only for a structure with free naming: the new file's path, relative to the structure's folder."),
 };
 
+/** Replacements, each `old` occurring exactly once in `where` as the edits before it leave it. */
+const editList = (where: string) =>
+  z
+    .array(
+      z.object({
+        old: z.string().describe(`Text that occurs exactly once in ${where} as the edits before this one leave it.`),
+        new: z.string().describe("The text that replaces it, taken literally."),
+      }),
+    )
+    .max(MAX_EDITS, { error: `send at most ${String(MAX_EDITS)} edits in one call; combine neighbouring ones` });
+
+const proposeChangeShape = {
+  path: z.string().describe("The file's path: absolute, or relative to the folder you work in."),
+  reason,
+  edits: editList("the file").optional().describe("For an existing file: the replacements, applied in order. Leave out `content`."),
+  content: z.string().optional().describe("For a new file: its whole text. Leave out `edits`."),
+};
+
+type EditArgs = { old: string; new: string }[] | undefined;
+
+type ProposeChangeArgs = { path: string; reason: string; edits?: EditArgs; content?: string | undefined };
+
+const reviseShape = {
+  id: z.string().describe("The id your propose call answered."),
+  reason: ProposalReason.describe("Why this version, for the user: what changed and why."),
+  edits: editList("the text the proposal holds now (on a conflict: the file as it is now)")
+    .optional()
+    .describe("For a file proposal: the replacements, applied in order. Leave out `content` and `fields`."),
+  content: z.string().optional().describe("For a file proposal: the whole new text. Leave out `edits` and `fields`."),
+  fields: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe("For an item proposal: the fields it should set instead of the ones it sets now (link values are handles)."),
+};
+
+type ReviseArgs = { id: string; reason: string; edits?: EditArgs; content?: string | undefined; fields?: Record<string, unknown> | undefined };
+
+/** The edits as the proposals store them. */
+const fileEdits = (edits: EditArgs) => edits?.map((edit) => ({ oldText: edit.old, newText: edit.new }));
+
 /** ItemInput as the input schema gives it: an optional field the agent left out is undefined. */
 type CreateArgs = Pick<ItemInput, "title"> & { [K in Exclude<keyof ItemInput, "title">]?: ItemInput[K] | undefined };
 
@@ -99,16 +146,37 @@ const itemInput = ({ title, body, properties, file }: CreateArgs): ItemInput => 
   ...(file === undefined ? {} : { file }),
 });
 
-const text = (value: string, isError = false): CallToolResult => ({
-  content: [{ type: "text", text: value }],
+const text = (value: string, isError = false, aside?: string): CallToolResult => ({
+  content: [{ type: "text", text: value }, ...(aside === undefined ? [] : [{ type: "text" as const, text: aside }])],
   ...(isError ? { isError: true } : {}),
 });
 
+/** The tools whose refusals leave a trace in the service's log: the agent id and the tool, nothing of the call. */
+const REFUSALS_LOGGED: ReadonlySet<string> = new Set([TOOL.proposeChange, TOOL.reviseProposal]);
+
 /** One McpServer for one request, every tool bound to the calling agent. */
-const toolServer = ({ access, log }: Pick<McpOptions, "access" | "log">, agentId: string) => {
+const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "proposals" | "log">, agentId: string) => {
   const server = new McpServer({ name: "wombat", version: String(API_VERSION) }, { capabilities: { tools: {} } });
 
-  /** Runs one tool through Access: its answer as JSON in one text block, a refusal as an error with its message. */
+  /** Runs one tool: its answer as JSON in one text block (then `asideOf` its answer, if any, in a second), a refusal as an error with its message. */
+  const answer =
+    <A, R>(tool: string, call: (args: A) => Promise<R>, asideOf?: (result: R) => string | undefined) =>
+    async (args: A): Promise<CallToolResult> => {
+      try {
+        const result = await call(args);
+        return text(JSON.stringify(result), false, asideOf?.(result));
+      } catch (error) {
+        if (error instanceof AccessError || error instanceof ProposalRefused) {
+          if (REFUSALS_LOGGED.has(tool)) log("tool_refused", { agentId, tool });
+          return text(error.message, true);
+        }
+        // The details stay in the service: an unexpected error's message may name files or hidden items.
+        log("tool_failed", { agentId, tool, error: errorName(error) });
+        return text(`The Wombat service failed to run ${tool}. Try again; if it keeps failing, tell the user.`, true);
+      }
+    };
+
+  /** Runs one item tool through Access, or answers that there are no items. */
   const run =
     <A>(tool: string, call: (access: Access, args: A) => Promise<unknown>) =>
     async (args: A): Promise<CallToolResult> => {
@@ -118,14 +186,7 @@ const toolServer = ({ access, log }: Pick<McpOptions, "access" | "log">, agentId
           true,
         );
       }
-      try {
-        return text(JSON.stringify(await call(access, args)));
-      } catch (error) {
-        if (error instanceof AccessError) return text(error.message, true);
-        // The details stay in the service: an unexpected error's message may name files or hidden items.
-        log("tool_failed", { agentId, tool, error: error instanceof Error ? error.name : "unknown" });
-        return text(`The Wombat service failed to run ${tool}. Try again; if it keeps failing, tell the user.`, true);
-      }
+      return answer(tool, (a: A) => call(access, a))(args);
     };
 
   server.registerTool(
@@ -203,10 +264,8 @@ const toolServer = ({ access, log }: Pick<McpOptions, "access" | "log">, agentId
         "Proposes a new item in a structure open to proposals; the user approves or rejects it. Answers the proposal's id.",
       inputSchema: z.object({ ...createShape, reason }),
     },
-    run(
-      TOOL.proposeCreate,
-      (a, { structure: id, reason: why, ...input }: CreateArgs & { structure: string; reason: string }) =>
-        a.proposeCreate(agentId, id, itemInput(input), why),
+    run(TOOL.proposeCreate, (_a, { structure: id, reason: why, ...input }: CreateArgs & { structure: string; reason: string }) =>
+      proposals.proposeItem(agentId, { kind: "create", structure: id, input: itemInput(input) }, why),
     ),
   );
   server.registerTool(
@@ -217,10 +276,8 @@ const toolServer = ({ access, log }: Pick<McpOptions, "access" | "log">, agentId
         "Answers the proposal's id.",
       inputSchema: z.object({ handle, fields, version, reason }),
     },
-    run(
-      TOOL.proposeUpdate,
-      (a, args: { handle: string; fields: Record<string, unknown>; version: string; reason: string }) =>
-        a.proposeUpdate(agentId, args.handle, args.fields, args.version, args.reason),
+    run(TOOL.proposeUpdate, (_a, args: { handle: string; fields: Record<string, unknown>; version: string; reason: string }) =>
+      proposals.proposeItem(agentId, { kind: "update", handle: args.handle, fields: args.fields, version: args.version }, args.reason),
     ),
   );
   server.registerTool(
@@ -230,8 +287,40 @@ const toolServer = ({ access, log }: Pick<McpOptions, "access" | "log">, agentId
         "Proposes deleting an item in a structure open to proposals; the user approves or rejects it. Answers the proposal's id.",
       inputSchema: z.object({ handle, version, reason }),
     },
-    run(TOOL.proposeDelete, (a, args: { handle: string; version: string; reason: string }) =>
-      a.proposeDelete(agentId, args.handle, args.version, args.reason),
+    run(TOOL.proposeDelete, (_a, args: { handle: string; version: string; reason: string }) =>
+      proposals.proposeItem(agentId, { kind: "delete", handle: args.handle, version: args.version }, args.reason),
+    ),
+  );
+  server.registerTool(
+    TOOL.proposeChange,
+    {
+      description:
+        "Proposes a change to a text file, anywhere, instead of making it: for changes the user should approve first, " +
+        "such as docs, instructions (CLAUDE.md), skills, and anything you were told to propose. The file stays as it is " +
+        "until the user approves. Send `edits` to change an existing file, or `content` for a new one. It only " +
+        "suggests: keep working without waiting for the decision. Answers the proposal's id.",
+      inputSchema: z.object(proposeChangeShape),
+    },
+    answer(TOOL.proposeChange, ({ path, reason: why, edits, content }: ProposeChangeArgs) =>
+      proposals.proposeFile(agentId, path, why, { edits: fileEdits(edits), content }),
+    ),
+  );
+  server.registerTool(
+    TOOL.reviseProposal,
+    {
+      description:
+        "Revises one of your own proposals that the user hasn't decided yet (pending, or a conflict) in place, instead " +
+        "of proposing anew: for a file, send `edits` to the text the proposal holds now, or the whole new `content`; " +
+        "on a conflict, edits apply to the file as it is now. For an item, send the `fields` it should set. The user " +
+        "sees it as a new version of the same proposal. Answers the proposal's id and the new version's number; " +
+        "`rebuilt` when, on a conflict, the version was rebuilt on the file or item as it is now and so holds only this " +
+        "revision's changes, none of your earlier versions'.",
+      inputSchema: z.object(reviseShape),
+    },
+    answer(
+      TOOL.reviseProposal,
+      ({ id, reason: why, edits, content, fields: given }: ReviseArgs) => proposals.revise(agentId, id, why, { edits: fileEdits(edits), content, fields: given }),
+      (result: RevisedResult) => (result.rebuilt === true ? REBUILT : undefined),
     ),
   );
   return server;

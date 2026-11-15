@@ -10,9 +10,8 @@ import { join } from "node:path";
 
 import { describe, expect, onTestFinished, test } from "vitest";
 
-import { openAccess } from "./access.ts";
 import { INSTRUCTIONS_FILE, openInstructions, refreshingWriter, renderInstructions, writeInstructions } from "./instructions.ts";
-import { AGENT, leaks } from "../../test/access-fixtures.ts";
+import { AGENT, leaks, withProposals } from "../../test/access-fixtures.ts";
 import { HIDDEN_STRINGS, INSTRUCTIONS_FILES, UUID, itemBlock } from "../../test/instructions-fixtures.ts";
 import { openItems, writeRoot } from "../../test/items-fixtures.ts";
 
@@ -87,18 +86,18 @@ describe("the instructions file", () => {
     // No watcher: only the writes' own refresh can bring a change into the file.
     const instructions = openInstructions({ catalog, workspaceRoot, itemsRoot: root, log: () => undefined });
     onTestFinished(() => instructions.close());
-    const access = openAccess({ catalog, writer: refreshingWriter(writer, instructions.refresh), store, onProposal: () => undefined });
+    const { access } = withProposals({ root, catalog, writer: refreshingWriter(writer, instructions.refresh), store });
     await instructions.refresh();
     expect(readFileSync(path, "utf8")).toContain("The hero caption overlaps the image");
 
     const created = await access.proposeCreate(AGENT, "bugs", { title: "Search ignores accents", body: "\nInvented.\n" }, "Seen in the search box.");
     expect(readFileSync(path, "utf8"), "a pending create").not.toContain("Search ignores accents");
-    expect((await access.approve(created.proposed)).status).toBe("approved");
+    expect((await access.approve(created.proposed, 1)).status).toBe("approved");
     expect(readFileSync(path, "utf8"), "right after the approved create").toContain("Search ignores accents");
 
     const { version } = await access.get("BUG-2");
     const deleted = await access.proposeDelete(AGENT, "BUG-2", version, "Fixed by the new layout.");
-    expect((await access.approve(deleted.proposed)).status).toBe("approved");
+    expect((await access.approve(deleted.proposed, 1)).status).toBe("approved");
     expect(readFileSync(path, "utf8"), "right after the approved delete").not.toContain("The hero caption overlaps the image");
   });
 

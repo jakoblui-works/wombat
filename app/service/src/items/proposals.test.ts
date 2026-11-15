@@ -3,14 +3,15 @@
 // rejecting touches no file, and a decided proposal can't be decided again. Proposing writes no file and takes no
 // handle number (nor may the writer's dry run), so an approved create gets the handle it would get alone. A
 // free-named create keeps its path in the proposal's own `file` (null for every other proposal), never in `fields`,
-// and approving writes exactly there, even in a structure with a property named `file`.
+// and approving writes exactly there, even in a structure with a property named `file`. A new item's fields are
+// checked as the writer checks them, also when the agent revises them or I edit them.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { openAccess, type Access } from "./access.ts";
-import { ACCESS_FILES, AGENT, expectRefused, openAccessRoot, snapshotFiles } from "../../test/access-fixtures.ts";
+import { ACCESS_FILES, AGENT, expectRefused, openAccessRoot, snapshotFiles, withProposals, type TestAccess } from "../../test/access-fixtures.ts";
+import { DraftRefused } from "../proposals/refused.ts";
 import { openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 
 const BUG = "bugs/BUG-2-hero-caption.md";
@@ -53,7 +54,7 @@ describe("proposals", () => {
     const footer = { title: "The footer link is broken", properties: { note: "On every page" } };
 
     /** Approves one bug proposal after `before` ran on the same root, and returns the handle it got. */
-    const approvedAfter = async (before: (access: Access) => Promise<void>) => {
+    const approvedAfter = async (before: (access: TestAccess) => Promise<void>) => {
       const { access, root } = openAccessRoot(files);
       await access.list("bugs");
       const untouched = snapshotFiles(root);
@@ -61,7 +62,7 @@ describe("proposals", () => {
       expect(snapshotFiles(root), "files after the proposals before the approval").toEqual(untouched);
       const { proposed } = await access.proposeCreate(AGENT, "bugs", footer, "Found it");
       expect(snapshotFiles(root), "files after the proposal to approve").toEqual(untouched);
-      return (await access.approve(proposed)).handle;
+      return (await access.approve(proposed, 1)).handle;
     };
 
     const alone = await approvedAfter(() => Promise.resolve());
@@ -89,7 +90,7 @@ describe("proposals", () => {
     const [pending] = await access.proposals("pending");
     expect(pending?.file, "the proposal's file").toBe("guides/setup.md");
     expect(pending?.fields, "fields holds title, body and properties only").not.toHaveProperty("file");
-    const decided = await access.approve(proposed);
+    const decided = await access.approve(proposed, 1);
     expect(decided.status).toBe("approved");
     expect(decided.file, "the decided proposal's file").toBe("guides/setup.md");
     const added = Object.keys(snapshotFiles(root)).filter((path) => !before.includes(path));
@@ -97,15 +98,31 @@ describe("proposals", () => {
     expect(readAt(root, "drafts/guides/setup.md")).toContain("# Setting up");
   });
 
+  // Approve leaves a body that isn't text out of the item it writes: a check that did the same would pass it, and the
+  // proposal would then show a body that approving silently drops.
+  test("a proposed new item takes no body that isn't text, from the agent's revise or from my draft, and stays as it was", async () => {
+    const { access, proposals, store, root } = openAccessRoot();
+    const { proposed } = await access.proposeCreate(AGENT, "bugs", { title: "The footer link is broken", body: "\nOn every page.\n" }, "Found it");
+    const fields = { title: "The footer link is broken", body: 7 };
+    const before = { versions: store.listVersions(proposed), files: snapshotFiles(root) };
+
+    await expectRefused(proposals.revise(AGENT, proposed, "Shorter.", { fields }), "invalid_fields", "the agent's revise");
+    await expect(proposals.putDraft(proposed, 1, { fields }), "my draft").rejects.toBeInstanceOf(DraftRefused);
+
+    expect({ versions: store.listVersions(proposed), files: snapshotFiles(root) }).toEqual(before);
+  });
+
   test("approving an update writes the field, and approving a delete removes the file", async () => {
     const { access, root } = openAccessRoot();
     const update = await access.proposeUpdate(AGENT, "BUG-2", { note: "Fixed by the grid" }, (await access.get("BUG-2")).version, "Done");
-    expect((await access.approve(update.proposed)).status).toBe("approved");
+    expect((await access.approve(update.proposed, 1)).status).toBe("approved");
     expect(readAt(root, BUG)).toContain("note: Fixed by the grid");
 
     const removal = await access.proposeDelete(AGENT, "BUG-2", (await access.get("BUG-2")).version, "A duplicate");
-    expect((await access.approve(removal.proposed)).status).toBe("approved");
+    const decided = await access.approve(removal.proposed, 1);
+    expect(decided.status).toBe("approved");
     expect(existsSync(join(root, BUG))).toBe(false);
+    expect(decided.handle, "the deleted item's proposal still names it").toBe("BUG-2");
   });
 
   test("rejecting marks the proposal rejected and touches no file", async () => {
@@ -124,8 +141,7 @@ describe("proposals", () => {
   test("a proposal stays stored and answered when announcing it fails", async () => {
     const opened = openItems(writeRoot(ACCESS_FILES));
     const logged: string[] = [];
-    const access = openAccess({
-      ...opened,
+    const { access } = withProposals(opened, {
       onProposal: () => {
         throw new Error("listener broke");
       },

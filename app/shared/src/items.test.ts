@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 
 import type { z } from "zod";
 
-import { Item, Proposal, StructureSettings, StructureSummary } from "./items.ts";
+import { Item, StructureSettings, StructureSummary } from "./items.ts";
 
 /** Every property type and view kind, in a propose structure with handle naming. */
 const full = {
@@ -98,19 +98,4 @@ test("API shapes stay lenient: unknown fields stripped, unknown view kinds dropp
     body: "\nSteps: sign in.\n",
   };
   expect(Item.parse({ ...item, colour: "red" })).toEqual(item);
-
-  const proposal = {
-    id: "prp_1",
-    structure: "bugs",
-    kind: "update",
-    handle: "BUG-1",
-    fields: { repo: "site-web" },
-    file: null,
-    reason: "Seen on the site",
-    baseVersion: "9f2c",
-    status: "pending",
-    agentId: "agt_7f3c2a",
-    at: "2026-11-09T10:02:11.120Z",
-  };
-  expect(Proposal.parse({ ...proposal, colour: "red" })).toEqual(proposal);
 });

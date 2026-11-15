@@ -48,16 +48,19 @@ export type McpApp = AccessSetup & {
  * default), with STUB_TOKEN as the one live agent token. `access` replaces the real access module, for failures.
  */
 export const openMcp = ({ files = ACCESS_FILES, access }: { files?: Record<string, string>; access?: Access } = {}): McpApp => {
-  const opened = openAccessRoot(files);
-  const port = 4123;
   const logs: McpApp["logs"] = [];
+  const log = (event: string, fields: LogFields) => logs.push({ event, fields });
+  // The stub agent works in the items root.
+  const opened = openAccessRoot(files, log);
+  const port = 4123;
   const app = mcpRoutes({
     access: access ?? opened.access,
+    proposals: opened.proposals,
     agentForToken: (sent) => (sent === STUB_TOKEN ? STUB_AGENT : undefined),
     port: () => port,
     // The service's limit; the limit itself is tested on the running server.
     maxBodyBytes: 1024 * 1024,
-    log: (event, fields) => logs.push({ event, fields }),
+    log,
   });
   const request = async ({ method = "GET", path, headers = {}, body, host = `127.0.0.1:${port}` }: RequestOptions): Promise<Response> => {
     const json = body !== undefined && typeof body !== "string" && !Buffer.isBuffer(body);

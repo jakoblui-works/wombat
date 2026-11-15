@@ -11,10 +11,11 @@ import {
   type SetConfigRequest,
   type StartAgentRequest,
 } from "@wombat/shared/api";
+import { type ApproveRequest, type DraftRequest, isOpen, Proposal, ProposalErrorCode, type RejectRequest } from "@wombat/shared/proposals";
 import { asError } from "../lib/errors.ts";
-import { call } from "./client.ts";
+import { call, ServiceError } from "./client.ts";
 import { keys } from "./keys.ts";
-import { forgetAgent } from "./query-client.ts";
+import { forgetAgent, proposalPath } from "./query-client.ts";
 import { refresh } from "./refresh.ts";
 
 // The command routes' bodies aren't read: what changed arrives through the agents and the log.
@@ -33,19 +34,24 @@ export const newCommandId = (): string => {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
 
-export type SendMessageVars = { agentId: string; text: string; commandId: string };
+export type SendMessageVars = { agentId: string; text: string; commandId: string; proposalId?: string };
 export type StartAgentVars = StartAgentRequest & { text: string; commandId: string };
 export type AnswerPermissionVars = { agentId: string; requestId: string; kind: AnswerPermissionRequest["kind"] };
 export type SetConfigVars = SetConfigRequest & { agentId: string };
 
 /** The variables of one send, its commandId made now: build them once per user action. */
-export const sendMessageVars = (agentId: string, text: string): SendMessageVars => ({ agentId, text, commandId: newCommandId() });
+export const sendMessageVars = (agentId: string, text: string, proposalId?: string): SendMessageVars => ({
+  agentId,
+  text,
+  commandId: newCommandId(),
+  ...(proposalId === undefined ? {} : { proposalId }),
+});
 
 /** The variables of one start, the first message's commandId made now. */
 export const startAgentVars = (start: StartAgentRequest & { text: string }): StartAgentVars => ({ ...start, commandId: newCommandId() });
 
-export const sendMessageFn = async ({ agentId, text, commandId }: SendMessageVars): Promise<void> => {
-  await call("POST", `${agentPath(agentId)}/messages`, Ignored, { text, commandId } satisfies SendMessageRequest);
+export const sendMessageFn = async ({ agentId, text, commandId, proposalId }: SendMessageVars): Promise<void> => {
+  await call("POST", `${agentPath(agentId)}/messages`, Ignored, { text, commandId, ...(proposalId === undefined ? {} : { proposalId }) } satisfies SendMessageRequest);
 };
 
 /** A start's two steps: the agent, which exists from here on, and why its first message wasn't sent, if it wasn't. */
@@ -90,6 +96,61 @@ export const deleteAgentFn = async (agentId: string): Promise<void> => {
   await call("DELETE", agentPath(agentId), Ignored);
 };
 
+type DecideVars = { proposalId: string } & ({ decision: "approve"; version: number } | { decision: "reject"; reason?: string });
+
+/**
+ * What an approve of version `sent` came to: "changed" when the proposal is still open at a newer version (the file
+ * changed since, and the agent's edits were applied to it again as a version to look at), else "decided".
+ */
+export const approveOutcome = (sent: number, after: Pick<Proposal, "status" | "version">): "decided" | "changed" =>
+  isOpen(after.status) && after.version > sent ? "changed" : "decided";
+
+/** The service refused because the proposal has a newer version than the one the request named. */
+const isProposalChanged = (error: unknown): boolean => error instanceof ServiceError && error.code === ProposalErrorCode.enum.proposal_changed;
+
+/**
+ * Approves the version the user saw, or rejects. `proposal_changed`, and an approve that made a new version instead,
+ * resolve as "changed": the refresh in onSettled shows the new version.
+ */
+const decideFn = async (vars: DecideVars): Promise<"decided" | "changed"> => {
+  try {
+    if (vars.decision === "approve") {
+      const after = await call("POST", `${proposalPath(vars.proposalId)}/approve`, Proposal, { version: vars.version } satisfies ApproveRequest);
+      return approveOutcome(vars.version, after);
+    }
+    await call("POST", `${proposalPath(vars.proposalId)}/reject`, Ignored, (vars.reason === undefined ? {} : { reason: vars.reason }) satisfies RejectRequest);
+    return "decided";
+  } catch (error) {
+    if (isProposalChanged(error)) return "changed";
+    throw error;
+  }
+};
+
+/** What a draft saves: a file's whole text, or an item's fields (links as ids). */
+export type DraftBody = { text: string } | { fields: Record<string, unknown> };
+
+type DraftVars = { proposalId: string } & ({ action: "save"; onVersion: number; body: DraftBody } | { action: "clear" });
+
+/**
+ * Saves my text or fields as my version of a proposal, or drops my version. Answers the proposal after it, or
+ * "changed" when the save named an agent version that is no longer the latest (the agent revised): the refresh in
+ * onSettled shows the new version.
+ */
+const draftFn = async (vars: DraftVars): Promise<Proposal | "changed"> => {
+  const path = `${proposalPath(vars.proposalId)}/draft`;
+  try {
+    return vars.action === "save"
+      ? await call("PUT", path, Proposal, { onVersion: vars.onVersion, ...vars.body } satisfies DraftRequest)
+      : await call("DELETE", path, Proposal);
+  } catch (error) {
+    if (isProposalChanged(error)) return "changed";
+    throw error;
+  }
+};
+
+const refreshProposal = (queryClient: QueryClient, proposalId: string): Promise<void> =>
+  Promise.all([refresh(queryClient, keys.proposals), refresh(queryClient, keys.proposal(proposalId))]).then(() => undefined);
+
 const refreshAgent = (queryClient: QueryClient, agentId: string): Promise<void> =>
   Promise.all([refresh(queryClient, keys.agents), refresh(queryClient, keys.log(agentId))]).then(() => undefined);
 
@@ -126,6 +187,15 @@ export const deleteAgentMutation = (queryClient: QueryClient) =>
     },
   });
 
+const decideMutation = (queryClient: QueryClient) =>
+  mutationOptions({
+    mutationFn: decideFn,
+    onSettled: (_data, _error, { proposalId }) => refreshProposal(queryClient, proposalId),
+  });
+
+const draftMutation = (queryClient: QueryClient) =>
+  mutationOptions({ mutationFn: draftFn, onSettled: (_data, _error, { proposalId }) => refreshProposal(queryClient, proposalId) });
+
 export const useStartAgent = () => useMutation(startAgentMutation(useQueryClient()));
 export const useSendMessage = () => useMutation(sendMessageMutation(useQueryClient()));
 export const useAnswerPermission = () => useMutation(answerPermissionMutation(useQueryClient()));
@@ -133,4 +203,6 @@ export const useSetConfig = () => useMutation(setConfigMutation(useQueryClient()
 export const useContextBreakdown = () => useMutation(contextBreakdownMutation());
 export const useCancelTurn = () => useMutation(cancelTurnMutation(useQueryClient()));
 export const useStopAgent = () => useMutation(stopAgentMutation(useQueryClient()));
+export const useDecide = () => useMutation(decideMutation(useQueryClient()));
+export const useDraft = () => useMutation(draftMutation(useQueryClient()));
 export const useDeleteAgent = () => useMutation(deleteAgentMutation(useQueryClient()));

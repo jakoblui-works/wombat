@@ -3,14 +3,15 @@ import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockvie
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 
 import type { ListAgentsResponse } from "@wombat/shared/api";
+import type { ListProposalsResponse } from "@wombat/shared/proposals";
 import type { ConnectionState } from "../../../../shared/bridge.ts";
 import { isSettled, NO_RESTART, restartAttempt, showsBanner } from "@/lib/connection-state";
 import { cn } from "@/lib/utils";
-import { useAgents, useConnection } from "../../data/hooks.ts";
+import { useAgents, useConnection, useProposals } from "../../data/hooks.ts";
 import { keys } from "../../data/keys.ts";
 // Registers the activities and their views, which the workbench reads from the registry.
 import "../activities.ts";
-import { needsMe } from "../../data/needs-me.ts";
+import { needsMeCount } from "../../data/needs-me.ts";
 import { defaultLayout, restoreLayout, type SavedLayout } from "../layout.ts";
 import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
@@ -69,7 +70,13 @@ const rememberNoticeDismissed = (): void => {
 };
 
 /** What the actions do before dockview is ready; typed, so a new member can't be missed. */
-const NO_ACTIONS: WorkbenchActions = { openTab: () => undefined, openBeside: () => undefined, closeTab: () => undefined, openAgentChat: () => undefined };
+const NO_ACTIONS: WorkbenchActions = {
+  openTab: () => undefined,
+  openBeside: () => undefined,
+  closeTab: () => undefined,
+  openAgentChat: () => undefined,
+  openProposal: () => undefined,
+};
 
 const NO_REVEALS: Reveals = { get: () => undefined, subscribe: () => () => undefined };
 const RevealsContext = createContext<Reveals>(NO_REVEALS);
@@ -91,21 +98,23 @@ const COMPONENTS = { [TAB_COMPONENT]: TabContent };
 type SavedRead = { raw: unknown; readable: boolean };
 
 /**
- * Whether the agents read has an answer the restore can go by: the list, or a failure while connected, failed or
- * incompatible. A read refused while (re)connecting doesn't count: it's read again once connected.
+ * Whether a list read (the agents, the proposals) has an answer the restore can go by: the list, or a failure while
+ * connected, failed or incompatible. A read refused while (re)connecting doesn't count: it's read again once connected.
  */
-const agentsAnswered = (state: QueryState<ListAgentsResponse> | undefined, connection: ConnectionState["state"]): boolean =>
+const readAnswered = (state: QueryState | undefined, connection: ConnectionState["state"]): boolean =>
   state?.status === "success" ||
   (state?.status === "error" && state.fetchStatus === "idle" && (connection === "connected" || isSettled(connection)));
 
 /**
  * The window: activity bar, left sidebar (the activity's view), the editor's tabs (dockview) and the right sidebar.
- * The layout is restored once, after the agents read was answered (so tabs of deleted agents drop out), and only saved
- * after that. From then on the tabs follow the agents list: the ones that no longer apply close, titles follow.
+ * The layout is restored once, after the agents and proposals reads were answered (so tabs of deleted agents and
+ * decided proposals drop out), and only saved after that. From then on the tabs follow both lists: the ones that no
+ * longer apply close, titles follow.
  */
 export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const queryClient = useQueryClient();
   const agents = useAgents();
+  const proposals = useProposals();
   const connectionState = useConnection();
   const { state: connection, message: connectionMessage } = connectionState;
   const [api, setApi] = useState<DockviewApi>();
@@ -135,20 +144,24 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const agentList = agents.data?.agents;
   const agentsRef = useRef(agentList);
   agentsRef.current = agentList;
+  const proposalList = proposals.data?.proposals;
+  const proposalsRef = useRef(proposalList);
+  proposalsRef.current = proposalList;
   // Whether the restore fell back to the default although a layout was saved; only a user change may replace it then.
   const fellBack = useRef(false);
   useEffect(() => {
     if (api === undefined || saved === undefined || restored === api) return;
     // The cache's state, not the render's: a re-read starts the moment the connection is back.
     const state = queryClient.getQueryState<ListAgentsResponse>(keys.agents);
-    if (!agentsAnswered(state, connection)) return;
+    const proposalsState = queryClient.getQueryState<ListProposalsResponse>(keys.proposals);
+    if (!readAnswered(state, connection) || !readAnswered(proposalsState, connection)) return;
     fellBack.current = false;
-    const layout = restoreLayout(saved.raw, isRestorable({ agents: state?.data?.agents }), (dockview) => api.fromJSON(dockview), () => {
+    const layout = restoreLayout(saved.raw, isRestorable({ agents: state?.data?.agents, proposals: proposalsState?.data?.proposals }), (dockview) => api.fromJSON(dockview), () => {
       fellBack.current = true;
     });
     setChrome({ sidebars: layout.sidebars, activity: layout.activity });
     setRestored(api);
-  }, [api, saved, restored, queryClient, connection, agents.status, agents.fetchStatus]);
+  }, [api, saved, restored, queryClient, connection, agents.status, agents.fetchStatus, proposals.status, proposals.fetchStatus]);
 
   const ready = api !== undefined && restored === api;
 
@@ -180,16 +193,16 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     };
   }, [ready, api, saved, byThePage]);
 
-  // The tabs follow the agents list, by the live rule (`isKnown`; the restore also asks `restores`); a change the page
+  // The tabs follow the agents and proposals lists, by the live rule (`isKnown`; the restore also asks `restores`); a change the page
   // makes, so it never arms the saver.
   const titles = useMemo(tabTitles, []);
   useEffect(() => {
     if (!ready) return;
     byThePage.run(() => {
-      pruneTabs(api, isKnown({ agents: agentList }));
-      retitleTabs(api, { agents: agentList }, (key) => titles.get(key));
+      pruneTabs(api, isKnown({ agents: agentList, proposals: proposalList }));
+      retitleTabs(api, { agents: agentList, proposals: proposalList }, (key) => titles.get(key));
     });
-  }, [ready, api, agentList, byThePage, titles]);
+  }, [ready, api, agentList, proposalList, byThePage, titles]);
 
   /** A change the user made to the sidebars or the activity. */
   const changeChrome = (change: (current: Chrome) => Chrome) => {
@@ -222,7 +235,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     () =>
       api === undefined
         ? NO_ACTIONS
-        : workbenchActions(api, reveals, () => ({ agents: agentsRef.current }), showActivity),
+        : workbenchActions(api, reveals, () => ({ agents: agentsRef.current, proposals: proposalsRef.current }), showActivity),
     [api, reveals, showActivity],
   );
 
@@ -316,7 +329,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
             <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
               <TitleBar
                 right={rightView}
-                count={agentList === undefined ? 0 : needsMe(agentList).length}
+                count={agentList === undefined ? 0 : needsMeCount(agentList, proposals.data?.proposals ?? [])}
                 rightOpen={!chrome.sidebars.rightCollapsed}
                 onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
               />

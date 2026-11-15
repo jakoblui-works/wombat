@@ -13,6 +13,9 @@ export const isMissing = (error: unknown) => codeOf(error) === "ENOENT";
 /** Whether a path doesn't exist, or runs through a file where a folder should be. */
 export const isMissingPath = (error: unknown) => ["ENOENT", "ENOTDIR"].includes(codeOf(error) ?? "");
 
+/** Whether a path runs into a symlink loop (or more links than the system follows). */
+export const isLinkLoop = (error: unknown) => codeOf(error) === "ELOOP";
+
 /** Whether a file that must be new already exists. */
 export const isAlreadyThere = (error: unknown) => codeOf(error) === "EEXIST";
 

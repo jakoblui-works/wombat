@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 import { describe, expect, test, onTestFinished } from "vitest";
 
-import { DOCS_SETTINGS, IDS, VALID_FILES, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
+import { BROKEN_STRUCTURE_FILES, DOCS_SETTINGS, IDS, VALID_FILES, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
+import { SETTINGS_FILE } from "./structures.ts";
 
 const UNASSIGNED = "---\nproject: wombat\n---\n# Typed by hand\n";
 
@@ -96,5 +97,59 @@ describe("links rewritten on first sight", () => {
     expect(readAt(root, "bugs/BUG-5-linked.md")).toBe(linking);
     expect(item.problems.map((problem) => problem.field)).toEqual(["blocks"]);
     expect(item.problems[0]?.message).toContain("BL-2 has no valid id yet");
+  });
+});
+
+// What the item tools read and what a file proposal is refused for must be the same files: one the catalog reads but
+// doesn't hold could be rewritten by an approved file proposal, behind the item rules.
+describe("the files the catalog holds", () => {
+  /** Every file and link under `dir`, as paths relative to `root`. */
+  const filesUnder = (root: string, dir = root): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name);
+      return lstatSync(path).isDirectory() ? filesUnder(root, path) : [relative(root, path)];
+    });
+
+  test("holds every file it reads as an item and every structure's settings, no other file, and answers alike for a file not written yet", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "wombat-outside-"));
+    onTestFinished(() => rmSync(outside, { recursive: true, force: true }));
+    writeFileSync(join(outside, "elsewhere.md"), "# Outside the items root\n");
+    // Handle-named structures (Bugs, Backlog), one nested in Bugs, a free-named one at the root (Docs, with
+    // `include`), a structure whose settings don't load, and around them files no structure reads.
+    const root = realpathSync(
+      writeRoot({
+        ...VALID_FILES,
+        ...BROKEN_STRUCTURE_FILES,
+        "bugs/archive/_structure.yaml": "version: 1\nid: archive\nname: Archive\nprefix: ARC\naccess: edit\n",
+        "bugs/archive/ARC-1-old-login.md": "# Login failed on the old site\n",
+        "bugs/notes/idea.md": "# In a folder of Bugs, not directly in it\n",
+        "bugs/screenshot.json": "{}\n",
+        "bugs/.draft.md": "# A dot file\n",
+        ".obsidian/workspace.md": "# In a dot folder\n",
+        "guides/deep/more.md": "# Deeper than Docs includes\n",
+      }),
+    );
+    symlinkSync(join(outside, "elsewhere.md"), join(root, "bugs", "linked.md"));
+    const { catalog } = openItems(root);
+    const { structures, items } = await catalog.snapshot();
+    const read = new Set([...items.map((item) => item.path), ...structures.map((structure) => join(structure.path, SETTINGS_FILE))]);
+    expect([...read].filter((path) => path.endsWith(".md")).length, "the fixture has items in every structure that loads").toBeGreaterThanOrEqual(7);
+
+    const held: Record<string, boolean> = {};
+    for (const file of filesUnder(root)) held[file] = await catalog.holds(realpathSync(join(root, file)));
+
+    expect(held).toEqual(Object.fromEntries(filesUnder(root).map((file) => [file, read.has(file)])));
+
+    const notWritten = {
+      "bugs/BUG-30-new.md": true,
+      "bugs/archive/ARC-2-new.md": true,
+      "guides/new.md": true,
+      "bugs/new.json": false,
+      "bugs/notes/new.md": false,
+      "new.md": false,
+      "broken/BRK-2-new.md": false,
+    };
+    for (const [file, expected] of Object.entries(notWritten)) expect(await catalog.holds(join(root, file)), `a new ${file}`).toBe(expected);
+    expect(await catalog.holds(join(dirname(root), "BUG-31-new.md")), "a new file outside the root").toBe(false);
   });
 });

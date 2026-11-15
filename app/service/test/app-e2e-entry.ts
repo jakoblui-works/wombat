@@ -12,8 +12,9 @@
 //
 // Harnesses, in this order (the New agent dialog starts the first): `fake-reply` (answers and ends its turn),
 // `fake-permission` (asks for a permission and waits), `fake-hang` (stays working until cancelled) and `fake-hostile`
-// (hostile content everywhere agent content shows, then a permission request; see HOSTILE in fake-agent.ts) and `fake-replay` (plays the steps its prompt is a JSON array of; see ReplayStep
-// in fake-agent.ts, whose `awaitFile` holds a turn mid-way).
+// (hostile content everywhere agent content shows, then a permission request; see HOSTILE in fake-agent.ts), `fake-replay` (plays the steps its prompt is a JSON array of; see ReplayStep
+// in fake-agent.ts, whose `awaitFile` holds a turn mid-way) and `fake-call-tool` (calls the MCP tool its prompt names, a JSON
+// `{ tool, arguments }` on the last line of its prompt, after any note; see the call-tool scenario in fake-agent.ts).
 import { writeFileSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 
@@ -58,6 +59,7 @@ await main({
     trackedHarness("hang", pidDir),
     trackedHarness("hostile", pidDir),
     trackedHarness("replay", pidDir),
+    trackedHarness("call-tool", pidDir),
   ],
   slice,
 });

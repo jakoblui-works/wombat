@@ -4,6 +4,7 @@
 // those asked for meanwhile become one more read.
 import { hashKey, type QueryClient, type QueryKey } from "@tanstack/react-query";
 
+import { keys } from "./keys.ts";
 import { queryFor } from "./query-client.ts";
 
 type Running = { again: boolean; done: Promise<void> };
@@ -49,4 +50,13 @@ export const refresh = (queryClient: QueryClient, queryKey: QueryKey): Promise<v
     }
   })();
   return entry.done;
+};
+
+/**
+ * Reads the structures and every cached structure's items again: nothing announces an item or structure change, so
+ * a proposal's change, a reconnect and a proposal tab brought to the front stand in for it.
+ */
+export const refreshItems = (queryClient: QueryClient): void => {
+  void refresh(queryClient, keys.structures);
+  for (const query of queryClient.getQueryCache().findAll({ queryKey: keys.structureItemLists })) void refresh(queryClient, query.queryKey);
 };

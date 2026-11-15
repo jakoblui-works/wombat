@@ -1,13 +1,11 @@
-// Items: a structure's settings (`_structure.yaml`, written by hand) and the items and proposals the service
-// reads from the item files and its store. The settings schema is strict and refuses contradictions, since a
-// structure's rules are what the service enforces on agents; the shapes read through the API are lenient
-// (the app ignores unknown fields and kinds), like every response in `api.ts`.
+// Items: a structure's settings (`_structure.yaml`, written by hand) and the items the service reads from the
+// item files. The settings schema is strict and refuses contradictions, since a structure's rules are what the
+// service enforces on agents; the shapes read through the API are lenient (the app ignores unknown fields and
+// kinds), like every response in `api.ts`.
 //
-// Every settings message starts with the key it's about and says what to write instead, so it reads alone:
-// the loader puts the issue's path in `Problem.field` and the message, unchanged, beside it.
+// Every settings message starts with the key it's about and says what to write instead, so it reads alone: the
+// loader puts the issue's path in `Problem.field` and the message, unchanged, beside it.
 import { z } from "zod";
-
-const Timestamp = z.iso.datetime({ offset: true });
 
 /** Keeps the items that match `item` and drops the rest (newer kinds we don't know). */
 export const knownItems = <T extends z.ZodType>(item: T) =>
@@ -363,40 +361,3 @@ export type ItemSummary = z.infer<typeof ItemSummary>;
 /** One item (`GET /items/:handle`, by handle or alias): the summary plus its body, everything after the title line. */
 export const Item = z.object({ ...itemFields, body: z.string().nullable() });
 export type Item = z.infer<typeof Item>;
-
-export const ProposalKind = z.enum(["create", "update", "delete"]);
-export type ProposalKind = z.infer<typeof ProposalKind>;
-
-export const ProposalStatus = z.enum(["pending", "approved", "rejected", "conflict"]);
-export type ProposalStatus = z.infer<typeof ProposalStatus>;
-
-/**
- * A change an agent proposed to a `propose` structure, kept in the service's store until the user approves
- * or rejects it in the app (`GET /proposals`). Approving writes the file; `conflict` means the file changed
- * since `baseVersion`.
- */
-export const Proposal = z.object({
-  id: z.string(),
-  /** The target structure's id. */
-  structure: z.string(),
-  kind: ProposalKind,
-  /** The target item; null for a pending create (it gets a handle when approved). */
-  handle: z.string().nullable(),
-  /** Field name → proposed value: `title`, `body` or property names, link values as ids. */
-  fields: z.record(z.string(), z.unknown()),
-  /**
-   * The new file's path, relative to the structure's folder, as the agent gave it; null except for a create in a
-   * free-named structure. Kept apart from `fields` so it can't collide with a property named `file`.
-   */
-  file: z.string().nullable(),
-  reason: z.string(),
-  /** The item's version the change is based on; null for a create. */
-  baseVersion: z.string().nullable(),
-  status: ProposalStatus,
-  agentId: z.string(),
-  at: Timestamp,
-  decidedAt: Timestamp.exactOptional(),
-  /** Why the proposal couldn't be applied (a conflict, or fields no longer valid). */
-  problem: Problem.exactOptional(),
-});
-export type Proposal = z.infer<typeof Proposal>;

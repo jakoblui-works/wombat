@@ -45,7 +45,7 @@ Every structure under the root needs its own `id` and its own `prefix`.
 |---|---|
 | `hidden` | do nothing. They never see the structure, its items, or messages that name it |
 | `read` | read and search its items |
-| `propose` | read, and propose creates, changes and deletes. Each proposal waits for your approval |
+| `propose` | read, and propose creates, changes and deletes. Each [proposal](proposals.md) waits for your approval |
 | `edit` | read, and create, change and delete items directly |
 
 `locked` fields can't be changed by agents at any level. You can always change any file by hand.

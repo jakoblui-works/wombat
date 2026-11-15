@@ -174,6 +174,32 @@ const permissionRequested = logEntry(20, "permission_requested", {
   ],
 });
 
+const approvedOutcome = { proposalId: "prp_1", label: "/home/sam/work/site-web/docs/install.md", outcome: "approved" };
+const changedOutcome = {
+  proposalId: "prp_2",
+  label: "/home/sam/work/site-web/docs/header.md",
+  outcome: "approved_with_changes",
+  diff: [
+    { kind: "context", text: "## Padding", oldLine: 3, newLine: 3 },
+    { kind: "removed", text: "The header uses 12px.", oldLine: 4 },
+    { kind: "added", text: "The header uses 16px, like the footer.", newLine: 4 },
+  ] as Record<string, unknown>[],
+  diffContinues: true,
+};
+const noteReference = { proposalId: "prp_6", label: "a new item", diff: [] as Record<string, unknown>[] };
+
+/** A note as the service stores it in front of a user message: one outcome of each kind, and the message's proposal. */
+const proposalNote = logEntry(25, "proposal_note", {
+  outcomes: [
+    approvedOutcome,
+    changedOutcome,
+    { proposalId: "prp_3", label: "BUG-2", outcome: "rejected", reason: "Not a duplicate." },
+    { proposalId: "prp_4", label: "/home/sam/work/site-web/docs/footer.md", outcome: "conflict", reason: "The file changed since the agent read it." },
+    { proposalId: "prp_5", label: "/home/sam/work/site-web/docs/changelog.md", outcome: "approved_with_changes", diffTooLarge: true },
+  ],
+  reference: noteReference,
+});
+
 const sampleLogEntries = [
   logEntry(1, "user_message", { text: "Make the header padding match the footer." }),
   logEntry(2, "user_message", { text: "Also check the mobile breakpoint.", commandId: "cmd_01JC2" }),
@@ -183,6 +209,7 @@ const sampleLogEntries = [
   logEntry(22, "turn_ended", { stopReason: "end_turn" }),
   logEntry(23, "turn_ended", { stopReason: "cancelled" }),
   { ...logEntry(24, "turn_ended", { stopReason: "end_turn" }), at: "2026-11-09T11:02:11.120+01:00" }, // offset allowed, as in AgentSummary
+  proposalNote,
 ];
 
 const alertTypes = ["agent_added", "agent_changed", "agent_removed", "log"] as const;
@@ -237,6 +264,32 @@ describe("LogEntry (lenient)", () => {
       { sessionUpdate: "some_future_kind" },
     ]) {
       expect(parseLogEntry(logEntry(40, "session_update", { update })), update.sessionUpdate).toBeUndefined();
+    }
+  });
+
+  // An older app reading a newer service's log: one note it can't read must not take the whole log page with it.
+  test("a proposal note with an outcome kind or a diff line kind this app doesn't know is skipped, alone or in a log page; a malformed known one fails", () => {
+    const movedLine = { kind: "moved", text: "## Padding", oldLine: 3, newLine: 7 };
+    const newer = {
+      "an outcome kind": { ...proposalNote, outcomes: [approvedOutcome, { ...approvedOutcome, outcome: "withdrawn" }] },
+      "a diff line kind in an outcome": { ...proposalNote, outcomes: [{ ...changedOutcome, diff: [...changedOutcome.diff, movedLine] }] },
+      "a diff line kind in the reference": { ...proposalNote, reference: { ...noteReference, diff: [movedLine] } },
+    };
+    for (const [what, note] of Object.entries(newer)) {
+      expect(parseLogEntry(note), what).toBeUndefined();
+      const page = ListLogResponse.parse({ dbId, seq: 99, entries: [sampleLogEntries[0], note, proposalNote], truncated: false });
+      expect(page.entries, what).toEqual([sampleLogEntries[0], proposalNote]);
+    }
+
+    const malformed = {
+      "an outcome without its label": { ...proposalNote, outcomes: [without(approvedOutcome, "label")] },
+      "a known diff line without its text": { ...proposalNote, outcomes: [{ ...changedOutcome, diff: [{ kind: "added", newLine: 4 }] }] },
+      "an outcome kind that isn't a string": { ...proposalNote, outcomes: [{ ...approvedOutcome, outcome: 7 }] },
+      "no outcomes": without(proposalNote, "outcomes"),
+    };
+    for (const [what, note] of Object.entries(malformed)) {
+      expect(() => parseLogEntry(note), what).toThrow();
+      expect(ListLogResponse.safeParse({ dbId, seq: 99, entries: [note], truncated: false }).success, what).toBe(false);
     }
   });
 

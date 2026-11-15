@@ -38,7 +38,7 @@ describe("approve never overwrites", () => {
     change(root);
     const before = snapshotFiles(root);
 
-    const decided = await access.approve(proposed);
+    const decided = await access.approve(proposed, 1);
 
     expect(decided.status).toBe("conflict");
     expect(decided.problem?.message.trim().length, "the problem says what changed").toBeGreaterThan(0);
@@ -52,7 +52,7 @@ describe("approve never overwrites", () => {
     writeAt(root, BUG, `${readAt(root, BUG)}\nNot a duplicate after all.\n`);
     const before = snapshotFiles(root);
 
-    const decided = await access.approve(proposed);
+    const decided = await access.approve(proposed, 1);
 
     expect(decided.status).toBe("conflict");
     expect(snapshotFiles(root)).toEqual(before);

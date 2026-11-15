@@ -1,0 +1,184 @@
+// Proposals from an agent to the user's decision, against the built app and the `fake-call-tool` agent (it calls the
+// MCP tool its prompt names; see service/test/app-e2e-entry.ts). With no request waiting, the agent proposes edits to
+// two files; Approve on one row writes it, the other row opens its tab, and Reject there with a reason leaves it.
+// What this relies on in the page:
+// - the title bar toggle: a `button` whose name starts with "Needs me"; the right sidebar `complementary` "Needs me";
+// - one row per open proposal holding its file's path, with an open `button` holding the path and the buttons
+//   "Approve" and "Reject"; a click on the open button opens the proposal in an editor tab (dockview's
+//   `.dv-content-container`), which has "Reject", and then a `textbox` named with "reason", sent with Enter.
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import type { Locator, Page } from "@playwright/test";
+
+import { agentSummary, click, expect, REPO, type Sandbox, startAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+
+type Listed = { id: string; status: string; path?: string; rejectReason?: string };
+
+const needsMe = (page: Page): Locator => page.getByRole("complementary", { name: "Needs me", exact: true });
+
+/** The innermost element in Needs me holding `file` and a Reject button: the proposal's row. */
+const rowOf = (page: Page, file: string): Locator =>
+  needsMe(page).locator("*").filter({ hasText: file }).filter({ has: page.getByRole("button", { name: "Reject", exact: true }) }).last();
+
+// Content Security Policy violations the page reports, recorded from when `recordViolations` runs.
+const VIOLATIONS = "__wombatE2eCspViolations";
+const recordViolations = (page: Page): Promise<void> =>
+  page.evaluate((key) => {
+    const seen: string[] = [];
+    (window as unknown as Record<string, unknown>)[key] = seen;
+    document.addEventListener("securitypolicyviolation", (event) => {
+      seen.push(`${event.effectiveDirective} blocked ${event.blockedURI || "(inline)"} at ${event.sourceFile}:${String(event.lineNumber)}`);
+    });
+  }, VIOLATIONS);
+const violations = (page: Page): Promise<string[]> =>
+  page.evaluate((key) => [...((window as unknown as Record<string, string[] | undefined>)[key] ?? ["(recorder missing)"])], VIOLATIONS);
+
+const listed = async (sandbox: Sandbox): Promise<Listed[]> => {
+  const read = await sandbox.api("GET", "/proposals");
+  expect(read.status, `GET /proposals: ${JSON.stringify(read.json)}`).toBe(200);
+  return (read.json as { proposals: Listed[] }).proposals;
+};
+
+const proposalOn = async (sandbox: Sandbox, file: string): Promise<Listed | undefined> => (await listed(sandbox)).find((p) => p.path === file);
+
+/** Has the agent propose `edits` to `file` and waits until the service lists the proposal. */
+const propose = async (sandbox: Sandbox, agentId: string, file: string, edits: { old: string; new: string }[]): Promise<void> => {
+  await waitUntil(`agent ${agentId} between turns`, WAIT_MS, async () => ((await agentSummary(sandbox, agentId))?.state === "working" ? undefined : true));
+  const sent = await sandbox.api("POST", `/agents/${agentId}/messages`, {
+    text: JSON.stringify({ tool: "propose_change", arguments: { path: file, reason: "The bakery's hours changed.", edits } }),
+  });
+  expect(sent.status, `prompt: ${JSON.stringify(sent.json)}`).toBe(202);
+  await waitUntil(`a proposal on ${file}`, WAIT_MS, async () => ((await proposalOn(sandbox, file)) === undefined ? undefined : true));
+};
+
+test("an agent's proposals: Approve on a row writes the file, a row opens its tab, Reject there with a reason leaves the file", async ({ sandbox }) => {
+  await sandbox.startService(sandbox.workspace);
+  const hours = path.join(sandbox.workspace, REPO, "opening-hours.md");
+  const prices = path.join(sandbox.workspace, REPO, "prices.md");
+  const hoursBefore = "# Opening hours\n\nSaturday: 8:00 to 14:00\n";
+  const pricesBefore = "# Prices\n\nRye loaf: 5.80\n";
+  writeFileSync(hours, hoursBefore);
+  writeFileSync(prices, pricesBefore);
+
+  const agentId = await startAgent(sandbox, "fake-call-tool");
+  await propose(sandbox, agentId, hours, [{ old: "Saturday: 8:00", new: "Saturday: 7:30" }]);
+  await propose(sandbox, agentId, prices, [{ old: "Rye loaf: 5.80", new: "Rye loaf: 6.10" }]);
+
+  const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
+  await waitForConnection(page, "connected");
+  const toggle = page.getByRole("button", { name: /^Needs me\b/ });
+  if ((await toggle.getAttribute("aria-pressed")) !== "true") await click(toggle);
+
+  // No request waits: both proposals still show.
+  await expect(rowOf(page, hours)).toBeVisible({ timeout: WAIT_MS });
+  await expect(rowOf(page, prices)).toBeVisible({ timeout: WAIT_MS });
+
+  // Approve on a row: the file is written and the row goes.
+  await click(rowOf(page, hours).getByRole("button", { name: "Approve", exact: true }));
+  await waitUntil("the approved edit on disk", WAIT_MS, () => (readFileSync(hours, "utf8") === hoursBefore.replace("8:00", "7:30") ? true : undefined));
+  await expect(needsMe(page).getByText(hours)).toHaveCount(0, { timeout: WAIT_MS });
+
+  // The other row opens its tab; Reject there with a reason.
+  await click(needsMe(page).getByRole("button").filter({ hasText: prices }));
+  const tab = page.locator(".dv-groupview .dv-content-container").filter({ hasText: prices });
+  await click(tab.getByRole("button", { name: "Reject", exact: true }));
+  const reason = "Prices stay until the new menu is printed.";
+  await tab.getByRole("textbox", { name: /reason/i }).fill(reason);
+  await tab.getByRole("textbox", { name: /reason/i }).press("Enter");
+  await waitUntil("the prices proposal rejected", WAIT_MS, async () => ((await proposalOn(sandbox, prices))?.status === "rejected" ? true : undefined));
+
+  expect((await proposalOn(sandbox, prices))?.rejectReason).toBe(reason);
+  expect(readFileSync(prices, "utf8")).toBe(pricesBefore);
+  await expect(needsMe(page).getByText(prices)).toHaveCount(0, { timeout: WAIT_MS });
+});
+
+// Editing in a proposal's tab: the right side of its diff (Monaco's `.monaco-diff-editor .editor.modified`) takes
+// typing, the text is saved as my draft, and Approve writes my text.
+test("text typed on a proposal's right side is saved as my draft, and Approve writes it", async ({ sandbox }) => {
+  await sandbox.startService(sandbox.workspace);
+  const menu = path.join(sandbox.workspace, REPO, "menu.md");
+  writeFileSync(menu, "# Menu\n\nRye loaf: 5.80\n\nBaguette: 2.10\n\nPretzel: 1.50\n");
+  const agentId = await startAgent(sandbox, "fake-call-tool");
+  await propose(sandbox, agentId, menu, [
+    { old: "Rye loaf: 5.80", new: "Rye loaf: 6.10" },
+    { old: "Pretzel: 1.50", new: "Pretzel: 1.70" },
+  ]);
+  const id = (await proposalOn(sandbox, menu))?.id ?? "";
+
+  const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
+  await waitForConnection(page, "connected");
+  await recordViolations(page);
+  const toggle = page.getByRole("button", { name: /^Needs me\b/ });
+  if ((await toggle.getAttribute("aria-pressed")) !== "true") await click(toggle);
+  await click(needsMe(page).getByRole("button").filter({ hasText: menu }));
+  const tab = page.locator(".dv-groupview .dv-content-container").filter({ hasText: menu });
+  const right = tab.locator(".monaco-diff-editor .editor.modified");
+
+  // Drop the agent's first hunk (Rye loaf) with Monaco's revert arrow in the gutter, one per hunk in line order.
+  const rye = right.locator(".view-line").filter({ hasText: "Rye loaf: 6.10" });
+  await expect(rye).toBeVisible({ timeout: WAIT_MS });
+  await rye.hover();
+  await click(tab.locator(".gutter .action-label.codicon-arrow-right").first());
+  await expect(right.locator(".view-line").filter({ hasText: "Rye loaf: 5.80" })).toBeVisible({ timeout: WAIT_MS });
+
+  // Click into the line "Baguette: 2.10" on the right, go to its end and type, as the user would; then Approve at
+  // once, before the draft is saved on its own.
+  const line = right.locator(".view-line").filter({ hasText: "Baguette: 2.10" });
+  await line.click();
+  await page.keyboard.press("End");
+  await page.keyboard.type(" (until noon)");
+  await click(tab.getByRole("button", { name: "Approve", exact: true }));
+
+  type Detail = { status: string };
+  const read = async (): Promise<Detail> => (await sandbox.api("GET", `/proposals/${encodeURIComponent(id)}`)).json as Detail;
+  await waitUntil("the proposal approved", WAIT_MS, async () => ((await read()).status === "approved" ? true : undefined));
+  expect(readFileSync(menu, "utf8")).toBe("# Menu\n\nRye loaf: 5.80\n\nBaguette: 2.10 (until noon)\n\nPretzel: 1.70\n");
+  // Monaco's editable diff (the gutter menu, the hover) under the CSP: every <style> it made carried the page's nonce.
+  expect(await violations(page), "CSP violations with the editable diff").toEqual([]);
+});
+
+// An item proposal in its tab, on an items root (WOMBAT_ITEMS) with one `bugs` structure open to proposals: each
+// field the proposal changes is a `group` named by the field, with a "Drop" button; Approve writes only the fields I kept.
+test("dropping a field of an agent's item update and approving writes only the fields I kept", async ({ sandbox }) => {
+  const bug = { id: "0196f3c2-1a00-7000-8000-00000000c001", handle: "BUG-1", title: "Basket total ignores the coupon" };
+  const items = path.join(sandbox.base, "items");
+  mkdirSync(path.join(items, "bugs"), { recursive: true });
+  writeFileSync(
+    path.join(items, "bugs", "_structure.yaml"),
+    "version: 1\nid: bugs\nname: Bugs\nprefix: BUG\naccess: propose\nproperties:\n  status: { type: select, options: [open, fixed], required: true }\n",
+  );
+  const file = path.join(items, "bugs", "basket-coupon.md");
+  writeFileSync(file, `---\nid: ${bug.id}\nhandle: ${bug.handle}\nstatus: open\n---\n# ${bug.title}\n\nThe coupon shows but the total stays the same.\n`);
+  await sandbox.startService(sandbox.workspace, { WOMBAT_ITEMS: items });
+
+  type ItemRead = { body: string | null; properties: Record<string, unknown>; version: string };
+  const item = async (): Promise<ItemRead> => (await sandbox.api("GET", `/items/${bug.handle}`)).json as ItemRead;
+  const newBody = "\nThe coupon shows but the total stays the same, only for coupons in percent.\n";
+  const agentId = await startAgent(sandbox, "fake-call-tool");
+  await waitUntil(`agent ${agentId} between turns`, WAIT_MS, async () => ((await agentSummary(sandbox, agentId))?.state === "working" ? undefined : true));
+  const call = { tool: "propose_update", arguments: { handle: bug.handle, fields: { status: "fixed", body: newBody }, version: (await item()).version, reason: "Narrowed it down." } };
+  expect((await sandbox.api("POST", `/agents/${agentId}/messages`, { text: JSON.stringify(call) })).status).toBe(202);
+  const id = await waitUntil("the item proposal listed", WAIT_MS, async () => (await listed(sandbox))[0]?.id);
+
+  const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
+  await waitForConnection(page, "connected");
+  const toggle = page.getByRole("button", { name: /^Needs me\b/ });
+  if ((await toggle.getAttribute("aria-pressed")) !== "true") await click(toggle);
+  await click(needsMe(page).getByRole("button").filter({ hasText: `bugs/${bug.handle}` }));
+  const tab = page.locator(".dv-groupview .dv-content-container").filter({ hasText: `bugs/${bug.handle}` });
+  await click(tab.getByRole("group", { name: "status", exact: true }).getByRole("button", { name: "Drop", exact: true }));
+
+  type Detail = { status: string; fields: Record<string, unknown>; versions: { n: number; by: string }[] };
+  const read = async (): Promise<Detail> => (await sandbox.api("GET", `/proposals/${encodeURIComponent(id)}`)).json as Detail;
+  await waitUntil("my draft without the status saved", WAIT_MS, async () => {
+    const { fields, versions } = await read();
+    const current = versions.reduce((top, v) => (v.n > top.n ? v : top));
+    return current.by === "me" && !Object.hasOwn(fields, "status") ? true : undefined;
+  });
+  await click(tab.getByRole("button", { name: "Approve", exact: true }));
+  await waitUntil("the proposal approved", WAIT_MS, async () => ((await read()).status === "approved" ? true : undefined));
+
+  const after = await item();
+  expect(after.properties["status"], "the dropped status stays").toBe("open");
+  expect(after.body?.trim(), "the kept body is written").toBe(newBody.trim());
+});

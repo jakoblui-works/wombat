@@ -15,7 +15,7 @@ export class RepoError extends Error {
 }
 
 /** True when `path` is `root` or inside it; both real paths. A plain prefix check would let `ws-evil` pass for `ws`. */
-const isWithin = (root: string, path: string) =>
+export const isWithin = (root: string, path: string) =>
   path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
 
 /** The workspace root's real path; a `RepoError` when it doesn't exist. */

@@ -3,6 +3,7 @@
 import type { z } from "zod";
 
 import { ErrorBody } from "@wombat/shared/api";
+import type { Problem } from "@wombat/shared/items";
 
 type ErrorDetail = ErrorBody["error"];
 
@@ -11,13 +12,15 @@ export class ServiceError extends Error {
   readonly status: number;
   readonly code: string;
   readonly hint?: string;
+  readonly problems?: readonly Problem[];
 
-  constructor(status: number, { code, message, hint }: ErrorDetail) {
+  constructor(status: number, { code, message, hint, problems }: ErrorDetail) {
     super(message);
     this.name = "ServiceError";
     this.status = status;
     this.code = code;
     if (hint !== undefined) this.hint = hint;
+    if (problems !== undefined) this.problems = problems;
   }
 }
 

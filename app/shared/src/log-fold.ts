@@ -1,6 +1,6 @@
 // An agent's log folded into items: the one reading of the log that the chat and the agent list share, so a row's
 // message and request titles can't differ from what the chat shows.
-import { permissionTitle, type Activity, type ConfigOption, type LogEntry, type SessionUpdate } from "./api.ts";
+import { permissionTitle, type Activity, type ConfigOption, type LogEntry, type NoteOutcome, type NoteReference, type SessionUpdate } from "./api.ts";
 
 type ToolCall = Extract<SessionUpdate, { sessionUpdate: "tool_call" }>;
 type ToolCallUpdate = Extract<SessionUpdate, { sessionUpdate: "tool_call_update" }>;
@@ -50,6 +50,8 @@ export type ChatItem = ItemBase &
         answer?: PermissionKind | "cancelled";
       }
     | { kind: "turn_end"; stopReason: string }
+    /** What the agent was told with the user message after it: a stored `proposal_note`'s fields. */
+    | { kind: "proposal_note"; outcomes: NoteOutcome[]; reference?: NoteReference }
     /** An entry the app couldn't read; its content isn't shown. */
     | { kind: "unreadable" }
   );
@@ -57,6 +59,7 @@ export type ChatItem = ItemBase &
 type ToolItem = Extract<ChatItem, { kind: "tool" }>;
 type PermissionItem = Extract<ChatItem, { kind: "permission" }>;
 type TextItem = Extract<ChatItem, { kind: "agent" | "reasoning" }>;
+type NoteItem = Extract<ChatItem, { kind: "proposal_note" }>;
 
 /** A permission request as asked: its item, its own tool call's title and kind, and whether a turn ended after it. */
 type FoldPermission = {
@@ -94,6 +97,8 @@ export type FoldState = {
   tools: Map<string, ToolItem>;
   permissions: Map<string, FoldPermission>;
   answers: Map<string, PermissionKind>;
+  /** Notes read and not yet placed: each goes in front of the user message that follows it (none yet: it waits). */
+  notes: NoteItem[];
   /** The open message run: the text item that the next matching chunk extends. */
   run: { item: TextItem; messageId: string | undefined; session: string | undefined } | undefined;
 };
@@ -111,6 +116,7 @@ export const emptyFold = (mainSessionId?: string): FoldState => ({
   tools: new Map(),
   permissions: new Map(),
   answers: new Map(),
+  notes: [],
   run: undefined,
 });
 
@@ -270,6 +276,8 @@ export const foldEntry = (state: FoldState, entry: FoldEntry, options: FoldOptio
   const session = fromSession(entry) && entry.sessionId !== undefined && entry.sessionId !== state.mainSessionId ? entry.sessionId : undefined;
   switch (entry.type) {
     case "user_message":
+      for (const note of state.notes) place(state, note, undefined);
+      state.notes = [];
       place(state, { kind: "user", key: `user:${String(entry.seq)}`, text: entry.text, at: entry.at }, undefined);
       state.turnActive = true;
       delete state.latest;
@@ -290,6 +298,16 @@ export const foldEntry = (state: FoldState, entry: FoldEntry, options: FoldOptio
       break;
     case "session_update":
       foldUpdate(state, entry, session, options);
+      break;
+    // What the agent was told along with the next message: placed in front of it, so it leaves the run and the activity alone until then.
+    case "proposal_note":
+      state.notes.push({
+        kind: "proposal_note",
+        key: `proposal_note:${String(entry.seq)}`,
+        outcomes: entry.outcomes,
+        ...(entry.reference === undefined ? {} : { reference: entry.reference }),
+        at: entry.at,
+      });
       break;
     // Entry types from a newer service.
     default:

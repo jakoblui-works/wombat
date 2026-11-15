@@ -6,9 +6,15 @@ import { join, relative } from "node:path";
 
 import type { AccessErrorCode } from "@wombat/shared/api";
 import { Problem } from "@wombat/shared/items";
+import type { ProposalStatus } from "@wombat/shared/proposals";
 import { expect } from "vitest";
 
-import { AccessError, openAccess, type Access } from "../src/items/access.ts";
+import type { Access } from "../src/items/access.ts";
+import { AccessError, type ItemInput } from "../src/items/refusals.ts";
+import { logToStderr, type Log } from "../src/log.ts";
+import type { ItemProposalDetail, ItemProposalRecord, ProposalResult } from "../src/proposals/item-proposals.ts";
+import type { NoteSource } from "../src/proposals/note-source.ts";
+import { openProposals, type Proposals } from "../src/proposals/proposals.ts";
 import { openItems, writeRoot, type Opened } from "./items-fixtures.ts";
 
 /** In every name, title, body and value of the hidden structure, in mixed case; never in a visible one. */
@@ -156,19 +162,56 @@ export const snapshotFiles = (root: string): Record<string, string> => {
   return files;
 };
 
-export type AccessSetup = Opened & { access: Access; announced: string[] };
+/** Access with the item proposal calls the tests make, each as the item tools make it through the proposals. */
+export type TestAccess = Access & {
+  proposeCreate(agentId: string, structureId: string, input: ItemInput, reason: string): Promise<ProposalResult>;
+  proposeUpdate(agentId: string, handle: string, fields: Record<string, unknown>, version: string, reason: string): Promise<ProposalResult>;
+  proposeDelete(agentId: string, handle: string, version: string, reason: string): Promise<ProposalResult>;
+  /** The item proposals, or those with `status`, each read with its current version's fields. */
+  proposals(status?: ProposalStatus): Promise<ItemProposalDetail[]>;
+  approve(id: string, version: number): Promise<ItemProposalRecord>;
+  reject(id: string, reason?: string): Promise<ItemProposalRecord>;
+};
 
-/** The access module on a fresh copy of `files` (ACCESS_FILES by default); proposal announcements are recorded. */
-export const openAccessRoot = (files: Record<string, string> = ACCESS_FILES): AccessSetup => {
+const itemOnly = <T extends ItemProposalRecord = ItemProposalRecord>(proposal: { target: string }): T => {
+  expect(proposal.target, "an item proposal").toBe("item");
+  return proposal as T;
+};
+
+/** Access on `opened`'s catalog, writer and store, with the proposals and the note source beside it (the items root as the workspace), wired as the server wires them. */
+export const withProposals = (
+  { root, catalog, writer, store }: Pick<Opened, "root" | "catalog" | "writer" | "store">,
+  { onProposal = () => undefined, log = logToStderr }: { onProposal?: (id: string, seq: number) => void; log?: Log } = {},
+): { access: TestAccess; proposals: Proposals; notes: NoteSource } => {
+  const { access, proposals, notes } = openProposals({ store, workspace: root, agentFolder: () => root, onProposal, log, items: { catalog, writer } });
+  if (access === undefined) throw new Error("openProposals gave no item access although the items were given.");
+  return {
+    proposals,
+    notes,
+    access: {
+      ...access,
+      proposeCreate: (agentId, structure, input, reason) => proposals.proposeItem(agentId, { kind: "create", structure, input }, reason),
+      proposeUpdate: (agentId, handle, fields, version, reason) => proposals.proposeItem(agentId, { kind: "update", handle, fields, version }, reason),
+      proposeDelete: (agentId, handle, version, reason) => proposals.proposeItem(agentId, { kind: "delete", handle, version }, reason),
+      proposals: async (status) =>
+        Promise.all(
+          (await proposals.list(status))
+            .filter((proposal) => proposal.target === "item")
+            .map(async (proposal) => itemOnly<ItemProposalDetail>(await proposals.get(proposal.id))),
+        ),
+      approve: async (id, version) => itemOnly(await proposals.approve(id, version)),
+      reject: async (id, reason) => itemOnly(await proposals.reject(id, reason)),
+    },
+  };
+};
+
+export type AccessSetup = Opened & { access: TestAccess; proposals: Proposals; notes: NoteSource; announced: string[] };
+
+/** The access module and the proposals on a fresh copy of `files` (ACCESS_FILES by default); proposal announcements are recorded. */
+export const openAccessRoot = (files: Record<string, string> = ACCESS_FILES, log?: Log): AccessSetup => {
   const opened = openItems(writeRoot(files));
   const announced: string[] = [];
-  const access = openAccess({
-    catalog: opened.catalog,
-    writer: opened.writer,
-    store: opened.store,
-    onProposal: (id) => announced.push(id),
-  });
-  return { ...opened, access, announced };
+  return { ...opened, ...withProposals(opened, { onProposal: (id) => announced.push(id), ...(log === undefined ? {} : { log }) }), announced };
 };
 
 /** The AccessError a call was refused with; fails the test when it resolved or threw something else. */

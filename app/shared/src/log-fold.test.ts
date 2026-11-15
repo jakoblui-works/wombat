@@ -1,7 +1,7 @@
 // The log fold: what a text item keeps, and which item is the row's message.
 import { describe, expect, test } from "vitest";
 
-import { emptyFold, foldEntry, foldLog, keepAll, lastMainMessage, permissionOf } from "./log-fold.ts";
+import { activityOf, emptyFold, foldEntry, foldLog, keepAll, lastMainMessage, permissionOf } from "./log-fold.ts";
 import {
   type Body,
   chunk as message,
@@ -176,6 +176,70 @@ test("entries no item is made for are ignored, even between chunks of one messag
   expect(without).toHaveLength(shown.length);
   expect(foldLog(withUnshown).items).toEqual(foldLog(without).items);
   expect(foldLog(withUnshown).items.map((item) => item.kind)).toEqual(["user", "agent", "tool", "turn_end"]);
+});
+
+// The service stores a note in front of a user message; the row's text and activity and the chat's messages are read
+// from the same fold, so a note that counted as a message would blank the row and cut an agent's message in two.
+test("a proposal note leaves the last message, the activity and the message runs as they are without it, wherever it stands", () => {
+  const note: Body = {
+    type: "proposal_note",
+    outcomes: [
+      { proposalId: "prp_1", label: "/home/sam/work/site-web/docs/opening-hours.md", outcome: "approved" },
+      { proposalId: "prp_2", label: "BUG-2", outcome: "rejected", reason: "Not a duplicate." },
+    ],
+    reference: { proposalId: "prp_3", label: "/home/sam/work/site-web/docs/menu.md" },
+  };
+  const log: Body[] = [
+    user("Change the opening hours."),
+    message("I proposed the change", "m1"),
+    message(" to the hours.", "m1"),
+    turnEnded(),
+    user("Thanks. Now the menu."),
+    reasoning("Where is the menu?"),
+    call("t1", "Read menu.md", { status: "in_progress" }),
+    message("The menu"),
+    message(" is in the docs."),
+  ];
+  const read = (bodies: Body[]) => {
+    const state = fold(bodies);
+    return { last: lastMainMessage(state), activity: activityOf(state), texts: texts(state) };
+  };
+
+  for (let length = 0; length <= log.length; length += 1) {
+    const upTo = log.slice(0, length);
+    const withNotes = [note, ...upTo.flatMap((body) => [body, note])];
+    expect(read(withNotes), `after ${String(length)} entries`).toEqual(read(upTo));
+  }
+  // The log says something for each of the three, so the comparison above isn't of empty with empty.
+  expect(read(log)).toMatchObject({ last: "The menu is in the docs.", activity: { kind: "writing" } });
+  expect(read(log).texts).toContainEqual(["agent", "I proposed the change to the hours."]);
+  expect(read(log.slice(0, 7)).activity).toMatchObject({ kind: "tool" });
+});
+
+// The service stores a note when the user's message is handed over; the chat shows it in front of that message, and
+// only once the message is there.
+test("a proposal note is placed directly before the user message after it, and not before one comes", () => {
+  const noteOn = (label: string): Body => ({ type: "proposal_note", outcomes: [{ proposalId: `prp_${label}`, label, outcome: "approved" }] });
+  const read = (...bodies: Body[]) =>
+    itemsOf(...bodies).map((item) => (item.kind === "proposal_note" ? ["note", item.outcomes.map(({ label }) => label).join()] : shape(item)));
+
+  expect(read(noteOn("hours.md"), user("Thanks."))).toEqual([
+    ["note", "hours.md"],
+    ["user", "Thanks."],
+  ]);
+  expect(read(user("Change the hours."), message("Proposed."), turnEnded(), noteOn("hours.md"), noteOn("menu.md"), user("Now the prices."), message("On it"))).toEqual([
+    ["user", "Change the hours."],
+    ["agent", "Proposed."],
+    ["turn_end", "end_turn"],
+    ["note", "hours.md"],
+    ["note", "menu.md"],
+    ["user", "Now the prices."],
+    ["agent", "On it"],
+  ]);
+  expect(read(user("Change the hours."), message("Proposed."), noteOn("hours.md"))).toEqual([
+    ["user", "Change the hours."],
+    ["agent", "Proposed."],
+  ]);
 });
 
 test.each<[string, string | undefined]>([
