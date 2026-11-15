@@ -10,8 +10,12 @@ export type ProposalTabState = ProposalShows & {
   problem: Problem | undefined;
   /** An edit whose file can't be read now (gone, or not text that fits): there is no file to diff against. */
   fileUnreadable: boolean;
-  /** The file changed since the proposal: Approve applies the agent's edits to it again (so only while Approve is offered). */
-  changedSince: boolean;
+  /**
+   * The file is no longer the version the current version was made on (only while Approve is offered): `"mine"` when
+   * my version is current, which holds no edits to apply again, so Approve ends in a conflict; `"agent"` otherwise,
+   * where Approve applies the agent's edits again if they still fit, and ends in a conflict if not.
+   */
+  changedSince: "agent" | "mine" | undefined;
 };
 
 /** What the proposal tab shows for `proposal` beside its body. */
@@ -23,6 +27,6 @@ export const proposalTabState = (proposal: ProposalDetail): ProposalTabState => 
     reason: shows.outcome === undefined ? undefined : proposal.rejectReason,
     problem: shows.outcome === undefined ? proposal.problem : undefined,
     fileUnreadable,
-    changedSince: shows.approve && !fileUnreadable && proposal.target === "file" && proposal.baseChanged === true,
+    changedSince: shows.approve && !fileUnreadable && proposal.target === "file" && proposal.baseChanged === true ? (proposal.editedByMe ? "mine" : "agent") : undefined,
   };
 };

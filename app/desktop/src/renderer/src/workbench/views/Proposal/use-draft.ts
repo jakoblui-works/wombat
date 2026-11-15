@@ -8,6 +8,7 @@ import { proposalVersionQuery } from "../../../data/query-client.ts";
 import { asError } from "../../../lib/errors.ts";
 import { fileSide } from "./proposal-label.ts";
 import {
+  agentsLoaded,
   contentOf,
   type DraftEvent,
   type DraftKey,
@@ -18,6 +19,7 @@ import {
   type DraftSave,
   type DraftState,
   type DraftValues,
+  hasUnsent,
   type ReviseNotice,
   type SaveError,
   type SaveOutcome,
@@ -59,6 +61,10 @@ export type DraftEditor<V> = {
   /** The value the editor shows when it (re)mounts, undefined until the proposal is read. */
   value: V | undefined;
   notice: ReviseNotice | undefined;
+  /** The agent's version my value goes on, when it's the one last loaded (no read of its own needed). */
+  agents: V | undefined;
+  /** Whether the editor holds a value not saved yet. */
+  unsent: boolean;
   /** The editor's whole value, after each change. */
   onChange: (value: V) => void;
   /**
@@ -102,10 +108,8 @@ const useDraftOf = <K extends DraftKey>(source: DraftSource<K>, proposalId: stri
 
   /** The value of the agent's version my value goes on; undefined when that version isn't of this kind. */
   const agentValue = useCallback(
-    async (at: DraftState<K>): Promise<DraftValues[K] | undefined> => {
-      if (at.loaded.version === at.base) return at.loaded.value;
-      return valueOf(await queryClient.fetchQuery(proposalVersionQuery(proposalId, at.base)));
-    },
+    async (at: DraftState<K>): Promise<DraftValues[K] | undefined> =>
+      agentsLoaded(at) ?? valueOf(await queryClient.fetchQuery(proposalVersionQuery(proposalId, at.base))),
     [queryClient, proposalId, valueOf],
   );
 
@@ -168,15 +172,23 @@ const useDraftOf = <K extends DraftKey>(source: DraftSource<K>, proposalId: stri
     [dispatch, flush, key],
   );
 
-  // Closing the tab saves what's still waiting for the delay.
+  // Closing the tab saves what's still waiting for the delay, or left unsaved by a failed save.
   useEffect(
     () => () => {
-      if (timer.current !== undefined) void flush(false);
+      if (timer.current !== undefined || state.current?.unsaved !== undefined) void flush(false);
     },
     [flush],
   );
 
-  return { value: rendered?.seed, notice: rendered?.notice, onChange, flush, error: rendered?.error };
+  return {
+    value: rendered?.seed,
+    notice: rendered?.notice,
+    agents: rendered === undefined ? undefined : agentsLoaded(rendered),
+    unsent: rendered !== undefined && hasUnsent(rendered),
+    onChange,
+    flush,
+    error: rendered?.error,
+  };
 };
 
 /** A file proposal's editable text: what the editor shows, my edits saved as my draft, and the reads that may replace them. */

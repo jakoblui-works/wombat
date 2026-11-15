@@ -78,7 +78,7 @@ type RowProps = {
 };
 
 const Row = ({ row, sides, property, text, links, edit, problems, opened, open, proposalId }: RowProps) => {
-  const editing = edit !== undefined && row.editable;
+  const editing = edit !== undefined;
   const held = Object.hasOwn(row, "mine");
   const newValue = held ? row.mine : row.proposed;
   const isText = ITEM_FIELDS.has(row.name);

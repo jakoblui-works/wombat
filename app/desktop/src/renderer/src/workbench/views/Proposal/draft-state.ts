@@ -11,9 +11,10 @@ export type DraftContent<K extends DraftKey> = Pick<DraftValues, K>;
 
 /**
  * After the agent revised what I was editing: `draft`, the version holding my saved edits, now a previous one
- * (undefined when there is none); `lost`, whether edits past it (typed, or on their way to be saved) were dropped.
+ * (undefined when there is none); `lost`, whether edits past it (typed, or on their way to be saved) were dropped. With
+ * no edits of mine to keep or lose, `version`: the agent's new version the editor now shows.
  */
-export type ReviseNotice = { draft: number | undefined; lost: boolean };
+export type ReviseNotice = { draft: number | undefined; lost: boolean } | { version: number };
 
 /** Who asked for the save that failed: Approve, which then approved nothing, or the save as I type (or close the tab). */
 export type SaveError = { error: Error; byApprove: boolean };
@@ -65,6 +66,13 @@ export type DraftEvent<K extends DraftKey = "text"> =
 /** The version the editor's value stands for: my saved draft's, else the agent's it goes on. */
 export const shownVersion = (state: Pick<DraftState<DraftKey>, "saved" | "base">): number => state.saved?.version ?? state.base;
 
+/** The value of the agent's version my value goes on, when it is the one last loaded; undefined otherwise. */
+export const agentsLoaded = <K extends DraftKey>(state: DraftState<K>): Value<K> | undefined =>
+  state.loaded.version === state.base ? state.loaded.value : undefined;
+
+/** Whether the editor holds a value not saved yet: typed since the last send, or sent and not answered. */
+export const hasUnsent = (state: Pick<DraftState<DraftKey>, "unsaved" | "inFlight">): boolean => state.unsaved !== undefined || state.inFlight !== undefined;
+
 export const contentOf = <K extends DraftKey>(key: K, value: Value<K>): DraftContent<K> => ({ [key]: value }) as DraftContent<K>;
 
 export const valueIn = <K extends DraftKey>(key: K, content: DraftContent<K>): Value<K> => content[key];
@@ -99,7 +107,7 @@ const draftKind = <K extends DraftKey>(key: K, actionOf: ActionOf<Value<K>>) => 
     const kept = read.versions.findLast(({ n, by }) => by === "me" && n > state.base && n < read.version);
     const landed = kept !== undefined && kept.n > state.seen;
     const lost = state.unsaved !== undefined || (state.inFlight !== undefined && !landed);
-    return kept === undefined && !lost ? undefined : { draft: kept?.n, lost };
+    return kept === undefined && !lost ? { version: read.version } : { draft: kept?.n, lost };
   };
 
   /**
@@ -120,7 +128,7 @@ const draftKind = <K extends DraftKey>(key: K, actionOf: ActionOf<Value<K>>) => 
 
   const onAnswered = (state: DraftState<K>, save: DraftSave<K>, outcome: SaveOutcome): DraftState<K> => {
     if (save.generation !== state.generation) {
-      return outcome === "changed" && state.notice !== undefined ? { ...state, notice: { ...state.notice, lost: true } } : state;
+      return outcome === "changed" && state.notice !== undefined && "lost" in state.notice ? { ...state, notice: { ...state.notice, lost: true } } : state;
     }
     const notSaved = state.unsaved ?? state.inFlight?.raw;
     if (outcome === "changed") return { ...state, inFlight: undefined, unsaved: notSaved, error: undefined };
@@ -142,7 +150,7 @@ const draftKind = <K extends DraftKey>(key: K, actionOf: ActionOf<Value<K>>) => 
     if (state === undefined) return state;
     switch (event.type) {
       case "typed":
-        return { ...state, unsaved: valueIn(key, event), seed: valueIn(key, event) };
+        return { ...state, unsaved: valueIn(key, event), seed: valueIn(key, event), notice: state.notice !== undefined && "version" in state.notice ? undefined : state.notice };
       case "sent":
         if (event.save.generation !== state.generation) return state;
         return { ...state, inFlight: { raw: event.save.raw, value: valueIn(key, event.save) }, unsaved: state.unsaved === event.save.raw ? undefined : state.unsaved };

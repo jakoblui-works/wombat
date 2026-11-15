@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 
 import { languageOf, MONACO_HOST_CLASS, MONACO_THEME, monaco } from "../../../../lib/monaco.ts";
 import { cn } from "../../../../lib/utils";
+import { asEditorText } from "../../Proposal/line-endings.ts";
 
 type Props = {
   path: string;
@@ -14,7 +15,7 @@ type Props = {
   lineNumbers?: boolean | undefined;
   /**
    * Makes the right side editable, with the gutter's arrows that drop a hunk. Every change, typed or dropped, calls
-   * `onChange` with the whole right-side text (in the model's line endings). The editor keeps its own text: a
+   * `onChange` with the whole right-side text (in the model's line endings, without a leading byte order mark). The editor keeps its own text: a
    * `newText` it reported through `onChange`, or with the lines it holds, leaves it; only a new `path` or another
    * `newText` replaces it. A new `oldText` changes only the left side.
    */
@@ -29,8 +30,6 @@ type Models = {
   /** Texts reported through `onChange` that no `newText` has carried back yet, oldest first. */
   reported: string[];
 };
-
-const asLines = (text: string): string => text.replace(/\r\n?/g, "\n");
 
 const editOptions = (editable: boolean) =>
   ({ readOnly: !editable, renderMarginRevertIcon: editable, renderGutterMenu: editable, renderLineHighlight: editable ? "line" : "none" }) as const;
@@ -99,7 +98,7 @@ export const MonacoDiff = ({ path, oldText, newText, className, lineNumbers = fa
         held.reported.splice(0, reported + 1);
         return;
       }
-      if (held.right.getValue(monaco.editor.EndOfLinePreference.LF) === asLines(newText)) return;
+      if (held.right.getValue(monaco.editor.EndOfLinePreference.LF) === asEditorText(newText)) return;
     }
     dropModels(current, held);
     const language = languageOf(path);
