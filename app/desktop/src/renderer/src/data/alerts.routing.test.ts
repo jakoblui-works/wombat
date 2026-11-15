@@ -40,3 +40,21 @@ test("a proposal alert reads the proposals again and nothing else", async () => 
   await vi.waitFor(() => expect(service.requests()).not.toEqual([]));
   expect(await reads(service)).toEqual(["GET /proposals"]);
 });
+
+test.each<[string, (service: FakeService) => void]>([
+  ["a proposal alert", (service) => service.alert("agent_changed", A, { type: "proposal", proposalId: "proposal-1" })],
+  [
+    "a reconnect",
+    (service) => {
+      service.connection("reconnecting");
+      service.connection("connected");
+    },
+  ],
+])("%s reads the structures and every cached structure's items again", async (_name, trigger) => {
+  const { service, client } = setup();
+  client.setQueryData(keys.structures, { structures: [] });
+  client.setQueryData(keys.structureItems("bugs"), { items: [] });
+  trigger(service);
+  await vi.waitFor(() => expect(service.requests()).not.toEqual([]));
+  expect(await reads(service)).toEqual(expect.arrayContaining(["GET /structures", "GET /structures/bugs/items"]));
+});

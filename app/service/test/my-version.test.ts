@@ -1,12 +1,16 @@
 // My own version of a proposal over the routes, on the real server with a stub agent token for the propose call:
 // approve applies the version it names only while that is the current one, so under my draft the agent's number
-// writes nothing; and a draft the service can't take answers with the code the app acts on, and stores nothing.
+// writes nothing; and a draft the service can't take answers with the code the app acts on, and stores nothing (an item
+// draft's refusal names the fields that don't pass, in the shared Problem's keys only).
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { ErrorBody } from "@wombat/shared/api";
+import { Problem } from "@wombat/shared/items";
 import { expect, test } from "vitest";
 
 import { TOOL } from "../src/items/tools.ts";
+import { IDS, VALID_FILES, writeRoot } from "./items-fixtures.ts";
 import { REPO, TEST_TIMEOUT_MS } from "./manager-fixtures.ts";
 import { callTool, STUB_AGENT, STUB_TOKEN } from "./mcp-fixtures.ts";
 import { expectError, serve, type Response, type Served } from "./server-fixtures.ts";
@@ -89,6 +93,29 @@ test(
       expectError(await putDraft(s, id, body), status, code, what);
       expect(stateOf(s, id), `${what}: nothing stored`).toEqual(before);
     }
+  },
+  TEST_TIMEOUT_MS,
+);
+
+test(
+  "an item draft with a field that doesn't pass answers invalid_request with problems naming that field, in the shared Problem's keys only",
+  async () => {
+    const s = await serve({ itemsRoot: writeRoot(VALID_FILES) });
+    const { proposal } = s.store.insertProposal(
+      { target: "item", path: null, structure: "bugs", itemId: IDS.bug1, kind: "update", file: null, reason: "Seen again on staging.", baseVersion: "9f2c", agentId: STUB_AGENT },
+      { fields: { note: "Also seen in Firefox" } },
+    );
+    const before = stateOf(s, proposal.id);
+
+    // A link to an item outside the property's structure: the writer's problem for it names that item inside the service.
+    const refused = await putDraft(s, proposal.id, { onVersion: 1, fields: { order: "twelve", blocks: IDS.bug2 } });
+
+    expectError(refused, 400, "invalid_request", "a draft with a number property set to text");
+    const problems = ErrorBody.parse(refused.json).error.problems ?? [];
+    expect(problems.map(({ field }) => field), refused.text).toContain("order");
+    const raw = (refused.json as { error: { problems?: Record<string, unknown>[] } }).error.problems ?? [];
+    for (const problem of raw) expect(Object.keys(problem).every((key) => key in Problem.shape), `only Problem's keys: ${JSON.stringify(problem)}`).toBe(true);
+    expect(stateOf(s, proposal.id), "nothing stored").toEqual(before);
   },
   TEST_TIMEOUT_MS,
 );

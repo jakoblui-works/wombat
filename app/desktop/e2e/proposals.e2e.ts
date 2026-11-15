@@ -6,7 +6,7 @@
 // - one row per open proposal holding its file's path, with an open `button` holding the path and the buttons
 //   "Approve" and "Reject"; a click on the open button opens the proposal in an editor tab (dockview's
 //   `.dv-content-container`), which has "Reject", and then a `textbox` named with "reason", sent with Enter.
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Locator, Page } from "@playwright/test";
 
@@ -116,4 +116,50 @@ test("text typed on a proposal's right side is saved as my draft, and Approve wr
   await click(tab.getByRole("button", { name: "Approve", exact: true }));
   await waitUntil("the proposal approved", WAIT_MS, async () => ((await read()).status === "approved" ? true : undefined));
   expect(readFileSync(menu, "utf8")).toBe(mine);
+});
+
+// An item proposal in its tab, on an items root (WOMBAT_ITEMS) with one `bugs` structure open to proposals: each
+// field the proposal changes is a `group` named by the field, with a "Drop" button; Approve writes only the fields I kept.
+test("dropping a field of an agent's item update and approving writes only the fields I kept", async ({ sandbox }) => {
+  const bug = { id: "0196f3c2-1a00-7000-8000-00000000c001", handle: "BUG-1", title: "Basket total ignores the coupon" };
+  const items = path.join(sandbox.base, "items");
+  mkdirSync(path.join(items, "bugs"), { recursive: true });
+  writeFileSync(
+    path.join(items, "bugs", "_structure.yaml"),
+    "version: 1\nid: bugs\nname: Bugs\nprefix: BUG\naccess: propose\nproperties:\n  status: { type: select, options: [open, fixed], required: true }\n",
+  );
+  const file = path.join(items, "bugs", "basket-coupon.md");
+  writeFileSync(file, `---\nid: ${bug.id}\nhandle: ${bug.handle}\nstatus: open\n---\n# ${bug.title}\n\nThe coupon shows but the total stays the same.\n`);
+  await sandbox.startService(sandbox.workspace, { WOMBAT_ITEMS: items });
+
+  type ItemRead = { body: string | null; properties: Record<string, unknown>; version: string };
+  const item = async (): Promise<ItemRead> => (await sandbox.api("GET", `/items/${bug.handle}`)).json as ItemRead;
+  const newBody = "\nThe coupon shows but the total stays the same, only for coupons in percent.\n";
+  const agentId = await startAgent(sandbox, "fake-call-tool");
+  await waitUntil(`agent ${agentId} between turns`, WAIT_MS, async () => ((await agentSummary(sandbox, agentId))?.state === "working" ? undefined : true));
+  const call = { tool: "propose_update", arguments: { handle: bug.handle, fields: { status: "fixed", body: newBody }, version: (await item()).version, reason: "Narrowed it down." } };
+  expect((await sandbox.api("POST", `/agents/${agentId}/messages`, { text: JSON.stringify(call) })).status).toBe(202);
+  const id = await waitUntil("the item proposal listed", WAIT_MS, async () => (await listed(sandbox))[0]?.id);
+
+  const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
+  await waitForConnection(page, "connected");
+  const toggle = page.getByRole("button", { name: /^Needs me\b/ });
+  if ((await toggle.getAttribute("aria-pressed")) !== "true") await click(toggle);
+  await click(needsMe(page).getByRole("button").filter({ hasText: `bugs/${bug.handle}` }));
+  const tab = page.locator(".dv-groupview .dv-content-container").filter({ hasText: `bugs/${bug.handle}` });
+  await click(tab.getByRole("group", { name: "status", exact: true }).getByRole("button", { name: "Drop", exact: true }));
+
+  type Detail = { status: string; fields: Record<string, unknown>; versions: { n: number; by: string }[] };
+  const read = async (): Promise<Detail> => (await sandbox.api("GET", `/proposals/${encodeURIComponent(id)}`)).json as Detail;
+  await waitUntil("my draft without the status saved", WAIT_MS, async () => {
+    const { fields, versions } = await read();
+    const current = versions.reduce((top, v) => (v.n > top.n ? v : top));
+    return current.by === "me" && !Object.hasOwn(fields, "status") ? true : undefined;
+  });
+  await click(tab.getByRole("button", { name: "Approve", exact: true }));
+  await waitUntil("the proposal approved", WAIT_MS, async () => ((await read()).status === "approved" ? true : undefined));
+
+  const after = await item();
+  expect(after.properties["status"], "the dropped status stays").toBe("open");
+  expect(after.body?.trim(), "the kept body is written").toBe(newBody.trim());
 });

@@ -5,7 +5,7 @@
 // version Approve would name is the one the service holds.
 import { expect, test } from "vitest";
 
-import { type DraftRead, type DraftSave, draftSave, type DraftState, draftStep, type SaveOutcome, shownVersion } from "./draft-state.ts";
+import { type DraftRead, type DraftSave, draftSave, type DraftState, draftStep, itemDraft, type SaveOutcome, shownVersion } from "./draft-state.ts";
 
 const FILE = "# Stock\n\nFlour: 40 kg\nButter: 12 kg\n";
 const AGENT = "# Stock\n\nFlour: 40 kg\nButter: 30 kg\n";
@@ -188,4 +188,24 @@ test.each<[string, (editor: Editor, service: Service) => void]>([
   const editor = editorOn(service);
   editor.read();
   run(editor, service);
+});
+
+test("an item draft saves exactly my fields, a field I dropped left out, and reading my own version back keeps the editor", () => {
+  const theirs = { status: "fixed", body: "\nThe tooltip stays open on touch screens.\n" };
+  const mine = { body: "\nThe tooltip stays open on touch screens, in Safari only.\n" };
+  const opened = itemDraft.step(undefined, { type: "read", read: { version: 1, fields: theirs, versions: [{ n: 1, by: "agent" }] } });
+  const typed = opened && itemDraft.step(opened, { type: "typed", fields: mine });
+  if (typed === undefined) throw new Error("the proposal wasn't read");
+
+  const save = itemDraft.save(typed, theirs);
+  expect(save).toMatchObject({ action: "save", onVersion: 1 });
+  expect(save?.fields, "the body sent is my fields, nothing else").toEqual(mine);
+  if (save === undefined) return;
+  const sent = itemDraft.step(typed, { type: "sent", save });
+  const answered = sent && itemDraft.step(sent, { type: "answered", save, outcome: { version: 2 } });
+  const reread = answered && itemDraft.step(answered, { type: "read", read: { version: 2, fields: { ...mine }, versions: [{ n: 1, by: "agent" }, { n: 2, by: "me" }] } });
+
+  expect(reread?.seed, "my fields stay in the editor").toEqual(mine);
+  expect(reread?.generation, "the read of my own version doesn't reload the editor").toBe(answered?.generation);
+  expect(reread && shownVersion(reread), "Approve names my version").toBe(2);
 });
