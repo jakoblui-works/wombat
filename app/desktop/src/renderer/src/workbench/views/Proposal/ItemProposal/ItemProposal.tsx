@@ -1,7 +1,7 @@
 import { ArrowRight } from "lucide-react";
 import { useState } from "react";
 
-import type { Item, LenientProperty, Problem } from "@wombat/shared/items";
+import { type Item, ITEM_FIELDS, type LenientProperty, type Problem } from "@wombat/shared/items";
 import type { ItemProposalKind } from "@wombat/shared/proposals";
 import { Button } from "../../../../components/ui/button";
 import { ScrollArea } from "../../../../components/ui/scroll-area";
@@ -17,8 +17,6 @@ type Fields = Readonly<Record<string, unknown>>;
 export type ItemEdit = { value: Fields; change: (fields: Record<string, unknown>, now: boolean) => void };
 
 type Option = { value: string; label: string };
-
-const TEXT_FIELDS: ReadonlySet<string> = new Set(["title", "body"]);
 
 const controlClass = "focus-ring h-7 min-w-0 max-w-96 flex-1 rounded-md border border-line-strong bg-surface-1 px-2 text-sm text-fg-primary";
 
@@ -60,9 +58,14 @@ const PropertyControl = ({ name, value, property, links, onChange }: { name: str
 const Value = ({ text, className = "" }: { text: string; className?: string }) =>
   text === "" ? <span className="text-fg-tertiary">none</span> : <span className={`min-w-0 whitespace-pre-wrap break-words ${className}`}>{text}</span>;
 
+/** Which values a row shows: a create's only the new, a delete's only the item's as it is, an update's both. */
+type Sides = "new" | "old" | "both";
+
+const sidesOf = (kind: ItemProposalKind): Sides => (kind === "create" ? "new" : kind === "delete" ? "old" : "both");
+
 type RowProps = {
   row: FieldRow;
-  kind: ItemProposalKind;
+  sides: Sides;
   property: LenientProperty | undefined;
   text: (value: unknown) => string;
   links: readonly Option[];
@@ -74,16 +77,17 @@ type RowProps = {
   proposalId: string;
 };
 
-const Row = ({ row, kind, property, text, links, edit, problems, opened, open, proposalId }: RowProps) => {
+const Row = ({ row, sides, property, text, links, edit, problems, opened, open, proposalId }: RowProps) => {
   const editing = edit !== undefined && row.editable;
   const held = Object.hasOwn(row, "mine");
   const newValue = held ? row.mine : row.proposed;
-  const isText = TEXT_FIELDS.has(row.name);
-  // A body reads in the diff; its row line would repeat it, cut short. A delete has no diff, so it shows it whole,
-  // without the line break that follows the title.
+  const isText = ITEM_FIELDS.has(row.name);
+  const showsNew = sides !== "old";
+  // A body reads in the diff; its row line would repeat it, cut short. Without a new value there is no diff, so it
+  // shows whole, without the line break that follows the title.
   const preview = (value: unknown) => {
     if (row.name !== "body") return text(value);
-    return kind === "delete" ? text(value).replace(/^\r?\n/, "") : (text(value).trim().split("\n")[0] ?? "");
+    return showsNew ? (text(value).trim().split("\n")[0] ?? "") : text(value).replace(/^\r?\n/, "");
   };
   return (
     <div role="group" aria-label={row.name} className="flex flex-col gap-1.5 border-b border-line px-3 py-2">
@@ -91,13 +95,13 @@ const Row = ({ row, kind, property, text, links, edit, problems, opened, open, p
         <span aria-hidden className="w-24 shrink-0 font-mono text-xs text-fg-tertiary">
           {row.name}
         </span>
-        {kind === "create" ? null : (
+        {sides === "new" ? null : (
           <>
-            <Value text={preview(row.old)} className={kind === "delete" ? "text-fg-primary" : "text-fg-secondary"} />
-            {kind === "delete" ? null : <ArrowRight aria-hidden className="size-3.5 shrink-0 text-fg-tertiary" />}
+            <Value text={preview(row.old)} className={showsNew ? "text-fg-secondary" : "text-fg-primary"} />
+            {showsNew ? <ArrowRight aria-hidden className="size-3.5 shrink-0 text-fg-tertiary" /> : null}
           </>
         )}
-        {kind === "delete" ? null : row.dropped ? (
+        {!showsNew ? null : row.dropped ? (
           <>
             <Value text={preview(row.proposed)} className="text-fg-tertiary line-through" />
             <span className="text-xs text-fg-tertiary">dropped from your version</span>
@@ -108,7 +112,7 @@ const Row = ({ row, kind, property, text, links, edit, problems, opened, open, p
           <Value text={preview(newValue)} className="text-fg-primary" />
         )}
         <span className="ml-auto flex shrink-0 gap-1.5">
-          {isText && !opened && !row.dropped && kind !== "delete" ? (
+          {isText && !opened && !row.dropped && showsNew ? (
             <Button variant="ghost" size="xs" onClick={open}>
               Show the diff
             </Button>
@@ -126,7 +130,7 @@ const Row = ({ row, kind, property, text, links, edit, problems, opened, open, p
         </span>
       </div>
       <Problems problems={problems} />
-      {isText && opened && !row.dropped && kind !== "delete" ? (
+      {isText && opened && !row.dropped && showsNew ? (
         <LazyMonacoDiff
           path={`${proposalId}/${row.name}.md`}
           oldText={text(row.old)}
@@ -197,7 +201,7 @@ export const ItemProposal = ({
             <Row
               key={row.name}
               row={row}
-              kind={kind}
+              sides={sidesOf(kind)}
               property={property}
               text={(value) => valueText(value, property, (id) => handles.get(id))}
               links={property?.type === "link" ? linksTo(property.to) : []}

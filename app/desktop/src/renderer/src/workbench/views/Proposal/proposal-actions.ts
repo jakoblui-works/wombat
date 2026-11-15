@@ -1,5 +1,5 @@
 import { type AgentSummary, chatAccess } from "@wombat/shared/api";
-import { canDecide, canDraft, canReject, canRevise, isOpen, type ProposalStatus } from "@wombat/shared/proposals";
+import { canDecide, canDraft, canReject, canRevise, isOpen, type Proposal, type ProposalStatus } from "@wombat/shared/proposals";
 
 import type { ConnectionState } from "../../../../../shared/bridge.ts";
 import { featuresOrAssumed } from "../Chat/harness-features.ts";
@@ -13,7 +13,7 @@ export type ProposalActions = { approve: boolean; reject: boolean; revise: boole
  * by its harness's `features`, undefined while they are unknown): otherwise the chat would open on a box that can't send.
  */
 export const proposalActions = (
-  proposal: { status: ProposalStatus },
+  proposal: Pick<Proposal, "status" | "target" | "kind">,
   agent: Pick<AgentSummary, "id" | "state" | "hasProcess"> | undefined,
   connection: ConnectionState["state"],
   features: readonly string[] | undefined,
@@ -23,7 +23,8 @@ export const proposalActions = (
     approve: connected && canDecide(proposal.status),
     reject: connected && canReject(proposal.status),
     revise: connected && agent !== undefined && agent.state !== "stopped" && chatAccess(agent, featuresOrAssumed(features)) !== "closed" && canRevise(proposal.status),
-    draft: connected && canDraft(proposal.status),
+    // An item delete has no content to edit.
+    draft: connected && canDraft(proposal.status) && !(proposal.target === "item" && proposal.kind === "delete"),
   };
 };
 

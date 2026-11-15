@@ -13,16 +13,12 @@ const isLinkValue = (value: unknown): value is LinkValue =>
  * never its id; nothing for an empty value; a list joined.
  */
 export const valueText = (value: unknown, property: LenientProperty | undefined, handleOf: (id: string) => string | undefined): string => {
-  if (value === null || value === undefined) return "";
   if (isLinkValue(value)) return value.handle ?? UNKNOWN_ITEM;
   if (property?.type === "link" && typeof value === "string") return handleOf(value) ?? UNKNOWN_ITEM;
-  if (typeof value === "string") return value;
-  if (Array.isArray(value)) return value.map((each) => valueText(each, property, handleOf)).join(", ");
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return JSON.stringify(value);
+  return inputText(value);
 };
 
-/** A property's value as its text box holds it. */
+/** A value as its text box holds it, and as its row shows it when it isn't a link. */
 export const inputText = (value: unknown): string => {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;

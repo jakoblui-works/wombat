@@ -1,4 +1,4 @@
-import type { Item } from "@wombat/shared/items";
+import { ITEM_FIELDS, type Item } from "@wombat/shared/items";
 import type { ItemProposalKind } from "@wombat/shared/proposals";
 
 type Fields = Readonly<Record<string, unknown>>;
@@ -20,7 +20,7 @@ export type FieldRow = {
 
 /** Title first and body last, the properties between in the order given. */
 const ordered = (names: readonly string[]): string[] => {
-  const properties = names.filter((name) => name !== "title" && name !== "body");
+  const properties = names.filter((name) => !ITEM_FIELDS.has(name));
   return [...(names.includes("title") ? ["title"] : []), ...properties, ...(names.includes("body") ? ["body"] : [])];
 };
 

@@ -10,7 +10,7 @@ import { ServiceError } from "../../../data/client.ts";
 import { useDecide } from "../../../data/commands.ts";
 import { useAgents, useConnection, useProposal } from "../../../data/hooks.ts";
 import { keys } from "../../../data/keys.ts";
-import { refresh } from "../../../data/refresh.ts";
+import { refresh, refreshItems } from "../../../data/refresh.ts";
 import { useHarnessFeatures } from "../Chat/harness-features.ts";
 import { setReference } from "../Chat/Composer/unsent.ts";
 import { useActiveTab, useWorkbench } from "../../workbench-context.ts";
@@ -107,13 +107,16 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
   const [rejecting, setRejecting] = useState(false);
   const queryClient = useQueryClient();
   const active = isProposalTab(useActiveTab(), proposalId);
-  // Nothing announces a hand edit of the file, so the tab reads the proposal again each time it's brought to the front.
+  // Nothing announces a hand edit of the file or the items, so the tab reads the proposal, the structures and the items
+  // it shows again each time it's brought to the front.
   useEffect(() => {
-    if (active) void refresh(queryClient, keys.proposal(proposalId));
+    if (!active) return;
+    void refresh(queryClient, keys.proposal(proposalId));
+    refreshItems(queryClient);
   }, [active, queryClient, proposalId]);
   const proposal: ProposalDetail | undefined = read.data;
   const fileDraft = useDraftEditor(proposalId, proposal);
-  const itemDraft = useItemDraft(proposalId, proposal?.target === "item" && proposal.kind !== "delete" ? proposal : undefined);
+  const itemDraft = useItemDraft(proposalId, proposal);
   // While my draft is current, the agent's version it edits is another read.
   const theirs = useProposal(proposalId, proposal === undefined ? undefined : myDraft(proposal.versions)?.theirs.n);
   const label = proposal === undefined ? undefined : proposalTabLabel(proposal);
@@ -131,12 +134,11 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
   const viewingEarlier = viewing !== undefined && viewing !== proposal.version;
   const shown = viewingEarlier ? earlier.data : proposal;
   const draft = proposal.target === "file" ? fileDraft : itemDraft;
-  const editable = actions.draft && !viewingEarlier && draft.value !== undefined && !(proposal.target === "item" && proposal.kind === "delete");
+  const editable = actions.draft && !viewingEarlier && draft.value !== undefined;
   const kind = proposalKindWord(proposal);
   const draftProblems = refusedProblems(draft.error);
   // Waits for my text to be saved: Approve never sends a version older than the text on screen.
   const saved = async (byApprove: boolean): Promise<number | undefined> => {
-    if (proposal.target === "item" && proposal.kind === "delete") return proposal.version;
     setSaving(true);
     try {
       return await draft.flush(byApprove);

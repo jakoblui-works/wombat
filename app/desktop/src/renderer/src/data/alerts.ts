@@ -1,5 +1,5 @@
-// Keeps the cache current from the service's alerts. The event stream never replays, so after a reconnect the agents
-// and proposals are read again and every cached log is read on from its cursor. While not connected nothing is
+// Keeps the cache current from the service's alerts. The event stream never replays, so after a reconnect the agents,
+// the proposals, the structures and their cached items are read again and every cached log is read on from its cursor. While not connected nothing is
 // cleared: views keep the last data and dim themselves.
 import { hashKey, type QueryClient } from "@tanstack/react-query";
 
@@ -7,7 +7,7 @@ import type { Alert, ListAgentsResponse } from "@wombat/shared/api";
 import type { ConnectionState, WombatBridge } from "../../../shared/bridge.ts";
 import { keys, logAgentId, proposalIdOf } from "./keys.ts";
 import { forgetAgent } from "./query-client.ts";
-import { refresh } from "./refresh.ts";
+import { refresh, refreshItems } from "./refresh.ts";
 
 /** Keeps the cache current from the bridge's alerts and connection states; returns the unsubscribe. */
 export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (() => void) => {
@@ -60,6 +60,7 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
       case "proposal":
         void refresh(queryClient, keys.proposals);
         void refresh(queryClient, keys.proposal(alert.proposalId));
+        refreshItems(queryClient);
         break;
     }
   };
@@ -85,6 +86,7 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
         void refresh(queryClient, keys.agents).then(dropUnlisted);
         void refresh(queryClient, keys.proposals);
         for (const proposalId of cachedProposals()) void refresh(queryClient, keys.proposal(proposalId));
+        refreshItems(queryClient);
         for (const agentId of cachedLogs()) void refresh(queryClient, keys.log(agentId));
       }
       seenConnected = true;

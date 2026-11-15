@@ -151,7 +151,8 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
     written: async (stored) => (stored.target === "file" && (await written(stored.path, stored.intent)) ? { written: true } : undefined),
   };
 
-  const fileSummary = async (stored: StoredFileProposal) => fileProposalOf(stored, store.listVersionHeads(stored.id), (await workspaceMark(workspace))(stored.path));
+  /** `heads` read with `stored`, when the caller has them: a detail's version, versions and text must come from one read. */
+  const fileSummary = async (stored: StoredFileProposal, heads = store.listVersionHeads(stored.id)) => fileProposalOf(stored, heads, (await workspaceMark(workspace))(stored.path));
 
   /** A stored proposal of either target as the API sends it. */
   const summaryOf = async (stored: StoredProposal): Promise<FileProposal | ItemProposalRecord> => {
@@ -211,7 +212,7 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
     const { text } = textOf(contentOf(id, n).content);
     const now = await currentFile(stored.path, stored.kind);
     const changed = baseChanged(stored, now);
-    return { ...(await fileSummary(stored)), current: now?.text ?? null, text, versions: heads, ...(changed === undefined ? {} : { baseChanged: changed }) };
+    return { ...(await fileSummary(stored, heads)), current: now?.text ?? null, text, versions: heads, ...(changed === undefined ? {} : { baseChanged: changed }) };
   };
 
   /** Approves version `version`, which must be current; a conflict or a new version to approve answers too. */

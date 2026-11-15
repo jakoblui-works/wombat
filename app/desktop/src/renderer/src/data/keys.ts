@@ -1,5 +1,5 @@
-// The page's query keys. `logs` is the prefix of every `log(agentId)` and `proposalDetails` of every
-// `proposal(proposalId)`, for finding the cached ones.
+// The page's query keys. `logs` is the prefix of every `log(agentId)`, `proposalDetails` of every
+// `proposal(proposalId)` and `structureItemLists` of every `structureItems(structureId)`, for finding the cached ones.
 import type { QueryKey } from "@tanstack/react-query";
 
 const LOG = "log";
@@ -19,6 +19,7 @@ export const keys = {
   // A version never changes once made, so nothing reads these again.
   proposalVersion: (proposalId: string, version: number) => [PROPOSAL_VERSION, proposalId, String(version)],
   structures: ["structures"],
+  structureItemLists: [STRUCTURE_ITEMS],
   structureItems: (structureId: string) => [STRUCTURE_ITEMS, structureId],
 } as const satisfies Record<string, QueryKey | ((id: string, version: number) => QueryKey)>;
 

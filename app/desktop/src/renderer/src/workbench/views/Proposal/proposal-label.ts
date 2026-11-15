@@ -12,10 +12,9 @@ export const proposalLabel = (proposal: Proposal): string => {
 
 /** The proposal tab's label: `proposalLabel`, or for a create with nothing to name it by but its structure, the structure and its proposed title. */
 export const proposalTabLabel = (proposal: ProposalDetail): string => {
-  const label = proposalLabel(proposal);
-  if (proposal.target !== "item" || label !== proposal.structure) return label;
+  if (proposal.target !== "item" || (proposal.handle ?? proposal.file) !== null) return proposalLabel(proposal);
   const title = proposal.fields["title"];
-  return typeof title === "string" && title.trim() !== "" ? `${proposal.structure}: ${title}` : label;
+  return typeof title === "string" && title.trim() !== "" ? `${proposal.structure}: ${title}` : proposalLabel(proposal);
 };
 
 export const AGENT_DELETED = "agent deleted";
