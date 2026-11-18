@@ -13,7 +13,7 @@ import type { ItemProposal, ProposalVersion } from "@wombat/shared/proposals";
 
 import { agentWriteError, itemFor, binderFor, viewOf, type View } from "../items/agent-view.ts";
 import { handlesById, withLinks } from "../items/api-view.ts";
-import type { Catalog, LoadedItem, LoadedBinder, ValidBinder } from "../items/catalog.ts";
+import { blockingProblems, type Catalog, type LoadedItem, type LoadedBinder, type ValidBinder } from "../items/catalog.ts";
 import { writeGuards, type WriteGuards } from "../items/guards.ts";
 import { lockedNames, newItem, type Change, type ItemInput } from "../items/refusals.ts";
 import { SETTINGS_FILE } from "../items/binders.ts";
@@ -72,9 +72,9 @@ type ItemIntent = { itemId?: string | null; version?: string | null; path?: stri
 /** What a written check reads of the items now: the items, whether the proposal's binder was read whole, whether a delete's file is missing on disk. */
 type ItemsNow = { items: readonly LoadedItem[]; binderRead: boolean; fileMissing: boolean };
 
-/** Whether a binder was read whole: it has settings, and no folder of it failed to read (its only problems without a field). */
+/** Whether a binder was read whole: it has settings, and no folder of it failed to read (its only blocking problems without a field). */
 export const binderRead = (binders: readonly LoadedBinder[], id: string) =>
-  binders.some((binder) => binder.id === id && binder.problems.every((problem) => problem.field !== undefined));
+  binders.some((binder) => binder.id === id && blockingProblems(binder).every((problem) => problem.field !== undefined));
 
 const itemOnly = (stored: StoredProposal): StoredItemProposal => {
   if (stored.target !== "item") throw new Error(`Proposal ${stored.id} isn't an item proposal; it can't be handled as one.`);

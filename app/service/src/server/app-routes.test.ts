@@ -8,14 +8,14 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { APP_ROUTES, appRoute } from "@wombat/shared/routes";
+import { APP_ROUTES, appRoute, MAIN_ONLY_ROUTES } from "@wombat/shared/routes";
 import { expect, test } from "vitest";
 
 import { appRoutes } from "../../test/server-fixtures.ts";
 
 const SERVER_DIR = import.meta.dirname;
-// Served for agents (/mcp) or called by main itself (/shutdown, /events); never in the page's allow-list.
-const NOT_FOR_THE_PAGE = ["/mcp", "/shutdown", "/events"];
+// Served for agents (/mcp) or called by main itself; never in the page's allow-list.
+const NOT_FOR_THE_PAGE = ["/mcp", ...MAIN_ONLY_ROUTES.map(({ pattern }) => pattern)];
 
 /** `:id`, `:requestId`… all read as one parameter, so names don't matter. */
 const shape = (pattern: string) => pattern.replace(/:[A-Za-z_][A-Za-z0-9_]*/g, ":");

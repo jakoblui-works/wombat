@@ -29,14 +29,16 @@ export const folderProblem = (folder: string, error: unknown): Problem => ({
   message: `folder: ${folder === "" ? "the items root" : folder} can't be read (${errorCode(error)}); make it readable so its items load`,
 });
 
-/** What a folder still holding the settings file under its old name gets, as a problem of its binder. */
-export const oldSettingsProblem = (): Problem => ({ message: `${OLD_SETTINGS_FILE}: rename this file to ${SETTINGS_FILE}` });
+export const oldSettingsProblem = (besideSettings: boolean): Problem => ({
+  message: besideSettings
+    ? `${OLD_SETTINGS_FILE}: delete this leftover file; ${SETTINGS_FILE} is the one read`
+    : `${OLD_SETTINGS_FILE}: rename this file to ${SETTINGS_FILE}`,
+});
 
 /** A binder folder, root-relative, and which of the two settings files it directly holds (at least one). */
-export type BinderFolder = { path: string; settings: boolean; oldSettings: boolean };
+type BinderFolder = { path: string; settings: boolean; oldSettings: boolean };
 
-/** The folder's binder files among the names of its regular files; undefined when it holds neither. */
-export const binderFolderOf = (path: string, fileNames: readonly string[]): BinderFolder | undefined => {
+const binderFolderOf = (path: string, fileNames: readonly string[]): BinderFolder | undefined => {
   const settings = fileNames.includes(SETTINGS_FILE);
   const oldSettings = fileNames.includes(OLD_SETTINGS_FILE);
   return settings || oldSettings ? { path, settings, oldSettings } : undefined;

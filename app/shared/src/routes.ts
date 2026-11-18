@@ -78,8 +78,13 @@ const MAIN_ROUTES = {
   shutdown: { method: "POST", pattern: "/shutdown", response: ShutdownResponse },
 } as const satisfies Record<string, AppRoute>;
 
+const disjoint = <A extends object, B extends object>(a: A, b: B & Partial<Record<keyof A, never>>): A & B => ({ ...a, ...b });
+
 /** Every route the app calls, by name: build its path with pathOf. */
-export const ROUTES = { ...PAGE_ROUTES, ...MAIN_ROUTES };
+export const ROUTES = disjoint(PAGE_ROUTES, MAIN_ROUTES);
+
+/** The routes only main calls, never on the page's allow-list. */
+export const MAIN_ONLY_ROUTES: readonly AppRoute[] = Object.values(MAIN_ROUTES);
 
 /** Every route the app's page may call (the bridge's allow-list, checked in main). */
 export const APP_ROUTES: readonly AppRoute[] = Object.values(PAGE_ROUTES);
@@ -90,15 +95,14 @@ type ParamNames<P extends string> = P extends `${string}:${infer Name}/${infer R
     ? Name
     : never;
 
-/** The values of a pattern's `:name` segments. */
 export type PathParams<P extends string> = { readonly [Name in ParamNames<P>]: string };
 
-/** The query a route takes, as its schema reads it; never for a route that takes none. */
 export type QueryOf<R extends AppRoute> = R extends { query: infer Q extends z.ZodType } ? z.input<Q> : never;
 
-/** pathOf's arguments after the route: the params, optional when the pattern has none, then the query. */
+export type ResponseOf<R extends AppRoute> = R["response"] extends z.ZodType ? z.output<R["response"]> : never;
+
 export type PathArgs<R extends AppRoute> = [ParamNames<R["pattern"]>] extends [never]
-  ? [params?: PathParams<R["pattern"]>, query?: QueryOf<R>]
+  ? [params?: Record<string, never>, query?: QueryOf<R>]
   : [params: PathParams<R["pattern"]>, query?: QueryOf<R>];
 
 // A path parameter is one plain segment: no percent-encoding (so no encoded `/` or `.`), and never `.` or `..`.
@@ -119,7 +123,7 @@ export const pathOf = <R extends AppRoute>(route: R, ...[params, query]: PathArg
       const value = values[part.slice(1)] ?? "";
       if (!PARAM.test(value)) {
         throw new Error(
-          `${route.method} ${route.pattern} can't be called with ${part.slice(1)} "${value}": a path parameter must be letters, digits, ., _, ~ or -, and not "." or "..". Rename it to one that is.`,
+          `${route.method} ${route.pattern} wasn't sent: its ${part.slice(1)} "${value}" isn't one plain path segment (letters, digits, ., _, ~ or -, and not "." or ".."). Use the ${part.slice(1)} as the service listed it.`,
         );
       }
       return value;

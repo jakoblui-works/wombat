@@ -43,7 +43,6 @@ export const call = async <S extends z.ZodType>(method: string, path: string, sc
 
 type JsonRoute = AppRoute & { response: z.ZodType };
 
-/** A call's path parameters (required when the pattern has some), query and body (required when the route takes one). */
 export type RouteRequest<R extends JsonRoute> = ([keyof PathParams<R["pattern"]>] extends [never]
   ? { params?: never }
   : { params: PathParams<R["pattern"]> }) &
@@ -52,7 +51,7 @@ export type RouteRequest<R extends JsonRoute> = ([keyof PathParams<R["pattern"]>
 
 /** `call` on `route`, its answer parsed with `schema` rather than the route's own; rejects when pathOf throws. */
 export const callRouteWith = async <R extends JsonRoute, S extends z.ZodType>(route: R, request: RouteRequest<R>, schema: S): Promise<z.output<S>> =>
-  call(route.method, pathOf(route, ...([request.params, request.query] as PathArgs<R>)), schema, request.body);
+  call(route.method, pathOf(route, ...([request.params, request.query] as unknown as PathArgs<R>)), schema, request.body);
 
 /** `call` on `route`, its answer parsed with the route's response schema; rejects when pathOf throws. */
 export const callRoute = <R extends JsonRoute>(

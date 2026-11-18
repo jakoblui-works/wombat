@@ -32,6 +32,8 @@ export type NamedProblem = Problem & {
   names?: ProblemNames;
   /** Set on a handle or alias other files also have (`isClash`); stays inside the service like `names`. */
   clash?: true;
+  /** Set on a leftover `_structure.yaml` beside a `_binder.yaml`: shown, but it blocks no write (`blockingProblems`); stays inside the service like `names`. */
+  leftover?: true;
 };
 export type ProblemNames = { binders?: string[]; items?: string[] };
 
@@ -131,6 +133,9 @@ export const linkOfField = (field: string | undefined) => /^properties\.(.+)\.to
  * malformed handle or alias of the item's own is no clash.
  */
 export const isClash = (problem: NamedProblem) => problem.clash === true;
+
+/** The binder's problems that keep its items from being written and its read from counting as whole. */
+export const blockingProblems = (binder: LoadedBinder) => binder.problems.filter((problem) => problem.leftover !== true);
 
 /** Cross-file binder problems: ids and prefixes unique under the root, links `to` a binder that exists. */
 const checkBinders = (binders: LoadedBinder[]) => {
@@ -242,8 +247,8 @@ export const readRoot = async (root: string): Promise<RootRead> => {
   const folderSet = new Set(folders.map((folder) => folder.path));
   const binders: LoadedBinder[] = await Promise.all(
     folders.map(async ({ path, settings, oldSettings }): Promise<LoadedBinder> => {
-      const leftover = oldSettings ? [oldSettingsProblem()] : [];
-      if (!settings) return { id: null, settings: null, path, problems: leftover };
+      if (!settings) return { id: null, settings: null, path, problems: [oldSettingsProblem(false)] };
+      const leftover: NamedProblem[] = oldSettings ? [{ ...oldSettingsProblem(true), leftover: true }] : [];
       const result = await readSettings(join(root, path, SETTINGS_FILE));
       return result.settings === null
         ? { id: null, settings: null, path, problems: [...result.problems, ...leftover] }
@@ -366,7 +371,7 @@ export const readRoot = async (root: string): Promise<RootRead> => {
     if (!read.writable) continue;
     const needsId = parsed.data.id === undefined;
     const needsHandle = parsed.data.handle === undefined;
-    if (binder.problems.length > 0) {
+    if (blockingProblems(binder).length > 0) {
       if (needsId || needsHandle) {
         item.problems.push({ field: needsId ? "id" : "handle", message: `${needsId ? "id" : "handle"}: none yet; it's assigned once the binder's problems are fixed` });
       }

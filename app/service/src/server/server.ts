@@ -4,32 +4,15 @@ import type { AddressInfo } from "node:net";
 import { getRequestListener, type HttpBindings } from "@hono/node-server";
 import { API_VERSION } from "@wombat/shared";
 import {
-  AnswerPermissionRequest,
   BODY_OVER_CAP_MESSAGE,
-  GetItemResponse as GetItemSchema,
   HEARTBEAT_MS,
   ItemsErrorCode,
-  ListItemsResponse as ListItemsSchema,
-  ListLogQuery,
-  ListBindersResponse as ListBindersSchema,
-  SendMessageRequest,
   ServerErrorCode,
-  SetConfigRequest,
-  StartAgentRequest,
   type AgentSummary,
-  type ContextBreakdown,
   type ErrorBody,
-  type GetItemResponse,
-  type ListAgentsResponse,
-  type ListHarnessesResponse,
-  type ListItemsResponse,
-  type ListLogResponse,
-  type ListReposResponse,
-  type ListBindersResponse,
-  type VersionResponse,
 } from "@wombat/shared/api";
 import { errorCode } from "@wombat/shared/errno";
-import { MAX_BODY_BYTES } from "@wombat/shared/routes";
+import { MAX_BODY_BYTES, ROUTES, type ResponseOf } from "@wombat/shared/routes";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
@@ -159,52 +142,52 @@ export const startServer = async ({
     }),
   );
 
-  app.get("/version", (c) => c.json({ apiVersion: API_VERSION, ...identity } satisfies VersionResponse));
+  app.get("/version", (c) => c.json({ apiVersion: API_VERSION, ...identity } satisfies ResponseOf<typeof ROUTES.version>));
 
   app.get("/harnesses", (c) =>
-    c.json(harnesses.map((harness) => ({ id: harness.id, name: harness.name, features: harnessFeatures(harness) })) satisfies ListHarnessesResponse),
+    c.json(harnesses.map((harness) => ({ id: harness.id, name: harness.name, features: harnessFeatures(harness) })) satisfies ResponseOf<typeof ROUTES.listHarnesses>),
   );
 
-  app.get("/repos", (c) => c.json({ repos: listRepos(workspaceRoot) } satisfies ListReposResponse));
+  app.get("/repos", (c) => c.json({ repos: listRepos(workspaceRoot) } satisfies ResponseOf<typeof ROUTES.listRepos>));
 
   app.get("/agents", (c) =>
-    c.json({ dbId: store.dbId, seq: store.currentSeq(), agents: store.listAgents().map(withLiveCache) } satisfies ListAgentsResponse),
+    c.json({ dbId: store.dbId, seq: store.currentSeq(), agents: store.listAgents().map(withLiveCache) } satisfies ResponseOf<typeof ROUTES.listAgents>),
   );
 
   app.post("/agents", async (c) => {
-    const { harness, repo } = await readBody(c, StartAgentRequest);
-    return c.json(await manager.start(harness, repo), 201);
+    const { harness, repo } = await readBody(c, ROUTES.startAgent.body);
+    return c.json(await manager.start(harness, repo) satisfies ResponseOf<typeof ROUTES.startAgent>, 201);
   });
 
   app.get("/agents/:id/log", (c) => {
-    const query = readQuery(c, ListLogQuery);
+    const query = readQuery(c, ROUTES.agentLog.query);
     const agentId = c.req.param("id");
     requireAgent(agentId, findAgent);
     const { after, limit = defaultLogLimit } = query;
     const { entries, truncated } = store.readLog(agentId, after, limit);
-    return c.json({ dbId: store.dbId, seq: store.currentSeq(), entries, truncated } satisfies ListLogResponse);
+    return c.json({ dbId: store.dbId, seq: store.currentSeq(), entries, truncated } satisfies ResponseOf<typeof ROUTES.agentLog>);
   });
 
   app.post("/agents/:id/messages", async (c) => {
-    const message = await readBody(c, SendMessageRequest);
-    return c.json(await manager.send(c.req.param("id"), message), 202);
+    const message = await readBody(c, ROUTES.sendMessage.body);
+    return c.json(await manager.send(c.req.param("id"), message) satisfies ResponseOf<typeof ROUTES.sendMessage>, 202);
   });
 
   app.post("/agents/:id/permissions/:requestId", async (c) => {
-    const { kind } = await readBody(c, AnswerPermissionRequest);
+    const { kind } = await readBody(c, ROUTES.answerPermission.body);
     manager.answer(c.req.param("id"), c.req.param("requestId"), kind);
     return c.body(null, 204);
   });
 
   // 204 once the agent's new options are stored: a read of the log right after holds them.
   app.post("/agents/:id/config", async (c) => {
-    const { configId, value } = await readBody(c, SetConfigRequest);
+    const { configId, value } = await readBody(c, ROUTES.setConfig.body);
     await manager.setConfig(c.req.param("id"), configId, value);
     return c.body(null, 204);
   });
 
   // A hidden turn: the breakdown, with nothing of the turn in the agent's log or summary.
-  app.post("/agents/:id/context", async (c) => c.json(await manager.contextBreakdown(c.req.param("id")) satisfies ContextBreakdown));
+  app.post("/agents/:id/context", async (c) => c.json(await manager.contextBreakdown(c.req.param("id")) satisfies ResponseOf<typeof ROUTES.contextBreakdown>));
 
   app.post("/agents/:id/cancel", async (c) => {
     await manager.cancel(c.req.param("id"));
@@ -232,7 +215,7 @@ export const startServer = async ({
     if (onShutdown) (c.env as HttpBindings).outgoing.once("close", onShutdown);
     // The manager's shutdown is the stop path's own agent stop: each agent ends as POST /agents/:id/stop ends it.
     await manager.shutdown();
-    return c.json({}, 202);
+    return c.json({} satisfies ResponseOf<typeof ROUTES.shutdown>, 202);
   });
 
   const notConfigured = (c: Context) =>
@@ -247,7 +230,7 @@ export const startServer = async ({
     if (!items) return notConfigured(c);
     const { binders, items: all } = await items.snapshot();
     const body = { binders: binders.map((binder) => summarize(binder, all)) };
-    return c.json(checked(ListBindersSchema, body) satisfies ListBindersResponse);
+    return c.json(checked(ROUTES.listBinders.response, body) satisfies ResponseOf<typeof ROUTES.listBinders>);
   });
 
   app.get("/binders/:id/items", async (c) => {
@@ -265,7 +248,7 @@ export const startServer = async ({
     const handles = handlesById(all);
     // The schema drops each item's body: a list carries none.
     const listed = all.filter((item) => item.binder === id).map((item) => withLinks(item, binders, handles));
-    return c.json(checked(ListItemsSchema, { items: listed }) satisfies ListItemsResponse);
+    return c.json(checked(ROUTES.binderItems.response, { items: listed }) satisfies ResponseOf<typeof ROUTES.binderItems>);
   });
 
   app.get("/items/:handle", async (c) => {
@@ -282,7 +265,7 @@ export const startServer = async ({
       );
     }
     const handles = handlesById(all);
-    return c.json(checked(GetItemSchema, withLinks(found, binders, handles)) satisfies GetItemResponse);
+    return c.json(checked(ROUTES.getItem.response, withLinks(found, binders, handles)) satisfies ResponseOf<typeof ROUTES.getItem>);
   });
 
   manager.setNoteSource(notes);

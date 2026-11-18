@@ -8,7 +8,7 @@ Set the items root with `WOMBAT_ITEMS`, an absolute path. Without it, the servic
 
 A binder is a folder with a `_binder.yaml` in it. Every markdown file below that folder belongs to it, up to the next folder that has its own `_binder.yaml`. A file belongs to exactly one binder, so a nested binder's access level covers only its own files. Folders starting with `.` and `node_modules` are never read.
 
-A folder that still holds a `_structure.yaml`, the file's old name, shows the problem `_structure.yaml: rename this file to _binder.yaml`. Without a `_binder.yaml` beside it, the folder is a binder that doesn't load: its files are in no binder until you rename the file, and its settings aren't read.
+A folder that still holds a `_structure.yaml`, the file's old name, and no `_binder.yaml` shows the problem `_structure.yaml: rename this file to _binder.yaml` and doesn't load: its files are in no binder until you rename the file, and its settings aren't read. Beside a `_binder.yaml`, the old file is a leftover whose problem asks you to delete it; the binder loads and is written as usual.
 
 ```yaml
 version: 1

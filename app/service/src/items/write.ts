@@ -13,7 +13,7 @@ import { stringify } from "yaml";
 
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
-import { findByHandle, isClash, loadItem, readRoot, type LoadedItem, type LoadedBinder, type NamedProblem, type ProblemNames, type RootRead, type ValidBinder } from "./catalog.ts";
+import { blockingProblems, findByHandle, isClash, loadItem, readRoot, type LoadedItem, type LoadedBinder, type NamedProblem, type ProblemNames, type RootRead, type ValidBinder } from "./catalog.ts";
 import { NoHardLinks, queueWrite, readAtVersion, removeUnchanged, VersionChanged, versionOfText, writeAtomic, type VersionedFile } from "./files.ts";
 import { bodyEdit, checkedText, parseItemFile, readsBackAs, setKeyEdits, titleEdit, type ParsedItemFile } from "./item-file.ts";
 import { inFolder, isIncluded, isSkippedPath, joinRootPath, SETTINGS_FILE, throughSymlink } from "./binders.ts";
@@ -144,12 +144,13 @@ const writableBinderById = (read: RootRead, id: string) => {
   return binder;
 };
 
-/** A binder items can be written to: one with settings and no problems. */
+/** A binder items can be written to: one with settings and no blocking problems. */
 const writableBinder = (binder: ValidBinder, action: string) => {
-  if (binder.problems.length > 0) {
+  const problems = blockingProblems(binder);
+  if (problems.length > 0) {
     throw new BinderProblemsError(
-      `The binder ${binder.id} has problems (${listed(binder.problems)}), so no item in it can be ${action}; fix its ${SETTINGS_FILE} first.`,
-      binder.problems,
+      `The binder ${binder.id} has problems (${listed(problems)}), so no item in it can be ${action}; fix its ${SETTINGS_FILE} first.`,
+      problems,
     );
   }
 };

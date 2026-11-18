@@ -4,7 +4,7 @@
 import { ItemWriteErrorCode } from "@wombat/shared/api";
 import type { Problem } from "@wombat/shared/items";
 
-import { findByHandle, isClash, linkOfField, unknownTargetMessage, type LoadedItem, type NamedProblem, type Snapshot, type ValidBinder } from "./catalog.ts";
+import { blockingProblems, findByHandle, isClash, linkOfField, unknownTargetMessage, type LoadedItem, type NamedProblem, type Snapshot, type ValidBinder } from "./catalog.ts";
 import { invalidFields, noItem, noBinder, nothingChanged, stale } from "./refusals.ts";
 import { SETTINGS_FILE } from "./binders.ts";
 import { propertyOf } from "./validate.ts";
@@ -160,7 +160,8 @@ const binderRefusal = (view: View, binder: ValidBinder, binderProblems: NamedPro
  * link handles to ids needs sound settings: a broken link setting answers with the binder's problems.
  */
 export const checkBinder = (view: View, binder: ValidBinder) => {
-  if (binder.problems.length > 0) throw binderRefusal(view, binder, binder.problems);
+  const problems = blockingProblems(binder);
+  if (problems.length > 0) throw binderRefusal(view, binder, problems);
 };
 
 /** A writer refusal as the agent gets it: never naming anything hidden, saying what to do next. */
