@@ -2,19 +2,11 @@
 import { type FetchQueryOptions, hashKey, QueryClient, type QueryKey, queryOptions } from "@tanstack/react-query";
 import { z } from "zod";
 
-import {
-  ListAgentsResponse,
-  ListHarnessesResponse,
-  ListItemsResponse,
-  ListLogResponse,
-  ListReposResponse,
-  ListBindersResponse,
-  parseLogEntry,
-} from "@wombat/shared/api";
+import { parseLogEntry } from "@wombat/shared/api";
 import type { FoldEntry } from "@wombat/shared/log-fold";
-import { ListProposalsResponse, ProposalDetail } from "@wombat/shared/proposals";
+import { ROUTES } from "@wombat/shared/routes";
 import { bySeq } from "./by-seq.ts";
-import { call } from "./client.ts";
+import { callRoute, callRouteWith } from "./client.ts";
 import { keys, logAgentId, proposalIdOf, binderIdOf } from "./keys.ts";
 
 /** A parsed entry, or an unreadable one kept in its place (the log fold's entry). */
@@ -33,18 +25,15 @@ export const createQueryClient = (): QueryClient =>
     },
   });
 
-const readAgents = () => call("GET", "/agents", ListAgentsResponse);
-const readHarnesses = () => call("GET", "/harnesses", ListHarnessesResponse);
-const readRepos = () => call("GET", "/repos", ListReposResponse);
-const readProposals = () => call("GET", "/proposals", ListProposalsResponse);
-const readBinders = () => call("GET", "/binders", ListBindersResponse);
-const readBinderItems = (binderId: string) => () => call("GET", `/binders/${encodeURIComponent(binderId)}/items`, ListItemsResponse);
-
-/** A proposal's route: its detail, and the prefix of its commands. */
-export const proposalPath = (proposalId: string): string => `/proposals/${encodeURIComponent(proposalId)}`;
+const readAgents = () => callRoute(ROUTES.listAgents);
+const readHarnesses = () => callRoute(ROUTES.listHarnesses);
+const readRepos = () => callRoute(ROUTES.listRepos);
+const readProposals = () => callRoute(ROUTES.listProposals);
+const readBinders = () => callRoute(ROUTES.listBinders);
+const readBinderItems = (binderId: string) => () => callRoute(ROUTES.binderItems, { params: { id: binderId } });
 
 const readProposal = (proposalId: string, version?: number) => () =>
-  call("GET", version === undefined ? proposalPath(proposalId) : `${proposalPath(proposalId)}?version=${String(version)}`, ProposalDetail);
+  callRoute(ROUTES.getProposal, { params: { id: proposalId }, query: version === undefined ? {} : { version } });
 
 export const agentsQuery = () => queryOptions({ queryKey: keys.agents, queryFn: readAgents });
 export const harnessesQuery = () => queryOptions({ queryKey: keys.harnesses, queryFn: readHarnesses });
@@ -64,10 +53,10 @@ export const LOG_PAGE_LIMIT = 500;
 
 // Entries are parsed one by one (readEntry), so one bad entry doesn't fail the page; the raw seqs decide paging, since
 // entries this app doesn't know are dropped.
-const LogPage = ListLogResponse.extend({ entries: z.array(z.looseObject({ seq: z.int().nonnegative(), at: z.unknown() })) });
+const LogPage = ROUTES.agentLog.response.extend({ entries: z.array(z.looseObject({ seq: z.int().nonnegative(), at: z.unknown() })) });
 
 const readPage = (agentId: string, after: number) =>
-  call("GET", `/agents/${encodeURIComponent(agentId)}/log?after=${String(after)}&limit=${String(LOG_PAGE_LIMIT)}`, LogPage);
+  callRouteWith(ROUTES.agentLog, { params: { id: agentId }, query: { after, limit: LOG_PAGE_LIMIT } }, LogPage);
 
 const readEntry = (raw: { seq: number; at: unknown }): AgentLogEntry | undefined => {
   try {

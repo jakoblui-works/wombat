@@ -4,6 +4,7 @@ import type { z } from "zod";
 
 import { ErrorBody } from "@wombat/shared/api";
 import type { Problem } from "@wombat/shared/items";
+import { type AppRoute, type PathArgs, type PathParams, pathOf, type QueryOf } from "@wombat/shared/routes";
 
 type ErrorDetail = ErrorBody["error"];
 
@@ -39,3 +40,22 @@ export const call = async <S extends z.ZodType>(method: string, path: string, sc
         },
   );
 };
+
+type JsonRoute = AppRoute & { response: z.ZodType };
+
+/** A call's path parameters (required when the pattern has some), query and body (required when the route takes one). */
+export type RouteRequest<R extends JsonRoute> = ([keyof PathParams<R["pattern"]>] extends [never]
+  ? { params?: never }
+  : { params: PathParams<R["pattern"]> }) &
+  ([QueryOf<R>] extends [never] ? { query?: never } : { query?: QueryOf<R> }) &
+  (R extends { body: infer B extends z.ZodType } ? { body: z.input<B> } : { body?: never });
+
+/** `call` on `route`, its answer parsed with `schema` rather than the route's own; rejects when pathOf throws. */
+export const callRouteWith = async <R extends JsonRoute, S extends z.ZodType>(route: R, request: RouteRequest<R>, schema: S): Promise<z.output<S>> =>
+  call(route.method, pathOf(route, ...([request.params, request.query] as PathArgs<R>)), schema, request.body);
+
+/** `call` on `route`, its answer parsed with the route's response schema; rejects when pathOf throws. */
+export const callRoute = <R extends JsonRoute>(
+  route: R,
+  ...[request]: object extends RouteRequest<R> ? [request?: RouteRequest<R>] : [request: RouteRequest<R>]
+): Promise<z.output<R["response"]>> => callRouteWith<R, R["response"]>(route, request ?? ({} as RouteRequest<R>), route.response);

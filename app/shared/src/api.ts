@@ -12,7 +12,6 @@ import { Item, ItemSummary, knownItems, Problem, BinderSummary } from "./items.t
 import { DiffLine } from "./line-diff.ts";
 import { ProposalErrorCode, Timestamp } from "./proposals.ts";
 import { queryInt } from "./query.ts";
-import { MAX_BODY_BYTES } from "./routes.ts";
 
 const Seq = z.int().nonnegative();
 const DbId = z.string().min(1);
@@ -105,6 +104,9 @@ export const ServerErrorCode = z.enum([
   "internal_error",
 ]);
 export type ServerErrorCode = z.infer<typeof ServerErrorCode>;
+
+/** The largest request body the service takes, and main lets through. */
+export const MAX_BODY_BYTES = 1024 * 1024;
 
 /** The message for a body over MAX_BODY_BYTES: the service's `payload_too_large`, and the app's refusal before sending. */
 export const BODY_OVER_CAP_MESSAGE = `The request body is over ${String(MAX_BODY_BYTES / 1024 / 1024)} MiB, more than the service takes. Send a shorter one.`;
@@ -350,6 +352,16 @@ export const permissionTitle = (own: string | null | undefined, toolTitle: strin
 
 export const ListAgentsResponse = z.object({ dbId: DbId, seq: Seq, agents: z.array(AgentSummary) });
 export type ListAgentsResponse = z.infer<typeof ListAgentsResponse>;
+
+/** `POST /agents/:id/messages` (202): the seq of the stored message. */
+export const SendMessageResponse = z.object({ seq: Seq });
+export type SendMessageResponse = z.infer<typeof SendMessageResponse>;
+
+/** A 204, or a 202 that carries nothing: no body. */
+export const NoContent = z.undefined();
+
+/** `POST /shutdown` (202, once the agents have stopped). */
+export const ShutdownResponse = z.object({});
 
 // ACP session updates we render: a subset of the fields of ACP v1's `SessionUpdate`.
 

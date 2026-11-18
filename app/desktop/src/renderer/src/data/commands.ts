@@ -1,27 +1,15 @@
 // What the user asks the agents to do. Each command refreshes what it changes and leaves the cache to the reads
 // that follow: nothing is updated optimistically.
 import { mutationOptions, type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
-import { z } from "zod";
 
-import {
-  AgentSummary,
-  type AnswerPermissionRequest,
-  ContextBreakdown,
-  type SendMessageRequest,
-  type SetConfigRequest,
-  type StartAgentRequest,
-} from "@wombat/shared/api";
-import { type ApproveRequest, type DraftRequest, isOpen, Proposal, ProposalErrorCode, type RejectRequest } from "@wombat/shared/proposals";
+import type { AgentSummary, AnswerPermissionRequest, ContextBreakdown, SetConfigRequest, StartAgentRequest } from "@wombat/shared/api";
+import { isOpen, type Proposal, ProposalErrorCode } from "@wombat/shared/proposals";
+import { ROUTES } from "@wombat/shared/routes";
 import { asError } from "../lib/errors.ts";
-import { call, ServiceError } from "./client.ts";
+import { callRoute, ServiceError } from "./client.ts";
 import { keys } from "./keys.ts";
-import { forgetAgent, proposalPath } from "./query-client.ts";
+import { forgetAgent } from "./query-client.ts";
 import { refresh } from "./refresh.ts";
-
-// The command routes' bodies aren't read: what changed arrives through the agents and the log.
-const Ignored = z.unknown();
-
-const agentPath = (agentId: string): string => `/agents/${encodeURIComponent(agentId)}`;
 
 /** A new id for one user action; a retry of that action sends the same one, so the service runs it once. */
 export const newCommandId = (): string => {
@@ -51,7 +39,7 @@ export const sendMessageVars = (agentId: string, text: string, proposalId?: stri
 export const startAgentVars = (start: StartAgentRequest & { text: string }): StartAgentVars => ({ ...start, commandId: newCommandId() });
 
 export const sendMessageFn = async ({ agentId, text, commandId, proposalId }: SendMessageVars): Promise<void> => {
-  await call("POST", `${agentPath(agentId)}/messages`, Ignored, { text, commandId, ...(proposalId === undefined ? {} : { proposalId }) } satisfies SendMessageRequest);
+  await callRoute(ROUTES.sendMessage, { params: { id: agentId }, body: { text, commandId, ...(proposalId === undefined ? {} : { proposalId }) } });
 };
 
 /** A start's two steps: the agent, which exists from here on, and why its first message wasn't sent, if it wasn't. */
@@ -62,7 +50,7 @@ export type StartedAgent = { agent: AgentSummary; sendError: Error | undefined }
  * failed send comes back as `sendError`, so the message is sent again to this agent rather than starting another.
  */
 export const startAgentFn = async ({ harness, repo, text, commandId }: StartAgentVars): Promise<StartedAgent> => {
-  const agent = await call("POST", "/agents", AgentSummary, { harness, repo } satisfies StartAgentRequest);
+  const agent = await callRoute(ROUTES.startAgent, { body: { harness, repo } });
   try {
     await sendMessageFn({ agentId: agent.id, text, commandId });
     return { agent, sendError: undefined };
@@ -72,28 +60,28 @@ export const startAgentFn = async ({ harness, repo, text, commandId }: StartAgen
 };
 
 export const answerPermissionFn = async ({ agentId, requestId, kind }: AnswerPermissionVars): Promise<void> => {
-  await call("POST", `${agentPath(agentId)}/permissions/${encodeURIComponent(requestId)}`, Ignored, { kind } satisfies AnswerPermissionRequest);
+  await callRoute(ROUTES.answerPermission, { params: { id: agentId, requestId }, body: { kind } });
 };
 
 /** Sets one of the agent's config options; its new options arrive through the log. */
 export const setConfigFn = async ({ agentId, configId, value }: SetConfigVars): Promise<void> => {
-  await call("POST", `${agentPath(agentId)}/config`, Ignored, { configId, value } satisfies SetConfigRequest);
+  await callRoute(ROUTES.setConfig, { params: { id: agentId }, body: { configId, value } });
 };
 
 /** Asks the agent for its context breakdown; a hidden turn, so nothing in the log or the agent list changes. */
 export const contextBreakdownFn = (agentId: string): Promise<ContextBreakdown> =>
-  call("POST", `${agentPath(agentId)}/context`, ContextBreakdown);
+  callRoute(ROUTES.contextBreakdown, { params: { id: agentId } });
 
 export const cancelTurnFn = async (agentId: string): Promise<void> => {
-  await call("POST", `${agentPath(agentId)}/cancel`, Ignored);
+  await callRoute(ROUTES.cancelTurn, { params: { id: agentId } });
 };
 
 export const stopAgentFn = async (agentId: string): Promise<void> => {
-  await call("POST", `${agentPath(agentId)}/stop`, Ignored);
+  await callRoute(ROUTES.stopAgent, { params: { id: agentId } });
 };
 
 export const deleteAgentFn = async (agentId: string): Promise<void> => {
-  await call("DELETE", agentPath(agentId), Ignored);
+  await callRoute(ROUTES.deleteAgent, { params: { id: agentId } });
 };
 
 type DecideVars = { proposalId: string } & ({ decision: "approve"; version: number } | { decision: "reject"; reason?: string });
@@ -115,10 +103,10 @@ const isProposalChanged = (error: unknown): boolean => error instanceof ServiceE
 const decideFn = async (vars: DecideVars): Promise<"decided" | "changed"> => {
   try {
     if (vars.decision === "approve") {
-      const after = await call("POST", `${proposalPath(vars.proposalId)}/approve`, Proposal, { version: vars.version } satisfies ApproveRequest);
+      const after = await callRoute(ROUTES.approveProposal, { params: { id: vars.proposalId }, body: { version: vars.version } });
       return approveOutcome(vars.version, after);
     }
-    await call("POST", `${proposalPath(vars.proposalId)}/reject`, Ignored, (vars.reason === undefined ? {} : { reason: vars.reason }) satisfies RejectRequest);
+    await callRoute(ROUTES.rejectProposal, { params: { id: vars.proposalId }, body: vars.reason === undefined ? {} : { reason: vars.reason } });
     return "decided";
   } catch (error) {
     if (isProposalChanged(error)) return "changed";
@@ -137,11 +125,11 @@ type DraftVars = { proposalId: string } & ({ action: "save"; onVersion: number; 
  * onSettled shows the new version.
  */
 const draftFn = async (vars: DraftVars): Promise<Proposal | "changed"> => {
-  const path = `${proposalPath(vars.proposalId)}/draft`;
+  const params = { id: vars.proposalId };
   try {
     return vars.action === "save"
-      ? await call("PUT", path, Proposal, { onVersion: vars.onVersion, ...vars.body } satisfies DraftRequest)
-      : await call("DELETE", path, Proposal);
+      ? await callRoute(ROUTES.saveDraft, { params, body: { onVersion: vars.onVersion, ...vars.body } })
+      : await callRoute(ROUTES.clearDraft, { params });
   } catch (error) {
     if (isProposalChanged(error)) return "changed";
     throw error;
