@@ -4,8 +4,9 @@ import { dirname, join, relative } from "node:path";
 
 import { describe, expect, test, onTestFinished } from "vitest";
 
-import { BROKEN_BINDER_FILES, DOCS_SETTINGS, IDS, VALID_FILES, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
-import { SETTINGS_FILE } from "./binders.ts";
+import { ACCESS_FILES, AGENT, openAccessRoot } from "../../test/access-fixtures.ts";
+import { BROKEN_BINDER_FILES, DOCS_SETTINGS, IDS, VALID_FILES, isOldSettingsProblem, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
+import { OLD_SETTINGS_FILE, SETTINGS_FILE } from "./binders.ts";
 
 const UNASSIGNED = "---\nproject: wombat\n---\n# Typed by hand\n";
 
@@ -64,6 +65,32 @@ describe("binder problems", () => {
     expect(binders.filter((loaded) => loaded.id !== null).map((loaded) => loaded.id).sort()).toEqual(["backlog", "bugs", "docs"]);
     expect(itemAt(items, "bugs/BUG-1-login-times-out.md").problems).toEqual([]);
   });
+  test("an unknown key in a binder's settings is reported as not a key of the settings file", async () => {
+    const root = writeRoot({ ...VALID_FILES, [`tasks/${SETTINGS_FILE}`]: binder("tasks", "TSK", "colour: teal\n") });
+    const { catalog } = openItems(root);
+
+    const tasks = (await catalog.snapshot()).binders.find((loaded) => loaded.path === "tasks");
+
+    expect(tasks?.id).toBeNull();
+    expect(tasks?.problems.map((problem) => problem.message)).toEqual([expect.stringContaining(`not a key of ${SETTINGS_FILE}`)]);
+  });
+
+  test("a leftover old settings file beside the settings file is listed as a problem but blocks no write, the writer's or an edit-level agent's", async () => {
+    const { access, catalog, writer } = openAccessRoot({ ...ACCESS_FILES, [`backlog/${OLD_SETTINGS_FILE}`]: ACCESS_FILES[`backlog/${SETTINGS_FILE}`] ?? "" });
+    const version = async (handle: string) => (await access.get(handle)).version;
+
+    const backlog = (await catalog.snapshot()).binders.find((loaded) => loaded.path === "backlog");
+    expect(backlog?.id).toBe("backlog");
+    expect(backlog?.problems.map((problem) => isOldSettingsProblem(problem, "delete")), JSON.stringify(backlog?.problems)).toEqual([true]);
+
+    const created = await writer.createItem("backlog", { title: "Export as CSV", body: "From the binder's list.\n", properties: { project: "wombat" } });
+    expect(created.handle).toMatch(/^BL-\d+$/);
+    expect((await writer.updateItem("BL-1", { owner: "Kim" }, await version("BL-1"))).properties.owner).toBe("Kim");
+    const byAgent = await access.create(AGENT, "backlog", { title: "Import from CSV", body: "The other way round.\n" });
+    expect("written" in byAgent ? (await access.get(byAgent.written)).title : undefined).toBe("Import from CSV");
+    await access.update(AGENT, "BL-2", { owner: "Sam" }, await version("BL-2"));
+    expect((await access.get("BL-2")).properties.owner).toBe("Sam");
+  });
 });
 
 describe("free binder membership", () => {
@@ -115,7 +142,8 @@ describe("the files the catalog holds", () => {
     onTestFinished(() => rmSync(outside, { recursive: true, force: true }));
     writeFileSync(join(outside, "elsewhere.md"), "# Outside the items root\n");
     // Handle-named binders (Bugs, Backlog), one nested in Bugs, a free-named one at the root (Docs, with
-    // `include`), a binder whose settings don't load, and around them files no binder reads.
+    // `include`), a binder whose settings don't load, old settings files (beside the settings and alone), and
+    // around them files no binder reads.
     const root = realpathSync(
       writeRoot({
         ...VALID_FILES,
@@ -127,12 +155,19 @@ describe("the files the catalog holds", () => {
         "bugs/.draft.md": "# A dot file\n",
         ".obsidian/workspace.md": "# In a dot folder\n",
         "guides/deep/more.md": "# Deeper than Docs includes\n",
+        [`backlog/${OLD_SETTINGS_FILE}`]: "version: 1\nid: backlog\nname: Backlog\nprefix: BL\naccess: edit\n",
+        [`guides/old/${OLD_SETTINGS_FILE}`]: "version: 1\nid: old-guides\nname: Old guides\nprefix: OG\naccess: edit\n",
+        "guides/old/OG-1-install.md": "# Installing the old way\n",
       }),
     );
     symlinkSync(join(outside, "elsewhere.md"), join(root, "bugs", "linked.md"));
     const { catalog } = openItems(root);
     const { binders, items } = await catalog.snapshot();
-    const read = new Set([...items.map((item) => item.path), ...binders.map((binder) => join(binder.path, SETTINGS_FILE))]);
+    const read = new Set([
+      ...items.map((item) => item.path),
+      ...binders.map((binder) => join(binder.path, SETTINGS_FILE)),
+      ...binders.map((binder) => join(binder.path, OLD_SETTINGS_FILE)),
+    ]);
     expect([...read].filter((path) => path.endsWith(".md")).length, "the fixture has items in every binder that loads").toBeGreaterThanOrEqual(7);
 
     const held: Record<string, boolean> = {};
@@ -148,6 +183,8 @@ describe("the files the catalog holds", () => {
       "bugs/notes/new.md": false,
       "new.md": false,
       "broken/BRK-2-new.md": false,
+      [`bugs/${OLD_SETTINGS_FILE}`]: true,
+      [`bugs/notes/${OLD_SETTINGS_FILE}`]: true,
     };
     for (const [file, expected] of Object.entries(notWritten)) expect(await catalog.holds(join(root, file)), `a new ${file}`).toBe(expected);
     expect(await catalog.holds(join(dirname(root), "BUG-31-new.md")), "a new file outside the root").toBe(false);

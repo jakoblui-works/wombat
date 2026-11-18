@@ -2,9 +2,30 @@
 // it reaches the network, so a path trick must never match.
 import { describe, expect, test } from "vitest";
 
-import { appRoute } from "./routes.ts";
+import { APP_ROUTES, appRoute, pathOf, type AppRoute } from "./routes.ts";
 
 describe("appRoute", () => {
+  test("takes every page route's path as pathOf builds it, with a query on the routes that take one", () => {
+    // A route from the list has no literal pattern for pathOf's types to check params against.
+    const build = pathOf as (route: AppRoute, params: Record<string, string>, query?: Record<string, unknown>) => string;
+    // Ids as the service lists them: a UUID, and one with every other character a plain segment may have.
+    const samples = ["0196f3c2-1a00-7000-8000-0000000000b1", "Agent_2.v1~x"];
+    for (const sample of samples) {
+      for (const route of APP_ROUTES) {
+        const params = Object.fromEntries(
+          route.pattern
+            .split("/")
+            .filter((part) => part.startsWith(":"))
+            .map((part) => [part.slice(1), sample]),
+        );
+        const query = route.query === undefined ? undefined : { after: 12, limit: 100 };
+        const path = build(route, params, query);
+
+        expect(appRoute(route.method, path), `${route.method} ${path}`).toBe(route);
+      }
+    }
+  });
+
   test("a query string passes on the routes that take one, and only there", () => {
     expect(appRoute("GET", "/agents/a1/log?after=12&limit=100")?.pattern).toBe("/agents/:id/log");
     expect(appRoute("GET", "/proposals?status=pending")?.pattern).toBe("/proposals");

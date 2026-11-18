@@ -13,7 +13,7 @@ import { openCatalog, type Catalog, type LoadedItem } from "../src/items/catalog
 import { ItemWriteError, openWriter, type Writer } from "../src/items/write.ts";
 import { openStore, type Store } from "../src/store/store.ts";
 import { tempStorePath } from "./store-fixtures.ts";
-import { SETTINGS_FILE } from "../src/items/binders.ts";
+import { OLD_SETTINGS_FILE, SETTINGS_FILE } from "../src/items/binders.ts";
 
 /** UUIDv7 ids for the hand-made fixture items (version nibble 7, variant 8). */
 export const IDS = {
@@ -240,6 +240,10 @@ export const FIXTURE_FILES: Record<string, string> = {
   ...Object.fromEntries(INVALID_BUGS.map(({ file, text }) => [`bugs/${file}`, text])),
   ...BROKEN_BINDER_FILES,
 };
+
+/** Whether a problem is the old settings file's: it names both settings files and says to `action` the old one. */
+export const isOldSettingsProblem = (problem: { message: string }, action: "rename" | "delete") =>
+  problem.message.includes(OLD_SETTINGS_FILE) && problem.message.includes(SETTINGS_FILE) && problem.message.toLowerCase().includes(action);
 
 /** Writes `files` (paths relative to the root) into a fresh temp root, removed after the test. */
 export const writeRoot = (files: Record<string, string>): string => {

@@ -3,10 +3,11 @@
 // parent), with nothing showing it. Items are the .md files directly in a binder's folder, or a free
 // binder's `include` matches; never a file inside another binder's folder; dot folders and node_modules
 // are never scanned; a file outside every binder is left alone.
+import type { Problem } from "@wombat/shared/items";
 import { describe, expect, test } from "vitest";
 
-import { BACKLOG_SETTINGS, BUGS_SETTINGS, DOCS_SETTINGS, openItems, writeRoot } from "../../test/items-fixtures.ts";
-import { SETTINGS_FILE } from "./binders.ts";
+import { BACKLOG_SETTINGS, BUGS_SETTINGS, DOCS_SETTINGS, isOldSettingsProblem, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
+import { OLD_SETTINGS_FILE, SETTINGS_FILE } from "./binders.ts";
 
 let serial = 0;
 /** A valid item file with an id of its own. */
@@ -77,18 +78,35 @@ describe("membership", () => {
     expect(bugs).toEqual(["BUG-1"]);
   });
 
-  test("a nested binder whose settings are broken keeps its files: a free parent including every .md never lists them", async () => {
+  test.each([
+    {
+      what: "whose settings are broken",
+      // Meant to be hidden; the typo makes its settings invalid.
+      settings: { [`vault/${SETTINGS_FILE}`]: ARCHIVE_SETTINGS.replace("access: hidden", "acess: hidden") },
+      problem: (problem: Problem) => problem.field !== undefined,
+    },
+    {
+      what: "holding only the old settings file",
+      settings: { [`vault/${OLD_SETTINGS_FILE}`]: ARCHIVE_SETTINGS },
+      problem: (problem: Problem) => isOldSettingsProblem(problem, "rename"),
+    },
+  ])("a nested binder $what is listed with id null and keeps its files: a free parent including every .md never lists them", async ({ settings, problem }) => {
+    const typed = "# Typed by hand\n";
     const root = writeRoot({
       [SETTINGS_FILE]: DOCS_SETTINGS.replace('include: ["architecture.md", "guides/*.md"]', 'include: ["**/*.md"]'),
       "architecture.md": item("DOC-1", "Architecture"),
-      // Meant to be hidden; the typo makes its settings invalid.
-      [`vault/${SETTINGS_FILE}`]: ARCHIVE_SETTINGS.replace("access: hidden", "acess: hidden"),
+      ...settings,
       "vault/ARC-1-plan.md": item("ARC-1", "A plan nobody else should read"),
+      "vault/typed.md": typed,
     });
     const { catalog } = openItems(root);
 
-    const docs = (await catalog.snapshot()).items.filter((loaded) => loaded.binder === "docs").map((loaded) => loaded.path);
+    const { binders, items } = await catalog.snapshot();
 
-    expect(docs).toEqual(["architecture.md"]);
+    expect(items.filter((loaded) => loaded.binder === "docs").map((loaded) => loaded.path)).toEqual(["architecture.md"]);
+    const vault = binders.filter((binder) => binder.path === "vault");
+    expect(vault.map((binder) => binder.id), "the nested folder is listed once, unloaded").toEqual([null]);
+    expect(vault[0]?.problems.some(problem), JSON.stringify(vault[0]?.problems)).toBe(true);
+    expect(readAt(root, "vault/typed.md"), "no id or handle written into its files").toBe(typed);
   });
 });
