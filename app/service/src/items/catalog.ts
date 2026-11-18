@@ -13,7 +13,7 @@ import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { queueWrite, readAtVersion, readVersioned, VersionChanged, writeAtomic } from "./files.ts";
 import { addKeyEdits, checkedText, parseItemFile, scalarRange, type ParsedItemFile, type TextEdit } from "./item-file.ts";
-import { folderProblem, inFolder, isCatalogFile, ownerOf, readSettings, SETTINGS_FILE, binderFiles, binderFolders } from "./binders.ts";
+import { folderProblem, inFolder, isCatalogFile, oldSettingsProblem, ownerOf, readSettings, SETTINGS_FILE, binderFiles, binderFolders } from "./binders.ts";
 import { formatHandle, isUuid, parseHandle, validateOwnKeys, validateProperties, type LinkLookup } from "./validate.ts";
 
 export type { Problem } from "@wombat/shared/items";
@@ -36,9 +36,10 @@ export type NamedProblem = Problem & {
 export type ProblemNames = { binders?: string[]; items?: string[] };
 
 /**
- * A `_binder.yaml` as loaded. `id` and `settings` are null when the file fails to parse or validate; then its
- * files aren't loaded. A binder with settings can still have problems across files (a duplicate id or prefix,
- * a link to an unknown binder): its items are listed, but none of its files are written.
+ * A `_binder.yaml` as loaded. `id` and `settings` are null when the file fails to parse or validate, or the
+ * folder holds only a `_structure.yaml`; then its files aren't loaded. A binder with settings can still have
+ * problems across files (a duplicate id or prefix, a link to an unknown binder): its items are listed, but
+ * none of its files are written.
  */
 export type LoadedBinder =
   | { id: string; settings: BinderSettings; /** The folder, relative to the root with `/`; "" for the root. */ path: string; problems: NamedProblem[] }
@@ -238,13 +239,15 @@ export type RootRead = {
 /** Reads the whole root without writing anything; writers call it inside the root's write queue. */
 export const readRoot = async (root: string): Promise<RootRead> => {
   const { folders, unreadable } = await binderFolders(root);
-  const folderSet = new Set(folders);
+  const folderSet = new Set(folders.map((folder) => folder.path));
   const binders: LoadedBinder[] = await Promise.all(
-    folders.map(async (path): Promise<LoadedBinder> => {
+    folders.map(async ({ path, settings, oldSettings }): Promise<LoadedBinder> => {
+      const leftover = oldSettings ? [oldSettingsProblem()] : [];
+      if (!settings) return { id: null, settings: null, path, problems: leftover };
       const result = await readSettings(join(root, path, SETTINGS_FILE));
       return result.settings === null
-        ? { id: null, settings: null, path, problems: result.problems }
-        : { id: result.settings.id, settings: result.settings, path, problems: [] };
+        ? { id: null, settings: null, path, problems: [...result.problems, ...leftover] }
+        : { id: result.settings.id, settings: result.settings, path, problems: leftover };
     }),
   );
   checkBinders(binders);

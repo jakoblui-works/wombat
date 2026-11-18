@@ -138,8 +138,8 @@ export const openStore = ({
     logEntries: db.prepare("SELECT seq, body FROM log_entries WHERE agent_id = ? AND seq > ? ORDER BY seq LIMIT ?"),
     droppedThrough: db.prepare("SELECT dropped_through FROM agents WHERE id = ?"),
     nextHandleNumber: db.prepare(
-      `INSERT INTO item_counters (structure, last) VALUES (?, ? + 1)
-       ON CONFLICT (structure) DO UPDATE SET last = max(last, excluded.last - 1) + 1 RETURNING last`,
+      `INSERT INTO item_counters (binder, last) VALUES (?, ? + 1)
+       ON CONFLICT (binder) DO UPDATE SET last = max(last, excluded.last - 1) + 1 RETURNING last`,
     ),
   };
 

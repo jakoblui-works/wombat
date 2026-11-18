@@ -144,7 +144,7 @@ const proposalOf = (row: Record<string, unknown>): StoredProposal => {
   };
   const target = asString(row.target);
   if (target === "file") return { ...common, target, path: asString(row.path), binder: null, kind: asString(row.kind) as FileProposalKind };
-  if (target === "item") return { ...common, target, path: null, binder: asString(row.structure), kind: asString(row.kind) as ItemProposalKind };
+  if (target === "item") return { ...common, target, path: null, binder: asString(row.binder), kind: asString(row.kind) as ItemProposalKind };
   throw new Error(`Unknown proposal target ${target} in the database.`);
 };
 
@@ -154,7 +154,7 @@ type MoveColumns = { problem: string | null; rejectReason: string | null; intent
 export const openProposalStore = (db: DatabaseSync, transaction: Transaction, takeSeq: () => number, now: () => Date): ProposalStore => {
   const statements = {
     insert: db.prepare(
-      `INSERT INTO proposals (id, target, path, structure, item_id, kind, file, reason, base_version, status, agent_id, at, last_version)
+      `INSERT INTO proposals (id, target, path, binder, item_id, kind, file, reason, base_version, status, agent_id, at, last_version)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     ),
     insertVersion: db.prepare("INSERT INTO proposal_versions (proposal_id, n, by, content, reason, at) VALUES (?, ?, ?, ?, ?, ?)"),

@@ -283,7 +283,7 @@ describe("opening a store an older version wrote", () => {
     expect(store.listVersions(PROPOSAL.id).map((version) => version.content)).toEqual([{ fields }]);
     expect(store.nextHandleNumber(COUNTER.binder, 0), "the handle counter carries on").toBe(COUNTER.last + 1);
     store.close();
-    expect(version(path)).toBe(4);
+    expect(version(path)).toBe(SCHEMA_VERSION);
   });
 
   test("a v3 store's proposals each become an item proposal with one agent version holding its fields, the rest intact", () => {

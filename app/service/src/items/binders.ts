@@ -1,7 +1,7 @@
 // Finding the binders under an items root and the files that belong to each. A file belongs to the binder
-// of the nearest folder above it that has a `_binder.yaml` (broken settings included), and to no other:
-// a binder's access level covers exactly its own files, so a nested hidden binder's items never show
-// through its parent.
+// of the nearest folder above it that has a `_binder.yaml` or a `_structure.yaml` (broken settings included),
+// and to no other: a binder's access level covers exactly its own files, so a nested hidden binder's items
+// never show through its parent.
 import { glob, lstat, readdir, readFile, realpath } from "node:fs/promises";
 import { join, matchesGlob, posix, relative, sep } from "node:path";
 
@@ -12,6 +12,8 @@ import { isCollection, LineCounter, parseDocument, type Document } from "yaml";
 import { isWithin } from "../workspace.ts";
 
 export const SETTINGS_FILE = "_binder.yaml";
+/** The settings file's former name: it still makes its folder a binder, whose settings are never read. */
+export const OLD_SETTINGS_FILE = "_structure.yaml";
 
 /** Dot folders (`.git`, drafts) and installed packages are never scanned. */
 const skipped = (name: string) => name.startsWith(".") || name === "node_modules";
@@ -27,13 +29,26 @@ export const folderProblem = (folder: string, error: unknown): Problem => ({
   message: `folder: ${folder === "" ? "the items root" : folder} can't be read (${errorCode(error)}); make it readable so its items load`,
 });
 
+/** What a folder still holding the settings file under its old name gets, as a problem of its binder. */
+export const oldSettingsProblem = (): Problem => ({ message: `${OLD_SETTINGS_FILE}: rename this file to ${SETTINGS_FILE}` });
+
+/** A binder folder, root-relative, and which of the two settings files it directly holds (at least one). */
+export type BinderFolder = { path: string; settings: boolean; oldSettings: boolean };
+
+/** The folder's binder files among the names of its regular files; undefined when it holds neither. */
+export const binderFolderOf = (path: string, fileNames: readonly string[]): BinderFolder | undefined => {
+  const settings = fileNames.includes(SETTINGS_FILE);
+  const oldSettings = fileNames.includes(OLD_SETTINGS_FILE);
+  return settings || oldSettings ? { path, settings, oldSettings } : undefined;
+};
+
 /**
- * Every folder under `root` (itself included) that has a `_binder.yaml`, root-relative and sorted, and the
- * folders below the root that couldn't be read. A folder that vanished during the scan is skipped; the root
- * itself must be readable.
+ * Every folder under `root` (itself included) that has a `_binder.yaml` or a `_structure.yaml`, sorted by
+ * path, and the folders below the root that couldn't be read. A folder that vanished during the scan is
+ * skipped; the root itself must be readable.
  */
-export const binderFolders = async (root: string): Promise<{ folders: string[]; unreadable: { folder: string; error: unknown }[] }> => {
-  const folders: string[] = [];
+export const binderFolders = async (root: string): Promise<{ folders: BinderFolder[]; unreadable: { folder: string; error: unknown }[] }> => {
+  const folders: BinderFolder[] = [];
   const unreadable: { folder: string; error: unknown }[] = [];
   const visit = async (folder: string) => {
     let entries;
@@ -44,14 +59,18 @@ export const binderFolders = async (root: string): Promise<{ folders: string[]; 
       if (!isMissing(error)) unreadable.push({ folder, error });
       return;
     }
-    if (entries.some((entry) => entry.isFile() && entry.name === SETTINGS_FILE)) folders.push(folder);
+    const found = binderFolderOf(
+      folder,
+      entries.filter((entry) => entry.isFile()).map((entry) => entry.name),
+    );
+    if (found !== undefined) folders.push(found);
     // Symlinked folders are not followed: they could lead out of the root.
     for (const entry of entries) {
       if (entry.isDirectory() && !skipped(entry.name)) await visit(joinRootPath(folder, entry.name));
     }
   };
   await visit("");
-  return { folders: folders.sort(), unreadable };
+  return { folders: folders.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)), unreadable };
 };
 
 /** True for a path the scan never enters: one with a dot folder or node_modules in it, or a dot file. */
@@ -151,18 +170,20 @@ export const readsAsItem = (settings: BinderSettings, folder: string, path: stri
 
 /**
  * Whether the catalog under `root` reads the file at `path` (absolute, symlinks resolved) as a binder's
- * `_binder.yaml` or an item's file, as it is now or once a file is written there: files only the item tools
- * may change. A binder whose settings don't load reads no items.
+ * `_binder.yaml` (or `_structure.yaml`) or an item's file, as it is now or once a file is written there: files
+ * only the item tools may change. A binder whose settings don't load reads no items.
  */
 export const isCatalogFile = async (root: string, path: string): Promise<boolean> => {
   const realRoot = await realpath(root);
   if (path === realRoot || !isWithin(realRoot, path)) return false;
   const rootPath = toRootPath(realRoot, path);
   if (isSkippedPath(rootPath)) return false;
-  if (posix.basename(rootPath) === SETTINGS_FILE) return true;
-  const folders = new Set((await binderFolders(realRoot)).folders);
+  const name = posix.basename(rootPath);
+  if (name === SETTINGS_FILE || name === OLD_SETTINGS_FILE) return true;
+  const found = (await binderFolders(realRoot)).folders;
+  const folders = new Set(found.map((folder) => folder.path));
   const owner = ownerOf(folders, rootPath);
-  if (owner === undefined) return false;
+  if (owner === undefined || found.find((folder) => folder.path === owner)?.settings !== true) return false;
   const { settings } = await readSettings(join(realRoot, owner, SETTINGS_FILE));
   return settings !== null && readsAsItem(settings, owner, rootPath, folders);
 };

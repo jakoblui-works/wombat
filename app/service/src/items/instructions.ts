@@ -13,7 +13,7 @@ import { logToStderr, type Log } from "../log.ts";
 import { agentView, type AgentViewItem } from "./access.ts";
 import type { Catalog, ValidBinder } from "./catalog.ts";
 import { writeAtomic } from "./files.ts";
-import { isSkippedPath, SETTINGS_FILE } from "./binders.ts";
+import { isSkippedPath, OLD_SETTINGS_FILE, SETTINGS_FILE } from "./binders.ts";
 import { TOOL } from "./tools.ts";
 import { ownValue, parseHandle, propertyOf } from "./validate.ts";
 import type { Writer } from "./write.ts";
@@ -262,7 +262,7 @@ const relevant = (filename: string | null) => {
   const parts = filename.split(/[\\/]/);
   if (isSkippedPath(parts.join("/"))) return false;
   const name = parts.at(-1) ?? "";
-  return name.endsWith(".md") || name === SETTINGS_FILE;
+  return name.endsWith(".md") || name === SETTINGS_FILE || name === OLD_SETTINGS_FILE;
 };
 
 /** The instructions file in the service: renders one at a time, coalesced, and a debounced watcher of the items root. */
