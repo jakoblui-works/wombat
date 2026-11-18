@@ -10,7 +10,7 @@
 import type { Page } from "@playwright/test";
 
 import { click, expect, layoutOf, openAgent, REPO, type Sandbox, startWaitingAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
-import { answersIn, groupWithTab, logOf, prompt, waitForState } from "./agent-views.ts";
+import { answersIn, groupWithTab, logOf, prompt, waitForState } from "./agent-panels.ts";
 
 const DIFF_TAB = "notes.txt (diff)";
 
@@ -98,7 +98,7 @@ test.describe("edit approvals", () => {
     const again = await sandbox.launch({ env, workspaceAnswer: null });
     await waitForConnection(again.page, "connected");
     await waitUntil("the chat tab restored", WAIT_MS, async () => ((await layoutOf(again.page)).some((group) => group.tabs.includes(REPO)) ? true : undefined));
-    // Only the chat: a restored diff tab may carry another title until its view has read the request.
+    // Only the chat: a restored diff tab may carry another title until its panel has read the request.
     const tabs = (await layoutOf(again.page)).flatMap((group) => group.tabs);
     expect(tabs, "an answered request's diff tab was restored").toEqual([REPO]);
   });

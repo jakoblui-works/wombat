@@ -1,17 +1,17 @@
-// Tabs in the editor area: one dockview panel per (view, params), its id the tab's key.
+// Tabs in the editor area: one dockview panel per (panel, params), its id the tab's key.
 import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
 import type { AgentSummary } from "@wombat/shared/api";
 
 import { AGENTS_ACTIVITY } from "./activity-ids.ts";
 import type { IsKnown } from "./layout.ts";
-import { getView, paramsFit, type ResolveContext, type Reveal, viewTitle } from "./registry.ts";
-import { CHAT_VIEW } from "./views/Chat/chat-params.ts";
-import { PROPOSAL_VIEW, type ProposalParams } from "./views/Proposal/proposal-params.ts";
+import { getPanel, paramsFit, type ResolveContext, type Reveal, panelTitle } from "./registry.ts";
+import { CHAT_PANEL } from "./panels/Chat/chat-params.ts";
+import { PROPOSAL_PANEL, type ProposalParams } from "./panels/Proposal/proposal-params.ts";
 import type { TabRef, WorkbenchActions } from "./workbench-context.ts";
 
-/** The dockview component every tab renders through; it looks the view up from the panel's params. */
-export const TAB_COMPONENT = "view";
+/** The dockview component every tab renders through; it looks the panel up from the panel's params. */
+export const TAB_COMPONENT = "panel";
 
 /** What a tab's dockview panel holds as its params. */
 export type TabParams = TabRef;
@@ -27,25 +27,25 @@ const stableJson = (value: unknown): string =>
       : inner,
   ) ?? "null";
 
-/** A tab's identity: its view and its params. */
-export const tabKey = (viewId: string, params: unknown): string => `${viewId}:${stableJson(params)}`;
+/** A tab's identity: its panel and its params. */
+export const tabKey = (panelId: string, params: unknown): string => `${panelId}:${stableJson(params)}`;
 
 /**
- * Focuses the tab for (view, params) if it's open; otherwise adds it to the active group (or the first group). With
+ * Focuses the tab for (panel, params) if it's open; otherwise adds it to the active group (or the first group). With
  * `beside` (another tab's key, while that tab is open) it goes beside that tab instead: into the group to the right of
  * that tab's group, or a new group there.
  */
-export const openTab = (host: TabHost, viewId: string, params: unknown, ctx: ResolveContext = { agents: undefined }, beside?: string): void => {
-  const id = tabKey(viewId, params);
+export const openTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveContext = { agents: undefined }, beside?: string): void => {
+  const id = tabKey(panelId, params);
   const open = host.getPanel(id);
   if (open !== undefined) {
     open.api.setActive();
     return;
   }
-  const view = getView(viewId);
-  if (view === undefined) throw new Error(`There's no view "${viewId}" to open; register it in workbench/activities.ts.`);
-  if (!paramsFit(view, params)) {
-    throw new Error(`The params for the view "${viewId}" don't match its paramsSchema; pass what the view registered.`);
+  const panel = getPanel(panelId);
+  if (panel === undefined) throw new Error(`There's no panel "${panelId}" to open; register it in workbench/activities.ts.`);
+  if (!paramsFit(panel, params)) {
+    throw new Error(`The params for the panel "${panelId}" don't match its paramsSchema; pass what the panel registered.`);
   }
   const besideGroup = beside === undefined ? undefined : host.getPanel(beside)?.group;
   const right = besideGroup === undefined ? undefined : host.adjacentGroupInDirection(besideGroup, "right");
@@ -58,11 +58,11 @@ export const openTab = (host: TabHost, viewId: string, params: unknown, ctx: Res
       : right === undefined
         ? { referenceGroup: besideGroup, direction: "right" as const }
         : { referenceGroup: right.id };
-  const tab: TabParams = { viewId, params };
+  const tab: TabParams = { panelId, params };
   host.addPanel({
     id,
     component: TAB_COMPONENT,
-    title: viewTitle(view, params, ctx),
+    title: panelTitle(panel, params, ctx),
     params: tab,
     ...(position === undefined ? {} : { position }),
   });
@@ -93,31 +93,31 @@ export const closeEmptyGroup = (host: TabHost, groupId: string): void => {
   if (group !== undefined && canCloseGroup(host, groupId)) host.removeGroup(group);
 };
 
-/** The view and params a panel shows; undefined for a panel that isn't a tab of the workbench's. */
+/** The panel and params a dockview panel shows; undefined for a panel that isn't a tab of the workbench's. */
 const tabOf = (panel: IDockviewPanel): TabParams | undefined => {
   const params = panel.params as Partial<TabParams> | undefined;
-  return typeof params?.viewId === "string" ? { viewId: params.viewId, params: params.params } : undefined;
+  return typeof params?.panelId === "string" ? { panelId: params.panelId, params: params.params } : undefined;
 };
 
 /** Closes every tab that no longer applies (`isKnown`, the same rule as the restore's). */
 export const pruneTabs = (host: TabHost, isKnown: IsKnown): void => {
   for (const panel of host.panels) {
     const tab = tabOf(panel);
-    if (tab === undefined || !isKnown(tab.viewId, tab.params)) host.removePanel(panel);
+    if (tab === undefined || !isKnown(tab.panelId, tab.params)) host.removePanel(panel);
   }
 };
 
 /**
- * Gives every tab the title its view has for it now: the one its view reported for the tab (`reported`, by tab key),
- * else the view's `title` when that's a function of the agents list. A static `title` was set when the tab opened and
- * isn't set again, so a restored tab keeps its saved title until its view reports one.
+ * Gives every tab the title its panel has for it now: the one its panel reported for the tab (`reported`, by tab key),
+ * else the panel's `title` when that's a function of the agents list. A static `title` was set when the tab opened and
+ * isn't set again, so a restored tab keeps its saved title until its panel reports one.
  */
 export const retitleTabs = (host: TabHost, ctx: ResolveContext, reported: (key: string) => string | undefined = () => undefined): void => {
   for (const panel of host.panels) {
     const tab = tabOf(panel);
-    const view = tab && getView(tab.viewId);
-    if (tab === undefined || view === undefined) continue;
-    const title = reported(panel.id) ?? (typeof view.title === "function" ? view.title(tab.params, ctx) : undefined);
+    const registered = tab && getPanel(tab.panelId);
+    if (tab === undefined || registered === undefined) continue;
+    const title = reported(panel.id) ?? (typeof registered.title === "function" ? registered.title(tab.params, ctx) : undefined);
     if (title !== undefined && panel.title !== title) panel.api.setTitle(title);
   }
 };
@@ -126,8 +126,8 @@ export const retitleTabs = (host: TabHost, ctx: ResolveContext, reported: (key: 
 type TitledPanel = { id: string; title: string | undefined; setTitle: (title: string) => void };
 
 /**
- * The titles views reported for their tabs (`ViewProps.setTitle`), by tab key: they take the place of the view's
- * `title` in `retitleTabs`. A tab's report is forgotten when its view unmounts.
+ * The titles panels reported for their tabs (`PanelProps.setTitle`), by tab key: they take the place of the panel's
+ * `title` in `retitleTabs`. A tab's report is forgotten when its panel unmounts.
  */
 export const tabTitles = () => {
   const titles = new Map<string, string>();
@@ -144,7 +144,7 @@ export const tabTitles = () => {
 };
 
 /**
- * A dockview layout change without its title changes: a tab's title follows the agents list or its view, never the
+ * A dockview layout change without its title changes: a tab's title follows the agents list or its panel, never the
  * user, so it must not arm the saver. Reasons it was coalesced with (a tab the user opened) still count.
  */
 export const withoutTitleChanges = (reasons: ReadonlySet<string>): ReadonlySet<string> => new Set([...reasons].filter((reason) => reason !== "panelTitle"));
@@ -193,28 +193,28 @@ export const workbenchActions = (
   showActivity: (activity: string) => void,
 ): WorkbenchActions => {
   const actions: WorkbenchActions = {
-    openTab: (viewId, params, reveal) => {
-      const key = tabKey(viewId, params);
+    openTab: (panelId, params, reveal) => {
+      const key = tabKey(panelId, params);
       const wasOpen = host.getPanel(key) !== undefined;
-      openTab(host, viewId, params, ctx());
-      // A new request each time, so the view reveals again; a tab opened anew starts without an old one.
+      openTab(host, panelId, params, ctx());
+      // A new request each time, so the panel reveals again; a tab opened anew starts without an old one.
       if (reveal !== undefined) reveals.set(key, { target: reveal });
       else if (!wasOpen) reveals.set(key, undefined);
     },
-    openBeside: (viewId, params, beside) => {
-      openTab(host, viewId, params, ctx(), tabKey(beside.viewId, beside.params));
+    openBeside: (panelId, params, beside) => {
+      openTab(host, panelId, params, ctx(), tabKey(beside.panelId, beside.params));
     },
-    closeTab: (viewId, params) => {
-      const panel = host.getPanel(tabKey(viewId, params));
+    closeTab: (panelId, params) => {
+      const panel = host.getPanel(tabKey(panelId, params));
       if (panel !== undefined) host.removePanel(panel);
     },
     openAgentChat: (agentId, requestId) => {
       showActivity(AGENTS_ACTIVITY);
       const agent = ctx().agents?.find(({ id }) => id === agentId);
-      actions.openTab(CHAT_VIEW, { agentId }, requestId ?? oldestPending(agent));
+      actions.openTab(CHAT_PANEL, { agentId }, requestId ?? oldestPending(agent));
     },
     openProposal: (proposalId) => {
-      actions.openTab(PROPOSAL_VIEW, { proposalId } satisfies ProposalParams);
+      actions.openTab(PROPOSAL_PANEL, { proposalId } satisfies ProposalParams);
     },
   };
   return actions;

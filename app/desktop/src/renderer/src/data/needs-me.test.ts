@@ -8,8 +8,8 @@ import { ProposalStatus } from "@wombat/shared/proposals";
 
 import { atFor } from "../../../../../shared/test/log-entries.ts";
 import { proposal, summary } from "../../../../test/summaries.ts";
-import { needsMeRows } from "../workbench/views/NeedsMe/needs-me-rows.ts";
-import { proposalRows } from "../workbench/views/NeedsMe/proposal-rows.ts";
+import { needsMeRows } from "../workbench/panels/NeedsMe/needs-me-rows.ts";
+import { proposalRows } from "../workbench/panels/NeedsMe/proposal-rows.ts";
 import { needsMe, needsMeCount } from "./needs-me.ts";
 
 const pending = (requestId: string, at: string, title: string) => ({ requestId, at, title, kind: "edit" as const });

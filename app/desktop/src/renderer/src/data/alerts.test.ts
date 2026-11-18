@@ -148,12 +148,12 @@ test("while reconnecting the cache stays; once connected again, every cached log
   expect(agents?.isInvalidated === true || (agents?.dataUpdatedAt ?? 0) > agentsBefore, "the agents weren't refetched after the reconnect").toBe(true);
 });
 
-// A view reading through the cache with the views' own query options (an observer keeps the query mounted).
+// A panel reading through the cache with the panels' own query options (an observer keeps the query mounted).
 const mount = (observer: { subscribe: (listener: () => void) => () => void }): void => {
   unmounts.push(observer.subscribe(() => undefined));
 };
-const agentsView = (client: QueryClient) => mount(new QueryObserver(client, agentsQuery()));
-const logView = (client: QueryClient, agentId: string) => mount(new QueryObserver(client, agentLogQuery(client, agentId)));
+const agentsPanel = (client: QueryClient) => mount(new QueryObserver(client, agentsQuery()));
+const logPanel = (client: QueryClient, agentId: string) => mount(new QueryObserver(client, agentLogQuery(client, agentId)));
 const agentsCached = (client: QueryClient): AgentSummary[] | undefined =>
   client.getQueryData<{ agents: AgentSummary[] }>(keys.agents)?.agents;
 
@@ -161,8 +161,8 @@ test("reads that failed before the first connected (the bridge refuses while con
   const { service, client } = setup({ connected: false });
   service.refuseWhileDisconnected(true);
   service.append(A, user("Fix the hours"), chunk("Done"));
-  agentsView(client);
-  logView(client, A);
+  agentsPanel(client);
+  logPanel(client, A);
   await vi.waitFor(() => {
     expect(client.getQueryState(keys.agents)?.status).toBe("error");
     expect(client.getQueryState(keys.log(A))?.status).toBe("error");
@@ -179,7 +179,7 @@ test("reads that failed before the first connected (the bridge refuses while con
 test("an agent_changed alert while the first agents read is on its way back still shows the change", async () => {
   const { service, client } = setup();
   service.setAgent(A, { state: "done" });
-  agentsView(client);
+  agentsPanel(client);
   // The read's answer is built (state done) and not delivered yet when the agent changes.
   await vi.waitFor(() => expect(service.inFlight()).toBeGreaterThan(0));
   service.setAgent(A, { state: "working" });
@@ -204,7 +204,7 @@ test("a reconnect reads the cached proposals again", async () => {
 test("an agents read that comes back from another store resets every query", async () => {
   const { service, client } = setup();
   service.append(A, user("old one"), chunk("old two"));
-  agentsView(client);
+  agentsPanel(client);
   await settled(service, () => expect(agentsCached(client)).toHaveLength(1));
   cacheLog(service, client, A);
   // A query no refresh reads again: only a reset clears it.

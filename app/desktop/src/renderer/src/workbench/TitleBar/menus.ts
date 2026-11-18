@@ -28,7 +28,7 @@ export const MENUS: readonly MenuModel[] = [
 export type MenuItem = { separator: true } | { separator: false; id: string; label: string; keys: string | undefined; disabled: boolean };
 
 /**
- * The items of `menu`, with each command's title and keys; a command whose `when` is false (the views are inert behind
+ * The items of `menu`, with each command's title and keys; a command whose `when` is false (the panels are inert behind
  * the connection banner) is disabled. Throws, naming the id, when a command isn't registered.
  */
 export const menuItems = (menu: MenuModel, registered: readonly Command[] = commands()): MenuItem[] =>

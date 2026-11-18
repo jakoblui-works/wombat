@@ -1,32 +1,32 @@
-// Importing this module registers the activities and their views, in the activity bar's order (Agents first).
+// Importing this module registers the activities and their panels, in the activity bar's order (Agents first).
 import { Bot, Columns2, FilePen, Files, Inbox, FolderCog, GitBranch, LayoutDashboard, List, MessageSquare, type LucideIcon } from "lucide-react";
 import { createElement } from "react";
 
 import "../harnesses/claude/claude-ui.ts";
 import { AGENTS_ACTIVITY } from "./activity-ids.ts";
-import { type ActivityDescriptor, registerActivity, registerView } from "./registry.ts";
-import { AgentsList } from "./views/AgentsList/AgentsList.tsx";
-import { Chat } from "./views/Chat/Chat.tsx";
-import { CHAT_VIEW, ChatParams, chatResolves, chatTitle } from "./views/Chat/chat-params.ts";
-import { Diff } from "./views/Diff/Diff.tsx";
-import { DIFF_TITLE, DIFF_VIEW, DiffParams, diffResolves, diffRestores } from "./views/Diff/diff-params.ts";
-import { NeedsMe } from "./views/NeedsMe/NeedsMe.tsx";
-import { Proposal } from "./views/Proposal/Proposal.tsx";
-import { PROPOSAL_TITLE, PROPOSAL_VIEW, ProposalParams, proposalResolves, proposalRestores } from "./views/Proposal/proposal-params.ts";
-import { EmptyActivity } from "./views/EmptyActivity/EmptyActivity.tsx";
+import { type ActivityDescriptor, registerActivity, registerPanel } from "./registry.ts";
+import { AgentsList } from "./panels/AgentsList/AgentsList.tsx";
+import { Chat } from "./panels/Chat/Chat.tsx";
+import { CHAT_PANEL, ChatParams, chatResolves, chatTitle } from "./panels/Chat/chat-params.ts";
+import { Diff } from "./panels/Diff/Diff.tsx";
+import { DIFF_TITLE, DIFF_PANEL, DiffParams, diffResolves, diffRestores } from "./panels/Diff/diff-params.ts";
+import { NeedsMe } from "./panels/NeedsMe/NeedsMe.tsx";
+import { Proposal } from "./panels/Proposal/Proposal.tsx";
+import { PROPOSAL_TITLE, PROPOSAL_PANEL, ProposalParams, proposalResolves, proposalRestores } from "./panels/Proposal/proposal-params.ts";
+import { EmptyActivity } from "./panels/EmptyActivity/EmptyActivity.tsx";
 
-/** An activity that isn't built yet: its sidebar view shows its empty state. */
+/** An activity that isn't built yet: its sidebar panel shows its empty state. */
 const unbuilt = (id: string, title: string, icon: LucideIcon, emptyState: NonNullable<ActivityDescriptor["emptyState"]>): void => {
-  const sidebarView = `${id}-empty`;
-  registerActivity({ id, title, icon, sidebarView, emptyState });
-  registerView({ id: sidebarView, title, icon, locations: ["left"], activity: id, component: () => createElement(EmptyActivity, { ...emptyState, heading: title }) });
+  const sidebarPanel = `${id}-empty`;
+  registerActivity({ id, title, icon, sidebarPanel, emptyState });
+  registerPanel({ id: sidebarPanel, title, icon, locations: ["left"], activity: id, component: () => createElement(EmptyActivity, { ...emptyState, heading: title }) });
 };
 
 const register = (): void => {
-  registerActivity({ id: AGENTS_ACTIVITY, title: "Agents", icon: Bot, sidebarView: "agents-list" });
-  registerView({ id: "agents-list", title: "Agents", icon: List, locations: ["left"], activity: AGENTS_ACTIVITY, component: AgentsList });
-  registerView({
-    id: CHAT_VIEW,
+  registerActivity({ id: AGENTS_ACTIVITY, title: "Agents", icon: Bot, sidebarPanel: "agents-list" });
+  registerPanel({ id: "agents-list", title: "Agents", icon: List, locations: ["left"], activity: AGENTS_ACTIVITY, component: AgentsList });
+  registerPanel({
+    id: CHAT_PANEL,
     title: chatTitle,
     icon: MessageSquare,
     locations: ["editor"],
@@ -36,9 +36,9 @@ const register = (): void => {
     resolves: chatResolves,
   });
 
-  registerView({
-    id: DIFF_VIEW,
-    // The view reports "<file name> (diff)" once it has read the request (the agents list doesn't name the file).
+  registerPanel({
+    id: DIFF_PANEL,
+    // The panel reports "<file name> (diff)" once it has read the request (the agents list doesn't name the file).
     title: DIFF_TITLE,
     icon: Columns2,
     locations: ["editor"],
@@ -49,9 +49,9 @@ const register = (): void => {
     restores: diffRestores,
   });
 
-  registerView({
-    id: PROPOSAL_VIEW,
-    // The view reports the proposal's label once it has read the proposal.
+  registerPanel({
+    id: PROPOSAL_PANEL,
+    // The panel reports the proposal's label once it has read the proposal.
     title: PROPOSAL_TITLE,
     icon: FilePen,
     locations: ["editor"],
@@ -61,7 +61,7 @@ const register = (): void => {
     restores: proposalRestores,
   });
 
-  registerView({ id: "needs-me", title: "Needs me", icon: Inbox, locations: ["right"], component: NeedsMe });
+  registerPanel({ id: "needs-me", title: "Needs me", icon: Inbox, locations: ["right"], component: NeedsMe });
 
   unbuilt("files", "Files", Files, { title: "Files arrive in step 9", body: "Browse and edit the workspace's files here." });
   unbuilt("source-control", "Source control", GitBranch, { title: "Source control arrives in step 10", body: "Review changes, commit and switch branches here." });

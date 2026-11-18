@@ -10,13 +10,13 @@ import { activities } from "./registry.ts";
 
 type Leaf = { type: "leaf"; data: { id: string; views: string[]; activeView?: string }; size: number };
 type Branch = { type: "branch"; data: (Leaf | Branch)[]; size: number };
-type Panel = { id: string; contentComponent: string; title: string; params: { viewId: string; params: unknown } };
+type Panel = { id: string; contentComponent: string; title: string; params: { panelId: string; params: unknown } };
 
-const panel = (viewId: string, params: Record<string, unknown>): Panel => ({
-  id: `${viewId}:${JSON.stringify(params)}`,
-  contentComponent: "view",
-  title: viewId,
-  params: { viewId, params },
+const panel = (panelId: string, params: Record<string, unknown>): Panel => ({
+  id: `${panelId}:${JSON.stringify(params)}`,
+  contentComponent: "panel",
+  title: panelId,
+  params: { panelId, params },
 });
 const leaf = (id: string, panels: Panel[]): Leaf => ({
   type: "leaf",
@@ -26,7 +26,7 @@ const leaf = (id: string, panels: Panel[]): Leaf => ({
 const branch = (...data: (Leaf | Branch)[]): Branch => ({ type: "branch", data, size: 400 });
 
 const saved = (root: Branch, panels: Panel[], activeGroup: string): SavedLayout => ({
-  version: 1,
+  version: 2,
   dockview: {
     grid: { root, width: 1200, height: 800, orientation: "HORIZONTAL" },
     panels: Object.fromEntries(panels.map((p) => [p.id, p])),
@@ -42,7 +42,7 @@ const groupIds = (layout: SavedLayout): string[] => leaves(layout.dockview.grid.
 // Invented agents: a1 still exists, a-gone was deleted since the layout was saved.
 const kept = panel("chat", { agentId: "a1" });
 const gone = panel("chat", { agentId: "a-gone" });
-const known: IsKnown = (_viewId, params) => (params as { agentId?: string }).agentId === "a1";
+const known: IsKnown = (_panelId, params) => (params as { agentId?: string }).agentId === "a1";
 
 test.each<[string, Branch, Panel[], string, string[]]>([
   ["while pruning empties and removes another group", branch(leaf("empty", []), leaf("emptied", [gone]), leaf("tabs", [kept])), [kept, gone], "emptied", ["empty", "tabs"]],

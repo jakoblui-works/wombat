@@ -1,6 +1,6 @@
 // The chat, against the built app and the fake agents (app-fixtures.ts).
 // What these checks rely on in the page (roles and names, not looks; the approved design's structure):
-// - a chat tab's content is the active panel of its editor group (agent-views.ts `groupWithTab`);
+// - a chat tab's content is the active panel of its editor group (agent-panels.ts `groupWithTab`);
 // - collapsed parts (reasoning, a tool call) are buttons with `aria-expanded="false"`; expanding shows their text (a
 //   tool call's text content through Markdown, the same rules as agent text);
 // - a clipped text says how many characters were left out, in digits (group separators allowed);
@@ -13,9 +13,9 @@
 import type { ElectronApplication, Page } from "@playwright/test";
 
 import { FAKE_CONFIG, fakeConfigOptions, HOSTILE } from "../../service/test/fake-agent.ts";
-import { MAX_SHOWN_CHARS } from "../src/renderer/src/workbench/views/Chat/clip-text.ts";
+import { MAX_SHOWN_CHARS } from "../src/renderer/src/workbench/panels/Chat/clip-text.ts";
 import { agentSummary, click, current, expect, layoutOf, openAgent, REPO, type Sandbox, startAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
-import { groupWithTab, logOf, prompt, waitForState } from "./agent-views.ts";
+import { groupWithTab, logOf, prompt, waitForState } from "./agent-panels.ts";
 
 // Main hands https links to the host's browser through `shell.openExternal`; the check records those calls instead
 // (as trust-boundary.e2e.ts does), so a test never opens the real browser.

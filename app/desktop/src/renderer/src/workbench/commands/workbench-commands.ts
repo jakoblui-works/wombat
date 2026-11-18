@@ -15,7 +15,7 @@ export type WorkbenchCommandDeps = {
   toggleRightSidebar: () => void;
   /** What the right sidebar shows, as the toggle's menu item names it (default "Right Sidebar"). */
   rightSidebarTitle?: string;
-  /** Whether the connection banner has made the views inert: no key may change them then. */
+  /** Whether the connection banner has made the panels inert: no key may change them then. */
   blocked: () => boolean;
   /** What Restart Service does (default: the bridge's restart); the page passes the one that tracks the attempt. */
   restartService?: () => void;

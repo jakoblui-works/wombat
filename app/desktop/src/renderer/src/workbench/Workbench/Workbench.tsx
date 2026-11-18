@@ -9,13 +9,13 @@ import { isSettled, NO_RESTART, restartAttempt, showsBanner } from "@/lib/connec
 import { cn } from "@/lib/utils";
 import { useAgents, useConnection, useProposals } from "../../data/hooks.ts";
 import { keys } from "../../data/keys.ts";
-// Registers the activities and their views, which the workbench reads from the registry.
+// Registers the activities and their panels, which the workbench reads from the registry.
 import "../activities.ts";
 import { needsMeCount } from "../../data/needs-me.ts";
 import { defaultLayout, restoreLayout, type SavedLayout } from "../layout.ts";
 import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
-import { activities, activityOrDefault, getView, isKnown, isRestorable, viewsFor, viewTitle } from "../registry.ts";
+import { activities, activityOrDefault, getPanel, isKnown, isRestorable, panelsFor, panelTitle } from "../registry.ts";
 import { ActivityBar } from "../ActivityBar/ActivityBar.tsx";
 import { commandForKey, runLogged } from "../commands/registry.ts";
 import { activityCommandId, registerWorkbenchCommands, WORKBENCH_COMMAND } from "../commands/workbench-commands.ts";
@@ -89,8 +89,8 @@ const TabContent = ({ params, api }: IDockviewPanelProps<TabParams>) => {
   const titles = useContext(TitlesContext);
   const setTitle = useCallback((title: string) => titles.report(api, title), [titles, api]);
   useEffect(() => () => titles.forget(api.id), [titles, api]);
-  const View = getView(params.viewId)?.component;
-  return View === undefined ? null : <View params={params.params} reveal={reveal} setTitle={setTitle} />;
+  const Panel = getPanel(params.panelId)?.component;
+  return Panel === undefined ? null : <Panel params={params.params} reveal={reveal} setTitle={setTitle} />;
 };
 const COMPONENTS = { [TAB_COMPONENT]: TabContent };
 
@@ -106,7 +106,7 @@ const readAnswered = (state: QueryState | undefined, connection: ConnectionState
   (state?.status === "error" && state.fetchStatus === "idle" && (connection === "connected" || isSettled(connection)));
 
 /**
- * The window: activity bar, left sidebar (the activity's view), the editor's tabs (dockview) and the right sidebar.
+ * The window: activity bar, left sidebar (the activity's panel), the editor's tabs (dockview) and the right sidebar.
  * The layout is restored once, after the agents and proposals reads were answered (so tabs of deleted agents and
  * decided proposals drop out), and only saved after that. From then on the tabs follow both lists: the ones that no
  * longer apply close, titles follow.
@@ -172,7 +172,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   useEffect(() => {
     if (!ready || saved?.readable !== true) return;
     const current = layoutSaver(
-      () => ({ version: 1, dockview: api.toJSON(), ...chromeRef.current }),
+      () => ({ version: 2, dockview: api.toJSON(), ...chromeRef.current }),
       (layout) => {
         window.wombat.settings.set({ layout }).catch(() => {
           console.warn("Wombat couldn't save the layout.");
@@ -213,13 +213,13 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const changeChromeRef = useRef(changeChrome);
   changeChromeRef.current = changeChrome;
 
-  // The active tab, for views that mark what's open.
+  // The active tab, for panels that mark what's open.
   const [activeTab, setActiveTab] = useState<ActiveTab>();
   useEffect(() => {
     if (api === undefined) return;
     const read = () => {
       const tab = api.activePanel?.params as Partial<TabParams> | undefined;
-      setActiveTab(typeof tab?.viewId === "string" ? { viewId: tab.viewId, params: tab.params } : undefined);
+      setActiveTab(typeof tab?.panelId === "string" ? { panelId: tab.panelId, params: tab.params } : undefined);
     };
     read();
     const change = api.onDidActivePanelChange(read);
@@ -254,8 +254,8 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     });
   }, [ready, agentsKnown, openAgents, actions]);
 
-  const rightViews = viewsFor("right");
-  const rightView = rightViews[0] === undefined ? undefined : { title: viewTitle(rightViews[0], {}, { agents: undefined }), icon: rightViews[0].icon };
+  const rightPanels = panelsFor("right");
+  const rightPanel = rightPanels[0] === undefined ? undefined : { title: panelTitle(rightPanels[0], {}, { agents: undefined }), icon: rightPanels[0].icon };
   // The workbench's commands, and the page's one key listener: every key binding runs through the registry.
   useEffect(
     () =>
@@ -265,11 +265,11 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         showActivity,
         toggleRightSidebar: () =>
           changeChromeRef.current((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } })),
-        ...(rightView === undefined ? {} : { rightSidebarTitle: rightView.title }),
+        ...(rightPanel === undefined ? {} : { rightSidebarTitle: rightPanel.title }),
         blocked: () => blockedRef.current,
         restartService: () => restartRef.current(),
       }),
-    [api, showActivity, rightView?.title],
+    [api, showActivity, rightPanel?.title],
   );
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -283,7 +283,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   }, []);
 
   const activity = activityOrDefault(chrome.activity);
-  const Sidebar = activity === undefined ? undefined : getView(activity.sidebarView)?.component;
+  const Sidebar = activity === undefined ? undefined : getPanel(activity.sidebarPanel)?.component;
   const resize = (side: "left" | "right", dx: number) =>
     changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, [side]: clampWidth(current.sidebars[side] + dx) } }));
 
@@ -328,7 +328,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
           <TitlesContext value={titles}>
             <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
               <TitleBar
-                right={rightView}
+                right={rightPanel}
                 count={agentList === undefined ? 0 : needsMeCount(agentList, proposals.data?.proposals ?? [])}
                 rightOpen={!chrome.sidebars.rightCollapsed}
                 onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
@@ -344,7 +344,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   blocked={blocked}
                   onSelect={(id) => runLogged(activityCommandId(id))}
                 />
-                {/* Always here, so the views never remount: while blocked it is inert and the scrim over it shows. */}
+                {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
                 <div inert={blocked} className="relative flex min-w-0 flex-1">
                   <aside aria-label={activity?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.left }}>
                     {Sidebar && <Sidebar params={{}} />}
@@ -365,9 +365,9 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   {!chrome.sidebars.rightCollapsed && (
                     <>
                       <ResizeHandle label="Resize the right sidebar" onDrag={(dx) => resize("right", -dx)} />
-                      <aside aria-label={rightView?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.right }}>
-                        {rightViews.map(({ id, component: View }) => (
-                          <View key={id} params={{}} />
+                      <aside aria-label={rightPanel?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.right }}>
+                        {rightPanels.map(({ id, component: Panel }) => (
+                          <Panel key={id} params={{}} />
                         ))}
                       </aside>
                     </>

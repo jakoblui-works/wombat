@@ -13,7 +13,7 @@
   --surface-1: oklch(0.178 0.005 275);
   --surface-2: oklch(0.208 0.006 275);
   --surface-3: oklch(0.248 0.007 275);
-  /* How much of a view shows through while a blocking state dims it (reconnecting); the scrim is its complement. */
+  /* How much of a panel shows through while a blocking state dims it (reconnecting); the scrim is its complement. */
   --dim-opacity: 0.28;
   --scrim: oklch(from var(--surface-0) l c h / calc(1 - var(--dim-opacity)));
 

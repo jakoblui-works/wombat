@@ -1,4 +1,4 @@
-// The views' reads: thin glue over the queries in query-client.ts.
+// The panels' reads: thin glue over the queries in query-client.ts.
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
@@ -30,7 +30,7 @@ export const useBinderItems = (binderIds: readonly string[]) =>
 
 export const useAgentLog = (agentId: string) => useQuery(agentLogQuery(useQueryClient(), agentId));
 
-/** The bridge's connection state; views dim themselves while it isn't `connected`. */
+/** The bridge's connection state; panels dim themselves while it isn't `connected`. */
 export const useConnection = (): ConnectionState => {
   const [state, setState] = useState<ConnectionState>({ state: "connecting" });
   // onConnection calls back at once with the current state.
