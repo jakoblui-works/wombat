@@ -1,15 +1,15 @@
-// Hidden never reaches an agent. Nothing from a hidden structure (its id, name,
+// Hidden never reaches an agent. Nothing from a hidden binder (its id, name,
 // handles, ids, titles, bodies or values) is in any read an agent makes, any search hit, any link value, describe's
-// output or any refusal; a link to a hidden item reads null like a missing one, and a hidden handle or structure is
+// output or any refusal; a link to a hidden item reads null like a missing one, and a hidden handle or binder is
 // refused exactly like a missing one, and a link to a hidden item gives the same problems as a link to a missing
 // one, without scrubbing ordinary problems that merely share a word with a hidden name. A prefix clash with a hidden
-// structure refuses edits and proposals alike without naming it, a handle with a hidden structure's prefix reads like
-// one with a prefix no structure has, and no problem an agent gets carries more than the shared Problem's keys (the
-// service's own `names` stay inside it). A file proposal on a hidden structure's files is refused word for word like
-// one on a visible structure's, and the cap's refusal names nothing of the proposals it counts. What an agent is told
+// binder refuses edits and proposals alike without naming it, a handle with a hidden binder's prefix reads like
+// one with a prefix no binder has, and no problem an agent gets carries more than the shared Problem's keys (the
+// service's own `names` stay inside it). A file proposal on a hidden binder's files is refused word for word like
+// one on a visible binder's, and the cap's refusal names nothing of the proposals it counts. What an agent is told
 // about its proposals later keeps to the same: a revise's refusal, and the note in front of my next message (its
-// labels, a conflict's reason, my changes) with the prompt made from it. A revise of a proposal whose structure was
-// hidden since is refused word for word like one whose structure is gone, naming neither.
+// labels, a conflict's reason, my changes) with the prompt made from it. A revise of a proposal whose binder was
+// hidden since is refused word for word like one whose binder is gone, naming neither.
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
@@ -22,19 +22,20 @@ import { AccessError } from "./refusals.ts";
 import { ACCESS_FILES, AGENT, HIDDEN, MARKER, VISIBLE_IDS, expectRefused, extraProblemKeys, leaks, openAccessRoot, refusal } from "../../test/access-fixtures.ts";
 import { UUID } from "../../test/instructions-fixtures.ts";
 import { readAt, writeAt } from "../../test/items-fixtures.ts";
+import { SETTINGS_FILE } from "./binders.ts";
 
 /** The message with the name the agent typed replaced, so two refusals can be compared. */
 const withoutTyped = (message: string, typed: string) => message.replaceAll(typed, "<typed>");
 
 describe("hidden never reaches an agent", () => {
-  test("no read, search hit, link value or describe output carries anything of a hidden structure", async () => {
+  test("no read, search hit, link value or describe output carries anything of a hidden binder", async () => {
     const { access } = openAccessRoot();
     const seen: unknown[] = [];
 
-    const structures = await access.structures();
-    seen.push(structures);
-    expect(structures.map((structure) => structure.id).sort()).toEqual(["backlog", "bugs", "docs"]);
-    for (const { id } of structures) {
+    const binders = await access.binders();
+    seen.push(binders);
+    expect(binders.map((binder) => binder.id).sort()).toEqual(["backlog", "bugs", "docs"]);
+    for (const { id } of binders) {
       seen.push(await access.describe(id));
       const items = await access.list(id);
       seen.push(items);
@@ -46,22 +47,22 @@ describe("hidden never reaches an agent", () => {
     }
 
     const text = JSON.stringify(seen);
-    expect(leaks(text, [MARKER, ...HIDDEN.ids, ...HIDDEN.handles, HIDDEN.structure, HIDDEN.name])).toEqual([]);
+    expect(leaks(text, [MARKER, ...HIDDEN.ids, ...HIDDEN.handles, HIDDEN.binder, HIDDEN.name])).toEqual([]);
     expect(extraProblemKeys(seen), "keys beyond Problem's").toEqual([]);
     expect((await access.search(MARKER)).items).toEqual([]);
     const bug = await access.get("BUG-1");
     expect(bug.properties.vault, "a link to a hidden item").toBeNull();
-    expect((await access.describe("bugs")).properties.vault?.to, "a link property to a hidden structure").toBeNull();
+    expect((await access.describe("bugs")).properties.vault?.to, "a link property to a hidden binder").toBeNull();
   });
 
-  test("a hidden handle or structure is refused exactly like a missing one, and no refusal names anything hidden", async () => {
+  test("a hidden handle or binder is refused exactly like a missing one, and no refusal names anything hidden", async () => {
     const { access } = openAccessRoot();
     const version = (await access.get("BUG-2")).version;
     const input = { title: "A new plan", body: "\nInvented.\n" };
     const pairs: { what: string; hidden: () => Promise<unknown>; missing: () => Promise<unknown>; typed: [string, string] }[] = [
       { what: "get", hidden: () => access.get("KST-1"), missing: () => access.get("KST-99"), typed: ["KST-1", "KST-99"] },
-      { what: "list", hidden: () => access.list(HIDDEN.structure), missing: () => access.list("no-such-structure"), typed: [HIDDEN.structure, "no-such-structure"] },
-      { what: "create", hidden: () => access.create(AGENT, HIDDEN.structure, input), missing: () => access.create(AGENT, "no-such-structure", input), typed: [HIDDEN.structure, "no-such-structure"] },
+      { what: "list", hidden: () => access.list(HIDDEN.binder), missing: () => access.list("no-such-binder"), typed: [HIDDEN.binder, "no-such-binder"] },
+      { what: "create", hidden: () => access.create(AGENT, HIDDEN.binder, input), missing: () => access.create(AGENT, "no-such-binder", input), typed: [HIDDEN.binder, "no-such-binder"] },
       { what: "propose_update", hidden: () => access.proposeUpdate(AGENT, "KST-1", { codename: "x" }, "v", "why"), missing: () => access.proposeUpdate(AGENT, "KST-99", { codename: "x" }, "v", "why"), typed: ["KST-1", "KST-99"] },
       {
         what: "a link value naming a hidden handle",
@@ -75,7 +76,7 @@ describe("hidden never reaches an agent", () => {
       const hiddenMessage = await expectRefused(hidden(), "not_found", `${what} (hidden)`);
       const missingMessage = await expectRefused(missing(), "not_found", `${what} (missing)`);
       expect(withoutTyped(hiddenMessage, typed[0]), what).toBe(withoutTyped(missingMessage, typed[1]));
-      // What the agent typed may be echoed; nothing else of the hidden structure may.
+      // What the agent typed may be echoed; nothing else of the hidden binder may.
       expect(leaks(withoutTyped(hiddenMessage, typed[0]), [MARKER, ...HIDDEN.ids, HIDDEN.name]), what).toEqual([]);
       const error = await refusal(hidden(), what);
       expect(leaks(JSON.stringify(error.problems)), `${what}: problems`).toEqual([]);
@@ -88,52 +89,52 @@ describe("hidden never reaches an agent", () => {
     // Pairs of files that differ only in a link value: one names a hidden item, the other an item that doesn't exist.
     const missingId = "0196f3c2-9f00-7000-8000-000000000099";
     const pairs = [
-      // `vault` links into the hidden structure: the catalog finds the hidden target but reports the missing one.
-      { what: "a hidden id in a link to the hidden structure", structure: "bugs", field: "vault", hidden: HIDDEN.ids[1], missing: missingId, files: [["BUG-3", "0196f3c2-9e00-7000-8000-000000000001"], ["BUG-4", "0196f3c2-9e00-7000-8000-000000000002"]] },
-      // `parent` links into a visible structure: the catalog reports both, naming the hidden item or structure.
-      { what: "a hidden id in a link to a visible structure", structure: "backlog", field: "parent", hidden: HIDDEN.ids[0], missing: missingId, files: [["BL-3", "0196f3c2-9e00-7000-8000-000000000003"], ["BL-4", "0196f3c2-9e00-7000-8000-000000000004"]] },
-      { what: "a hidden handle in a link to a visible structure", structure: "backlog", field: "parent", hidden: HIDDEN.handles[1], missing: "KST-99", files: [["BL-5", "0196f3c2-9e00-7000-8000-000000000005"], ["BL-6", "0196f3c2-9e00-7000-8000-000000000006"]] },
+      // `vault` links into the hidden binder: the catalog finds the hidden target but reports the missing one.
+      { what: "a hidden id in a link to the hidden binder", binder: "bugs", field: "vault", hidden: HIDDEN.ids[1], missing: missingId, files: [["BUG-3", "0196f3c2-9e00-7000-8000-000000000001"], ["BUG-4", "0196f3c2-9e00-7000-8000-000000000002"]] },
+      // `parent` links into a visible binder: the catalog reports both, naming the hidden item or binder.
+      { what: "a hidden id in a link to a visible binder", binder: "backlog", field: "parent", hidden: HIDDEN.ids[0], missing: missingId, files: [["BL-3", "0196f3c2-9e00-7000-8000-000000000003"], ["BL-4", "0196f3c2-9e00-7000-8000-000000000004"]] },
+      { what: "a hidden handle in a link to a visible binder", binder: "backlog", field: "parent", hidden: HIDDEN.handles[1], missing: "KST-99", files: [["BL-5", "0196f3c2-9e00-7000-8000-000000000005"], ["BL-6", "0196f3c2-9e00-7000-8000-000000000006"]] },
     ] as const;
     const files: Record<string, string> = { ...ACCESS_FILES };
-    for (const { structure, field, hidden, missing, files: [toHidden, toMissing] } of pairs) {
+    for (const { binder, field, hidden, missing, files: [toHidden, toMissing] } of pairs) {
       for (const [[handle, id], value] of [[toHidden, hidden], [toMissing, missing]] as const) {
-        files[`${structure}/${handle}-a-link.md`] = `---\nid: ${id}\nhandle: ${handle}\n${field}: ${value}\n---\n# A link to check\n\nInvented.\n`;
+        files[`${binder}/${handle}-a-link.md`] = `---\nid: ${id}\nhandle: ${handle}\n${field}: ${value}\n---\n# A link to check\n\nInvented.\n`;
       }
     }
     const { access } = openAccessRoot(files);
 
     /** An item's problems as `get` and `list` give them, with the file's link value replaced, so a pair can be compared. */
-    const problemsOf = async (structure: string, handle: string, value: string) => {
+    const problemsOf = async (binder: string, handle: string, value: string) => {
       const fromGet = (await access.get(handle)).problems;
-      const fromList = (await access.list(structure)).find((item) => item.handle === handle)?.problems;
-      expect(fromList, `${handle} in list(${structure})`).toEqual(fromGet);
+      const fromList = (await access.list(binder)).find((item) => item.handle === handle)?.problems;
+      expect(fromList, `${handle} in list(${binder})`).toEqual(fromGet);
       expect(extraProblemKeys({ problems: fromGet }), `${handle}: keys beyond Problem's`).toEqual([]);
       return { raw: JSON.stringify(fromGet), compared: JSON.parse(JSON.stringify(fromGet).replaceAll(value, "<value>")) as unknown };
     };
 
-    for (const { what, structure, field, hidden, missing, files: [[hiddenLink], [missingLink]] } of pairs) {
-      const toHidden = await problemsOf(structure, hiddenLink, hidden);
-      const toMissing = await problemsOf(structure, missingLink, missing);
+    for (const { what, binder, field, hidden, missing, files: [[hiddenLink], [missingLink]] } of pairs) {
+      const toHidden = await problemsOf(binder, hiddenLink, hidden);
+      const toMissing = await problemsOf(binder, missingLink, missing);
       // Same fields, same messages, and present or absent alike.
       expect(toHidden.compared, what).toEqual(toMissing.compared);
       // The file's value isn't the agent's to echo when it names something hidden; nothing else hidden may show either.
-      expect(leaks(toHidden.raw, [MARKER, ...HIDDEN.ids, ...HIDDEN.handles, HIDDEN.structure, HIDDEN.name]), `${what}: problems`).toEqual([]);
+      expect(leaks(toHidden.raw, [MARKER, ...HIDDEN.ids, ...HIDDEN.handles, HIDDEN.binder, HIDDEN.name]), `${what}: problems`).toEqual([]);
       expect((await access.get(hiddenLink)).properties[field], `${what}: the value reads null`).toBeNull();
-      // Which way it goes: a link property to a hidden structure (`to: null` in describe) shows no link problem, since
-      // the agent can link nothing there; a link property to a visible structure shows the missing-target problem.
+      // Which way it goes: a link property to a hidden binder (`to: null` in describe) shows no link problem, since
+      // the agent can link nothing there; a link property to a visible binder shows the missing-target problem.
       const onField = (toMissing.compared as { field?: string; message: string }[]).filter(
         (problem) => problem.field === field || problem.message.includes(field),
       );
-      expect(onField.length, `${what}: problems on ${field}`).toBe(structure === "bugs" ? 0 : 1);
+      expect(onField.length, `${what}: problems on ${field}`).toBe(binder === "bugs" ? 0 : 1);
     }
   });
 
-  test("a free-naming create under a hidden structure's folder is refused exactly like one under a folder that doesn't exist", async () => {
-    // Visible free-naming structures (one per writing level) whose folders hold a hidden structure's folder.
+  test("a free-naming create under a hidden binder's folder is refused exactly like one under a folder that doesn't exist", async () => {
+    // Visible free-naming binders (one per writing level) whose folders hold a hidden binder's folder.
     const free = (id: string, level: string, den: string, prefix: string, n: number): Record<string, string> => ({
-      [`${id}/_structure.yaml`]: `version: 1\nid: ${id}\nname: ${id}\nprefix: ${id.toUpperCase()}\naccess: ${level}\nnaming: free\ninclude: ["**/*.md"]\n`,
+      [`${id}/${SETTINGS_FILE}`]: `version: 1\nid: ${id}\nname: ${id}\nprefix: ${id.toUpperCase()}\naccess: ${level}\nnaming: free\ninclude: ["**/*.md"]\n`,
       [`${id}/existing/keep.md`]: `---\nid: 0196f3c2-9e00-7000-8000-00000000002${n}\nhandle: ${id.toUpperCase()}-1\n---\n# Keep\n\nInvented.\n`,
-      [`${id}/${den}/_structure.yaml`]: `version: 1\nid: ${den}\nname: Kestrel den\nprefix: ${prefix}\naccess: hidden\n`,
+      [`${id}/${den}/${SETTINGS_FILE}`]: `version: 1\nid: ${den}\nname: Kestrel den\nprefix: ${prefix}\naccess: hidden\n`,
       [`${id}/${den}/${prefix}-1-plan.md`]: `---\nid: 0196f3c2-9a00-7000-8000-00000000002${n}\nhandle: ${prefix}-1\n---\n# Kestrel den plan\n\nKestrel.\n`,
     });
     const { access } = openAccessRoot({ ...ACCESS_FILES, ...free("notes", "edit", "kestrel-den", "KDN", 1), ...free("drafts", "propose", "kestrel-nest", "KNS", 2) });
@@ -151,28 +152,28 @@ describe("hidden never reaches an agent", () => {
       }
     };
 
-    for (const { what, structure, den, call } of [
-      { what: "create", structure: "notes", den: "kestrel-den", call: (file: string) => access.create(AGENT, "notes", input(file)) },
-      { what: "propose_create", structure: "drafts", den: "kestrel-nest", call: (file: string) => access.proposeCreate(AGENT, "drafts", input(file), "why") },
+    for (const { what, binder, den, call } of [
+      { what: "create", binder: "notes", den: "kestrel-den", call: (file: string) => access.create(AGENT, "notes", input(file)) },
+      { what: "propose_create", binder: "drafts", den: "kestrel-nest", call: (file: string) => access.proposeCreate(AGENT, "drafts", input(file), "why") },
     ]) {
       const typed = [`${den}/a-note.md`, "no-such-folder/a-note.md"] as const;
       const underHidden = await outcome(call(typed[0]), typed[0]);
       const underMissing = await outcome(call(typed[1]), typed[1]);
       expect(underHidden, what).toEqual(underMissing);
       expect(extraProblemKeys(underHidden), `${what}: keys beyond Problem's`).toEqual([]);
-      // What the agent typed may be echoed; nothing else of the hidden structure may.
-      expect(leaks(JSON.stringify(underHidden), [MARKER, den, "Kestrel den", "KDN", "KNS", "inside another structure"]), what).toEqual([]);
-      expect(await access.list(structure), `${what}: nothing was created under either folder`).toHaveLength(1);
+      // What the agent typed may be echoed; nothing else of the hidden binder may.
+      expect(leaks(JSON.stringify(underHidden), [MARKER, den, "Kestrel den", "KDN", "KNS", "inside another binder"]), what).toEqual([]);
+      expect(await access.list(binder), `${what}: nothing was created under either folder`).toHaveLength(1);
     }
   });
 
-  test("a prefix clash with a hidden structure, in a folder or at the root, refuses a write or a proposal the same way and names nothing hidden", async () => {
+  test("a prefix clash with a hidden binder, in a folder or at the root, refuses a write or a proposal the same way and names nothing hidden", async () => {
     const note = "---\nid: 0196f3c2-9e00-7000-8000-000000000051\nhandle: NOTE-1\n---\n# A note\n\nInvented.\n";
     const notes = (level: "edit" | "propose", prefixProperty: boolean) =>
       `version: 1\nid: notes\nname: Notes\nprefix: NOTE\naccess: ${level}\n${prefixProperty ? "properties:\n  prefix: { type: text }\n" : ""}`;
-    // A hidden structure with the visible one's prefix, in a folder of its own or at the items root itself.
-    const den = (at: "" | "kestrel-secret/") => ({ [`${at}_structure.yaml`]: `version: 1\nid: ${MARKER}-secret\nname: Kestrel secret\nprefix: NOTE\naccess: hidden\n` });
-    const hiddenStrings = [MARKER, ...HIDDEN.ids, HIDDEN.name, "Kestrel secret", "kestrel-secret/", "the structure in the root"];
+    // A hidden binder with the visible one's prefix, in a folder of its own or at the items root itself.
+    const den = (at: "" | "kestrel-secret/") => ({ [`${at}${SETTINGS_FILE}`]: `version: 1\nid: ${MARKER}-secret\nname: Kestrel secret\nprefix: NOTE\naccess: hidden\n` });
+    const hiddenStrings = [MARKER, ...HIDDEN.ids, HIDDEN.name, "Kestrel secret", "kestrel-secret/", "the binder in the root"];
     const input = { title: "Hi", body: "\nInvented.\n" };
 
     /** The refusals an agent gets for each change on notes, through the level's own tools: message and problems. */
@@ -203,16 +204,16 @@ describe("hidden never reaches an agent", () => {
     };
 
     for (const level of ["edit", "propose"] as const) {
-      const inFolder = await refusals(level, { "notes/_structure.yaml": notes(level, false), ...den("kestrel-secret/") });
-      const atRoot = await refusals(level, { "notes/_structure.yaml": notes(level, false), ...den("") });
-      expect(atRoot, `${level}: a hidden structure at the root reads like one in a folder`).toEqual(inFolder);
+      const inFolder = await refusals(level, { [`notes/${SETTINGS_FILE}`]: notes(level, false), ...den("kestrel-secret/") });
+      const atRoot = await refusals(level, { [`notes/${SETTINGS_FILE}`]: notes(level, false), ...den("") });
+      expect(atRoot, `${level}: a hidden binder at the root reads like one in a folder`).toEqual(inFolder);
       // A declared property named like a settings field doesn't open a way around it.
-      await refusals(level, { "notes/_structure.yaml": notes(level, true), ...den("kestrel-secret/") });
+      await refusals(level, { [`notes/${SETTINGS_FILE}`]: notes(level, true), ...den("kestrel-secret/") });
     }
   });
 
-  test("a visible item whose handle has a hidden structure's prefix gets the same problems as one with a prefix no structure has", async () => {
-    // The mismatch names only the item's own handle, never the structure that owns the prefix.
+  test("a visible item whose handle has a hidden binder's prefix gets the same problems as one with a prefix no binder has", async () => {
+    // The mismatch names only the item's own handle, never the binder that owns the prefix.
     const odd = (handle: string, n: number) => `---\nid: 0196f3c2-9e00-7000-8000-00000000007${String(n)}\nhandle: ${handle}\nrepo: api\n---\n# A handle typed by hand\n\nInvented.\n`;
     const files = { ...ACCESS_FILES, "bugs/odd-hidden-prefix.md": odd(`${HIDDEN.prefix}-7`, 1), "bugs/odd-no-prefix.md": odd("ZZQ-7", 2) };
     const { access } = openAccessRoot(files);
@@ -225,49 +226,49 @@ describe("hidden never reaches an agent", () => {
       return JSON.parse(JSON.stringify(fromGet).replaceAll(handle, "<handle>")) as unknown;
     };
 
-    const noStructure = await problemsOf("ZZQ-7");
-    expect(noStructure, "the mismatch is a problem on the handle").toEqual([expect.objectContaining({ field: "handle" })]);
-    expect(await problemsOf(`${HIDDEN.prefix}-7`)).toEqual(noStructure);
+    const noBinder = await problemsOf("ZZQ-7");
+    expect(noBinder, "the mismatch is a problem on the handle").toEqual([expect.objectContaining({ field: "handle" })]);
+    expect(await problemsOf(`${HIDDEN.prefix}-7`)).toEqual(noBinder);
   });
 
   test("an agent sees only a visible item's declared properties, so an undeclared key carries nothing (no id) to it", async () => {
     const withKey = (path: string) => (ACCESS_FILES[path] ?? "").replace("---\n# ", `secretref: ${HIDDEN.ids[1]}\nnoteref: KST-2 ${MARKER}\n---\n# `);
     const files = { ...ACCESS_FILES, "bugs/BUG-2-hero-caption.md": withKey("bugs/BUG-2-hero-caption.md"), "backlog/BL-1-items.md": withKey("backlog/BL-1-items.md") };
     const { access } = openAccessRoot(files);
-    const shapes: { what: string; structure: string; item: { properties: Record<string, unknown> } | undefined }[] = [];
-    for (const [handle, structure] of [["BUG-2", "bugs"], ["BL-1", "backlog"]] as const) {
-      shapes.push({ what: `get ${handle}`, structure, item: await access.get(handle) });
-      shapes.push({ what: `list ${structure}`, structure, item: (await access.list(structure)).find((item) => item.handle === handle) });
+    const shapes: { what: string; binder: string; item: { properties: Record<string, unknown> } | undefined }[] = [];
+    for (const [handle, binder] of [["BUG-2", "bugs"], ["BL-1", "backlog"]] as const) {
+      shapes.push({ what: `get ${handle}`, binder, item: await access.get(handle) });
+      shapes.push({ what: `list ${binder}`, binder, item: (await access.list(binder)).find((item) => item.handle === handle) });
     }
-    shapes.push({ what: "search", structure: "bugs", item: (await access.search("hero caption")).items.find((item) => item.handle === "BUG-2") });
+    shapes.push({ what: "search", binder: "bugs", item: (await access.search("hero caption")).items.find((item) => item.handle === "BUG-2") });
 
-    for (const { what, structure, item } of shapes) {
+    for (const { what, binder, item } of shapes) {
       expect(item, what).toBeDefined();
-      const declared = Object.keys((await access.describe(structure)).properties);
+      const declared = Object.keys((await access.describe(binder)).properties);
       expect(Object.keys(item?.properties ?? {}).filter((key) => !declared.includes(key)), `${what}: undeclared keys`).toEqual([]);
       expect(leaks(JSON.stringify(item), [MARKER, ...HIDDEN.ids, ...HIDDEN.handles]), what).toEqual([]);
       expect(UUID.exec(JSON.stringify(item))?.[0], `${what}: an id`).toBeUndefined();
     }
   });
 
-  test("a visible structure nested in a hidden structure's folder never shows the hidden folder, in problems or refusals", async () => {
-    // A nested structure's access covers only its own files, so visible structures inside a hidden folder are valid.
+  test("a visible binder nested in a hidden binder's folder never shows the hidden folder, in problems or refusals", async () => {
+    // A nested binder's access covers only its own files, so visible binders inside a hidden folder are valid.
     const hr = { id: "zephyr-hr", name: "Zephyr HR", prefix: "ZHR", itemId: "0196f3c2-9a00-7000-8000-000000000081" };
     const id = (n: number) => `0196f3c2-9e00-7000-8000-00000000008${String(n)}`;
     const files = {
-      "zephyr-hr/_structure.yaml": `version: 1\nid: ${hr.id}\nname: ${hr.name}\nprefix: ${hr.prefix}\naccess: hidden\n`,
+      [`zephyr-hr/${SETTINGS_FILE}`]: `version: 1\nid: ${hr.id}\nname: ${hr.name}\nprefix: ${hr.prefix}\naccess: hidden\n`,
       "zephyr-hr/ZHR-1-salaries.md": `---\nid: ${hr.itemId}\nhandle: ZHR-1\n---\n# Salaries\n\nInvented.\n`,
       // Handle-named and edited directly.
-      "zephyr-hr/public/_structure.yaml": "version: 1\nid: pub\nname: Public notes\nprefix: PUB\naccess: edit\nproperties:\n  note: { type: text }\n  echo: { type: text }\n",
+      [`zephyr-hr/public/${SETTINGS_FILE}`]: "version: 1\nid: pub\nname: Public notes\nprefix: PUB\naccess: edit\nproperties:\n  note: { type: text }\n  echo: { type: text }\n",
       "zephyr-hr/public/PUB-1-first.md": `---\nid: ${id(1)}\nhandle: PUB-1\n---\n# One of two with this handle\n\nInvented.\n`,
       "zephyr-hr/public/PUB-1-second.md": `---\nid: ${id(2)}\nhandle: PUB-1\n---\n# The other with this handle\n\nInvented.\n`,
       "zephyr-hr/public/PUB-3-untitled.md": `---\nid: ${id(3)}\nhandle: PUB-3\n---\nNo heading here.\n`,
       // A value another key aliases: changing it can't be done in place.
       "zephyr-hr/public/PUB-4-anchored.md": `---\nid: ${id(4)}\nhandle: PUB-4\nnote: &shared seen twice\necho: *shared\n---\n# An anchored note\n\nInvented.\n`,
       // Another, with a subfolder that can't be read (made below), which refuses every write in it.
-      "zephyr-hr/archive/_structure.yaml": "version: 1\nid: archive\nname: Archive\nprefix: ARC\naccess: edit\n",
+      [`zephyr-hr/archive/${SETTINGS_FILE}`]: "version: 1\nid: archive\nname: Archive\nprefix: ARC\naccess: edit\n",
       // Free-named, beside it.
-      "zephyr-hr/drafts/_structure.yaml": "version: 1\nid: drafts\nname: Drafts\nprefix: DRF\naccess: edit\nnaming: free\ninclude: [\"**/*.md\"]\n",
+      [`zephyr-hr/drafts/${SETTINGS_FILE}`]: "version: 1\nid: drafts\nname: Drafts\nprefix: DRF\naccess: edit\nnaming: free\ninclude: [\"**/*.md\"]\n",
       "zephyr-hr/drafts/existing.md": `---\nid: ${id(6)}\nhandle: DRF-1\n---\n# Existing\n\nInvented.\n`,
     };
     const { access, root } = openAccessRoot(files);
@@ -307,15 +308,15 @@ describe("hidden never reaches an agent", () => {
       const found = leaks(JSON.stringify(got), hiddenNames);
       if (found.length > 0) leaked[what] = found;
     }
-    expect(leaked, "answers naming the hidden folder, structure or item").toEqual({});
+    expect(leaked, "answers naming the hidden folder, binder or item").toEqual({});
   });
 
-  test("a link to a structure that doesn't exist answers the same whether or not a hidden structure is under the root", async () => {
+  test("a link to a binder that doesn't exist answers the same whether or not a hidden binder is under the root", async () => {
     const pub = {
-      "pub/_structure.yaml": "version: 1\nid: pub\nname: Public notes\nprefix: PUB\naccess: edit\nproperties:\n  ref: { type: link, to: nowhere }\n",
+      [`pub/${SETTINGS_FILE}`]: "version: 1\nid: pub\nname: Public notes\nprefix: PUB\naccess: edit\nproperties:\n  ref: { type: link, to: nowhere }\n",
       "pub/PUB-1-a-note.md": "---\nid: 0196f3c2-9e00-7000-8000-000000000091\nhandle: PUB-1\n---\n# A note\n\nInvented.\n",
     };
-    const hidden = { "vault/_structure.yaml": `version: 1\nid: ${HIDDEN.structure}\nname: ${HIDDEN.name}\nprefix: ${HIDDEN.prefix}\naccess: hidden\n` };
+    const hidden = { [`vault/${SETTINGS_FILE}`]: `version: 1\nid: ${HIDDEN.binder}\nname: ${HIDDEN.name}\nprefix: ${HIDDEN.prefix}\naccess: hidden\n` };
 
     /** What an agent gets about pub: describe, list, get and a refused write's code, message and problems. */
     const seen = async (files: Record<string, string>) => {
@@ -334,15 +335,15 @@ describe("hidden never reaches an agent", () => {
     expect(JSON.stringify(without.create), "the refusal is about the link's target").toContain("nowhere");
     const withHidden = await seen({ ...pub, ...hidden });
     expect(withHidden).toEqual(without);
-    expect(leaks(JSON.stringify(withHidden), [MARKER, HIDDEN.structure, HIDDEN.name]), "hidden names").toEqual([]);
+    expect(leaks(JSON.stringify(withHidden), [MARKER, HIDDEN.binder, HIDDEN.name]), "hidden names").toEqual([]);
   });
 
-  test("a free path through a hidden folder to a visible structure inside it is refused like a path through a missing folder", async () => {
+  test("a free path through a hidden folder to a visible binder inside it is refused like a path through a missing folder", async () => {
     const files = {
       ...ACCESS_FILES,
-      "a/_structure.yaml": "version: 1\nid: pub\nname: Public notes\nprefix: PUB\naccess: edit\nnaming: free\ninclude: [\"**/*.md\"]\n",
-      "a/h/_structure.yaml": `version: 1\nid: hx\nname: Kestrel hutch\nprefix: HX\naccess: hidden\n`,
-      "a/h/v/_structure.yaml": "version: 1\nid: v2\nname: Inner notes\nprefix: VTW\naccess: edit\nnaming: free\ninclude: [\"**/*.md\"]\n",
+      [`a/${SETTINGS_FILE}`]: "version: 1\nid: pub\nname: Public notes\nprefix: PUB\naccess: edit\nnaming: free\ninclude: [\"**/*.md\"]\n",
+      [`a/h/${SETTINGS_FILE}`]: `version: 1\nid: hx\nname: Kestrel hutch\nprefix: HX\naccess: hidden\n`,
+      [`a/h/v/${SETTINGS_FILE}`]: "version: 1\nid: v2\nname: Inner notes\nprefix: VTW\naccess: edit\nnaming: free\ninclude: [\"**/*.md\"]\n",
     };
     const { access } = openAccessRoot(files);
     const input = (file: string) => ({ title: "A note", body: "\nInvented.\n", file });
@@ -362,21 +363,21 @@ describe("hidden never reaches an agent", () => {
     const missing = await outcome("q/v/x.md");
     expect(missing, "a path through a missing folder is refused").not.toEqual({ accepted: true });
     expect(await outcome("h/x.md"), "a path into the hidden folder").toEqual(missing);
-    expect(await outcome("h/v/x.md"), "a path through the hidden folder to a visible structure").toEqual(missing);
+    expect(await outcome("h/v/x.md"), "a path through the hidden folder to a visible binder").toEqual(missing);
     expect(await access.list("pub"), "nothing was created").toEqual([]);
   });
 
-  test("a value of the wrong type for a link to a hidden structure is refused without naming it, whichever hidden structure it is", async () => {
-    // An edit twin of bugs' link into the hidden structure.
+  test("a value of the wrong type for a link to a hidden binder is refused without naming it, whichever hidden binder it is", async () => {
+    // An edit twin of bugs' link into the hidden binder.
     const notes = (to: string) => `version: 1\nid: notes\nname: Notes\nprefix: NOTE\naccess: edit\nproperties:\n  vault: { type: link, to: ${to} }\n`;
     const note = "---\nid: 0196f3c2-9e00-7000-8000-0000000000e1\nhandle: NOTE-1\n---\n# A note\n\nInvented.\n";
-    const standard = { ...ACCESS_FILES, "notes/_structure.yaml": notes(HIDDEN.structure), "notes/NOTE-1-a-note.md": note };
-    // The same root with another hidden structure as the links' target: what an agent gets mustn't tell them apart.
+    const standard = { ...ACCESS_FILES, [`notes/${SETTINGS_FILE}`]: notes(HIDDEN.binder), "notes/NOTE-1-a-note.md": note };
+    // The same root with another hidden binder as the links' target: what an agent gets mustn't tell them apart.
     const other = { id: "osprey-archive", name: "Osprey archive", prefix: "OSP" };
     const renamed = Object.fromEntries(
       Object.entries(standard).map(([path, text]) => [
         path,
-        text.replaceAll(HIDDEN.structure, other.id).replaceAll(HIDDEN.name, other.name).replaceAll(`prefix: ${HIDDEN.prefix}`, `prefix: ${other.prefix}`),
+        text.replaceAll(HIDDEN.binder, other.id).replaceAll(HIDDEN.name, other.name).replaceAll(`prefix: ${HIDDEN.prefix}`, `prefix: ${other.prefix}`),
       ]),
     );
 
@@ -401,17 +402,17 @@ describe("hidden never reaches an agent", () => {
     const fromStandard = await answers(standard);
     for (const [what, got] of Object.entries(fromStandard)) {
       expect(got.code, what).toBe("invalid_fields");
-      expect(leaks(JSON.stringify(got), [MARKER, HIDDEN.structure, HIDDEN.name, `${HIDDEN.prefix}-`]), `${what}: names the hidden structure`).toEqual([]);
+      expect(leaks(JSON.stringify(got), [MARKER, HIDDEN.binder, HIDDEN.name, `${HIDDEN.prefix}-`]), `${what}: names the hidden binder`).toEqual([]);
     }
-    expect(await answers(renamed), "with another hidden structure as the target").toEqual(fromStandard);
+    expect(await answers(renamed), "with another hidden binder as the target").toEqual(fromStandard);
   });
 
-  test("a free path through a visible structure's folder into a hidden one inside it is refused like a path to a missing folder there", async () => {
+  test("a free path through a visible binder's folder into a hidden one inside it is refused like a path to a missing folder there", async () => {
     const files = {
       ...ACCESS_FILES,
-      "notes/_structure.yaml": 'version: 1\nid: notes\nname: Notes\nprefix: NOTE\naccess: edit\nnaming: free\ninclude: ["**/*.md"]\n',
-      "notes/team/_structure.yaml": "version: 1\nid: team\nname: Team\nprefix: TEAM\naccess: edit\n",
-      "notes/team/secret/_structure.yaml": `version: 1\nid: ${MARKER}-secret\nname: Kestrel secret\nprefix: KSC\naccess: hidden\n`,
+      [`notes/${SETTINGS_FILE}`]: 'version: 1\nid: notes\nname: Notes\nprefix: NOTE\naccess: edit\nnaming: free\ninclude: ["**/*.md"]\n',
+      [`notes/team/${SETTINGS_FILE}`]: "version: 1\nid: team\nname: Team\nprefix: TEAM\naccess: edit\n",
+      [`notes/team/secret/${SETTINGS_FILE}`]: `version: 1\nid: ${MARKER}-secret\nname: Kestrel secret\nprefix: KSC\naccess: hidden\n`,
     };
     const { access } = openAccessRoot(files);
 
@@ -432,12 +433,12 @@ describe("hidden never reaches an agent", () => {
     expect(await outcome("team/secret/x.md"), "a path into the hidden folder in team").toEqual(missing);
   });
 
-  test("a hidden structure sharing a visible one's id hides both: its items are never served under the visible id", async () => {
+  test("a hidden binder sharing a visible one's id hides both: its items are never served under the visible id", async () => {
     const twinItem = `---\nid: 0196f3c2-9b00-7000-8000-000000000042\nhandle: BUG-90\nrepo: api\n---\n# The ${MARKER} incident\n\nNotes on the ${MARKER} incident.\n`;
     const { access } = openAccessRoot({
       ...ACCESS_FILES,
-      // As when a structure's settings are copied to make a hidden variant, and the id is left as it was.
-      "bugs-private/_structure.yaml": (ACCESS_FILES["bugs/_structure.yaml"] ?? "").replace("access: propose", "access: hidden").replace("locked: [repo, body]\n", ""),
+      // As when a binder's settings are copied to make a hidden variant, and the id is left as it was.
+      [`bugs-private/${SETTINGS_FILE}`]: (ACCESS_FILES[`bugs/${SETTINGS_FILE}`] ?? "").replace("access: propose", "access: hidden").replace("locked: [repo, body]\n", ""),
       "bugs-private/BUG-90-incident.md": twinItem,
     });
 
@@ -446,7 +447,7 @@ describe("hidden never reaches an agent", () => {
     expect(leaks(JSON.stringify(await access.search(MARKER)))).toEqual([]);
   });
 
-  test("a file proposal on a hidden structure's item or settings file is refused exactly like one on a visible structure's, and the cap's refusal names nothing hidden", async () => {
+  test("a file proposal on a hidden binder's item or settings file is refused exactly like one on a visible binder's, and the cap's refusal names nothing hidden", async () => {
     const { proposals, store, root } = openAccessRoot();
     /** The refusal of a propose_change call, which must be one. */
     const refused = async (path: string, oldText: string) => {
@@ -459,11 +460,11 @@ describe("hidden never reaches an agent", () => {
       expect(error, `propose_change on ${path}`).toBeInstanceOf(ProposalRefused);
       return withoutTyped((error as Error).message, path);
     };
-    const hiddenStrings = [MARKER, ...HIDDEN.ids, ...HIDDEN.handles, HIDDEN.structure, HIDDEN.name];
-    // Each pair: a file of the hidden structure and its like in a visible one, with an edit that fits the file.
+    const hiddenStrings = [MARKER, ...HIDDEN.ids, ...HIDDEN.handles, HIDDEN.binder, HIDDEN.name];
+    // Each pair: a file of the hidden binder and its like in a visible one, with an edit that fits the file.
     const pairs: [string, [string, string], [string, string]][] = [
       ["an item file", ["vault/KST-1-plan.md", "codename"], ["bugs/BUG-2-hero-caption.md", "site-web"]],
-      ["a settings file", ["vault/_structure.yaml", "access: hidden"], ["bugs/_structure.yaml", "access: propose"]],
+      ["a settings file", [`vault/${SETTINGS_FILE}`, "access: hidden"], [`bugs/${SETTINGS_FILE}`, "access: propose"]],
       ["an item file by its absolute path", [join(root, "vault/KST-2-notes.md"), "codename"], [join(root, "bugs/BUG-1-login-times-out.md"), "note"]],
     ];
 
@@ -474,10 +475,10 @@ describe("hidden never reaches an agent", () => {
     }
     expect(store.listProposals(), "no refused call stored a proposal").toEqual([]);
 
-    // At the cap through proposals on a structure that was hidden since: the refusal counts them and names none.
+    // At the cap through proposals on a binder that was hidden since: the refusal counts them and names none.
     for (let n = 0; n < MAX_OPEN_PROPOSALS; n += 1) {
       store.insertProposal(
-        { target: "item", path: null, structure: HIDDEN.structure, itemId: HIDDEN.ids[0], kind: "update", file: null, reason: `About the ${MARKER} plan`, baseVersion: "9f2c", agentId: AGENT },
+        { target: "item", path: null, binder: HIDDEN.binder, itemId: HIDDEN.ids[0], kind: "update", file: null, reason: `About the ${MARKER} plan`, baseVersion: "9f2c", agentId: AGENT },
         { fields: { codename: MARKER } },
       );
     }
@@ -491,14 +492,14 @@ describe("hidden never reaches an agent", () => {
     expect(leaks((atTheCap as Error).message, hiddenStrings)).toEqual([]);
   });
 
-  test("a revise's refusal and the note for my next message, with its prompt, carry nothing of a hidden structure: no handle, no conflict's reason, none of my changes", async () => {
+  test("a revise's refusal and the note for my next message, with its prompt, carry nothing of a hidden binder: no handle, no conflict's reason, none of my changes", async () => {
     const { access, proposals, notes, store, root } = openAccessRoot();
-    const hiddenStrings = [MARKER, ...HIDDEN.ids, ...HIDDEN.handles, HIDDEN.structure, HIDDEN.name, "vault/"];
+    const hiddenStrings = [MARKER, ...HIDDEN.ids, ...HIDDEN.handles, HIDDEN.binder, HIDDEN.name, "vault/"];
     const version = async (handle: string) => (await access.get(handle)).version;
-    /** A proposal on an item of a structure hidden since it was stored. */
+    /** A proposal on an item of a binder hidden since it was stored. */
     const onHidden = () =>
       store.insertProposal(
-        { target: "item", path: null, structure: HIDDEN.structure, itemId: HIDDEN.ids[0], kind: "update", file: null, reason: "A new codename", baseVersion: "9f2c", agentId: AGENT },
+        { target: "item", path: null, binder: HIDDEN.binder, itemId: HIDDEN.ids[0], kind: "update", file: null, reason: "A new codename", baseVersion: "9f2c", agentId: AGENT },
         { fields: { codename: "Osprey" } },
       ).proposal.id;
 
@@ -510,11 +511,11 @@ describe("hidden never reaches an agent", () => {
     const rejected = onHidden();
     expect(store.rejectProposal(rejected, "Leave the codename.")).toBeDefined();
     const open = onHidden();
-    // A conflict the hidden structure caused: by hand it takes the prefix of Bugs, and the problem the user reads says where.
+    // A conflict the hidden binder caused: by hand it takes the prefix of Bugs, and the problem the user reads says where.
     const conflicted = (await access.proposeUpdate(AGENT, "BUG-2", { note: "Also in Chromium" }, await version("BUG-2"), "Seen again")).proposed;
-    writeAt(root, "vault/_structure.yaml", readAt(root, "vault/_structure.yaml").replace(`prefix: ${HIDDEN.prefix}`, "prefix: BUG"));
+    writeAt(root, `vault/${SETTINGS_FILE}`, readAt(root, `vault/${SETTINGS_FILE}`).replace(`prefix: ${HIDDEN.prefix}`, "prefix: BUG"));
     expect(await proposals.approve(conflicted, 1)).toMatchObject({ status: "conflict" });
-    expect(leaks(store.getProposal(conflicted)?.problem?.message ?? "", hiddenStrings), "the user's problem names the hidden structure (else this proves nothing)").not.toEqual([]);
+    expect(leaks(store.getProposal(conflicted)?.problem?.message ?? "", hiddenStrings), "the user's problem names the hidden binder (else this proves nothing)").not.toEqual([]);
 
     let refusal: unknown;
     try {
@@ -542,8 +543,8 @@ describe("hidden never reaches an agent", () => {
     }
   });
 
-  test("a revise of an item proposal whose structure was hidden since is refused exactly like one whose structure is gone, and names nothing of it", async () => {
-    const SETTINGS = "bugs/_structure.yaml";
+  test("a revise of an item proposal whose binder was hidden since is refused exactly like one whose binder is gone, and names nothing of it", async () => {
+    const SETTINGS = `bugs/${SETTINGS_FILE}`;
     /** The refusal of a revise of a proposal on BUG-2, after `change` to the root. */
     const refusedAfter = async (change: (root: string) => void) => {
       const { access, proposals, store, root } = openAccessRoot();
@@ -566,7 +567,7 @@ describe("hidden never reaches an agent", () => {
     const gone = await refusedAfter((root) => rmSync(join(root, SETTINGS)));
 
     expect(hidden).toBe(gone);
-    // Case ignored: "bugs" is the structure's id and its name, "BUG-" starts its handles.
+    // Case ignored: "bugs" is the binder's id and its name, "BUG-" starts its handles.
     expect(leaks(hidden, ["bugs", "BUG-", VISIBLE_IDS.bug1, VISIBLE_IDS.bug2, "hero caption"]), hidden).toEqual([]);
   });
 });

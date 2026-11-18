@@ -8,7 +8,7 @@
 // the stream open and isn't an alert.
 import { z } from "zod";
 
-import { Item, ItemSummary, knownItems, Problem, StructureSummary } from "./items.ts";
+import { Item, ItemSummary, knownItems, Problem, BinderSummary } from "./items.ts";
 import { DiffLine } from "./line-diff.ts";
 import { ProposalErrorCode, Timestamp } from "./proposals.ts";
 import { queryInt } from "./query.ts";
@@ -149,14 +149,14 @@ export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 
 /**
  * The items routes' error codes: `items_not_configured` when the service runs without an items root (the app hides
- * the items views), `structure_not_found` and `item_not_found` for an unknown structure id or handle (the app
- * refetches the structures). The proposal routes add the ProposalErrorCode codes. `items_not_writable` is reserved
+ * the items views), `binder_not_found` and `item_not_found` for an unknown binder id or handle (the app
+ * refetches the binders). The proposal routes add the ProposalErrorCode codes. `items_not_writable` is reserved
  * for a write the items root's filesystem can't take; no route sends it yet: such a failure on approve settles the
  * proposal as a conflict.
  */
 export const ItemsErrorCode = z.enum([
   "items_not_configured",
-  "structure_not_found",
+  "binder_not_found",
   "item_not_found",
   "items_not_writable",
   ...ProposalErrorCode.options,
@@ -173,16 +173,16 @@ export const ItemWriteErrorCode = z.enum([
   "stale_version",
   "invalid_fields",
   "item_not_found",
-  "structure_not_found",
+  "binder_not_found",
   "field_not_writable",
   "items_not_writable",
 ]);
 export type ItemWriteErrorCode = z.infer<typeof ItemWriteErrorCode>;
 
 /**
- * Why /mcp refused an agent's items tool call: `not_found` (no such item or structure the agent may see),
- * `read_only`, `use_propose` or `use_edit` (the structure's level calls for another tool), `locked` (a locked field),
- * `stale_version` (the item changed since the agent read it), `invalid_fields` (the values don't fit the structure).
+ * Why /mcp refused an agent's items tool call: `not_found` (no such item or binder the agent may see),
+ * `read_only`, `use_propose` or `use_edit` (the binder's level calls for another tool), `locked` (a locked field),
+ * `stale_version` (the item changed since the agent read it), `invalid_fields` (the values don't fit the binder).
  * The agent gets only the message, which says what to do next; the app never sees these.
  */
 export const AccessErrorCode = z.enum([
@@ -562,11 +562,11 @@ export type SessionUpdate = z.infer<typeof SessionUpdate>;
 
 // Items (lenient), read by the app; the shapes live in `items.ts`, the proposals' in `proposals.ts`.
 
-/** `GET /structures`: every structure under the items root, hidden ones and broken settings included. */
-export const ListStructuresResponse = z.object({ structures: z.array(StructureSummary) });
-export type ListStructuresResponse = z.infer<typeof ListStructuresResponse>;
+/** `GET /binders`: every binder under the items root, hidden ones and broken settings included. */
+export const ListBindersResponse = z.object({ binders: z.array(BinderSummary) });
+export type ListBindersResponse = z.infer<typeof ListBindersResponse>;
 
-/** `GET /structures/:id/items`: every file of the structure, invalid ones included. */
+/** `GET /binders/:id/items`: every file of the binder, invalid ones included. */
 export const ListItemsResponse = z.object({ items: z.array(ItemSummary) });
 export type ListItemsResponse = z.infer<typeof ListItemsResponse>;
 

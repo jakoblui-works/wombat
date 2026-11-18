@@ -5,7 +5,7 @@ import { type Item, ITEM_FIELDS, type LenientProperty, type Problem } from "@wom
 import type { ItemProposalKind } from "@wombat/shared/proposals";
 import { Button } from "../../../../components/ui/button";
 import { ScrollArea } from "../../../../components/ui/scroll-area";
-import { useStructureItems, useStructures } from "../../../../data/hooks.ts";
+import { useBinderItems, useBinders } from "../../../../data/hooks.ts";
 import { LazyMonacoDiff } from "../../Diff/MonacoDiff/LazyMonacoDiff.tsx";
 import { Note } from "../../approvals/Note/Note.tsx";
 import { type FieldRow, fieldRows } from "./field-rows.ts";
@@ -150,7 +150,7 @@ const Row = ({ row, sides, property, text, links, edit, problems, opened, open, 
  */
 export const ItemProposal = ({
   proposalId,
-  structureId,
+  binderId,
   kind,
   current,
   fields,
@@ -159,7 +159,7 @@ export const ItemProposal = ({
   problems,
 }: {
   proposalId: string;
-  structureId: string;
+  binderId: string;
   kind: ItemProposalKind;
   current: Item | null;
   /** The agent's version's fields. */
@@ -169,11 +169,11 @@ export const ItemProposal = ({
   edit: ItemEdit | undefined;
   problems: readonly Problem[];
 }) => {
-  const structures = useStructures();
-  const structure = structures.data?.structures.find((each) => each.id === structureId);
-  const properties = structure?.id === null || structure === undefined ? {} : structure.properties;
+  const binders = useBinders();
+  const binder = binders.data?.binders.find((each) => each.id === binderId);
+  const properties = binder?.id === null || binder === undefined ? {} : binder.properties;
   const targets = [...new Set(Object.values(properties).flatMap((property) => (property.type === "link" ? [property.to] : [])))];
-  const items = useStructureItems(targets);
+  const items = useBinderItems(targets);
   const listed = items.flatMap((read) => read.data?.items ?? []);
   const handles = new Map(listed.flatMap((item) => (item.id === null || item.handle === null ? [] : [[item.id, item.handle] as const])));
   const linksTo = (to: string): Option[] =>
@@ -184,7 +184,7 @@ export const ItemProposal = ({
   const opened = chosen !== undefined && names.includes(chosen) ? chosen : names.includes("body") ? "body" : "title";
   const split = problemsByField(problems, names);
 
-  if (structures.isPending || items.some((read) => read.isPending)) return <Note>Loading…</Note>;
+  if (binders.isPending || items.some((read) => read.isPending)) return <Note>Loading…</Note>;
   return (
     <ScrollArea className="min-h-0 flex-1">
       {split.rest.length === 0 ? null : (

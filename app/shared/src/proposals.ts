@@ -137,18 +137,18 @@ export type FileProposal = z.infer<typeof FileProposal>;
 export const ItemProposalKind = z.enum(["create", "update", "delete"]);
 export type ItemProposalKind = z.infer<typeof ItemProposalKind>;
 
-/** A change to an item of a `propose` structure. */
+/** A change to an item of a `propose` binder. */
 export const ItemProposal = z.object({
   ...proposalFields,
   target: z.literal("item"),
-  /** The target structure's id. */
-  structure: z.string(),
+  /** The target binder's id. */
+  binder: z.string(),
   kind: ItemProposalKind,
   /** The target item; null for a create until it's approved. An approved delete keeps the handle it had. */
   handle: z.string().nullable(),
   /**
-   * The new file's path, relative to the structure's folder, as the agent gave it; null except for a create in a
-   * free-named structure. Kept apart from the fields so it can't collide with a property named `file`.
+   * The new file's path, relative to the binder's folder, as the agent gave it; null except for a create in a
+   * free-named binder. Kept apart from the fields so it can't collide with a property named `file`.
    */
   file: z.string().nullable(),
 });

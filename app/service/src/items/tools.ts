@@ -1,7 +1,7 @@
 // The MCP tool names, the one place they are written: the server registers them, Access's refusals and the
 // instructions file tell agents to call them.
 export const TOOL = {
-  describeStructure: "describe_structure",
+  describeBinder: "describe_binder",
   listItems: "list_items",
   getItem: "get_item",
   search: "search",

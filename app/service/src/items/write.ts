@@ -8,15 +8,15 @@ import { isAbsolute, join } from "node:path";
 
 import { ItemWriteErrorCode } from "@wombat/shared/api";
 import { isAlreadyThere, isMissingPath } from "@wombat/shared/errno";
-import { ITEM_FIELDS, OWN_KEYS, type Problem, type StructureSettings } from "@wombat/shared/items";
+import { ITEM_FIELDS, OWN_KEYS, type Problem, type BinderSettings } from "@wombat/shared/items";
 import { stringify } from "yaml";
 
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
-import { findByHandle, isClash, loadItem, readRoot, type LoadedItem, type LoadedStructure, type NamedProblem, type ProblemNames, type RootRead, type ValidStructure } from "./catalog.ts";
+import { findByHandle, isClash, loadItem, readRoot, type LoadedItem, type LoadedBinder, type NamedProblem, type ProblemNames, type RootRead, type ValidBinder } from "./catalog.ts";
 import { NoHardLinks, queueWrite, readAtVersion, removeUnchanged, VersionChanged, versionOfText, writeAtomic, type VersionedFile } from "./files.ts";
 import { bodyEdit, checkedText, parseItemFile, readsBackAs, setKeyEdits, titleEdit, type ParsedItemFile } from "./item-file.ts";
-import { inFolder, isIncluded, isSkippedPath, joinRootPath, SETTINGS_FILE, throughSymlink } from "./structures.ts";
+import { inFolder, isIncluded, isSkippedPath, joinRootPath, SETTINGS_FILE, throughSymlink } from "./binders.ts";
 import { formatHandle, setOwn, validateProperties, type LinkLookup } from "./validate.ts";
 
 /**
@@ -40,22 +40,22 @@ export type NewItem = {
   title: string;
   body: string;
   properties: Record<string, unknown>;
-  /** Free naming only: the file's path relative to the structure's folder, with `/`. */
+  /** Free naming only: the file's path relative to the binder's folder, with `/`. */
   file?: string;
 };
 
 export type Writer = {
   /** `id` is the new item's id when the caller chose it beforehand (an approve's intent); a fresh one otherwise. */
-  createItem(structureId: string, item: NewItem, id?: string): Promise<LoadedItem>;
+  createItem(binderId: string, item: NewItem, id?: string): Promise<LoadedItem>;
   /** One or more fields, title and body included; refused when the file changed since `baseVersion`. */
   updateItem(handle: string, fields: Record<string, unknown>, baseVersion: string): Promise<LoadedItem>;
   /** The handle's number stays taken: the store's counter never goes back. */
   deleteItem(handle: string, baseVersion: string): Promise<void>;
   /**
-   * The problems of `file` as a new item's path in a free-named structure, without writing anything. A path in
+   * The problems of `file` as a new item's path in a free-named binder, without writing anything. A path in
    * one of `unseen` (folders relative to the root) gets the problem of a folder that doesn't exist.
    */
-  checkNewFile(structureId: string, file: unknown, unseen?: readonly string[]): Promise<NamedProblem[]>;
+  checkNewFile(binderId: string, file: unknown, unseen?: readonly string[]): Promise<NamedProblem[]>;
   /**
    * A dry run of `change`: the write's own checks, run by the same code on a fresh read of the root, in the
    * root's write queue. Resolves when the write would go through as of now, and throws the ItemWriteError the
@@ -68,7 +68,7 @@ export type Writer = {
 
 /** A change as `check` takes it: the arguments of createItem, updateItem or deleteItem. */
 export type ItemChange =
-  | { kind: "create"; structureId: string; item: NewItem; unseen?: readonly string[] }
+  | { kind: "create"; binderId: string; item: NewItem; unseen?: readonly string[] }
   | { kind: "update"; handle: string; fields: Record<string, unknown>; baseVersion: string }
   | { kind: "delete"; handle: string; baseVersion: string };
 
@@ -115,13 +115,13 @@ const refuseOwnKeys = (keys: string[], what: string) => {
 };
 
 /**
- * A write refused for the structure's own problems (its settings), not the item's: `invalid_fields` like any other.
- * The problems are the catalog's, with the `names` of the other structures they name; the message lists them.
+ * A write refused for the binder's own problems (its settings), not the item's: `invalid_fields` like any other.
+ * The problems are the catalog's, with the `names` of the other binders they name; the message lists them.
  */
-export class StructureProblemsError extends ItemWriteError {
+export class BinderProblemsError extends ItemWriteError {
   constructor(message: string, problems: NamedProblem[]) {
     super(ItemWriteErrorCode.enum.invalid_fields, message, problems);
-    this.name = "StructureProblemsError";
+    this.name = "BinderProblemsError";
   }
 }
 
@@ -135,21 +135,21 @@ const checkTitle = (title: unknown): { title: string; problems: NamedProblem[] }
 
 const checkBody = (body: unknown): NamedProblem[] => (typeof body === "string" ? [] : [{ field: "body", message: "body: takes text (an empty body is \"\")" }]);
 
-/** The structure with settings and the id `id` in a fresh read, or `structure_not_found`. */
-const writableStructureById = (read: RootRead, id: string) => {
-  const structure = read.snapshot.structures.find((candidate): candidate is ValidStructure => candidate.id === id);
-  if (structure === undefined) {
-    throw new ItemWriteError(ItemWriteErrorCode.enum.structure_not_found, `No structure has the id ${id}; use the id from its ${SETTINGS_FILE} (a structure with broken settings has none until it's fixed).`);
+/** The binder with settings and the id `id` in a fresh read, or `binder_not_found`. */
+const writableBinderById = (read: RootRead, id: string) => {
+  const binder = read.snapshot.binders.find((candidate): candidate is ValidBinder => candidate.id === id);
+  if (binder === undefined) {
+    throw new ItemWriteError(ItemWriteErrorCode.enum.binder_not_found, `No binder has the id ${id}; use the id from its ${SETTINGS_FILE} (a binder with broken settings has none until it's fixed).`);
   }
-  return structure;
+  return binder;
 };
 
-/** A structure items can be written to: one with settings and no problems. */
-const writableStructure = (structure: ValidStructure, action: string) => {
-  if (structure.problems.length > 0) {
-    throw new StructureProblemsError(
-      `The structure ${structure.id} has problems (${listed(structure.problems)}), so no item in it can be ${action}; fix its ${SETTINGS_FILE} first.`,
-      structure.problems,
+/** A binder items can be written to: one with settings and no problems. */
+const writableBinder = (binder: ValidBinder, action: string) => {
+  if (binder.problems.length > 0) {
+    throw new BinderProblemsError(
+      `The binder ${binder.id} has problems (${listed(binder.problems)}), so no item in it can be ${action}; fix its ${SETTINGS_FILE} first.`,
+      binder.problems,
     );
   }
 };
@@ -158,7 +158,7 @@ const writableStructure = (structure: ValidStructure, action: string) => {
  * A problem of a declared property's value, which a write may leave in place (and fix). Every other problem
  * (a duplicate id, handle or alias, no title, an unparseable file, an undeclared key) is about the item's identity.
  */
-const isValueProblem = (settings: StructureSettings, problem: NamedProblem) =>
+const isValueProblem = (settings: BinderSettings, problem: NamedProblem) =>
   problem.field !== undefined && Object.hasOwn(settings.properties, problem.field);
 
 /**
@@ -175,10 +175,10 @@ const addedProblems = (before: NamedProblem[], after: NamedProblem[], set: reado
  * store ids). Throws `invalid_fields` when the item's frontmatter `data` with them gets a problem it didn't have
  * (`before`, the item's value problems): on a field the write sets, or on one that was fine.
  */
-const checkProperties = (structure: ValidStructure, data: Record<string, unknown>, set: string[], links: LinkLookup, extra: NamedProblem[], before: NamedProblem[] = []) => {
-  const validated = validateProperties(structure.settings, data, links);
+const checkProperties = (binder: ValidBinder, data: Record<string, unknown>, set: string[], links: LinkLookup, extra: NamedProblem[], before: NamedProblem[] = []) => {
+  const validated = validateProperties(binder.settings, data, links);
   const problems = [...extra, ...addedProblems(before, validated.problems, set)];
-  if (problems.length > 0) throw invalid(`The fields don't fit the structure ${structure.id}: ${listed(problems)}. Nothing was written.`, problems);
+  if (problems.length > 0) throw invalid(`The fields don't fit the binder ${binder.id}: ${listed(problems)}. Nothing was written.`, problems);
   const values = { ...data };
   for (const key of set) {
     const id = validated.rewrites.get(key);
@@ -188,37 +188,37 @@ const checkProperties = (structure: ValidStructure, data: Record<string, unknown
 };
 
 /** The item as written, from its text, with the value problems it kept; the write checked that it parses. */
-const loadedItem = (structure: ValidStructure, path: string, text: string, links: LinkLookup): LoadedItem =>
-  loadItem(structure, path, parseItemFile(text) as ParsedItemFile, versionOfText(text), links).item;
+const loadedItem = (binder: ValidBinder, path: string, text: string, links: LinkLookup): LoadedItem =>
+  loadItem(binder, path, parseItemFile(text) as ParsedItemFile, versionOfText(text), links).item;
 
 const missingFolder = (file: string) => `the folder of ${file} doesn't exist; create it first or pick an existing folder`;
 
-/** Problems of a free structure's `file`, checked like a file someone made by hand; `unseen` folders read as missing. */
-const checkFreeFile = async (root: string, structure: ValidStructure, file: unknown, structures: LoadedStructure[], unseen: readonly string[] = []): Promise<NamedProblem[]> => {
+/** Problems of a free binder's `file`, checked like a file someone made by hand; `unseen` folders read as missing. */
+const checkFreeFile = async (root: string, binder: ValidBinder, file: unknown, binders: LoadedBinder[], unseen: readonly string[] = []): Promise<NamedProblem[]> => {
   const problem = (message: string, names?: ProblemNames): NamedProblem[] => [{ field: "file", message: `file: ${message}`, ...(names === undefined ? {} : { names }) }];
-  if (typeof file !== "string" || file === "") return problem(`${structure.id} names files freely, so give the new file's path in its folder, like notes.md`);
+  if (typeof file !== "string" || file === "") return problem(`${binder.id} names files freely, so give the new file's path in its folder, like notes.md`);
   const segments = file.split("/");
   if (isAbsolute(file) || file.includes("\\") || segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
-    return problem(`${file} must be a plain path relative to the structure's folder, with / and without "..", like guides/setup.md`);
+    return problem(`${file} must be a plain path relative to the binder's folder, with / and without "..", like guides/setup.md`);
   }
   if (!file.endsWith(".md")) return problem(`${file} must end in .md`);
   if (isSkippedPath(file)) return problem(`${file} is in a dot folder or node_modules, or is a dot file, which are never read; pick another path`);
-  if (!isIncluded(structure.settings, file)) {
-    return problem(`${file} doesn't match the structure's include (${(structure.settings.include ?? []).join(", ")}); pick a path it matches`);
+  if (!isIncluded(binder.settings, file)) {
+    return problem(`${file} doesn't match the binder's include (${(binder.settings.include ?? []).join(", ")}); pick a path it matches`);
   }
-  const rootPath = joinRootPath(structure.path, file);
-  // A folder on the way from this structure's folder to the file; a folder named like the file itself isn't.
-  const between = (folder: string) => folder !== structure.path && folder !== rootPath && inFolder(structure.path, folder) && inFolder(folder, rootPath);
-  // The first structure folder met on the way decides, as it's where the path stops being this structure's: a
-  // hidden one reads like a folder that doesn't exist, a visible one is another structure's. Past that folder
+  const rootPath = joinRootPath(binder.path, file);
+  // A folder on the way from this binder's folder to the file; a folder named like the file itself isn't.
+  const between = (folder: string) => folder !== binder.path && folder !== rootPath && inFolder(binder.path, folder) && inFolder(folder, rootPath);
+  // The first binder folder met on the way decides, as it's where the path stops being this binder's: a
+  // hidden one reads like a folder that doesn't exist, a visible one is another binder's. Past that folder
   // nothing is looked at, so a hidden folder inside a visible one answers as that visible one does.
-  const first = [...structures.map((candidate) => candidate.path), ...unseen].filter(between).sort((a, b) => a.length - b.length)[0];
+  const first = [...binders.map((candidate) => candidate.path), ...unseen].filter(between).sort((a, b) => a.length - b.length)[0];
   if (first !== undefined) {
     if (unseen.includes(first)) return problem(missingFolder(file));
-    const names = { structures: structures.flatMap((candidate) => (candidate.path === first && candidate.id !== null ? [candidate.id] : [])) };
-    return problem(`${file} is inside another structure's folder; create it there instead`, names);
+    const names = { binders: binders.flatMap((candidate) => (candidate.path === first && candidate.id !== null ? [candidate.id] : [])) };
+    return problem(`${file} is inside another binder's folder; create it there instead`, names);
   }
-  const folder = join(root, structure.path);
+  const folder = join(root, binder.path);
   const absolute = join(root, rootPath);
   try {
     if (await throughSymlink(folder, absolute)) return problem(`${file} goes through a symlinked folder, which is never read; pick a path in a real folder`);
@@ -241,11 +241,11 @@ const checkFreeFile = async (root: string, structure: ValidStructure, file: unkn
  * no other file has. Both need the file still at `baseVersion`.
  */
 const writableItem = async (root: string, read: RootRead, handle: string, baseVersion: string, action: "updated" | "deleted") => {
-  const { items, structures } = read.snapshot;
+  const { items, binders } = read.snapshot;
   const item = findByHandle(items, handle);
-  if (item === undefined) throw new ItemWriteError(ItemWriteErrorCode.enum.item_not_found, `No item has the handle ${handle}; check it, or list the structure's items to find the right one.`);
-  const structure = structures.find((candidate): candidate is ValidStructure => candidate.id === item.structure);
-  if (structure === undefined) throw new Error(`The item ${handle} was read in the structure ${item.structure}, which the same read doesn't list.`);
+  if (item === undefined) throw new ItemWriteError(ItemWriteErrorCode.enum.item_not_found, `No item has the handle ${handle}; check it, or list the binder's items to find the right one.`);
+  const binder = binders.find((candidate): candidate is ValidBinder => candidate.id === item.binder);
+  if (binder === undefined) throw new Error(`The item ${handle} was read in the binder ${item.binder}, which the same read doesn't list.`);
   // A handle other files share is refused before the version: which file the caller read can't be told, so
   // stale_version would send it round a re-read loop it can't leave.
   const shared = item.problems.filter(isClash);
@@ -265,19 +265,19 @@ const writableItem = async (root: string, read: RootRead, handle: string, baseVe
   // The item's problems and id below come from the full read, so it must have seen these very bytes: a file that
   // changed and changed back (A-B-A) is at the base again, but the full read judged the version in between.
   if (item.version !== current.version) throw stale();
-  writableStructure(structure, action);
-  const blocking = action === "updated" ? item.problems.filter((problem) => !isValueProblem(structure.settings, problem)) : [];
+  writableBinder(binder, action);
+  const blocking = action === "updated" ? item.problems.filter((problem) => !isValueProblem(binder.settings, problem)) : [];
   if (blocking.length > 0 || item.handle === null) {
     const problems = blocking.length > 0 ? blocking : item.problems;
     const said = problems.length > 0 ? problems : [{ message: "handle: none yet; it's assigned once the file's problems are fixed by hand" }];
     throw invalid(`${handle} has problems on disk (${listed(said)}), so it can't be ${action}; fix the file (${item.path}) by hand first.`, said);
   }
   if (action === "updated" && item.id === null) {
-    throw invalid(`${handle} has no id yet, so it can't be ${action}; read its structure so it gets one, then try again.`, [
-      { field: "id", message: "id: none yet; reading the structure assigns one" },
+    throw invalid(`${handle} has no id yet, so it can't be ${action}; read its binder so it gets one, then try again.`, [
+      { field: "id", message: "id: none yet; reading the binder assigns one" },
     ]);
   }
-  return { item, structure, current };
+  return { item, binder, current };
 };
 
 /** Runs a write, turning a version change found just before it landed into `stale_version`. */
@@ -293,24 +293,24 @@ const staleIfChanged = async (handle: string, action: string, write: () => Promi
 // The checks of each change, shared by the write and its dry run (`check`): each reads the root afresh, throws the
 // refusal, and returns what the write needs. None of them writes or takes a handle number.
 
-const checkCreate = async (root: string, structureId: string, item: NewItem, unseen: readonly string[] = []) => {
+const checkCreate = async (root: string, binderId: string, item: NewItem, unseen: readonly string[] = []) => {
   refuseOwnKeys(Object.keys(item.properties), "a new item's properties");
   const read = await readRoot(root);
-  const structure = writableStructureById(read, structureId);
-  writableStructure(structure, "created");
-  const { settings } = structure;
+  const binder = writableBinderById(read, binderId);
+  writableBinder(binder, "created");
+  const { settings } = binder;
 
   const { title, problems: titleProblems } = checkTitle(item.title);
   const problems = [...titleProblems, ...checkBody(item.body)];
-  if (settings.naming === "free") problems.push(...(await checkFreeFile(root, structure, item.file, read.snapshot.structures, unseen)));
-  else if (item.file !== undefined) problems.push({ field: "file", message: `file: ${structure.id} names its files by handle, so leave file out` });
+  if (settings.naming === "free") problems.push(...(await checkFreeFile(root, binder, item.file, read.snapshot.binders, unseen)));
+  else if (item.file !== undefined) problems.push({ field: "file", message: `file: ${binder.id} names its files by handle, so leave file out` });
   const given = presentValues(item.properties);
   // Declared order, then anything undeclared (which validation refuses), so files read like their settings.
   const keys = [
     ...Object.keys(settings.properties).filter((key) => Object.hasOwn(given, key)),
     ...Object.keys(given).filter((key) => !Object.hasOwn(settings.properties, key)),
   ];
-  const values = checkProperties(structure, Object.fromEntries(keys.map((key) => [key, given[key]])), keys, read.links, problems);
+  const values = checkProperties(binder, Object.fromEntries(keys.map((key) => [key, given[key]])), keys, read.links, problems);
 
   const textFor = (id: string, handle: string) => {
     const lines = [`id: ${id}`, `handle: ${handle}`, ...keys.map((key) => `${key}: ${yamlValue(values[key])}`)];
@@ -323,7 +323,7 @@ const checkCreate = async (root: string, structureId: string, item: NewItem, uns
       { message: "item: wouldn't read back as given; check the title and the property values for characters YAML or markdown treat specially" },
     ]);
   }
-  return { read, structure, title, textFor };
+  return { read, binder, title, textFor };
 };
 
 const checkUpdate = async (root: string, handle: string, fields: Record<string, unknown>, baseVersion: string) => {
@@ -331,7 +331,7 @@ const checkUpdate = async (root: string, handle: string, fields: Record<string, 
   refuseOwnKeys(names, "an update");
   if (names.length === 0) throw invalid("The update names no fields; give at least one field to change.", [{ message: "fields: none given; give at least one field to change" }]);
   const read = await readRoot(root);
-  const { item, structure, current } = await writableItem(root, read, handle, baseVersion, "updated");
+  const { item, binder, current } = await writableItem(root, read, handle, baseVersion, "updated");
   const parsed = parseItemFile(current.text);
   // The file is at the base version and the full read saw these same bytes without a parse problem, so it parses.
   if (!parsed.ok) throw new ItemWriteError(ItemWriteErrorCode.enum.stale_version, `${handle} changed since it was read, so it wasn't updated; read it again and redo the change.`);
@@ -355,7 +355,7 @@ const checkUpdate = async (root: string, handle: string, fields: Record<string, 
     if (value === null || value === undefined) delete data[key];
     else setOwn(data, key, value);
   }
-  const values = checkProperties(structure, data, set, read.links, problems, item.problems);
+  const values = checkProperties(binder, data, set, read.links, problems, item.problems);
 
   const keyEdits = setKeyEdits(
     parsed,
@@ -373,61 +373,61 @@ const checkUpdate = async (root: string, handle: string, fields: Record<string, 
       [{ message: `${names.join(", ")}: can't be changed without touching more of ${handle} than the fields named (an anchor or alias, or a value YAML can't edit in place); ask the user to change it by hand` }],
     );
   }
-  return { read, item, structure, text, names };
+  return { read, item, binder, text, names };
 };
 
 const checkDelete = async (root: string, handle: string, baseVersion: string) => writableItem(root, await readRoot(root), handle, baseVersion, "deleted");
 
 export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
-  createItem: (structureId, item, id = randomUUIDv7()) =>
+  createItem: (binderId, item, id = randomUUIDv7()) =>
     queueWrite(root, async () => {
-      const { read, structure, title, textFor } = await checkCreate(root, structureId, item);
-      const { settings } = structure;
+      const { read, binder, title, textFor } = await checkCreate(root, binderId, item);
+      const { settings } = binder;
       const handle = formatHandle(settings.prefix, store.nextHandleNumber(settings.id, read.floors.get(settings.prefix) ?? 0));
       const text = textFor(id, handle);
       if (text === undefined) throw new Error(`The new item ${handle} passed its read-back check with stand-in values but not with the real ones.`);
       const file = settings.naming === "free" ? (item.file ?? "") : [handle, slugOf(title)].filter(Boolean).join("-") + ".md";
-      const path = joinRootPath(structure.path, file);
+      const path = joinRootPath(binder.path, file);
       try {
         await writeAtomic(join(root, path), text, { create: true });
       } catch (error) {
         if (error instanceof NoHardLinks) throw new ItemWriteError(ItemWriteErrorCode.enum.items_not_writable, error.message);
         if (!isAlreadyThere(error)) throw error;
-        // The problem names the file as the structure sees it: the root-relative path would show the folders above.
+        // The problem names the file as the binder sees it: the root-relative path would show the folders above.
         throw invalid(`${path} was created by someone else meanwhile; nothing was written, so try again${settings.naming === "free" ? " with another file" : ""}.`, [
           { field: "file", message: `file: ${file} was created by someone else meanwhile; try again${settings.naming === "free" ? " with another file" : ""}` },
         ]);
       }
-      log?.("item_created", { structure: settings.id, handle });
-      return loadedItem(structure, path, text, read.links);
+      log?.("item_created", { binder: settings.id, handle });
+      return loadedItem(binder, path, text, read.links);
     }),
 
   updateItem: (handle, fields, baseVersion) =>
     queueWrite(root, async () => {
-      const { read, item, structure, text, names } = await checkUpdate(root, handle, fields, baseVersion);
+      const { read, item, binder, text, names } = await checkUpdate(root, handle, fields, baseVersion);
       await staleIfChanged(handle, "updated", () => writeAtomic(join(root, item.path), text, { expectedVersion: baseVersion }));
-      log?.("item_updated", { structure: structure.id, handle, fields: names.length });
-      return loadedItem(structure, item.path, text, read.links);
+      log?.("item_updated", { binder: binder.id, handle, fields: names.length });
+      return loadedItem(binder, item.path, text, read.links);
     }),
 
   deleteItem: (handle, baseVersion) =>
     queueWrite(root, async () => {
-      const { item, structure } = await checkDelete(root, handle, baseVersion);
+      const { item, binder } = await checkDelete(root, handle, baseVersion);
       await staleIfChanged(handle, "deleted", () => removeUnchanged(join(root, item.path), baseVersion));
-      log?.("item_deleted", { structure: structure.id, handle });
+      log?.("item_deleted", { binder: binder.id, handle });
     }),
 
-  checkNewFile: async (structureId, file, unseen = []) => {
+  checkNewFile: async (binderId, file, unseen = []) => {
     const read = await readRoot(root);
-    const structure = writableStructureById(read, structureId);
-    return checkFreeFile(root, structure, file, read.snapshot.structures, unseen);
+    const binder = writableBinderById(read, binderId);
+    return checkFreeFile(root, binder, file, read.snapshot.binders, unseen);
   },
 
   check: (change) =>
     queueWrite(root, async () => {
       switch (change.kind) {
         case "create":
-          await checkCreate(root, change.structureId, change.item, change.unseen);
+          await checkCreate(root, change.binderId, change.item, change.unseen);
           return undefined;
         case "update":
           return versionOfText((await checkUpdate(root, change.handle, change.fields, change.baseVersion)).text);

@@ -21,6 +21,7 @@ import {
   startService,
   type RunningService,
 } from "../../test/service-fixtures.ts";
+import { SETTINGS_FILE } from "./binders.ts";
 
 /** Tolerance on top of the debounce for fs.watch to report a change and the render to finish; not a tuning value. */
 const SETTLE_MS = 1_000;
@@ -81,7 +82,7 @@ describe("the instructions file in the service", () => {
       const edit = (path: string, from: string, to: string) => writeFileSync(join(root, path), readFileSync(join(root, path), "utf8").replace(from, to));
       await untilFile(service, "the first write", (text) => text.includes("BL-1"));
 
-      edit("backlog/BL-1-items.md", "The plan for structures and proposals.", "The plan for structures, proposals and reviews.");
+      edit("backlog/BL-1-items.md", "The plan for binders and proposals.", "The plan for binders, proposals and reviews.");
       await untilFile(service, "an edited body", (text) => text.includes("proposals and reviews"));
 
       writeFileSync(join(root, "bugs/BUG-3-accents.md"), "---\nid: 0196f3c2-9b00-7000-8000-000000000003\nhandle: BUG-3\nrepo: api\n---\n# Search ignores accents\n\nInvented.\n");
@@ -90,11 +91,11 @@ describe("the instructions file in the service", () => {
       rmSync(join(root, "docs/DOC-1-architecture.md"));
       await untilFile(service, "a deleted item gone", (text) => !text.includes("DOC-1"));
 
-      edit("backlog/_structure.yaml", "instructions: full", "instructions: off");
-      const settled = await untilFile(service, "a structure switched off", (text) => text.includes("BUG-1") && !text.includes("BL-1"));
+      edit(`backlog/${SETTINGS_FILE}`, "instructions: full", "instructions: off");
+      const settled = await untilFile(service, "a binder switched off", (text) => text.includes("BUG-1") && !text.includes("BL-1"));
 
       // No rewrite without a change (the watcher doesn't feed on its own writes): a hand-made file in the
-      // switched-off structure makes a read of the root, which gives the file an id on first sight, but renders the
+      // switched-off binder makes a read of the root, which gives the file an id on first sight, but renders the
       // same text, so it doesn't write; the visible edit after that read writes once.
       const before = await untilLogged(service, settled);
       const offFile = join(root, "backlog/a-note-while-off.md");
@@ -112,7 +113,7 @@ describe("the instructions file in the service", () => {
   );
 
   test.each([
-    { what: "with items but no structure marked as instructions", items: ACCESS_FILES },
+    { what: "with items but no binder marked as instructions", items: ACCESS_FILES },
   ])(
     "$what, a stale AGENTS.md is removed and agents get no system prompt",
     async ({ items }) => {

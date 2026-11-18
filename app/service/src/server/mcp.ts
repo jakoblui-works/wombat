@@ -1,7 +1,7 @@
 // `/mcp`: the tools for agents, over MCP's streamable HTTP (stateless, JSON answers). Only an agent's own token
-// opens it. Every item call is checked by Access as that agent, so access levels, locks and hidden structures hold
+// opens it. Every item call is checked by Access as that agent, so access levels, locks and hidden binders hold
 // exactly as Access decides them; every propose tool stores through the proposals, under one cap. Answers and refusals
-// are tool results; nothing here names a structure id, so the tool list carries nothing of a hidden one.
+// are tool results; nothing here names a binder id, so the tool list carries nothing of a hidden one.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -12,6 +12,7 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 
 import { SEARCH_LIMIT, type Access } from "../items/access.ts";
+import { SETTINGS_FILE } from "../items/binders.ts";
 import { AccessError, type ItemInput } from "../items/refusals.ts";
 import { TOOL } from "../items/tools.ts";
 import { errorName, type Log } from "../log.ts";
@@ -69,8 +70,8 @@ const mcpRules =
     await next();
   };
 
-// Input schemas. None lists structure ids: that would name hidden structures, and go stale when one is added.
-const structure = z.string().describe(`A structure's id, as ${TOOL.describeStructure} lists it.`);
+// Input schemas. None lists binder ids: that would name hidden binders, and go stale when one is added.
+const binder = z.string().describe(`A binder's id, as ${TOOL.describeBinder} lists it.`);
 const handle = z.string().describe("An item's handle, like BUG-14 (an old handle, an alias, works too).");
 const version = z
   .string()
@@ -82,17 +83,17 @@ const fields = z
     "Only the fields to change: `title`, `body` or property names, each with its new value (link values are handles).",
   );
 const createShape = {
-  structure,
+  binder,
   title: z.string().describe("The item's title."),
   body: z.string().optional().describe("Markdown after the title line."),
   properties: z
     .record(z.string(), z.unknown())
     .optional()
-    .describe(`Property name → value, as ${TOOL.describeStructure} lists them (link values are handles).`),
+    .describe(`Property name → value, as ${TOOL.describeBinder} lists them (link values are handles).`),
   file: z
     .string()
     .optional()
-    .describe("Only for a structure with free naming: the new file's path, relative to the structure's folder."),
+    .describe("Only for a binder with free naming: the new file's path, relative to the binder's folder."),
 };
 
 /** Replacements, each `old` occurring exactly once in `where` as the edits before it leave it. */
@@ -190,24 +191,24 @@ const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "pro
     };
 
   server.registerTool(
-    TOOL.describeStructure,
+    TOOL.describeBinder,
     {
       description:
-        "Describes a structure you can use: its name, access level (read, propose or edit), properties and locked " +
-        "fields. Without `structure`, describes every structure you can use.",
-      inputSchema: z.object({ structure: structure.optional() }),
+        `Describes a binder you can use (a folder of items with a \`${SETTINGS_FILE}\` settings file): its name, ` +
+        "access level (read, propose or edit), properties and locked fields. Without `binder`, describes every binder you can use.",
+      inputSchema: z.object({ binder: binder.optional() }),
     },
-    run(TOOL.describeStructure, (a, { structure: id }: { structure?: string | undefined }) =>
-      id === undefined ? a.structures() : a.describe(id),
+    run(TOOL.describeBinder, (a, { binder: id }: { binder?: string | undefined }) =>
+      id === undefined ? a.binders() : a.describe(id),
     ),
   );
   server.registerTool(
     TOOL.listItems,
     {
-      description: "Lists a structure's items: handle, title, properties and problems (no body).",
-      inputSchema: z.object({ structure }),
+      description: "Lists a binder's items: handle, title, properties and problems (no body).",
+      inputSchema: z.object({ binder }),
     },
-    run(TOOL.listItems, (a, { structure: id }: { structure: string }) => a.list(id)),
+    run(TOOL.listItems, (a, { binder: id }: { binder: string }) => a.list(id)),
   );
   server.registerTool(
     TOOL.getItem,
@@ -223,26 +224,26 @@ const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "pro
     TOOL.search,
     {
       description:
-        "Finds items whose title, body or text properties contain `query` (any case), in one structure or all you " +
+        "Finds items whose title, body or text properties contain `query` (any case), in one binder or all you " +
         `can use. Answers at most ${SEARCH_LIMIT}; \`truncated\` says there were more.`,
-      inputSchema: z.object({ query: z.string().describe("The text to look for."), structure: structure.optional() }),
+      inputSchema: z.object({ query: z.string().describe("The text to look for."), binder: binder.optional() }),
     },
-    run(TOOL.search, (a, { query, structure: id }: { query: string; structure?: string | undefined }) => a.search(query, id)),
+    run(TOOL.search, (a, { query, binder: id }: { query: string; binder?: string | undefined }) => a.search(query, id)),
   );
   server.registerTool(
     TOOL.createItem,
     {
-      description: "Creates an item in a structure open to edits. Answers its handle and version.",
+      description: "Creates an item in a binder open to edits. Answers its handle and version.",
       inputSchema: z.object(createShape),
     },
-    run(TOOL.createItem, (a, { structure: id, ...input }: CreateArgs & { structure: string }) =>
+    run(TOOL.createItem, (a, { binder: id, ...input }: CreateArgs & { binder: string }) =>
       a.create(agentId, id, itemInput(input)),
     ),
   );
   server.registerTool(
     TOOL.updateItem,
     {
-      description: "Changes some fields of an item in a structure open to edits. Answers its handle and new version.",
+      description: "Changes some fields of an item in a binder open to edits. Answers its handle and new version.",
       inputSchema: z.object({ handle, fields, version }),
     },
     run(TOOL.updateItem, (a, args: { handle: string; fields: Record<string, unknown>; version: string }) =>
@@ -252,7 +253,7 @@ const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "pro
   server.registerTool(
     TOOL.deleteItem,
     {
-      description: "Deletes an item in a structure open to edits.",
+      description: "Deletes an item in a binder open to edits.",
       inputSchema: z.object({ handle, version }),
     },
     run(TOOL.deleteItem, (a, args: { handle: string; version: string }) => a.remove(agentId, args.handle, args.version)),
@@ -261,18 +262,18 @@ const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "pro
     TOOL.proposeCreate,
     {
       description:
-        "Proposes a new item in a structure open to proposals; the user approves or rejects it. Answers the proposal's id.",
+        "Proposes a new item in a binder open to proposals; the user approves or rejects it. Answers the proposal's id.",
       inputSchema: z.object({ ...createShape, reason }),
     },
-    run(TOOL.proposeCreate, (_a, { structure: id, reason: why, ...input }: CreateArgs & { structure: string; reason: string }) =>
-      proposals.proposeItem(agentId, { kind: "create", structure: id, input: itemInput(input) }, why),
+    run(TOOL.proposeCreate, (_a, { binder: id, reason: why, ...input }: CreateArgs & { binder: string; reason: string }) =>
+      proposals.proposeItem(agentId, { kind: "create", binder: id, input: itemInput(input) }, why),
     ),
   );
   server.registerTool(
     TOOL.proposeUpdate,
     {
       description:
-        "Proposes changing some fields of an item in a structure open to proposals; the user approves or rejects it. " +
+        "Proposes changing some fields of an item in a binder open to proposals; the user approves or rejects it. " +
         "Answers the proposal's id.",
       inputSchema: z.object({ handle, fields, version, reason }),
     },
@@ -284,7 +285,7 @@ const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "pro
     TOOL.proposeDelete,
     {
       description:
-        "Proposes deleting an item in a structure open to proposals; the user approves or rejects it. Answers the proposal's id.",
+        "Proposes deleting an item in a binder open to proposals; the user approves or rejects it. Answers the proposal's id.",
       inputSchema: z.object({ handle, version, reason }),
     },
     run(TOOL.proposeDelete, (_a, args: { handle: string; version: string; reason: string }) =>

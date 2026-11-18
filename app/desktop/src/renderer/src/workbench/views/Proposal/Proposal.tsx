@@ -114,7 +114,7 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: View
   const [rejecting, setRejecting] = useState(false);
   const queryClient = useQueryClient();
   const active = isProposalTab(useActiveTab(), proposalId);
-  // Nothing announces a hand edit of the file or the items, so the tab reads the proposal, the structures and the items
+  // Nothing announces a hand edit of the file or the items, so the tab reads the proposal, the binders and the items
   // it shows again each time it's brought to the front.
   useEffect(() => {
     if (!active) return;
@@ -309,7 +309,7 @@ const ItemTab = ({
   return (
     <ItemProposal
       proposalId={proposalId}
-      structureId={shown.structure}
+      binderId={shown.binder}
       kind={shown.kind}
       current={shown.current}
       fields={agents}

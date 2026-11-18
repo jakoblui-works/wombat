@@ -28,8 +28,8 @@ type ItemRevisionsOptions = Pick<ItemProposalsOptions, "catalog" | "writer"> & {
 
 const NO_FIELDS = "A delete proposal has no fields to change.";
 
-/** For a structure the agent may not see now (hidden, gone or broken settings) as for a gone item: it names neither. */
-const UNREACHABLE = `The item this proposal changes, or the structure it adds one to, can't be reached anymore, so the proposal can't be revised. ${PROPOSAL_UNCHANGED} Tell the user, and ${ASK_TO_REJECT}.`;
+/** For a binder the agent may not see now (hidden, gone or broken settings) as for a gone item: it names neither. */
+const UNREACHABLE = `The item this proposal changes, or the binder it adds one to, can't be reached anymore, so the proposal can't be revised. ${PROPOSAL_UNCHANGED} Tell the user, and ${ASK_TO_REJECT}.`;
 
 const SAME_FIELDS = `The fields are the same as your proposal's current ones, so they change nothing. ${PROPOSAL_UNCHANGED}`;
 
@@ -37,14 +37,14 @@ export const itemRevisions = ({ catalog, writer, checks }: ItemRevisionsOptions)
   /** `fields` checked as a change of the target as it is now, and the item's version now (null for a create). */
   const checkedOnNow = async (stored: StoredItemProposal, fields: Record<string, unknown>): Promise<{ fields: Record<string, unknown>; version: string | null }> => {
     const current = viewOf(await catalog.snapshot());
-    const structure = current.structures.get(stored.structure);
-    if (structure === undefined) throw new ProposalRefused(UNREACHABLE);
-    if (stored.kind === "create") return { fields: await checks.checkedCreate(current, structure, createInputOf(fields, stored.file).input), version: null };
+    const binder = current.binders.get(stored.binder);
+    if (binder === undefined) throw new ProposalRefused(UNREACHABLE);
+    if (stored.kind === "create") return { fields: await checks.checkedCreate(current, binder, createInputOf(fields, stored.file).input), version: null };
     const target = targetItem(current.items, stored);
     if (target === "gone" || "movedTo" in target) {
-      throw new ProposalRefused(`The item this proposal changes is gone, or moved to another structure. Read it again and propose anew. ${PROPOSAL_UNCHANGED}`);
+      throw new ProposalRefused(`The item this proposal changes is gone, or moved to another binder. Read it again and propose anew. ${PROPOSAL_UNCHANGED}`);
     }
-    return { fields: await checks.checkedUpdate(current, structure, target.handle, fields, target.item.version), version: target.item.version };
+    return { fields: await checks.checkedUpdate(current, binder, target.handle, fields, target.item.version), version: target.item.version };
   };
 
   /** A conflict's revision is based on the item as it is now; a pending one keeps its base and must change its fields. */
@@ -66,11 +66,11 @@ export const itemRevisions = ({ catalog, writer, checks }: ItemRevisionsOptions)
     if (stored.kind === "delete") throw new DraftRefused(`${NO_FIELDS} Approve or reject it instead.`);
     if (stored.kind === "create") {
       const { input } = createInputOf(fields, stored.file);
-      return { kind: "create", structureId: stored.structure, item: newItem(input, input.properties) };
+      return { kind: "create", binderId: stored.binder, item: newItem(input, input.properties) };
     }
     const target = targetItem((await catalog.snapshot()).items, stored);
     if (target === "gone") throw new DraftRefused("The item this proposal changes is gone, so there is nothing to edit. Reject the proposal.");
-    if ("movedTo" in target) throw new DraftRefused("The item this proposal changes moved to another structure, so the proposal can't be approved. Reject the proposal.");
+    if ("movedTo" in target) throw new DraftRefused("The item this proposal changes moved to another binder, so the proposal can't be approved. Reject the proposal.");
     return { kind: "update", handle: target.handle, fields, baseVersion: target.item.version };
   };
 

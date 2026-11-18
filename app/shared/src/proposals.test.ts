@@ -102,7 +102,7 @@ const fileRow = {
   outsideWorkspace: false,
   kind: "edit",
 };
-const itemRow = { ...common, id: "prp_2", target: "item", reason: "Seen on the site", structure: "bugs", kind: "update", handle: "BUG-1", file: null };
+const itemRow = { ...common, id: "prp_2", target: "item", reason: "Seen on the site", binder: "bugs", kind: "update", handle: "BUG-1", file: null };
 /** What a newer service might list: a target this app has no shape for, and a status and a kind it has no name for. */
 const branchRow = { ...common, id: "prp_3", target: "branch", reason: "Merge it", branch: "footer-link" };
 const pausedRow = { ...fileRow, id: "prp_4", status: "paused" };

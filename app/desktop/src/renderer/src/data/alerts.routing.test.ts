@@ -50,11 +50,11 @@ test.each<[string, (service: FakeService) => void]>([
       service.connection("connected");
     },
   ],
-])("%s reads the structures and every cached structure's items again", async (_name, trigger) => {
+])("%s reads the binders and every cached binder's items again", async (_name, trigger) => {
   const { service, client } = setup();
-  client.setQueryData(keys.structures, { structures: [] });
-  client.setQueryData(keys.structureItems("bugs"), { items: [] });
+  client.setQueryData(keys.binders, { binders: [] });
+  client.setQueryData(keys.binderItems("bugs"), { items: [] });
   trigger(service);
   await vi.waitFor(() => expect(service.requests()).not.toEqual([]));
-  expect(await reads(service)).toEqual(expect.arrayContaining(["GET /structures", "GET /structures/bugs/items"]));
+  expect(await reads(service)).toEqual(expect.arrayContaining(["GET /binders", "GET /binders/bugs/items"]));
 });

@@ -29,7 +29,7 @@ describe("item file round trip", () => {
   ])("updating $field changes only its line, keeps the path, and reads back", async ({ field, value, line }) => {
     const root = writeRoot(VALID_FILES);
     const { catalog, writer } = openItems(root);
-    const before = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE);
+    const before = itemAt((await catalog.snapshot()).items.filter((item) => item.binder === "bugs"), FILE);
 
     const updated = await writer.updateItem("BUG-1", { [field]: value }, before.version);
 
@@ -38,7 +38,7 @@ describe("item file round trip", () => {
     expect(changed, `changed lines\n${after}`).toHaveLength(1);
     expect(lines(after)[changed[0] ?? -1]).toMatch(line);
 
-    const reread = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), FILE);
+    const reread = itemAt((await catalog.snapshot()).items.filter((item) => item.binder === "bugs"), FILE);
     const readValue = field === "title" ? reread.title : reread.properties[field];
     expect(readValue).toEqual(value);
     expect(reread.problems).toEqual([]);
@@ -54,7 +54,7 @@ describe("item file round trip", () => {
     const text = `---\nid: 0196f3c2-5e00-7000-8000-000000000031\nhandle: BUG-3\nrepo: &r api\nnote: *r\n---\n# Shares a value by anchor\n\nBody.\n`;
     const root = writeRoot({ ...VALID_FILES, [file]: text });
     const { catalog, writer } = openItems(root);
-    const before = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "bugs"), file);
+    const before = itemAt((await catalog.snapshot()).items.filter((item) => item.binder === "bugs"), file);
     expect(before.problems, "the anchored file is a valid item").toEqual([]);
     expect(before.properties.note).toBe("api");
 

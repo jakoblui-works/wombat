@@ -1,5 +1,5 @@
 // Property names on a write are data, looked up as own keys only: a name every object has (`toString`,
-// `__proto__`) is an unknown property unless the structure declares it, and a declared one the
+// `__proto__`) is an unknown property unless the binder declares it, and a declared one the
 // caller leaves out is left out.
 import { describe, expect, test } from "vitest";
 

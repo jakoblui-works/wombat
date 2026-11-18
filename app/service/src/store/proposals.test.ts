@@ -12,7 +12,7 @@ import { open, tempStorePath } from "../../test/store-fixtures.ts";
 const NEW = {
   target: "item" as const,
   path: null,
-  structure: "bugs",
+  binder: "bugs",
   itemId: "0196f3c2-1a00-7000-8000-000000000002",
   kind: "update" as const,
   reason: "Reported twice",
@@ -24,7 +24,7 @@ const FIELDS = { fields: { note: "Seen again" } };
 const NEW_FILE = {
   target: "file" as const,
   path: "/home/sam/work/site-web/docs/install.md",
-  structure: null,
+  binder: null,
   itemId: null,
   kind: "edit" as const,
   reason: "The install steps name the old package manager",

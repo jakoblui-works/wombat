@@ -107,7 +107,7 @@ const editRefusal = (problem: EditProblem, source: EditSource = "file"): string 
 };
 
 /**
- * The one refusal for a file the items catalog holds, whichever structure it's in: it names none. A revise (of the
+ * The one refusal for a file the items catalog holds, whichever binder it's in: it names none. A revise (of the
  * proposal whose file it became) also asks for the proposal's rejection.
  */
 const itemsFileRefusal = (path: string, call: "propose" | "revise" = "propose") => {
@@ -148,7 +148,7 @@ export const fileProposer = ({ agentFolder, holds, insert }: FileProposerOptions
     if ((await holds?.(target.realPath)) === true) throw new ProposalRefused(itemsFileRefusal(path));
     const mismatch = targetRefusal(asked, target.exists, path);
     if (mismatch !== undefined) throw new ProposalRefused(mismatch);
-    const proposal = { target: "file", path: target.realPath, structure: null, itemId: null, file: null, reason, agentId } as const;
+    const proposal = { target: "file", path: target.realPath, binder: null, itemId: null, file: null, reason, agentId } as const;
 
     if ("content" in asked) {
       const checked = checkText(asked.content);

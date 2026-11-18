@@ -80,7 +80,7 @@ const diffFields = (changes: MyChanges | undefined): Pick<NoteOutcome, "diff" | 
 
 /**
  * What the agent is told of an outcome's reason: mine for a reject; a file conflict's stored problem. An item
- * conflict's stored problem is told by nothing: it was worded for the user and may name a structure hidden from the
+ * conflict's stored problem is told by nothing: it was worded for the user and may name a binder hidden from the
  * agent, and it keeps no record of what it names for the items' scrubbing to judge.
  */
 const reasonOf = (stored: StoredProposal, outcome: NoteOutcome["outcome"]): string | undefined => {

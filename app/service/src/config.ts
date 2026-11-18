@@ -13,7 +13,7 @@ export type Config = {
   /** 0 picks a free port. */
   port: number;
   workspaceRoot: string;
-  /** The folder of structures and item files; unset when the items aren't configured. */
+  /** The folder of binders and item files; unset when the items aren't configured. */
   itemsRoot?: string;
   storePath: string;
   discoveryPath: string;
@@ -53,7 +53,7 @@ const readWorkspace = (value: string | undefined): string => {
 const readItems = (value: string | undefined): string | undefined => {
   if (value === undefined) return undefined;
   const name = SERVICE_ENV.items;
-  const fix = `Set ${name} to the absolute path of the folder that holds the items' structures, or unset it to run without items.`;
+  const fix = `Set ${name} to the absolute path of the folder that holds the items' binders, or unset it to run without items.`;
   if (!isAbsolute(value)) throw new Error(`${name} is ${JSON.stringify(value)}, which isn't an absolute path. ${fix}`);
   let isDir: boolean;
   try {

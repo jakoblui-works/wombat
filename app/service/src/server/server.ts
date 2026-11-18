@@ -11,7 +11,7 @@ import {
   ItemsErrorCode,
   ListItemsResponse as ListItemsSchema,
   ListLogQuery,
-  ListStructuresResponse as ListStructuresSchema,
+  ListBindersResponse as ListBindersSchema,
   SendMessageRequest,
   ServerErrorCode,
   SetConfigRequest,
@@ -25,7 +25,7 @@ import {
   type ListItemsResponse,
   type ListLogResponse,
   type ListReposResponse,
-  type ListStructuresResponse,
+  type ListBindersResponse,
   type VersionResponse,
 } from "@wombat/shared/api";
 import { errorCode } from "@wombat/shared/errno";
@@ -243,46 +243,46 @@ export const startServer = async ({
       ITEMS_NOT_CONFIGURED,
     );
 
-  app.get("/structures", async (c) => {
+  app.get("/binders", async (c) => {
     if (!items) return notConfigured(c);
-    const { structures, items: all } = await items.snapshot();
-    const body = { structures: structures.map((structure) => summarize(structure, all)) };
-    return c.json(checked(ListStructuresSchema, body) satisfies ListStructuresResponse);
+    const { binders, items: all } = await items.snapshot();
+    const body = { binders: binders.map((binder) => summarize(binder, all)) };
+    return c.json(checked(ListBindersSchema, body) satisfies ListBindersResponse);
   });
 
-  app.get("/structures/:id/items", async (c) => {
+  app.get("/binders/:id/items", async (c) => {
     if (!items) return notConfigured(c);
     const id = c.req.param("id");
-    const { structures, items: all } = await items.snapshot();
-    if (!structures.some((structure) => structure.id === id)) {
+    const { binders, items: all } = await items.snapshot();
+    if (!binders.some((binder) => binder.id === id)) {
       return errorResponse(
         c,
-        ITEMS_STATUS.structure_not_found,
-        ItemsErrorCode.enum.structure_not_found,
-        `There's no structure ${id}. List the structures to see which exist.`,
+        ITEMS_STATUS.binder_not_found,
+        ItemsErrorCode.enum.binder_not_found,
+        `There's no binder ${id}. List the binders to see which exist.`,
       );
     }
     const handles = handlesById(all);
     // The schema drops each item's body: a list carries none.
-    const listed = all.filter((item) => item.structure === id).map((item) => withLinks(item, structures, handles));
+    const listed = all.filter((item) => item.binder === id).map((item) => withLinks(item, binders, handles));
     return c.json(checked(ListItemsSchema, { items: listed }) satisfies ListItemsResponse);
   });
 
   app.get("/items/:handle", async (c) => {
     if (!items) return notConfigured(c);
     const handle = c.req.param("handle");
-    const { structures, items: all } = await items.snapshot();
+    const { binders, items: all } = await items.snapshot();
     const found = findByHandle(all, handle);
     if (!found) {
       return errorResponse(
         c,
         ITEMS_STATUS.item_not_found,
         ItemsErrorCode.enum.item_not_found,
-        `There's no item ${handle}. List a structure's items to see their handles.`,
+        `There's no item ${handle}. List a binder's items to see their handles.`,
       );
     }
     const handles = handlesById(all);
-    return c.json(checked(GetItemSchema, withLinks(found, structures, handles)) satisfies GetItemResponse);
+    return c.json(checked(GetItemSchema, withLinks(found, binders, handles)) satisfies GetItemResponse);
   });
 
   manager.setNoteSource(notes);

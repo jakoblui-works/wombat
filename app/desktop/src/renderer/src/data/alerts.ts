@@ -1,5 +1,5 @@
 // Keeps the cache current from the service's alerts. The event stream never replays, so after a reconnect the agents,
-// the proposals, the structures and their cached items are read again and every cached log is read on from its cursor. While not connected nothing is
+// the proposals, the binders and their cached items are read again and every cached log is read on from its cursor. While not connected nothing is
 // cleared: views keep the last data and dim themselves.
 import { hashKey, type QueryClient } from "@tanstack/react-query";
 

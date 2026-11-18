@@ -2,7 +2,7 @@ import type { LenientProperty, LinkValue, Problem } from "@wombat/shared/items";
 
 type Fields = Readonly<Record<string, unknown>>;
 
-/** The text a link shows for a target the items list doesn't hold (deleted, or in a structure not read). */
+/** The text a link shows for a target the items list doesn't hold (deleted, or in a binder not read). */
 export const UNKNOWN_ITEM = "an item not found";
 
 const isLinkValue = (value: unknown): value is LinkValue =>

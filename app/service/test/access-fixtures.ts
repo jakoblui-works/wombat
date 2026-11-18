@@ -1,5 +1,5 @@
 // Shared setup for the access-level tests (the access module and the MCP endpoint): an invented items root with
-// one structure per access level, locked fields, and a hidden structure whose every name, handle, title, body and
+// one binder per access level, locked fields, and a hidden binder whose every name, handle, title, body and
 // value carries a marker, plus helpers to snapshot the root and to read what an agent was given.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -16,12 +16,13 @@ import type { ItemProposalDetail, ItemProposalRecord, ProposalResult } from "../
 import type { NoteSource } from "../src/proposals/note-source.ts";
 import { openProposals, type Proposals } from "../src/proposals/proposals.ts";
 import { openItems, writeRoot, type Opened } from "./items-fixtures.ts";
+import { SETTINGS_FILE } from "../src/items/binders.ts";
 
-/** In every name, title, body and value of the hidden structure, in mixed case; never in a visible one. */
+/** In every name, title, body and value of the hidden binder, in mixed case; never in a visible one. */
 export const MARKER = "kestrel";
 
 export const HIDDEN = {
-  structure: "kestrel-vault",
+  binder: "kestrel-vault",
   name: "Kestrel vault",
   prefix: "KST",
   handles: ["KST-1", "KST-2"],
@@ -40,8 +41,8 @@ export const VISIBLE_IDS = {
 export const AGENT = "agent-access-test";
 
 export const ACCESS_FILES: Record<string, string> = {
-  // propose; `repo` and the body are locked; `vault` links into the hidden structure.
-  "bugs/_structure.yaml": `version: 1
+  // propose; `repo` and the body are locked; `vault` links into the hidden binder.
+  [`bugs/${SETTINGS_FILE}`]: `version: 1
 id: bugs
 name: Bugs
 prefix: BUG
@@ -50,7 +51,7 @@ locked: [repo, body]
 properties:
   repo: { type: select, options: [site-web, api] }
   note: { type: text }
-  vault: { type: link, to: ${HIDDEN.structure} }
+  vault: { type: link, to: ${HIDDEN.binder} }
 `,
   "bugs/BUG-1-login-times-out.md": `---
 id: ${VISIBLE_IDS.bug1}
@@ -73,7 +74,7 @@ repo: site-web
 Seen in Zen at 1280×720.
 `,
   // edit; the title and `project` are locked.
-  "backlog/_structure.yaml": `version: 1
+  [`backlog/${SETTINGS_FILE}`]: `version: 1
 id: backlog
 name: Backlog
 prefix: BL
@@ -92,7 +93,7 @@ owner: Sam
 ---
 # Items in Wombat
 
-The plan for structures and proposals.
+The plan for binders and proposals.
 `,
   "backlog/BL-2-proposal-view.md": `---
 id: ${VISIBLE_IDS.bl2}
@@ -105,7 +106,7 @@ parent: ${VISIBLE_IDS.bl1}
 Plan it after the routes.
 `,
   // read
-  "docs/_structure.yaml": `version: 1
+  [`docs/${SETTINGS_FILE}`]: `version: 1
 id: docs
 name: Docs
 prefix: DOC
@@ -120,8 +121,8 @@ handle: DOC-1
 The site talks to the api; the plan is in the roadmap.
 `,
   // hidden
-  [`vault/_structure.yaml`]: `version: 1
-id: ${HIDDEN.structure}
+  [`vault/${SETTINGS_FILE}`]: `version: 1
+id: ${HIDDEN.binder}
 name: ${HIDDEN.name}
 prefix: ${HIDDEN.prefix}
 access: hidden
@@ -164,7 +165,7 @@ export const snapshotFiles = (root: string): Record<string, string> => {
 
 /** Access with the item proposal calls the tests make, each as the item tools make it through the proposals. */
 export type TestAccess = Access & {
-  proposeCreate(agentId: string, structureId: string, input: ItemInput, reason: string): Promise<ProposalResult>;
+  proposeCreate(agentId: string, binderId: string, input: ItemInput, reason: string): Promise<ProposalResult>;
   proposeUpdate(agentId: string, handle: string, fields: Record<string, unknown>, version: string, reason: string): Promise<ProposalResult>;
   proposeDelete(agentId: string, handle: string, version: string, reason: string): Promise<ProposalResult>;
   /** The item proposals, or those with `status`, each read with its current version's fields. */
@@ -190,7 +191,7 @@ export const withProposals = (
     notes,
     access: {
       ...access,
-      proposeCreate: (agentId, structure, input, reason) => proposals.proposeItem(agentId, { kind: "create", structure, input }, reason),
+      proposeCreate: (agentId, binder, input, reason) => proposals.proposeItem(agentId, { kind: "create", binder, input }, reason),
       proposeUpdate: (agentId, handle, fields, version, reason) => proposals.proposeItem(agentId, { kind: "update", handle, fields, version }, reason),
       proposeDelete: (agentId, handle, version, reason) => proposals.proposeItem(agentId, { kind: "delete", handle, version }, reason),
       proposals: async (status) =>
@@ -234,7 +235,7 @@ export const expectRefused = async (call: Promise<unknown>, code: AccessErrorCod
   return error.message;
 };
 
-/** The hidden structure's strings an agent must never see unless it typed them itself. */
+/** The hidden binder's strings an agent must never see unless it typed them itself. */
 export const hiddenStrings = () => [MARKER, ...HIDDEN.ids];
 
 /** The hidden strings (case-insensitive) found in `text`. */

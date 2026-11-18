@@ -84,8 +84,8 @@ describe("agent and app tokens apart", () => {
       const a = await agentConfig(s);
       const b = await agentConfig(s);
 
-      const fromA = await callTool(s, a.token, "propose_create", { structure: "bugs", title: "Proposed by A", reason: "Seen by A" });
-      const fromB = await callTool(s, b.token, "propose_create", { structure: "bugs", title: "Proposed by B", reason: "Seen by B" });
+      const fromA = await callTool(s, a.token, "propose_create", { binder: "bugs", title: "Proposed by A", reason: "Seen by A" });
+      const fromB = await callTool(s, b.token, "propose_create", { binder: "bugs", title: "Proposed by B", reason: "Seen by B" });
 
       const listed = await s.api("GET", "/proposals");
       const proposals = (listed.json as { proposals: { id: string; agentId: string }[] }).proposals;
@@ -140,7 +140,7 @@ describe("agent and app tokens apart", () => {
       expect(resumed.token, "a new token").not.toBe(first.token);
       expect(isRefused(await mcpRequest(s, first.token, "tools/list")), "the stopped process's token").toBe(true);
       expect(await toolsListed(s, resumed.token, "tools/list"), "the resumed process's token opens /mcp").toBe(true);
-      const proposed = await callTool(s, resumed.token, "propose_create", { structure: "bugs", title: "Proposed after the resume", reason: "Seen again" });
+      const proposed = await callTool(s, resumed.token, "propose_create", { binder: "bugs", title: "Proposed after the resume", reason: "Seen again" });
       const listed = await s.api("GET", "/proposals");
       const proposals = (listed.json as { proposals: { id: string; agentId: string }[] }).proposals;
       expect(proposals.find((proposal) => proposal.id === (proposed.json as { proposed: string }).proposed)?.agentId, "acts as the same agent").toBe(first.agentId);

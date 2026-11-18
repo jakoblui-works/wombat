@@ -32,7 +32,7 @@ export const AGENT_STATUS: Record<AgentErrorCode, ContentfulStatusCode> = {
 /** No route sends `items_not_writable` yet: a writer failure on approve settles the proposal as a conflict. */
 export const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {
   items_not_configured: 409,
-  structure_not_found: 404,
+  binder_not_found: 404,
   item_not_found: 404,
   items_not_writable: 500,
   proposal_not_found: 404,

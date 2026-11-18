@@ -11,6 +11,7 @@ import path from "node:path";
 import type { Locator, Page } from "@playwright/test";
 
 import { agentSummary, click, expect, REPO, type Sandbox, startAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import { SETTINGS_FILE } from "../../service/src/items/binders.ts";
 
 type Listed = { id: string; status: string; path?: string; rejectReason?: string };
 
@@ -137,14 +138,14 @@ test("text typed on a proposal's right side is saved as my draft, and Approve wr
   expect(await violations(page), "CSP violations with the editable diff").toEqual([]);
 });
 
-// An item proposal in its tab, on an items root (WOMBAT_ITEMS) with one `bugs` structure open to proposals: each
+// An item proposal in its tab, on an items root (WOMBAT_ITEMS) with one `bugs` binder open to proposals: each
 // field the proposal changes is a `group` named by the field, with a "Drop" button; Approve writes only the fields I kept.
 test("dropping a field of an agent's item update and approving writes only the fields I kept", async ({ sandbox }) => {
   const bug = { id: "0196f3c2-1a00-7000-8000-00000000c001", handle: "BUG-1", title: "Basket total ignores the coupon" };
   const items = path.join(sandbox.base, "items");
   mkdirSync(path.join(items, "bugs"), { recursive: true });
   writeFileSync(
-    path.join(items, "bugs", "_structure.yaml"),
+    path.join(items, "bugs", SETTINGS_FILE),
     "version: 1\nid: bugs\nname: Bugs\nprefix: BUG\naccess: propose\nproperties:\n  status: { type: select, options: [open, fixed], required: true }\n",
   );
   const file = path.join(items, "bugs", "basket-coupon.md");

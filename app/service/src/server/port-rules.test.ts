@@ -62,7 +62,7 @@ describe("port rules", () => {
       // Control: the same agent answers with the token.
       expect((await s.api("GET", `/agents/${id}/log`)).status).toBe(200);
       // Control: the items routes exist (not configured on this server), so the refusals above came from the rules.
-      for (const path of ["/structures", "/structures/bugs/items", "/items/BUG-1"]) {
+      for (const path of ["/binders", "/binders/bugs/items", "/items/BUG-1"]) {
         expectError(await s.api("GET", path), 409, "items_not_configured", path);
       }
       // Control: the proposal routes exist too: with the token they answer anything but the unknown-route error.

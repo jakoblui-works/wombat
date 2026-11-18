@@ -87,7 +87,7 @@ const ENTRIES = [
 ];
 const PROPOSAL = {
   id: "0196f3c2-1a00-7000-8000-0000000000aa",
-  structure: "bugs",
+  binder: "bugs",
   itemId: "0196f3c2-1a00-7000-8000-000000000002",
   kind: "update" as const,
   fields: { note: "Seen again on mobile" },
@@ -98,7 +98,7 @@ const PROPOSAL = {
   agentId: "a1",
   at: "2026-11-08T09:03:00.000Z",
 };
-const COUNTER = { structure: "bugs", last: 41 };
+const COUNTER = { binder: "bugs", last: 41 };
 const LAST_SEQ = 9;
 
 /** Writes a schema 2 database with two agents, their log, a handle counter and a pending proposal. */
@@ -114,13 +114,13 @@ const writeV2Store = (path: string) => {
     db.prepare("INSERT INTO log_entries (seq, agent_id, bytes, body) VALUES (?, ?, ?, ?)").run(seq, agentId, Buffer.byteLength(text), text);
     db.prepare("UPDATE agents SET log_bytes = log_bytes + ? WHERE id = ?").run(Buffer.byteLength(text), agentId);
   }
-  db.prepare("INSERT INTO item_counters (structure, last) VALUES (?, ?)").run(COUNTER.structure, COUNTER.last);
+  db.prepare("INSERT INTO item_counters (structure, last) VALUES (?, ?)").run(COUNTER.binder, COUNTER.last);
   db.prepare(
     `INSERT INTO proposals (id, structure, item_id, kind, fields, file, reason, base_version, status, agent_id, at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     PROPOSAL.id,
-    PROPOSAL.structure,
+    PROPOSAL.binder,
     PROPOSAL.itemId,
     PROPOSAL.kind,
     JSON.stringify(PROPOSAL.fields),
@@ -163,7 +163,7 @@ const V3_ROWS: V3Row[] = [
   { ...PROPOSAL, id: "0196f3c2-1a00-7000-8000-0000000000a1" },
   {
     id: "0196f3c2-1a00-7000-8000-0000000000a2",
-    structure: "bugs",
+    binder: "bugs",
     itemId: "0196f3c2-1a00-7000-8000-000000000012",
     kind: "create",
     fields: { title: "Search returns stale results", repo: "api" },
@@ -177,7 +177,7 @@ const V3_ROWS: V3Row[] = [
   },
   {
     id: "0196f3c2-1a00-7000-8000-0000000000a3",
-    structure: "bugs",
+    binder: "bugs",
     itemId: "0196f3c2-1a00-7000-8000-000000000013",
     kind: "delete",
     fields: {},
@@ -191,7 +191,7 @@ const V3_ROWS: V3Row[] = [
   },
   {
     id: "0196f3c2-1a00-7000-8000-0000000000a4",
-    structure: "bugs",
+    binder: "bugs",
     itemId: "0196f3c2-1a00-7000-8000-000000000014",
     kind: "update",
     fields: { note: "klein – 2 Punkte" },
@@ -206,7 +206,7 @@ const V3_ROWS: V3Row[] = [
   },
   {
     id: "0196f3c2-1a00-7000-8000-0000000000a5",
-    structure: "backlog",
+    binder: "backlog",
     itemId: null,
     kind: "create",
     fields: { title: "Standup notes" },
@@ -239,7 +239,7 @@ const writeV3Store = (path: string, { damaged = false } = {}) => {
   const write = (row: V3Row) =>
     insert.run(
       row.id,
-      row.structure,
+      row.binder,
       row.itemId,
       row.kind,
       JSON.stringify(row.fields),
@@ -281,7 +281,7 @@ describe("opening a store an older version wrote", () => {
     const { fields, ...stored } = PROPOSAL;
     expect(store.getProposal(PROPOSAL.id)).toEqual({ ...stored, target: "item", path: null });
     expect(store.listVersions(PROPOSAL.id).map((version) => version.content)).toEqual([{ fields }]);
-    expect(store.nextHandleNumber(COUNTER.structure, 0), "the handle counter carries on").toBe(COUNTER.last + 1);
+    expect(store.nextHandleNumber(COUNTER.binder, 0), "the handle counter carries on").toBe(COUNTER.last + 1);
     store.close();
     expect(version(path)).toBe(4);
   });

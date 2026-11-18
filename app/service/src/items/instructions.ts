@@ -1,4 +1,4 @@
-// The instructions file: the items of every structure marked `instructions: full` or `index`, rendered from the
+// The instructions file: the items of every binder marked `instructions: full` or `index`, rendered from the
 // agent view (handles only, never ids, nothing hidden) into `<workspace>/.wombat/AGENTS.md`, outside every repo.
 // New agents get it at session start (the harness's `sessionParams`); running ones keep what they started with.
 // The service re-renders it at start, after its own writes and approvals, and when a file under the items root
@@ -11,9 +11,9 @@ import { errorCode, isMissing } from "@wombat/shared/errno";
 
 import { logToStderr, type Log } from "../log.ts";
 import { agentView, type AgentViewItem } from "./access.ts";
-import type { Catalog, ValidStructure } from "./catalog.ts";
+import type { Catalog, ValidBinder } from "./catalog.ts";
 import { writeAtomic } from "./files.ts";
-import { isSkippedPath, SETTINGS_FILE } from "./structures.ts";
+import { isSkippedPath, SETTINGS_FILE } from "./binders.ts";
 import { TOOL } from "./tools.ts";
 import { ownValue, parseHandle, propertyOf } from "./validate.ts";
 import type { Writer } from "./write.ts";
@@ -26,7 +26,7 @@ export const INSTRUCTIONS_FILE = ".wombat/AGENTS.md";
 
 /** An index entry's line is at most this many characters, "…" included. */
 export const INDEX_LINE_MAX = 160;
-/** The largest instructions file sent in full; above it every structure is rendered as an index. */
+/** The largest instructions file sent in full; above it every binder is rendered as an index. */
 export const INSTRUCTIONS_MAX_BYTES = 64 * 1024;
 
 /** How long a failed watcher first waits before it is started again; the wait doubles while it keeps failing. */
@@ -61,10 +61,10 @@ const compareHandles = (a: string | null, b: string | null) => {
 };
 
 /** One property's values in a view's sort order: select by option order, links by handle; missing values last. */
-const compareValues = (structure: ValidStructure, name: string, a: unknown, b: unknown) => {
+const compareValues = (binder: ValidBinder, name: string, a: unknown, b: unknown) => {
   const missing = (value: unknown) => value === undefined || value === null;
   if (missing(a) || missing(b)) return Number(missing(a)) - Number(missing(b));
-  const property = propertyOf(structure.settings, name);
+  const property = propertyOf(binder.settings, name);
   if (property?.type === "select") {
     const rank = (value: unknown) => {
       const index = property.options.indexOf(value as string);
@@ -80,12 +80,12 @@ const compareValues = (structure: ValidStructure, name: string, a: unknown, b: u
   return x < y ? -1 : x > y ? 1 : 0;
 };
 
-/** The first view's sort if the structure has views, else handle number; ties by handle. */
-const ordered = (structure: ValidStructure, items: AgentViewItem[]) => {
-  const sort = structure.settings.views[0]?.sort ?? [];
+/** The first view's sort if the binder has views, else handle number; ties by handle. */
+const ordered = (binder: ValidBinder, items: AgentViewItem[]) => {
+  const sort = binder.settings.views[0]?.sort ?? [];
   return [...items].sort((a, b) => {
     for (const name of sort) {
-      const order = compareValues(structure, name, ownValue(a.properties, name), ownValue(b.properties, name));
+      const order = compareValues(binder, name, ownValue(a.properties, name), ownValue(b.properties, name));
       if (order !== 0) return order;
     }
     return compareHandles(a.handle, b.handle);
@@ -93,8 +93,8 @@ const ordered = (structure: ValidStructure, items: AgentViewItem[]) => {
 };
 
 /** The item's declared properties on one line; links as handles, empty, missing or hidden ones left out. */
-const propertyLine = (structure: ValidStructure, item: AgentViewItem) =>
-  Object.keys(structure.settings.properties)
+const propertyLine = (binder: ValidBinder, item: AgentViewItem) =>
+  Object.keys(binder.settings.properties)
     .flatMap((name) => {
       const value = ownValue(item.properties, name);
       if (typeof value === "string" && value.trim() !== "") return [`${name}: ${value.replace(/\s+/g, " ").trim()}`];
@@ -105,7 +105,7 @@ const propertyLine = (structure: ValidStructure, item: AgentViewItem) =>
 
 /**
  * The body with blank lines trimmed at both ends and its headings moved three levels down (at most `######`),
- * outside code fences, so a heading in a body never reads as a structure or an item of this file.
+ * outside code fences, so a heading in a body never reads as a binder or an item of this file.
  */
 const bodyText = (body: string) => {
   let fence: string | undefined;
@@ -135,14 +135,14 @@ export const indexLine = (body: string | null): string | undefined => {
   return chars.length <= INDEX_LINE_MAX ? first : `${chars.slice(0, INDEX_LINE_MAX - 1).join("").trimEnd()}…`;
 };
 
-const renderItem = (structure: ValidStructure, item: AgentViewItem, mode: "full" | "index"): string[] => {
+const renderItem = (binder: ValidBinder, item: AgentViewItem, mode: "full" | "index"): string[] => {
   const lines = [`### ${item.handle ?? ""} ${item.title ?? ""}`];
   if (mode === "index") {
     const line = indexLine(item.body);
     if (line !== undefined) lines.push(line);
     return lines;
   }
-  const properties = propertyLine(structure, item);
+  const properties = propertyLine(binder, item);
   if (properties !== "") lines.push(properties);
   const body = bodyText(item.body ?? "");
   if (body !== "") lines.push("", body);
@@ -150,23 +150,23 @@ const renderItem = (structure: ValidStructure, item: AgentViewItem, mode: "full"
 };
 
 export type RenderOptions = {
-  /** Above this many bytes every structure is rendered as an index, so no structure can crowd out an agent's prompt. */
+  /** Above this many bytes every binder is rendered as an index, so no binder can crowd out an agent's prompt. */
   maxBytes?: number;
 };
 
-/** The instructions file's text from the catalog's current read, or undefined when no structure is marked. */
+/** The instructions file's text from the catalog's current read, or undefined when no binder is marked. */
 export const renderInstructions = async (catalog: Catalog, { maxBytes = INSTRUCTIONS_MAX_BYTES }: RenderOptions = {}): Promise<string | undefined> => {
-  const { structures, items } = agentView(await catalog.snapshot());
-  const marked = structures.filter((structure) => structure.settings.instructions !== "off").sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const { binders, items } = agentView(await catalog.snapshot());
+  const marked = binders.filter((binder) => binder.settings.instructions !== "off").sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   if (marked.length === 0) return undefined;
   const render = (shortened: boolean) => {
-    const sections = marked.map((structure) => {
-      const mode = shortened ? "index" : (structure.settings.instructions as "full" | "index");
+    const sections = marked.map((binder) => {
+      const mode = shortened ? "index" : (binder.settings.instructions as "full" | "index");
       // An item renders when it has a title and a handle, value problems or not; its problems never do.
-      const own = items.filter((item) => item.structure === structure.id && item.handle !== null && item.title !== null);
-      const lines = [`## ${structure.settings.name}`];
-      if (mode === "index") lines.push("", shortened && structure.settings.instructions === "full" ? SHORTENED_NOTE : INDEX_NOTE);
-      for (const item of ordered(structure, own)) lines.push("", ...renderItem(structure, item, mode));
+      const own = items.filter((item) => item.binder === binder.id && item.handle !== null && item.title !== null);
+      const lines = [`## ${binder.settings.name}`];
+      if (mode === "index") lines.push("", shortened && binder.settings.instructions === "full" ? SHORTENED_NOTE : INDEX_NOTE);
+      for (const item of ordered(binder, own)) lines.push("", ...renderItem(binder, item, mode));
       return lines.join("\n");
     });
     return `${[INSTRUCTIONS_HEADER, ...sections].join("\n\n")}\n`;
@@ -256,7 +256,7 @@ export type Instructions = {
   close: () => Promise<void>;
 };
 
-/** True for a changed path (relative to the items root) that can change the file: an item or a structure's settings. */
+/** True for a changed path (relative to the items root) that can change the file: an item or a binder's settings. */
 const relevant = (filename: string | null) => {
   if (filename === null) return true;
   const parts = filename.split(/[\\/]/);
@@ -368,8 +368,8 @@ export const openInstructions = ({ catalog, workspaceRoot, itemsRoot, log = logT
 
 /** The writer with the instructions file refreshed after each write, before the write's call answers. */
 export const refreshingWriter = (writer: Writer, refresh: () => Promise<void>): Writer => ({
-  createItem: async (structureId, item, id) => {
-    const created = await writer.createItem(structureId, item, id);
+  createItem: async (binderId, item, id) => {
+    const created = await writer.createItem(binderId, item, id);
     await refresh();
     return created;
   },
@@ -382,6 +382,6 @@ export const refreshingWriter = (writer: Writer, refresh: () => Promise<void>): 
     await writer.deleteItem(handle, baseVersion);
     await refresh();
   },
-  checkNewFile: (structureId, file, unseen) => writer.checkNewFile(structureId, file, unseen),
+  checkNewFile: (binderId, file, unseen) => writer.checkNewFile(binderId, file, unseen),
   check: (change) => writer.check(change),
 });

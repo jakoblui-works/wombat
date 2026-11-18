@@ -21,16 +21,16 @@ const ask = async (s: Served, agentId: string, tool: string, args: Record<string
 
 describe("agent tools end to end", () => {
   test(
-    "a started agent lists items, creates one in an edit structure and proposes one in a propose structure",
+    "a started agent lists items, creates one in an edit binder and proposes one in a propose binder",
     async () => {
       const { s, root } = await serveItems();
       const { id } = await s.manager.start("fake-call-tool", REPO);
 
-      const listed = JSON.stringify(await ask(s, id, "list_items", { structure: "backlog" }));
+      const listed = JSON.stringify(await ask(s, id, "list_items", { binder: "backlog" }));
       expect(listed).toContain("BL-1");
 
       const created = (await ask(s, id, "create_item", {
-        structure: "backlog",
+        binder: "backlog",
         title: "Created by an agent",
         body: "\nThrough the item tools.\n",
       })) as { written?: string };
@@ -40,7 +40,7 @@ describe("agent tools end to end", () => {
       expect((item.json as { title: string; problems: unknown[]; path: string }).problems).toEqual([]);
       expect(readAt(root, (item.json as { path: string }).path)).toContain("# Created by an agent");
 
-      const proposed = (await ask(s, id, "propose_create", { structure: "bugs", title: "Proposed by an agent", reason: "Found while testing" })) as {
+      const proposed = (await ask(s, id, "propose_create", { binder: "bugs", title: "Proposed by an agent", reason: "Found while testing" })) as {
         proposed?: string;
       };
       const proposals = (await s.api("GET", "/proposals?status=pending")).json as { proposals: { id: string; agentId: string; status: string }[] };

@@ -1,5 +1,5 @@
-// Items: a structure's settings (`_structure.yaml`, written by hand) and the items the service reads from the
-// item files. The settings schema is strict and refuses contradictions, since a structure's rules are what the
+// Items: a binder's settings (`_binder.yaml`, written by hand) and the items the service reads from the
+// item files. The settings schema is strict and refuses contradictions, since a binder's rules are what the
 // service enforces on agents; the shapes read through the API are lenient (the app ignores unknown fields and
 // kinds), like every response in `api.ts`.
 //
@@ -31,10 +31,10 @@ const keysOf = (what: string, keys: string, example: string, unknownKey?: (key: 
   },
 });
 
-/** A structure id: links (`to`) and the API name a structure by it, so it stays stable when the folder moves. */
-const structureId = (key: string, example: string) =>
-  z.string(takes(key, "a structure id", `${key}: ${example}`)).regex(/^[a-z][a-z0-9-]{0,39}$/, {
-    error: `${key}: a structure id is a lowercase letter, then up to 39 lowercase letters, digits or -, like ${key}: ${example}`,
+/** A binder id: links (`to`) and the API name a binder by it, so it stays stable when the folder moves. */
+const binderId = (key: string, example: string) =>
+  z.string(takes(key, "a binder id", `${key}: ${example}`)).regex(/^[a-z][a-z0-9-]{0,39}$/, {
+    error: `${key}: a binder id is a lowercase letter, then up to 39 lowercase letters, digits or -, like ${key}: ${example}`,
   });
 
 export const Access = z.enum(["hidden", "read", "propose", "edit"]);
@@ -59,7 +59,7 @@ const RESERVED_NAMES: ReadonlySet<string> = new Set([...OWN_KEYS, ...ITEM_FIELDS
 export const HANDLE_PREFIX_PATTERN = "[A-Z][A-Z0-9]{0,9}";
 
 /**
- * A glob relative to the structure's folder. Refuses the obvious escapes (absolute paths, `..`, backslashes)
+ * A glob relative to the binder's folder. Refuses the obvious escapes (absolute paths, `..`, backslashes)
  * and brace sets, which could hide them; the loader checks that what a glob matches stays inside the folder.
  */
 const isRelativeGlob = (glob: string) =>
@@ -76,7 +76,7 @@ const required = z.boolean(takes("required", "true or false", "required: true"))
 /** Properties are locked in the top-level `locked` list (one list for every field), never on the property. */
 const propertyKeys = (type: string, keys: string) =>
   keysOf(`a ${type} property`, keys, propertyExample, (key) =>
-    key === "locked" ? "locked: lock a property in the structure's top-level list, like locked: [repo]; remove it here" : undefined,
+    key === "locked" ? "locked: lock a property in the binder's top-level list, like locked: [repo]; remove it here" : undefined,
   );
 
 const SelectProperty = z.strictObject(
@@ -102,9 +102,9 @@ const TextProperty = z.strictObject({ type: z.literal("text"), required }, prope
 /** Values are `"YYYY-MM-DD"` strings. */
 const DateProperty = z.strictObject({ type: z.literal("date"), required }, propertyKeys("date", "type and required"));
 const NumberProperty = z.strictObject({ type: z.literal("number"), required }, propertyKeys("number", "type and required"));
-/** Values are the target item's id; `to` names the target's structure (the loader checks it exists). */
+/** Values are the target item's id; `to` names the target's binder (the loader checks it exists). */
 const LinkProperty = z.strictObject(
-  { type: z.literal("link"), to: structureId("to", "backlog"), required },
+  { type: z.literal("link"), to: binderId("to", "backlog"), required },
   propertyKeys("link", "type, to and required"),
 );
 
@@ -159,7 +159,7 @@ const BoardView = z.strictObject(
   { ...viewFields, kind: z.literal("board"), column: z.string(takes("column", "a select property's name", "column: repo")) },
   keysOf("a board view", "name, kind, filter, sort and column", viewExample),
 );
-/** `parent`: a link property to the same structure; an item nests under the item it links to. */
+/** `parent`: a link property to the same binder; an item nests under the item it links to. */
 const TreeView = z.strictObject(
   { ...viewFields, kind: z.literal("tree"), parent: z.string(takes("parent", "a link property's name", "parent: parent")) },
   keysOf("a tree view", "name, kind, filter, sort and parent", viewExample),
@@ -180,37 +180,37 @@ export type LenientView = z.infer<typeof LenientView>;
 const settingsKeys = "version, id, name, prefix, access, naming, include, instructions, locked, properties and views";
 
 /**
- * A structure's `_structure.yaml`, written by hand (and by the platform migration); the service's loader
+ * A binder's `_binder.yaml`, written by hand (and by the platform migration); the service's loader
  * parses it and enforces it on agents, the app shows its views. Strict, and refuses settings that contradict
  * themselves, each with a message naming the key. Rules across files (unique ids and prefixes, `to` naming a
- * known structure, a file in two structures) are the loader's.
+ * known binder, a file in two binders) are the loader's.
  */
-export const StructureSettings = z
+export const BinderSettings = z
   .strictObject(
     {
       version: z.literal(1, takes("version", "1", "version: 1")),
-      id: structureId("id", "bugs"),
-      name: z.string(takes("name", "text", "name: Bugs")).min(1, { error: "name: give the structure a name to show in the app, like name: Bugs" }),
+      id: binderId("id", "bugs"),
+      name: z.string(takes("name", "text", "name: Bugs")).min(1, { error: "name: give the binder a name to show in the app, like name: Bugs" }),
       /** The handle prefix: `BUG` in `BUG-14`. */
       prefix: z.string(takes("prefix", "a handle prefix", "prefix: BUG")).regex(new RegExp(`^${HANDLE_PREFIX_PATTERN}$`), {
         error: "prefix: an uppercase letter, then up to 9 uppercase letters or digits, like prefix: BUG",
       }),
       access: z.enum(Access.options, takes("access", "hidden, read, propose or edit", "access: propose")),
-      /** `handle`: files the service creates are named `BUG-14-<slug>.md`; `free`: the structure's files are its `include` matches. */
+      /** `handle`: files the service creates are named `BUG-14-<slug>.md`; `free`: the binder's files are its `include` matches. */
       naming: z.enum(Naming.options, takes("naming", "handle or free", "naming: free")).default("handle"),
-      /** Globs relative to the structure's folder; only with `naming: free`. */
+      /** Globs relative to the binder's folder; only with `naming: free`. */
       include: z
         .array(
           z.string(takes("include", "a list of globs", 'include: ["*.md"]')).refine(isRelativeGlob, {
-            error: 'include: a glob is relative to the structure\'s folder, without "..", "\\", "{" or "}", like include: ["*.md"]',
+            error: 'include: a glob is relative to the binder\'s folder, without "..", "\\", "{" or "}", like include: ["*.md"]',
           }),
           takes("include", "a list of globs", 'include: ["*.md"]'),
         )
         .min(1, { error: 'include: list at least one glob, like include: ["*.md"]' })
         .exactOptional(),
-      /** Whether the structure's items are loaded into every agent at start: in full, or as an index. */
+      /** Whether the binder's items are loaded into every agent at start: in full, or as an index. */
       instructions: z.enum(Instructions.options, takes("instructions", "off, full or index", "instructions: full")).default("off"),
-      /** Fields agents can't change: `title`, `body` or property names. Only in a propose or edit structure. */
+      /** Fields agents can't change: `title`, `body` or property names. Only in a propose or edit binder. */
       locked: z
         .array(z.string(takes("locked", "a list of field names", "locked: [title]")), takes("locked", "a list", "locked: [title]"))
         .default([]),
@@ -224,36 +224,36 @@ export const StructureSettings = z
         .default({}),
       views: z.array(View, takes("views", "a list of views", `views: [${viewExample}]`)).default([]),
     },
-    keysOf("_structure.yaml", settingsKeys, "id: bugs"),
+    keysOf("_binder.yaml", settingsKeys, "id: bugs"),
   )
   .superRefine((settings, ctx) => {
     const refuse = (path: (string | number)[], message: string) => ctx.addIssue({ code: "custom", path, message });
     const { access, properties } = settings;
 
     if (access === "hidden" && settings.instructions !== "off") {
-      refuse(["instructions"], "instructions: a hidden structure never reaches agents; set instructions: off, or access: read or higher");
+      refuse(["instructions"], "instructions: a hidden binder never reaches agents; set instructions: off, or access: read or higher");
     }
-    // Instructions reach every later agent's system prompt; an edit structure would let one agent change them
+    // Instructions reach every later agent's system prompt; an edit binder would let one agent change them
     // without the user's approval.
     if (access === "edit" && settings.instructions !== "off") {
       refuse(["instructions"], "instructions: agents could change every later agent's instructions without your approval; set access: propose, or instructions: off");
     }
 
     if (settings.locked.length > 0 && (access === "hidden" || access === "read")) {
-      refuse(["locked"], `locked: a ${access} structure is closed to agent changes as a whole; remove locked, or set access: propose or edit`);
+      refuse(["locked"], `locked: a ${access} binder is closed to agent changes as a whole; remove locked, or set access: propose or edit`);
     } else {
       settings.locked.forEach((field, index) => {
         if (!ITEM_FIELDS.has(field) && !Object.hasOwn(properties, field)) {
-          refuse(["locked", index], `locked: "${field}" is not a field of this structure; name title, body or a property`);
+          refuse(["locked", index], `locked: "${field}" is not a field of this binder; name title, body or a property`);
         }
       });
     }
 
     if (settings.include !== undefined && settings.naming !== "free") {
-      refuse(["include"], "include: only a structure with naming: free picks its files by include; set naming: free or remove include");
+      refuse(["include"], "include: only a binder with naming: free picks its files by include; set naming: free or remove include");
     }
     if (settings.naming === "free" && settings.include === undefined) {
-      refuse(["naming"], 'naming: free needs include, the globs of the structure\'s files, like include: ["*.md"]');
+      refuse(["naming"], 'naming: free needs include, the globs of the binder\'s files, like include: ["*.md"]');
     }
 
     for (const name of Object.keys(properties)) {
@@ -266,7 +266,7 @@ export const StructureSettings = z
       const at = (key: string) => ["views", index, key];
       const named = `view "${view.name}"`;
       const unknown = (key: string, property: string) =>
-        refuse(at(key), `${key}: ${named} names "${property}", which is not a property of this structure`);
+        refuse(at(key), `${key}: ${named} names "${property}", which is not a property of this binder`);
       const known = (key: string, property: string) => {
         if (Object.hasOwn(properties, property)) return true;
         unknown(key, property);
@@ -282,16 +282,16 @@ export const StructureSettings = z
       if (view.kind === "tree" && known("parent", view.parent)) {
         const parent = properties[view.parent];
         if (parent?.type !== "link" || parent.to !== settings.id) {
-          refuse(at("parent"), `parent: ${named} needs a link property to this structure (to: ${settings.id}), and "${view.parent}" isn't one`);
+          refuse(at("parent"), `parent: ${named} needs a link property to this binder (to: ${settings.id}), and "${view.parent}" isn't one`);
         }
       }
     });
   });
-export type StructureSettings = z.infer<typeof StructureSettings>;
+export type BinderSettings = z.infer<typeof BinderSettings>;
 
 // Read through the API (lenient).
 
-/** Where an item or structure breaks the rules; `field` or `line` says where. A valid one has none. */
+/** Where an item or binder breaks the rules; `field` or `line` says where. A valid one has none. */
 export const Problem = z.object({
   field: z.string().exactOptional(),
   line: z.int().positive().exactOptional(),
@@ -303,8 +303,8 @@ export type Problem = z.infer<typeof Problem>;
 export const LinkValue = z.object({ id: z.string(), handle: z.string().nullable() });
 export type LinkValue = z.infer<typeof LinkValue>;
 
-const structureListing = {
-  /** The structure's folder, relative to the items root, with `/`. */
+const binderListing = {
+  /** The binder's folder, relative to the items root, with `/`. */
   path: z.string(),
   /** Every listed file, invalid ones included. */
   itemCount: z.int().nonnegative(),
@@ -313,11 +313,11 @@ const structureListing = {
 };
 
 /**
- * A structure as the service lists it (`GET /structures`) for the app, hidden ones included. `id` is null
- * when its `_structure.yaml` fails to parse or validate: then only its path and problems are known, and its
+ * A binder as the service lists it (`GET /binders`) for the app, hidden ones included. `id` is null
+ * when its `_binder.yaml` fails to parse or validate: then only its path and problems are known, and its
  * files aren't listed.
  */
-export const StructureSummary = z.union([
+export const BinderSummary = z.union([
   z.object({
     id: z.string(),
     name: z.string(),
@@ -327,11 +327,11 @@ export const StructureSummary = z.union([
     instructions: Instructions,
     properties: z.record(z.string(), LenientProperty),
     views: knownItems(LenientView),
-    ...structureListing,
+    ...binderListing,
   }),
-  z.object({ id: z.null(), ...structureListing }),
+  z.object({ id: z.null(), ...binderListing }),
 ]);
-export type StructureSummary = z.infer<typeof StructureSummary>;
+export type BinderSummary = z.infer<typeof BinderSummary>;
 
 const itemFields = {
   /** The item's UUIDv7, which never changes; null when the file can't be parsed. */
@@ -354,7 +354,7 @@ const itemFields = {
   problems: z.array(Problem),
 };
 
-/** An item as a structure's list sends it (`GET /structures/:id/items`), invalid ones included; no body. */
+/** An item as a binder's list sends it (`GET /binders/:id/items`), invalid ones included; no body. */
 export const ItemSummary = z.object(itemFields);
 export type ItemSummary = z.infer<typeof ItemSummary>;
 

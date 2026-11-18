@@ -1,17 +1,17 @@
-// Finding the structures under an items root and the files that belong to each. A file belongs to the structure
-// of the nearest folder above it that has a `_structure.yaml` (broken settings included), and to no other:
-// a structure's access level covers exactly its own files, so a nested hidden structure's items never show
+// Finding the binders under an items root and the files that belong to each. A file belongs to the binder
+// of the nearest folder above it that has a `_binder.yaml` (broken settings included), and to no other:
+// a binder's access level covers exactly its own files, so a nested hidden binder's items never show
 // through its parent.
 import { glob, lstat, readdir, readFile, realpath } from "node:fs/promises";
 import { join, matchesGlob, posix, relative, sep } from "node:path";
 
 import { errorCode, isMissing } from "@wombat/shared/errno";
-import { StructureSettings, type Problem } from "@wombat/shared/items";
+import { BinderSettings, type Problem } from "@wombat/shared/items";
 import { isCollection, LineCounter, parseDocument, type Document } from "yaml";
 
 import { isWithin } from "../workspace.ts";
 
-export const SETTINGS_FILE = "_structure.yaml";
+export const SETTINGS_FILE = "_binder.yaml";
 
 /** Dot folders (`.git`, drafts) and installed packages are never scanned. */
 const skipped = (name: string) => name.startsWith(".") || name === "node_modules";
@@ -22,17 +22,17 @@ export const toRootPath = (root: string, path: string) => relative(root, path).s
 /** Joins root-relative paths, where "" is the root. */
 export const joinRootPath = (folder: string, name: string) => (folder === "" ? name : `${folder}/${name}`);
 
-/** What makes a folder unreadable, as a problem of the structure the folder belongs to. */
+/** What makes a folder unreadable, as a problem of the binder the folder belongs to. */
 export const folderProblem = (folder: string, error: unknown): Problem => ({
   message: `folder: ${folder === "" ? "the items root" : folder} can't be read (${errorCode(error)}); make it readable so its items load`,
 });
 
 /**
- * Every folder under `root` (itself included) that has a `_structure.yaml`, root-relative and sorted, and the
+ * Every folder under `root` (itself included) that has a `_binder.yaml`, root-relative and sorted, and the
  * folders below the root that couldn't be read. A folder that vanished during the scan is skipped; the root
  * itself must be readable.
  */
-export const structureFolders = async (root: string): Promise<{ folders: string[]; unreadable: { folder: string; error: unknown }[] }> => {
+export const binderFolders = async (root: string): Promise<{ folders: string[]; unreadable: { folder: string; error: unknown }[] }> => {
   const folders: string[] = [];
   const unreadable: { folder: string; error: unknown }[] = [];
   const visit = async (folder: string) => {
@@ -57,14 +57,14 @@ export const structureFolders = async (root: string): Promise<{ folders: string[
 /** True for a path the scan never enters: one with a dot folder or node_modules in it, or a dot file. */
 export const isSkippedPath = (path: string) => path.split("/").some(skipped);
 
-/** True when a folder-relative path matches one of a free structure's `include` globs. */
-export const isIncluded = (settings: StructureSettings, path: string) =>
+/** True when a folder-relative path matches one of a free binder's `include` globs. */
+export const isIncluded = (settings: BinderSettings, path: string) =>
   (settings.include ?? []).some((pattern) => matchesGlob(path, pattern.replace(/^(\.\/)+/, "")));
 
 /** Whether the root-relative `path` is the folder `folder` or inside it; "" is the root, which holds everything. */
 export const inFolder = (folder: string, path: string) => folder === "" || path === folder || path.startsWith(`${folder}/`);
 
-/** The structure folder a root-relative file belongs to: the nearest of `folders` above it. */
+/** The binder folder a root-relative file belongs to: the nearest of `folders` above it. */
 export const ownerOf = (folders: Set<string>, file: string): string | undefined => {
   const parts = file.split("/").slice(0, -1);
   for (let length = parts.length; length >= 0; length -= 1) {
@@ -74,7 +74,7 @@ export const ownerOf = (folders: Set<string>, file: string): string | undefined 
   return undefined;
 };
 
-export type SettingsResult = { settings: StructureSettings; problems: [] } | { settings: null; problems: Problem[] };
+export type SettingsResult = { settings: BinderSettings; problems: [] } | { settings: null; problems: Problem[] };
 
 /** The line of the deepest node of `path` the document has. */
 const lineOf = (doc: Document, lineCounter: LineCounter, path: PropertyKey[]) => {
@@ -91,7 +91,7 @@ const lineOf = (doc: Document, lineCounter: LineCounter, path: PropertyKey[]) =>
   return offset === undefined ? undefined : lineCounter.linePos(offset).line;
 };
 
-/** Parses and validates one `_structure.yaml`; a problem's `field` is the zod path joined with `.`. */
+/** Parses and validates one `_binder.yaml`; a problem's `field` is the zod path joined with `.`. */
 export const readSettings = async (file: string): Promise<SettingsResult> => {
   let text: string;
   try {
@@ -105,10 +105,10 @@ export const readSettings = async (file: string): Promise<SettingsResult> => {
   const [error] = doc.errors;
   if (error !== undefined) {
     const line = error.linePos?.[0].line;
-    const message = `${SETTINGS_FILE}: ${(error.message.split("\n")[0] ?? "").replace(/:$/, "")}; fix the YAML so the structure loads`;
+    const message = `${SETTINGS_FILE}: ${(error.message.split("\n")[0] ?? "").replace(/:$/, "")}; fix the YAML so the binder loads`;
     return { settings: null, problems: [{ ...(line === undefined ? {} : { line }), message }] };
   }
-  const result = StructureSettings.safeParse(doc.toJS());
+  const result = BinderSettings.safeParse(doc.toJS());
   if (result.success) return { settings: result.data, problems: [] };
   return {
     settings: null,
@@ -138,11 +138,11 @@ export const throughSymlink = async (folder: string, file: string) => {
 };
 
 /**
- * Whether the structure in `folder` reads the root-relative `path`, a regular file not reached through a symlink,
+ * Whether the binder in `folder` reads the root-relative `path`, a regular file not reached through a symlink,
  * as one of its items: `*.md` directly in its folder (`naming: handle`), or an `include` match of its own
  * (`naming: free`). Never a dot file, nor anything under a dot folder or node_modules.
  */
-export const readsAsItem = (settings: StructureSettings, folder: string, path: string, folders: Set<string>) => {
+export const readsAsItem = (settings: BinderSettings, folder: string, path: string, folders: Set<string>) => {
   const inner = folder === "" ? path : path.slice(folder.length + 1);
   if (!inFolder(folder, path) || !inner.endsWith(".md") || isSkippedPath(inner)) return false;
   if (settings.naming === "handle" || settings.include === undefined) return !inner.includes("/");
@@ -150,9 +150,9 @@ export const readsAsItem = (settings: StructureSettings, folder: string, path: s
 };
 
 /**
- * Whether the catalog under `root` reads the file at `path` (absolute, symlinks resolved) as a structure's
- * `_structure.yaml` or an item's file, as it is now or once a file is written there: files only the item tools
- * may change. A structure whose settings don't load reads no items.
+ * Whether the catalog under `root` reads the file at `path` (absolute, symlinks resolved) as a binder's
+ * `_binder.yaml` or an item's file, as it is now or once a file is written there: files only the item tools
+ * may change. A binder whose settings don't load reads no items.
  */
 export const isCatalogFile = async (root: string, path: string): Promise<boolean> => {
   const realRoot = await realpath(root);
@@ -160,25 +160,25 @@ export const isCatalogFile = async (root: string, path: string): Promise<boolean
   const rootPath = toRootPath(realRoot, path);
   if (isSkippedPath(rootPath)) return false;
   if (posix.basename(rootPath) === SETTINGS_FILE) return true;
-  const folders = new Set((await structureFolders(realRoot)).folders);
+  const folders = new Set((await binderFolders(realRoot)).folders);
   const owner = ownerOf(folders, rootPath);
   if (owner === undefined) return false;
   const { settings } = await readSettings(join(realRoot, owner, SETTINGS_FILE));
   return settings !== null && readsAsItem(settings, owner, rootPath, folders);
 };
 
-export type StructureFiles = { files: string[]; problems: Problem[] };
+export type BinderFiles = { files: string[]; problems: Problem[] };
 
 /**
- * A structure's files, root-relative and sorted: `*.md` directly in its folder (`naming: handle`) or its
- * `include` matches (`naming: free`). Only regular `.md` files count that belong to no structure nested deeper
+ * A binder's files, root-relative and sorted: `*.md` directly in its folder (`naming: handle`) or its
+ * `include` matches (`naming: free`). Only regular `.md` files count that belong to no binder nested deeper
  * and aren't under a dot folder or node_modules. Symlinks are never followed, files or folders, as in the scan
- * for structures: a symlink could lead out of the folder, or make one file two items. A structure folder that
+ * for binders: a symlink could lead out of the folder, or make one file two items. A binder folder that
  * vanished lists no files; one that can't be read lists none, with a problem.
  */
-export const structureFiles = async (root: string, folder: string, settings: StructureSettings, folders: Set<string>): Promise<StructureFiles> => {
+export const binderFiles = async (root: string, folder: string, settings: BinderSettings, folders: Set<string>): Promise<BinderFiles> => {
   const absolute = join(root, folder);
-  const failed = (error: unknown): StructureFiles => ({ files: [], problems: isMissing(error) ? [] : [folderProblem(folder, error)] });
+  const failed = (error: unknown): BinderFiles => ({ files: [], problems: isMissing(error) ? [] : [folderProblem(folder, error)] });
   if (settings.naming === "handle" || settings.include === undefined) {
     let entries;
     try {

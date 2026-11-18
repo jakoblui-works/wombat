@@ -14,6 +14,7 @@ import { createProposals } from "../src/proposals/proposals.ts";
 import { ACCESS_FILES, openAccessRoot } from "./access-fixtures.ts";
 import { writeAt } from "./items-fixtures.ts";
 import { open, tempStorePath } from "./store-fixtures.ts";
+import { SETTINGS_FILE } from "../src/items/binders.ts";
 
 type Notes = { setup: string; rotation: string; review: string };
 
@@ -217,8 +218,8 @@ test("a proposal on a plain file that became an item's file since ends in a conf
   const { proposals, root } = openAccessRoot({ ...ACCESS_FILES, "handbook/pairing-notes.md": notes(BASE) });
   const file = join(root, "handbook", "pairing-notes.md");
   const id = (await proposals.proposeFile(AGENT, file, "The rotation rule changed.", { edits: EDITS })).proposed;
-  // By hand the folder becomes a structure's, which reads every .md file in it as an item.
-  writeAt(root, "handbook/_structure.yaml", "version: 1\nid: handbook\nname: Handbook\nprefix: HB\naccess: edit\n");
+  // By hand the folder becomes a binder's, which reads every .md file in it as an item.
+  writeAt(root, `handbook/${SETTINGS_FILE}`, "version: 1\nid: handbook\nname: Handbook\nprefix: HB\naccess: edit\n");
 
   const answer = await proposals.approve(id, 1);
 

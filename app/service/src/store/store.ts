@@ -46,10 +46,10 @@ export type Store = ProposalStore & {
   /** `truncated` is true exactly when an entry of this agent after `after` was dropped by the cap. */
   readLog: (agentId: string, after?: number, limit?: number) => { entries: LogEntry[]; truncated: boolean };
   /**
-   * The next handle number of a structure: one above both the last number it gave and `floor` (the highest
+   * The next handle number of a binder: one above both the last number it gave and `floor` (the highest
    * number on disk), remembered so a deleted item's number is never given again.
    */
-  nextHandleNumber: (structure: string, floor: number) => number;
+  nextHandleNumber: (binder: string, floor: number) => number;
   /**
    * Runs `fn` as one transaction; store writes called inside it join it instead of committing on their own. `fn` must
    * be synchronous. There's no savepoint: catching a store error inside `fn` keeps that call's earlier writes.
@@ -225,8 +225,8 @@ export const openStore = ({
     };
   };
 
-  const nextHandleNumber = (structure: string, floor: number) =>
-    transaction(() => asNumber(statements.nextHandleNumber.get(structure, floor)?.last));
+  const nextHandleNumber = (binder: string, floor: number) =>
+    transaction(() => asNumber(statements.nextHandleNumber.get(binder, floor)?.last));
 
   return {
     dbId,

@@ -11,7 +11,7 @@ import { describe, expect, test } from "vitest";
 import { ACCESS_FILES, AGENT, HIDDEN, MARKER, expectRefused, leaks, openAccessRoot, refusal, snapshotFiles } from "../../test/access-fixtures.ts";
 import { FIXTURE_FILES, expectWriteError, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 
-const versionOf = async (opened: ReturnType<typeof openItems>, file: string) => itemAt((await opened.catalog.snapshot()).items.filter((item) => item.structure === "bugs"), file).version;
+const versionOf = async (opened: ReturnType<typeof openItems>, file: string) => itemAt((await opened.catalog.snapshot()).items.filter((item) => item.binder === "bugs"), file).version;
 
 describe("changing invalid items", () => {
   test("an item with only value problems can be fixed, or changed elsewhere, but not given a new problem", async () => {
@@ -22,7 +22,7 @@ describe("changing invalid items", () => {
 
     // Another field changes; the existing value problem stays and nothing new appears.
     await opened.writer.updateItem("BUG-13", { note: "Seen on the mobile build" }, await versionOf(opened, unknownOption));
-    expect(itemAt((await opened.catalog.snapshot()).items.filter((item) => item.structure === "bugs"), unknownOption).properties.note).toBe("Seen on the mobile build");
+    expect(itemAt((await opened.catalog.snapshot()).items.filter((item) => item.binder === "bugs"), unknownOption).properties.note).toBe("Seen on the mobile build");
 
     // A field that was fine gets a problem: refused, file unchanged.
     const before = readAt(root, unknownOption);
@@ -32,7 +32,7 @@ describe("changing invalid items", () => {
     // Fixing the values makes both items valid.
     await opened.writer.updateItem("BUG-13", { repo: "api" }, await versionOf(opened, unknownOption));
     await opened.writer.updateItem("BUG-12", { repo: "site-web" }, await versionOf(opened, missingRequired));
-    const bugs = (await opened.catalog.snapshot()).items.filter((item) => item.structure === "bugs");
+    const bugs = (await opened.catalog.snapshot()).items.filter((item) => item.binder === "bugs");
     expect(itemAt(bugs, unknownOption).problems).toEqual([]);
     expect(itemAt(bugs, missingRequired).problems).toEqual([]);
   });
@@ -71,7 +71,7 @@ describe("changing invalid items", () => {
       const message = await expectRefused(call(), "invalid_fields", what);
       const error = await refusal(call(), what);
       const text = JSON.stringify({ message, problems: error.problems });
-      expect(leaks(text, [MARKER, hiddenCopyId, ...HIDDEN.ids, HIDDEN.structure, HIDDEN.name, "vault/", path]), `${what}: names the hidden file`).toEqual([]);
+      expect(leaks(text, [MARKER, hiddenCopyId, ...HIDDEN.ids, HIDDEN.binder, HIDDEN.name, "vault/", path]), `${what}: names the hidden file`).toEqual([]);
     }
     expect(snapshotFiles(root)).toEqual(before);
   });

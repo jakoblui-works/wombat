@@ -3,7 +3,7 @@
 // rejecting touches no file, and a decided proposal can't be decided again. Proposing writes no file and takes no
 // handle number (nor may the writer's dry run), so an approved create gets the handle it would get alone. A
 // free-named create keeps its path in the proposal's own `file` (null for every other proposal), never in `fields`,
-// and approving writes exactly there, even in a structure with a property named `file`. A new item's fields are
+// and approving writes exactly there, even in a binder with a property named `file`. A new item's fields are
 // checked as the writer checks them, also when the agent revises them or I edit them.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -13,15 +13,16 @@ import { describe, expect, test } from "vitest";
 import { ACCESS_FILES, AGENT, expectRefused, openAccessRoot, snapshotFiles, withProposals, type TestAccess } from "../../test/access-fixtures.ts";
 import { DraftRefused } from "../proposals/refused.ts";
 import { openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
+import { SETTINGS_FILE } from "./binders.ts";
 
 const BUG = "bugs/BUG-2-hero-caption.md";
 
-/** Free-named structures taking proposals: `drafts`, and `papers`, which has a property named `file`. */
+/** Free-named binders taking proposals: `drafts`, and `papers`, which has a property named `file`. */
 const FREE_FILES = {
   ...ACCESS_FILES,
-  "drafts/_structure.yaml": 'version: 1\nid: drafts\nname: Drafts\nprefix: DRF\naccess: propose\nnaming: free\ninclude: ["**/*.md"]\n',
+  [`drafts/${SETTINGS_FILE}`]: 'version: 1\nid: drafts\nname: Drafts\nprefix: DRF\naccess: propose\nnaming: free\ninclude: ["**/*.md"]\n',
   "drafts/guides/keep.md": "---\nid: 0196f3c2-9e00-7000-8000-0000000000b1\nhandle: DRF-1\n---\n# Keep\n\nInvented.\n",
-  "papers/_structure.yaml":
+  [`papers/${SETTINGS_FILE}`]:
     'version: 1\nid: papers\nname: Papers\nprefix: PAP\naccess: propose\nnaming: free\ninclude: ["**/*.md"]\nproperties:\n  file: { type: text }\n',
 };
 
@@ -35,7 +36,7 @@ describe("proposals", () => {
     const [proposal] = await access.proposals("pending");
     expect(proposal).toMatchObject({
       id: proposed,
-      structure: "bugs",
+      binder: "bugs",
       kind: "update",
       handle: "BUG-2",
       fields: { note: "Seen again" },
@@ -50,7 +51,7 @@ describe("proposals", () => {
 
   test("a proposal writes nothing and takes no handle number: the approved create gets the handle it would get alone", async () => {
     const drafts = "version: 1\nid: drafts\nname: Drafts\nprefix: DRF\naccess: propose\nnaming: free\ninclude: [\"**/*.md\"]\n";
-    const files = { ...ACCESS_FILES, "drafts/_structure.yaml": drafts };
+    const files = { ...ACCESS_FILES, [`drafts/${SETTINGS_FILE}`]: drafts };
     const footer = { title: "The footer link is broken", properties: { note: "On every page" } };
 
     /** Approves one bug proposal after `before` ran on the same root, and returns the handle it got. */

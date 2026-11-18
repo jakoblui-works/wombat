@@ -21,6 +21,7 @@ import {
   writeAt,
   writeRoot,
 } from "../../test/items-fixtures.ts";
+import { SETTINGS_FILE } from "./binders.ts";
 
 const UNASSIGNED = "---\nrepo: api\n---\n# Typed by hand\n\nNo id yet.\n";
 
@@ -28,8 +29,8 @@ describe("IDs never change on read", () => {
 
   test("two reads at once give an unassigned file one id and one handle, taking one number", async () => {
     const root = writeRoot({
-      "bugs/_structure.yaml": BUGS_SETTINGS,
-      "backlog/_structure.yaml": BACKLOG_SETTINGS,
+      [`bugs/${SETTINGS_FILE}`]: BUGS_SETTINGS,
+      [`backlog/${SETTINGS_FILE}`]: BACKLOG_SETTINGS,
       "bugs/typed.md": UNASSIGNED,
     });
     const { catalog, store } = openItems(root);
@@ -38,7 +39,7 @@ describe("IDs never change on read", () => {
 
     const onDisk = readAt(root, "bugs/typed.md");
     for (const { items } of [a, b]) {
-      const item = itemAt(items.filter((item) => item.structure === "bugs"), "bugs/typed.md");
+      const item = itemAt(items.filter((item) => item.binder === "bugs"), "bugs/typed.md");
       expect(item.id).toBe(frontmatterValue(onDisk, "id"));
       expect(item.handle).toBe(frontmatterValue(onDisk, "handle"));
     }
@@ -48,7 +49,7 @@ describe("IDs never change on read", () => {
     expect(store.nextHandleNumber("bugs", 0), "numbers taken by the reads").toBe(2);
   });
 
-  test("a read rewrites no file that already has an id (duplicate ids included) and none in a broken structure", async () => {
+  test("a read rewrites no file that already has an id (duplicate ids included) and none in a broken binder", async () => {
     const root = writeRoot(FIXTURE_FILES);
     const { catalog } = openItems(root);
 
@@ -74,7 +75,7 @@ describe("IDs never change on write", () => {
       readAt(root, "backlog/items-ideas.md").replace("handle: BL-1\naliases: [BL-3]", "handle: BL-30\naliases: [BL-3, BL-1]"),
     );
 
-    const child = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "backlog"), "backlog/BL-2-proposal-view.md");
+    const child = itemAt((await catalog.snapshot()).items.filter((item) => item.binder === "backlog"), "backlog/BL-2-proposal-view.md");
     expect(child.problems).toEqual([]);
     expect(child.properties.parent).toBe(IDS.bl1);
     expect(findByHandle((await catalog.snapshot()).items, "BL-30")?.id).toBe(IDS.bl1);

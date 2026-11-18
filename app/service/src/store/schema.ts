@@ -24,7 +24,7 @@ const SCHEMA_V1 = `
   CREATE INDEX log_entries_by_agent ON log_entries (agent_id, seq);
 `;
 
-// Items: `item_counters.last` is the last handle number given per structure id.
+// Items: `item_counters.last` is the last handle number given per binder id.
 const SCHEMA_V2 = `
   CREATE TABLE item_counters (structure TEXT PRIMARY KEY, last INTEGER NOT NULL) STRICT;
   CREATE TABLE proposals (

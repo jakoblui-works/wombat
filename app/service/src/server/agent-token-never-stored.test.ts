@@ -25,8 +25,8 @@ describe("the agent token is never stored", () => {
       expect(kept.token.length, "the agent got a token").toBeGreaterThan(0);
       const tokens = [kept.token, removed.token];
 
-      await callTool(s, kept.token, "list_items", { structure: "bugs" });
-      await callTool(s, kept.token, "propose_create", { structure: "bugs", title: "A proposal with a token around", reason: "Seen" });
+      await callTool(s, kept.token, "list_items", { binder: "bugs" });
+      await callTool(s, kept.token, "propose_create", { binder: "bugs", title: "A proposal with a token around", reason: "Seen" });
       await callTool(s, removed.token, "get_item", { handle: "BL-1" });
       await s.manager.stop(kept.agentId);
       const keptEntries = JSON.stringify(s.entries(kept.agentId));

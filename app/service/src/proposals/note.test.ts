@@ -28,8 +28,8 @@ const subject = (status: ProposalStatus, given: ProposalVersionRecord[], target:
   const common = { id: "0196f3c2-1a00-7000-8000-0000000000aa", file: null, reason: "The rotation rule changed.", baseVersion: "4d5e6f", status, agentId: "agent-1", at: AT };
   const stored: StoredProposal =
     target === "file"
-      ? { ...common, target, itemId: null, path: PATH, structure: null, kind: "edit" }
-      : { ...common, target, itemId: "0196f3c2-1a00-7000-8000-000000000002", path: null, structure: "bugs", kind: "update" };
+      ? { ...common, target, itemId: null, path: PATH, binder: null, kind: "edit" }
+      : { ...common, target, itemId: "0196f3c2-1a00-7000-8000-000000000002", path: null, binder: "bugs", kind: "update" };
   return { stored, versions: given, label: target === "file" ? PATH : "BUG-2" };
 };
 

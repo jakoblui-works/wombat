@@ -58,7 +58,7 @@ describe("proposal alerts", () => {
 
       const approved = proposedId(await callTool(s, token, "propose_update", { handle: "BUG-2", fields: { note: NOTES[0] }, version: await version("BUG-2"), reason: REASONS[0] }));
       const conflicted = proposedId(await callTool(s, token, "propose_update", { handle: "BUG-1", fields: { note: NOTES[1] }, version: await version("BUG-1"), reason: REASONS[1] }));
-      const rejected = proposedId(await callTool(s, token, "propose_create", { structure: "bugs", title: TITLE, reason: REASONS[2] }));
+      const rejected = proposedId(await callTool(s, token, "propose_create", { binder: "bugs", title: TITLE, reason: REASONS[2] }));
       expect((await s.api("POST", `/proposals/${approved}/approve`, { version: 1 })).status).toBe(200);
       const bug1 = "bugs/BUG-1-login-times-out.md";
       writeAt(root, bug1, `${readAt(root, bug1)}\nEdited by hand meanwhile.\n`);
@@ -101,7 +101,7 @@ describe("proposal alerts", () => {
       };
       const approved = await propose("approved");
       const conflicted = await propose("conflicted");
-      const item = await callTool(s, token, "propose_create", { structure: "bugs", title: TITLE, reason: REASONS[2] });
+      const item = await callTool(s, token, "propose_create", { binder: "bugs", title: TITLE, reason: REASONS[2] });
       expect(item.isError, item.text).toBe(false);
 
       expect((await s.api("POST", `/proposals/${approved.id}/approve`, { version: 1 })).status).toBe(200);

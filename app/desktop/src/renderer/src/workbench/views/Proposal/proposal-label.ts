@@ -3,18 +3,18 @@ import type { FileProposalKind, Proposal, ProposalDetail } from "@wombat/shared/
 
 import { agentTitle } from "../Chat/chat-params.ts";
 
-/** A proposal's label: a file's full absolute path, an item's `structure/handle` (a create has no handle yet: its `file`, else the structure alone). */
+/** A proposal's label: a file's full absolute path, an item's `binder/handle` (a create has no handle yet: its `file`, else the binder alone). */
 export const proposalLabel = (proposal: Proposal): string => {
   if (proposal.target === "file") return proposal.path;
   const name = proposal.handle ?? proposal.file;
-  return name === null ? proposal.structure : `${proposal.structure}/${name}`;
+  return name === null ? proposal.binder : `${proposal.binder}/${name}`;
 };
 
-/** The proposal tab's label: `proposalLabel`, or for a create with nothing to name it by but its structure, the structure and its proposed title. */
+/** The proposal tab's label: `proposalLabel`, or for a create with nothing to name it by but its binder, the binder and its proposed title. */
 export const proposalTabLabel = (proposal: ProposalDetail): string => {
   if (proposal.target !== "item" || (proposal.handle ?? proposal.file) !== null) return proposalLabel(proposal);
   const title = proposal.fields["title"];
-  return typeof title === "string" && title.trim() !== "" ? `${proposal.structure}: ${title}` : proposalLabel(proposal);
+  return typeof title === "string" && title.trim() !== "" ? `${proposal.binder}: ${title}` : proposalLabel(proposal);
 };
 
 const AGENT_DELETED = "agent deleted";

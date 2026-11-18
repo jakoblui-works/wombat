@@ -7,6 +7,7 @@ import { expect, onTestFinished, test } from "vitest";
 
 import { INSTRUCTIONS_FILE, openInstructions } from "./instructions.ts";
 import { openItems, writeAt, writeRoot } from "../../test/items-fixtures.ts";
+import { SETTINGS_FILE } from "./binders.ts";
 
 const SETTINGS = "version: 1\nid: rules\nname: Rules\nprefix: RUL\naccess: read\ninstructions: full\n";
 const rule = (n: number) => `---\nid: 0196f3c2-9e00-7000-8000-${String(n).padStart(12, "0")}\nhandle: RUL-${n}\n---\n# Rule ${n}\n`;
@@ -17,7 +18,7 @@ const SETTLE_MS = 1_000;
 const TIMING = { debounceMs: 20, rootCheckMs: 50, watchRestartMs: 50 };
 
 test("after the items root is removed and put back (a re-clone), hand edits reach the file again", async () => {
-  const root = writeRoot({ "rules/_structure.yaml": SETTINGS, "rules/RUL-1-a.md": rule(1) });
+  const root = writeRoot({ [`rules/${SETTINGS_FILE}`]: SETTINGS, "rules/RUL-1-a.md": rule(1) });
   const workspaceRoot = mkdtempSync(join(tmpdir(), "wombat-workspace-"));
   onTestFinished(() => rmSync(workspaceRoot, { recursive: true, force: true }));
   const { catalog } = openItems(root);
@@ -30,7 +31,7 @@ test("after the items root is removed and put back (a re-clone), hand edits reac
 
   rmSync(root, { recursive: true });
   mkdirSync(root);
-  writeAt(root, "rules/_structure.yaml", SETTINGS);
+  writeAt(root, `rules/${SETTINGS_FILE}`, SETTINGS);
   writeAt(root, "rules/RUL-1-a.md", `${rule(1)}\nFrom the re-clone.\n`);
   // The edit comes once the watch is back and its catch-up write is in the file, so only the new watch can carry it.
   await expect
