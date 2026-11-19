@@ -6,7 +6,7 @@ import { EmptyState } from "../../EmptyState/EmptyState.tsx";
 import { ListView } from "../ListView/ListView.tsx";
 import { TreeView } from "../TreeView/TreeView.tsx";
 import { useItemProposals } from "../use-item-proposals.ts";
-import { useLinkTargets } from "../use-link-targets.ts";
+import { useItemsOf } from "../use-link-lists.ts";
 import { type NewItem, paneView } from "../view-model/view-model.ts";
 import { withProposals } from "../view-model/with-proposals.ts";
 
@@ -24,7 +24,7 @@ export const BinderItems = ({ binder, view, onOpenItem, onNewItem, reveal, onRev
   const [read] = useBinderItems([binder.id]);
   const proposals = useItemProposals(binder.id);
   const items = read?.data?.items;
-  const targets = useLinkTargets(binder.id, binder.properties, items ?? []);
+  const itemsOf = useItemsOf(binder.id, binder.properties, items ?? []);
   if (items === undefined) {
     return read?.error ? (
       <p role="alert" className="px-3 pt-3 text-sm text-danger">
@@ -34,7 +34,7 @@ export const BinderItems = ({ binder, view, onOpenItem, onNewItem, reveal, onRev
       <p className="p-3 text-sm text-fg-tertiary">Loading…</p>
     );
   }
-  const rows = withProposals(items, proposals, binder.id, targets);
+  const rows = withProposals(items, proposals, binder.id, itemsOf);
   if (rows.length === 0) return <EmptyState title="No items yet" body="Items are the Markdown files in the binder's folder." />;
   const shown = paneView(view);
   if (shown.kind === "tree")

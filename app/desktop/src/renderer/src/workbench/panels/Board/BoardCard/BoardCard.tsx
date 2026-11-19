@@ -1,10 +1,12 @@
 import { type DragEvent, type FocusEvent, type KeyboardEvent, useEffect, useRef } from "react";
 
 import { cn } from "../../../../lib/utils";
+import { proposedTitle } from "../../../proposals/proposal-label.ts";
 import { ItemRow, PendingItemRow } from "../../Desk/ItemRow/ItemRow.tsx";
 import { ProposalLine } from "../../Desk/ProposalLine/ProposalLine.tsx";
 import { proposalProps, REVEALABLE } from "../../Desk/use-reveal.ts";
-import { type ItemRow as ItemRowData, type PendingRow, proposedTitle } from "../../Desk/view-model/view-model.ts";
+import type { ItemRow as ItemRowData, PendingRow } from "../../Desk/view-model/view-model.ts";
+import { struck } from "../../Desk/view-model/with-proposals.ts";
 import type { CardMode } from "../board-drag.ts";
 
 type Props = {
@@ -38,14 +40,14 @@ export const BoardCard = ({ row, mode, movable, focus, onOpen, onDragStart, onDr
     if (focus) ref.current?.focus();
   }, [focus]);
   const { item, proposal } = row;
-  const struck = proposal?.kind === "delete";
+  const isStruck = struck(row);
 
-  if (mode === "preview") return <ItemRow item={item} wrap struck={struck} render={<div className={cn(CARD, HELD)} />} />;
+  if (mode === "preview") return <ItemRow item={item} wrap struck={isStruck} render={<div className={cn(CARD, HELD)} />} />;
   const card = (
     <ItemRow
       item={item}
       wrap
-      struck={struck}
+      struck={isStruck}
       render={
         <button
           ref={ref}
@@ -77,7 +79,7 @@ export const BoardCard = ({ row, mode, movable, focus, onOpen, onDragStart, onDr
 /** A proposed create on a board: a button that opens the proposal, never dragged, and its Approve and Reject. */
 export const PendingCard = ({ row, outside, onOpen, swallowed }: { row: PendingRow; outside: boolean; onOpen: () => void; swallowed: () => boolean }) => (
   <div {...proposalProps(row)} className={cn(FRAME, REVEALABLE)}>
-    <PendingItemRow title={proposedTitle(row)} wrap render={<button type="button" onClick={onOpen} className={cn(FRAMED, "focus-ring transition-colors select-none hover:bg-surface-2")} />} />
+    <PendingItemRow title={proposedTitle(row.fields)} wrap render={<button type="button" onClick={onOpen} className={cn(FRAMED, "focus-ring transition-colors select-none hover:bg-surface-2")} />} />
     <ProposalLine row={row} outside={outside} className={LINE} swallowed={swallowed} />
   </div>
 );

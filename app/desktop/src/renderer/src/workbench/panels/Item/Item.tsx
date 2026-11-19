@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import type { Item as ItemData, ItemSummary, LenientProperty } from "@wombat/shared/items";
+import type { Item as ItemData, LenientProperty } from "@wombat/shared/items";
 import type { ItemProposal } from "@wombat/shared/proposals";
 import { useCallback, useEffect, useReducer, useState } from "react";
 
@@ -16,9 +16,10 @@ import { useCloseGuard, useWorkbench } from "../../workbench-context.ts";
 import { Note } from "../approvals/Note/Note.tsx";
 import { Field } from "../Desk/Field/Field.tsx";
 import { ProblemList } from "../Desk/ProblemList/ProblemList.tsx";
+import { type Listed, useLinkLists } from "../Desk/use-link-lists.ts";
 import { problemsByField } from "../Desk/view-model/problems.ts";
-import { linkedBinders, linkValue } from "../Desk/view-model/values.ts";
-import { proposalsOnItem } from "../Desk/view-model/with-proposals.ts";
+import { linkValue } from "../Desk/view-model/values.ts";
+import { type ItemChange, proposalsOnItem } from "../Desk/view-model/with-proposals.ts";
 import { Body } from "./Body/Body.tsx";
 import { CloseDialog } from "./CloseDialog/CloseDialog.tsx";
 import { Conflict } from "./Conflict/Conflict.tsx";
@@ -47,25 +48,12 @@ import {
   valueOf,
 } from "./item-edit.ts";
 import { type DraftItemParams, ITEM_PANEL, ItemParams, itemTitle, type SavedItemParams } from "./item-params.ts";
-import { type Binder, draftShown, type ItemForm, itemForm, type ItemShown, itemShown, lastKnown, listedBinder, usable } from "./item-state.ts";
+import { type Binder, draftShown, type ItemForm, itemForm, type ItemShown, itemShown, lastKnown, listedBinder } from "./item-state.ts";
 
 const NO_PROPERTIES: Readonly<Record<string, LenientProperty>> = {};
 
 /** The field a refused file name's problems name. */
 const FILE_FIELD = "file";
-
-type Listed = (binderId: string) => readonly ItemSummary[] | undefined;
-
-/** The items of the binders the properties link to, by binder id; `pending` while one hasn't been read yet. */
-const useLinkLists = (properties: Readonly<Record<string, LenientProperty>>): { listed: Listed; pending: boolean } => {
-  const listIds = linkedBinders(properties);
-  const lists = useBinderItems(listIds);
-  const listed: Listed = (id) => {
-    const list = lists[listIds.indexOf(id)];
-    return usable({ data: list?.data?.items, error: list?.error });
-  };
-  return { listed, pending: lists.some((list) => list.isPending) };
-};
 
 /** The binder `binder` names now, else the last one it named. */
 const useLastListed = (binder: Binder | undefined): Binder | undefined => {
@@ -81,7 +69,7 @@ type Editing = { kind: "saved"; tab: SavedItemParams } | { kind: "draft"; tab: D
  * An item tab's content, for both kinds of tab: the read's notice, and the form (`itemForm`) from the first read until
  * the tab closes, so my edits and the close guard outlive an item or binder that can't be shown for a while.
  */
-const ItemTabBody = ({ shown, editing, proposals = [] }: { shown: ItemShown; editing: Editing; proposals?: readonly ItemProposal[] }) => {
+const ItemTabBody = ({ shown, editing, proposals = [] }: { shown: ItemShown; editing: Editing; proposals?: readonly ItemChange<ItemProposal>[] }) => {
   const { openItem } = useWorkbench();
   const form = itemForm(shown, useLastListed(listedBinder(shown)), editing.kind === "draft");
   const properties = form?.binder?.properties ?? NO_PROPERTIES;

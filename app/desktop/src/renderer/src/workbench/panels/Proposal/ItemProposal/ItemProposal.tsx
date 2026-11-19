@@ -5,13 +5,14 @@ import { type Item, ITEM_FIELDS, type LenientProperty, type Problem } from "@wom
 import type { ItemProposalKind } from "@wombat/shared/proposals";
 import { Button } from "../../../../components/ui/button";
 import { ScrollArea } from "../../../../components/ui/scroll-area";
-import { useBinderItems, useBinders } from "../../../../data/hooks.ts";
+import { useBinders } from "../../../../data/hooks.ts";
 import { lastPathPart } from "../../../../lib/path.ts";
 import { LazyMonacoDiff } from "../../Diff/MonacoDiff/LazyMonacoDiff.tsx";
 import { Note } from "../../approvals/Note/Note.tsx";
 import { type FieldRow, fieldRows } from "./field-rows.ts";
 import { ProblemList } from "../../Desk/ProblemList/ProblemList.tsx";
 import { problemsByField } from "../../Desk/view-model/problems.ts";
+import { useLinkLists } from "../../Desk/use-link-lists.ts";
 import { clearable, MISSING_ITEM } from "../../Desk/view-model/values.ts";
 import { inputText, typedValue, valueText, withField, withoutField } from "./field-values.ts";
 
@@ -167,12 +168,10 @@ export const ItemProposal = ({
   const binders = useBinders();
   const binder = binders.data?.binders.find((each) => each.id === binderId);
   const properties = binder?.id === null || binder === undefined ? {} : binder.properties;
-  const targets = [...new Set(Object.values(properties).flatMap((property) => (property.type === "link" ? [property.to] : [])))];
-  const items = useBinderItems(targets);
-  const listed = items.flatMap((read) => read.data?.items ?? []);
-  const handles = new Map(listed.flatMap((item) => (item.id === null || item.handle === null ? [] : [[item.id, item.handle] as const])));
+  const links = useLinkLists(properties);
+  const { itemsOf } = links;
   const linksTo = (to: string): Option[] =>
-    (items[targets.indexOf(to)]?.data?.items ?? []).flatMap((item) => (item.id === null || item.handle === null ? [] : [{ value: item.id, label: `${item.handle} · ${item.title ?? ""}` }]));
+    itemsOf(to).flatMap((item) => (item.id === null || item.handle === null ? [] : [{ value: item.id, label: `${item.handle} · ${item.title ?? ""}` }]));
   const rows = fieldRows(current, fields, mine, kind);
   const names = rows.map(({ name }) => name);
   const [chosen, setChosen] = useState<string>();
@@ -180,7 +179,7 @@ export const ItemProposal = ({
   const split = problemsByField(problems, names);
   const file = current === null ? undefined : lastPathPart(current.path);
 
-  if (binders.isPending || items.some((read) => read.isPending)) return <Note>Loading…</Note>;
+  if (binders.isPending || links.pending) return <Note>Loading…</Note>;
   return (
     <ScrollArea className="min-h-0 flex-1">
       {split.rest.length === 0 ? null : (
@@ -199,7 +198,7 @@ export const ItemProposal = ({
               row={row}
               sides={sidesOf(kind)}
               property={property}
-              text={(value) => valueText(value, property, (id) => handles.get(id))}
+              text={(value) => valueText(value, property, itemsOf)}
               links={property?.type === "link" ? linksTo(property.to) : []}
               edit={edit}
               problems={split.at.get(row.name) ?? []}

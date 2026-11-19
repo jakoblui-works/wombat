@@ -16,6 +16,8 @@ export type ProposalRow = {
   agent: AgentSummary | undefined;
   agentTitle: string;
   ago: string;
+  /** It only points to where it is decided (an item proposal: its binder's view), with no Approve or Reject of its own. */
+  notification: boolean;
 };
 
 /** The Proposals group's rows: open proposals only, newest first. */
@@ -35,5 +37,6 @@ export const proposalRows = (proposals: readonly Proposal[], agents: readonly Ag
         agent,
         agentTitle: proposalAgentTitle(proposal, agents),
         ago: ago(proposal.at, now),
+        notification: proposal.target === "item",
       };
     });

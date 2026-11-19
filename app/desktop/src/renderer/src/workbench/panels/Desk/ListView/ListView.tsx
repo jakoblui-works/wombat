@@ -4,12 +4,13 @@ import { useRef } from "react";
 
 import { Button } from "../../../../components/ui/button";
 import type { Reveal } from "../../../registry.ts";
+import { proposedTitle } from "../../../proposals/proposal-label.ts";
 import { useWorkbench } from "../../../workbench-context.ts";
 import { ItemRow, PendingItemRow } from "../ItemRow/ItemRow.tsx";
 import { ProposalLine } from "../ProposalLine/ProposalLine.tsx";
 import { proposalProps, REVEALABLE, useReveal } from "../use-reveal.ts";
-import { groupHeading, isOutsideFilter, isPending, listGroups, type NewItem, newItemLabel, offersNew, type Row, rowKey, proposedTitle, shownGroups, viewContext } from "../view-model/view-model.ts";
-import { OUTSIDE_FILTER } from "../view-model/with-proposals.ts";
+import { groupHeading, isOutsideFilter, isPending, listGroups, type NewItem, newItemLabel, offersNew, type Row, rowKey, shownGroups, viewContext } from "../view-model/view-model.ts";
+import { OUTSIDE_FILTER, struck } from "../view-model/with-proposals.ts";
 
 type Props = {
   rows: readonly Row[];
@@ -28,11 +29,11 @@ const ListRow = ({ row, view, properties, onOpenItem }: { row: Row; view: Props[
   return (
     <div {...proposalProps(row)} className={REVEALABLE}>
       {isPending(row) ? (
-        <PendingItemRow title={proposedTitle(row)} render={<button type="button" onClick={() => openProposal(row.pending.id)} className={ROW} />} />
+        <PendingItemRow title={proposedTitle(row.fields)} render={<button type="button" onClick={() => openProposal(row.pending.id)} className={ROW} />} />
       ) : (
         <ItemRow
           item={row.item}
-          struck={row.proposal?.kind === "delete"}
+          struck={struck(row)}
           render={
             <button
               type="button"

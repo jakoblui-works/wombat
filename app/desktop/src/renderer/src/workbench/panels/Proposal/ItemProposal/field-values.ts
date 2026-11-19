@@ -1,15 +1,15 @@
-import type { LenientProperty } from "@wombat/shared/items";
+import type { ItemSummary, LenientProperty } from "@wombat/shared/items";
 
-import { displayValue, MISSING_ITEM } from "../../Desk/view-model/values.ts";
+import { displayValue, proposedLink } from "../../Desk/view-model/values.ts";
 
 type Fields = Readonly<Record<string, unknown>>;
 
 /**
- * A field's value as text (`displayValue`), and a link held as a bare id, as a proposal holds it, as its target's
- * handle from `handleOf` (`MISSING_ITEM` when the items lists don't hold it), never its id.
+ * A field's value as text (`displayValue`); a link held as a bare id, as a proposal holds it, as the link items hold
+ * (`proposedLink`) among `targetsOf` its property's binder, so its target's handle (`MISSING_ITEM` when none), never its id.
  */
-export const valueText = (value: unknown, property: LenientProperty | undefined, handleOf: (id: string) => string | undefined): string =>
-  property?.type === "link" && typeof value === "string" ? (handleOf(value) ?? MISSING_ITEM) : displayValue(property, value);
+export const valueText = (value: unknown, property: LenientProperty | undefined, targetsOf: (binderId: string) => readonly ItemSummary[]): string =>
+  displayValue(property, property?.type === "link" && typeof value === "string" ? proposedLink(value, targetsOf(property.to)) : value);
 
 /** A value as its text box holds it. */
 export const inputText = (value: unknown): string => displayValue(undefined, value);

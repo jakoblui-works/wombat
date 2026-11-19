@@ -1,4 +1,4 @@
-import type { ItemSummary, LenientProperty, LinkValue, Problem } from "@wombat/shared/items";
+import type { LenientProperty, LinkValue, Problem } from "@wombat/shared/items";
 import { ArrowUpRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
@@ -6,6 +6,7 @@ import { Button } from "../../../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../../components/ui/select";
 import { cn } from "../../../../lib/utils";
 import { Field as FieldFrame, FIELD_INPUT, type FieldControl } from "../../Desk/Field/Field.tsx";
+import type { Listed } from "../../Desk/use-link-lists.ts";
 import { clearable, displayValue, MISSING_ITEM } from "../../Desk/view-model/values.ts";
 import type { FieldValue } from "../item-edit.ts";
 import { inputValue, type LinkOption, linkOptions, linkTarget, numberDraft, pickedByUser, shownNumber } from "./field-input.ts";
@@ -149,7 +150,6 @@ const Control = ({
   }
 };
 
-type Listed = (binderId: string) => readonly ItemSummary[] | undefined;
 type OpenItem = (binderId: string, itemId: string) => void;
 
 const Field = ({

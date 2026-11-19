@@ -10,9 +10,9 @@ import { useWorkbench } from "../../workbench-context.ts";
 import { Note } from "../approvals/Note/Note.tsx";
 import { ProblemList } from "../Desk/ProblemList/ProblemList.tsx";
 import { useItemProposals } from "../Desk/use-item-proposals.ts";
-import { useLinkTargets } from "../Desk/use-link-targets.ts";
+import { useItemsOf } from "../Desk/use-link-lists.ts";
 import { useReveal } from "../Desk/use-reveal.ts";
-import { isOutsideFilter, offersNew, rowKey, viewContext } from "../Desk/view-model/view-model.ts";
+import { isOutsideFilter, isPending, offersNew, rowKey, viewContext } from "../Desk/view-model/view-model.ts";
 import { type ItemProposalRead, withProposals } from "../Desk/view-model/with-proposals.ts";
 import { BinderNotice, READ_FAILED } from "../Item/ItemNotice/ItemNotice.tsx";
 import { itemName } from "../Item/item-params.ts";
@@ -96,8 +96,8 @@ const BoardContent = ({
   const boardRef = useRef<HTMLDivElement>(null);
   useReveal(reveal, boardRef);
 
-  const targets = useLinkTargets(binder.id, properties, items);
-  const rowsWith = (shown: readonly Move[]) => withProposals(withMoves(items, view, shown), proposals, binder.id, targets);
+  const itemsOf = useItemsOf(binder.id, properties, items);
+  const rowsWith = (shown: readonly Move[]) => withProposals(withMoves(items, view, shown), proposals, binder.id, itemsOf);
   const base = boardColumns(rowsWith(live), view, properties);
   const columnOf = (key: string) => base.find((column) => column.key === key);
   const labelOf = (key: string): string => {
@@ -258,7 +258,7 @@ const BoardContent = ({
             >
               {cards.map(({ row, mode }) => (
                 <div key={rowKey(row)} hidden={mode === "hidden"}>
-                  {"pending" in row ? (
+                  {isPending(row) ? (
                     <PendingCard
                       row={row}
                       outside={isOutsideFilter(row, view, properties)}

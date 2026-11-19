@@ -17,6 +17,9 @@ export type PendingRow = { pending: ItemProposal; fields: Readonly<Record<string
 
 /** The link to item `id` of binder `to`, as items hold it: its handle null when no such item is read. */
 export type LinkTarget = (to: string, id: string) => LinkValue;
+
+/** The items a link to binder `binderId` may name. */
+export type ItemsOf = (binderId: string) => readonly ItemSummary[];
 export type Row = ItemRow | PendingRow;
 
 export const isPending = (row: Row): row is PendingRow => "pending" in row;
@@ -30,12 +33,6 @@ export const rowValue = (row: Row, name: string, properties: Properties): unknow
   const value = row.fields[name];
   const property = properties[name];
   return property?.type === "link" && typeof value === "string" ? row.link(property.to, value) : value;
-};
-
-/** The title a proposed create proposes. */
-export const proposedTitle = (row: PendingRow): string | undefined => {
-  const title = row.fields["title"];
-  return typeof title === "string" ? title : undefined;
 };
 
 /** The list a binder without a list or tree view shows: every item, by handle number. */
@@ -84,7 +81,7 @@ export const sorted = <R extends Row>(rows: readonly R[], view: LenientView, pro
 };
 
 /** The rows a view shows, in order: the proposed creates outside its filter, then the visible rows. */
-const shownRows = (rows: readonly Row[], view: LenientView, properties: Properties): { outside: Row[]; shown: Row[] } => ({
+export const shownRows = (rows: readonly Row[], view: LenientView, properties: Properties): { outside: Row[]; shown: Row[] } => ({
   outside: sorted(outsideFilter(rows, view, properties), view, properties),
   shown: sorted(visibleItems(rows, view, properties), view, properties),
 });

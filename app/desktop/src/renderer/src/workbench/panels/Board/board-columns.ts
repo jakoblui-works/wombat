@@ -2,7 +2,7 @@
 import type { ItemSummary, LenientProperty, LenientView } from "@wombat/shared/items";
 
 import { clearable, displayValue, valueRank } from "../Desk/view-model/values.ts";
-import { outsideFilter, type Row, rowValue, sorted, visibleItems } from "../Desk/view-model/view-model.ts";
+import { type Row, rowValue, shownRows } from "../Desk/view-model/view-model.ts";
 
 type Properties = Readonly<Record<string, LenientProperty>>;
 
@@ -27,7 +27,8 @@ export const boardColumns = (rows: readonly Row[], view: BoardView, properties: 
   const property = properties[view.column];
   const columns: Extract<Column, { kind: "value" }>[] = optionsOf(property).map((option) => ({ key: `value:${option}`, kind: "value", value: option, rows: [] }));
   const none: Row[] = [];
-  for (const row of [...sorted(outsideFilter(rows, view, properties), view, properties), ...sorted(visibleItems(rows, view, properties), view, properties)]) {
+  const { outside, shown } = shownRows(rows, view, properties);
+  for (const row of [...outside, ...shown]) {
     const rank = valueRank(property, rowValue(row, view.column, properties));
     const column = typeof rank === "number" ? columns[rank] : undefined;
     if (column === undefined) none.push(row);

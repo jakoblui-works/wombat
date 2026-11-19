@@ -28,6 +28,9 @@ export const linkValue = (value: unknown): LinkValue | undefined => {
   return typeof id === "string" && (typeof handle === "string" || handle === null) ? { id, handle } : undefined;
 };
 
+/** A link a proposal holds as the bare id `id`, as items hold it: its target among `targets` (the items of the binder it links to), its handle null when none is that item. */
+export const proposedLink = (id: string, targets: readonly ItemSummary[]): LinkValue => ({ id, handle: targets.find((target) => target.id === id)?.handle ?? null });
+
 const linkHandle = (value: unknown): string | undefined => linkValue(value)?.handle ?? undefined;
 
 /**

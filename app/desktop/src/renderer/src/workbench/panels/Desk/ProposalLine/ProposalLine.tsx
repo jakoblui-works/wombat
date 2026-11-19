@@ -2,9 +2,10 @@ import type { CSSProperties } from "react";
 
 import { cn } from "../../../../lib/utils";
 import { DecideButtons } from "../../../proposals/DecideButtons/DecideButtons.tsx";
+import { markLabel } from "../../../proposals/proposal-label.ts";
 import { useWorkbench } from "../../../workbench-context.ts";
 import { isPending, type Row } from "../view-model/view-model.ts";
-import { markLabel, OUTSIDE_FILTER } from "../view-model/with-proposals.ts";
+import { OUTSIDE_FILTER } from "../view-model/with-proposals.ts";
 
 type Props = {
   row: Row;

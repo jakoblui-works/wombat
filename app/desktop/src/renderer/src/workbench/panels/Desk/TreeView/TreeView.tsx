@@ -5,6 +5,7 @@ import { type KeyboardEvent, useMemo, useRef, useState } from "react";
 import { Button } from "../../../../components/ui/button";
 import { cn } from "../../../../lib/utils";
 import type { Reveal } from "../../../registry.ts";
+import { proposedTitle } from "../../../proposals/proposal-label.ts";
 import { useWorkbench } from "../../../workbench-context.ts";
 import { itemName } from "../../Item/item-params.ts";
 import { ItemRow, PendingItemRow } from "../ItemRow/ItemRow.tsx";
@@ -12,7 +13,8 @@ import { ProposalLine } from "../ProposalLine/ProposalLine.tsx";
 import { rowIndent, treeKey } from "../tree-keys.ts";
 import { proposalProps, REVEALABLE, useReveal } from "../use-reveal.ts";
 import { useTreeFocus } from "../use-tree-focus.ts";
-import { isOutsideFilter, isPending, type NewItem, type Row, proposedTitle, treeRows, viewContext } from "../view-model/view-model.ts";
+import { isOutsideFilter, isPending, type NewItem, type Row, treeRows, viewContext } from "../view-model/view-model.ts";
+import { struck } from "../view-model/with-proposals.ts";
 import { ancestorsOf, opened, setClosed, visibleTreeRows } from "./tree-view.ts";
 
 type Props = {
@@ -97,9 +99,9 @@ export const TreeView = ({ rows: given, view, properties, onOpenItem, onNewItem,
               <div key={row.key} {...proposalProps(node)} className={REVEALABLE}>
                 <div className="group/row relative">
                   {isPending(node) ? (
-                    <PendingItemRow title={proposedTitle(node)} lead={lead} render={render} />
+                    <PendingItemRow title={proposedTitle(node.fields)} lead={lead} render={render} />
                   ) : (
-                    <ItemRow item={node.item} struck={node.proposal?.kind === "delete"} lead={lead} render={render} />
+                    <ItemRow item={node.item} struck={struck(node)} lead={lead} render={render} />
                   )}
                   {isPending(node) || node.item.id === null ? null : (
                     <Button
