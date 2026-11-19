@@ -2,3 +2,4 @@
 // activities.ts (whose import registers every panel).
 
 export const AGENTS_ACTIVITY = "agents";
+export const DESK_ACTIVITY = "desk";

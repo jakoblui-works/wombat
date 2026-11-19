@@ -2,11 +2,14 @@
 import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
 import type { AgentSummary } from "@wombat/shared/api";
+import type { BinderSummary } from "@wombat/shared/items";
 
-import { AGENTS_ACTIVITY } from "./activity-ids.ts";
+import { AGENTS_ACTIVITY, DESK_ACTIVITY } from "./activity-ids.ts";
 import type { IsKnown } from "./layout.ts";
 import { getPanel, paramsFit, type ResolveContext, type Reveal, panelTitle } from "./registry.ts";
 import { CHAT_PANEL } from "./panels/Chat/chat-params.ts";
+import { BOARD_PANEL, type BoardParams } from "./panels/Desk/board-params.ts";
+import { binderPlace } from "./panels/Desk/desk-view.ts";
 import { PROPOSAL_PANEL, type ProposalParams } from "./panels/Proposal/proposal-params.ts";
 import type { TabRef, WorkbenchActions } from "./workbench-context.ts";
 
@@ -182,6 +185,9 @@ const oldestPending = (agent: AgentSummary | undefined): string | undefined => {
   return oldest?.requestId;
 };
 
+/** What openBinder needs of the page: the binders as it knows them now, and the Desk's sidebar showing a binder. */
+export type DeskHost = { binders: () => readonly BinderSummary[] | undefined; showBinder: (binderId: string, view: string | undefined) => void };
+
 /**
  * The workbench's actions on `host`; `ctx` gives the agents as the page knows them now (for titles and the oldest
  * request); `showActivity` switches the left sidebar to an activity.
@@ -191,6 +197,7 @@ export const workbenchActions = (
   reveals: ReturnType<typeof revealStore>,
   ctx: () => ResolveContext,
   showActivity: (activity: string) => void,
+  desk: DeskHost,
 ): WorkbenchActions => {
   const actions: WorkbenchActions = {
     openTab: (panelId, params, reveal) => {
@@ -215,6 +222,12 @@ export const workbenchActions = (
     },
     openProposal: (proposalId) => {
       actions.openTab(PROPOSAL_PANEL, { proposalId } satisfies ProposalParams);
+    },
+    openBinder: (binderId, reveal, view) => {
+      const place = binderPlace(desk.binders()?.find(({ id }) => id === binderId), view);
+      if (place.board !== undefined) actions.openTab(BOARD_PANEL, { binderId, view: place.board } satisfies BoardParams, reveal);
+      desk.showBinder(binderId, place.sidebarView);
+      showActivity(DESK_ACTIVITY);
     },
   };
   return actions;

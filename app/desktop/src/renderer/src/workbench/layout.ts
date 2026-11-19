@@ -11,7 +11,16 @@ export type SavedLayout = {
   dockview: SerializedDockview;
   sidebars: { left: number; right: number; rightCollapsed: boolean };
   activity: string;
+  desk?: DeskLayout;
 };
+
+/** The Desk as the user left it: the binder (and view) shown in its sidebar, and the open drawers' folders. */
+export type DeskLayout = { binderId?: string; view?: string; openDrawers: string[] };
+
+/** The Desk until the user changes it: the tree, every drawer closed. */
+export const DEFAULT_DESK: Readonly<DeskLayout> = { openDrawers: [] };
+
+const DeskLayout = z.object({ binderId: z.string().exactOptional(), view: z.string().exactOptional(), openDrawers: z.array(z.string()) });
 
 /** The activity `id` names if it's registered, else the default (Agents). */
 const knownActivity = (id: string | undefined): string => activityOrDefault(id)?.id ?? "";
@@ -48,6 +57,7 @@ export const SavedLayout: z.ZodType<SavedLayout> = z
     dockview: SerializedDockviewShape,
     sidebars: z.object({ left: z.number(), right: z.number(), rightCollapsed: z.boolean() }),
     activity: z.string(),
+    desk: DeskLayout.exactOptional(),
   })
   .transform((layout) => layout as unknown as SavedLayout);
 

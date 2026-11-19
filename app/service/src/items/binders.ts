@@ -6,12 +6,12 @@ import { glob, lstat, readdir, readFile, realpath } from "node:fs/promises";
 import { join, matchesGlob, posix, relative, sep } from "node:path";
 
 import { errorCode, isMissing } from "@wombat/shared/errno";
-import { BinderSettings, type Problem } from "@wombat/shared/items";
+import { BinderSettings, type Problem, SETTINGS_FILE } from "@wombat/shared/items";
 import { isCollection, LineCounter, parseDocument, type Document } from "yaml";
 
 import { isWithin } from "../workspace.ts";
 
-export const SETTINGS_FILE = "_binder.yaml";
+export { SETTINGS_FILE };
 /** The settings file's former name: it still makes its folder a binder, whose settings are never read. */
 export const OLD_SETTINGS_FILE = "_structure.yaml";
 

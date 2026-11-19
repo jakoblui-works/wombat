@@ -1,0 +1,116 @@
+import { ChevronRight, Folder, FolderOpen, Notebook, TriangleAlert } from "lucide-react";
+import { type KeyboardEvent, useMemo, useRef, useState } from "react";
+
+import { cn } from "../../../../lib/utils";
+import { type DeskNode, type DeskRow, deskKey, deskRows, nodeName, problemLocation, rowLabel } from "../desk-tree.ts";
+
+type Props = {
+  nodes: readonly DeskNode[];
+  openDrawers: readonly string[];
+  onToggleDrawer: (path: string, open: boolean) => void;
+  onOpenBinder: (binderId: string) => void;
+};
+
+const INDENT_PX = 12;
+const ROW_START_PX = 6;
+
+const RowContent = ({ row }: { row: DeskRow }) => {
+  const { node } = row;
+  if (node.kind === "drawer") {
+    const FolderIcon = row.expanded === true ? FolderOpen : Folder;
+    return (
+      <span className="flex w-full items-center gap-1.5">
+        <ChevronRight aria-hidden className={cn("size-3.5 shrink-0 text-fg-tertiary transition-transform", row.expanded === true && "rotate-90")} />
+        <FolderIcon aria-hidden className="size-4 shrink-0 text-fg-tertiary" />
+        <span className="min-w-0 flex-1 truncate text-fg-secondary">{node.name}</span>
+      </span>
+    );
+  }
+  const { binder } = node;
+  if (binder.id === null) {
+    return (
+      <span className="flex w-full flex-col gap-0.5">
+        <span className="flex w-full items-center gap-1.5">
+          <span aria-hidden className="size-3.5 shrink-0" />
+          <TriangleAlert aria-hidden className="size-4 shrink-0 text-danger" />
+          <span className="min-w-0 flex-1 truncate text-fg-primary">{nodeName(node)}</span>
+        </span>
+        {binder.problems.map((problem, index) => {
+          const location = problemLocation(problem);
+          return (
+            <span key={index} className="flex flex-col pl-10 text-xs select-text">
+              <span className="text-danger">{problem.message}</span>
+              {location === undefined ? null : <span className="text-fg-tertiary">{location}</span>}
+            </span>
+          );
+        })}
+      </span>
+    );
+  }
+  return (
+    <span className="flex w-full items-center gap-1.5">
+      <span aria-hidden className="size-3.5 shrink-0" />
+      <Notebook aria-hidden className="size-4 shrink-0 text-fg-tertiary" />
+      <span className="min-w-0 flex-1 truncate font-medium text-fg-primary">{binder.name}</span>
+      {binder.invalidCount > 0 ? (
+        <span title={`${String(binder.invalidCount)} invalid`} className="flex shrink-0 items-center gap-0.5 text-xs text-danger tabular-nums">
+          <TriangleAlert aria-hidden className="size-3" />
+          {binder.invalidCount}
+        </span>
+      ) : null}
+      <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{binder.itemCount}</span>
+    </span>
+  );
+};
+
+/** The Desk's tree of drawers and binders (the WAI-ARIA tree pattern, its rows flat with their levels). */
+export const DeskTree = ({ nodes, openDrawers, onToggleDrawer, onOpenBinder }: Props) => {
+  const rows = useMemo(() => deskRows(nodes, new Set(openDrawers)), [nodes, openDrawers]);
+  const [focused, setFocused] = useState<string>();
+  const elements = useRef(new Map<string, HTMLElement>());
+  const tabbable = Math.max(0, rows.findIndex(({ key }) => key === focused));
+
+  const act = (index: number, key: string, event?: KeyboardEvent) => {
+    const action = deskKey(rows, index, key);
+    if (action === undefined) return;
+    event?.preventDefault();
+    if (action.type === "focus") {
+      const target = rows[action.index];
+      if (target === undefined) return;
+      setFocused(target.key);
+      elements.current.get(target.key)?.focus();
+    } else if (action.type === "toggle") onToggleDrawer(action.path, action.open);
+    else onOpenBinder(action.binderId);
+  };
+
+  return (
+    <div role="tree" aria-label="Drawers and binders" className="flex flex-col gap-px px-1.5 pt-1 pb-3">
+      {rows.map((row, index) => (
+        <div
+          key={row.key}
+          ref={(element) => {
+            if (element === null) elements.current.delete(row.key);
+            else elements.current.set(row.key, element);
+          }}
+          role="treeitem"
+          aria-level={row.level}
+          aria-setsize={row.setSize}
+          aria-posinset={row.posInSet}
+          aria-expanded={row.expanded}
+          aria-label={rowLabel(row.node)}
+          tabIndex={index === tabbable ? 0 : -1}
+          onFocus={() => setFocused(row.key)}
+          onClick={() => act(index, "Enter")}
+          onKeyDown={(event) => act(index, event.key, event)}
+          className={cn(
+            "focus-ring flex cursor-default rounded-md py-1 pr-2 text-left text-base select-none transition-colors hover:bg-surface-2",
+            row.node.kind === "binder" && row.node.binder.id === null && "cursor-auto",
+          )}
+          style={{ paddingLeft: ROW_START_PX + (row.level - 1) * INDENT_PX }}
+        >
+          <RowContent row={row} />
+        </div>
+      ))}
+    </div>
+  );
+};

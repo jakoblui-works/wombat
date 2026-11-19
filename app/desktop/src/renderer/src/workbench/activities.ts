@@ -1,9 +1,9 @@
 // Importing this module registers the activities and their panels, in the activity bar's order (Agents first).
-import { Bot, Columns2, FilePen, Files, Inbox, FolderCog, GitBranch, LayoutDashboard, List, MessageSquare, type LucideIcon } from "lucide-react";
+import { Bot, Columns2, FilePen, Files, Inbox, GitBranch, Kanban, LayoutDashboard, LibraryBig, List, MessageSquare, type LucideIcon } from "lucide-react";
 import { createElement } from "react";
 
 import "../harnesses/claude/claude-ui.ts";
-import { AGENTS_ACTIVITY } from "./activity-ids.ts";
+import { AGENTS_ACTIVITY, DESK_ACTIVITY } from "./activity-ids.ts";
 import { type ActivityDescriptor, registerActivity, registerPanel } from "./registry.ts";
 import { AgentsList } from "./panels/AgentsList/AgentsList.tsx";
 import { Chat } from "./panels/Chat/Chat.tsx";
@@ -14,6 +14,9 @@ import { NeedsMe } from "./panels/NeedsMe/NeedsMe.tsx";
 import { Proposal } from "./panels/Proposal/Proposal.tsx";
 import { PROPOSAL_TITLE, PROPOSAL_PANEL, ProposalParams, proposalResolves, proposalRestores } from "./panels/Proposal/proposal-params.ts";
 import { EmptyActivity } from "./panels/EmptyActivity/EmptyActivity.tsx";
+import { BOARD_PANEL, BOARD_TITLE, BoardParams } from "./panels/Desk/board-params.ts";
+import { BoardPlaceholder } from "./panels/Desk/BoardPlaceholder/BoardPlaceholder.tsx";
+import { Desk } from "./panels/Desk/Desk.tsx";
 
 /** An activity that isn't built yet: its sidebar panel shows its empty state. */
 const unbuilt = (id: string, title: string, icon: LucideIcon, emptyState: NonNullable<ActivityDescriptor["emptyState"]>): void => {
@@ -63,9 +66,21 @@ const register = (): void => {
 
   registerPanel({ id: "needs-me", title: "Needs me", icon: Inbox, locations: ["right"], component: NeedsMe });
 
+  registerActivity({ id: DESK_ACTIVITY, title: "Desk", icon: LibraryBig, sidebarPanel: "desk" });
+  registerPanel({ id: "desk", title: "Desk", icon: LibraryBig, locations: ["left"], activity: DESK_ACTIVITY, component: Desk });
+  registerPanel({
+    id: BOARD_PANEL,
+    // The panel reports "<binder> · <view>" once it has read the binders.
+    title: BOARD_TITLE,
+    icon: Kanban,
+    locations: ["editor"],
+    activity: DESK_ACTIVITY,
+    component: BoardPlaceholder,
+    paramsSchema: BoardParams,
+  });
+
   unbuilt("files", "Files", Files, { title: "Files arrive in step 9", body: "Browse and edit the workspace's files here." });
   unbuilt("source-control", "Source control", GitBranch, { title: "Source control arrives in step 10", body: "Review changes, commit and switch branches here." });
-  unbuilt("workspace", "Workspace", FolderCog, { title: "Workspace arrives in step 8", body: "See the workspace's repos and settings here." });
   unbuilt("project-overview", "Project overview", LayoutDashboard, { title: "Project overview arrives later", body: "See the project's codebase and what's being worked on here." });
 };
 

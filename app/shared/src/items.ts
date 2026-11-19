@@ -177,6 +177,9 @@ export type View = z.infer<typeof View>;
 export const LenientView = z.discriminatedUnion("kind", [ListView.strip(), BoardView.strip(), TreeView.strip()]);
 export type LenientView = z.infer<typeof LenientView>;
 
+/** The file that makes a folder a binder. */
+export const SETTINGS_FILE = "_binder.yaml";
+
 const settingsKeys = "version, id, name, prefix, access, naming, include, instructions, locked, properties and views";
 
 /**
@@ -224,7 +227,7 @@ export const BinderSettings = z
         .default({}),
       views: z.array(View, takes("views", "a list of views", `views: [${viewExample}]`)).default([]),
     },
-    keysOf("_binder.yaml", settingsKeys, "id: bugs"),
+    keysOf(SETTINGS_FILE, settingsKeys, "id: bugs"),
   )
   .superRefine((settings, ctx) => {
     const refuse = (path: (string | number)[], message: string) => ctx.addIssue({ code: "custom", path, message });
