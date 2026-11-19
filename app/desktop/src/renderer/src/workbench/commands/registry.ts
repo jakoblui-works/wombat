@@ -190,6 +190,7 @@ const MAIN_COMMAND_TITLES: Record<MainCommandId, string> = {
   "window.maximize": "Maximize",
   "window.close": "Close Window",
   "workspace.switch": "Switch Workspace…",
+  "items.chooseFolder": "Choose Items Folder…",
   "service.stop": "Stop Service and Agents",
   "app.quit": "Quit",
 };

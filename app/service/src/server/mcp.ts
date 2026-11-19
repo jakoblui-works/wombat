@@ -183,7 +183,7 @@ const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "pro
     async (args: A): Promise<CallToolResult> => {
       if (access === undefined) {
         return text(
-          "The Wombat service has no items set up, so there are none to read or change. Ask the user to set WOMBAT_ITEMS and restart the service.",
+          "The Wombat service has no items set up, so there are none to read or change. Ask the user to choose the items folder in the app (Choose Items Folder… in the File menu), or, when they run the service on its own, to set WOMBAT_ITEMS and restart the service.",
           true,
         );
       }

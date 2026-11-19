@@ -7,6 +7,8 @@ export const SWITCH = {
   e2e: "WOMBAT_E2E",
   /** The answer to the workspace folder dialog, which then never opens. */
   workspace: "WOMBAT_E2E_WORKSPACE",
+  /** The answer to the items folder picker (an absolute path), which then never opens; unset or empty is a cancel. */
+  itemsFolder: "WOMBAT_E2E_ITEMS_FOLDER",
   /** The service's entry (the checks' fake-agent entry). */
   serviceEntry: "WOMBAT_E2E_SERVICE_ENTRY",
   /** The quit question's answer: stop | leave | cancel. */

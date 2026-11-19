@@ -46,7 +46,7 @@ export class ProposalError extends Error {
   }
 }
 
-export const ITEMS_NOT_CONFIGURED = "The items aren't set up. Set WOMBAT_ITEMS to the absolute path of the items folder and restart the service.";
+export const ITEMS_NOT_CONFIGURED = "The items aren't set up. Choose the items folder in the app (Choose Items Folder… in the File menu), or, when you run the service on its own, set WOMBAT_ITEMS to the absolute path of the items folder and restart the service.";
 
 /** An item proposal read or decided while the service has no items root. */
 export const itemsNotConfigured = () => new ProposalError(ItemsErrorCode.enum.items_not_configured, ITEMS_NOT_CONFIGURED);

@@ -1,7 +1,9 @@
 import { SETTINGS_FILE } from "@wombat/shared/items";
 
+import { Button } from "../../../components/ui/button";
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { useBinders } from "../../../data/hooks.ts";
+import { runLogged } from "../../commands/registry.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useDesk, useWorkbench } from "../../workbench-context.ts";
 import { EmptyState } from "../EmptyState/EmptyState.tsx";
@@ -39,8 +41,11 @@ export const Desk = () => {
           Couldn't read the binders: {content.message}
         </p>
       ) : content.kind === "no-root" ? (
-        <div className="min-h-0 flex-1">
-          <EmptyState symbol title="No items folder" body="Set WOMBAT_ITEMS to the absolute path of your items folder and restart the service." />
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center pb-4">
+          <div>
+            <EmptyState symbol title="No items folder" body="The items folder is the folder that holds your binders. Choose it to see them here." />
+          </div>
+          <Button onClick={() => runLogged("items.chooseFolder")}>Choose items folder…</Button>
         </div>
       ) : content.kind === "empty" ? (
         <div className="min-h-0 flex-1">
