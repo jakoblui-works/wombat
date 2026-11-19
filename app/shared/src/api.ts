@@ -582,7 +582,7 @@ export type ListBindersResponse = z.infer<typeof ListBindersResponse>;
 export const ListItemsResponse = z.object({ items: z.array(ItemSummary) });
 export type ListItemsResponse = z.infer<typeof ListItemsResponse>;
 
-/** `GET /items/:handle`: one item by handle or alias, with its body. */
+/** `GET /items/:ref`: one item by id, handle or alias, with its body. */
 export const GetItemResponse = Item;
 export type GetItemResponse = z.infer<typeof GetItemResponse>;
 
@@ -735,14 +735,16 @@ export type ListLogResponse = z.infer<typeof ListLogResponse>;
 /** How often the service writes the heartbeat on every open `GET /events` stream; a client may drop a stream silent for longer. */
 export const HEARTBEAT_MS = 15_000;
 
-/** The alert type of a proposal change; the other alert types are the agent ones. */
+/** The alert type of a proposal change. */
 export const PROPOSAL_ALERT = "proposal";
+/** The alert type of a change to any item or binder settings, by the service or by hand. */
+export const ITEMS_ALERT = "items";
 
 const AgentAlertType = z.enum(["agent_added", "agent_changed", "agent_removed", "log"]);
 
 /**
  * Says that something changed, up to `seq`; the app fetches the change. An agent alert names the agent, a
- * `proposal` alert the proposal. Alerts carry ids only: unknown fields are stripped, so an alert never carries
+ * `proposal` alert the proposal; an `items` alert names nothing, so the app reads its items again. Alerts carry ids only: unknown fields are stripped, so an alert never carries
  * agent or item content even if one is sent.
  */
 export const Alert = z.discriminatedUnion("type", [
@@ -753,10 +755,11 @@ export const Alert = z.discriminatedUnion("type", [
     agentId: z.string(),
   }),
   z.object({ seq: Seq, dbId: DbId, type: z.literal(PROPOSAL_ALERT), proposalId: z.string() }),
+  z.object({ seq: Seq, dbId: DbId, type: z.literal(ITEMS_ALERT) }),
 ]);
 export type Alert = z.infer<typeof Alert>;
 
-const alertTypes = new Set<unknown>([...AgentAlertType.options, PROPOSAL_ALERT]);
+const alertTypes = new Set<unknown>([...AgentAlertType.options, PROPOSAL_ALERT, ITEMS_ALERT]);
 
 /** Parses one alert. Returns undefined for alert types this app doesn't know (newer service); throws on a malformed known alert. */
 export const parseAlert = (data: unknown): Alert | undefined => {

@@ -49,7 +49,9 @@ describe("GET /events", () => {
           events.map((event) =>
             event.type === "proposal"
               ? { seq: event.seq, dbId: s.store.dbId, type: event.type, proposalId: event.proposalId }
-              : { seq: event.seq, dbId: s.store.dbId, type: event.type, agentId: event.agentId },
+              : "agentId" in event
+                ? { seq: event.seq, dbId: s.store.dbId, type: event.type, agentId: event.agentId }
+                : { seq: event.seq, dbId: s.store.dbId, type: event.type },
           ),
         );
       }

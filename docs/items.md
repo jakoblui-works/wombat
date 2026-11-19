@@ -104,3 +104,9 @@ Wombat never writes to a file in a binder with problems, to a file without a val
 ## Problems
 
 Wombat doesn't drop a broken binder or item. The app lists it with its problems. Each problem names the key or line and says what to write instead. An item with only value problems, such as a select value that isn't an option, can still be fixed through the tools.
+
+## The API
+
+`GET /items/:ref` answers one item with its body. `ref` is the item's id, its handle or one of its aliases, tried in that order.
+
+Every change to an item file or a binder's `_binder.yaml` sends an `items` alert on `GET /events`: `{ seq, dbId, type: "items" }`. It covers the service's own writes (agents' tools, approved proposals) and edits made by hand, which Wombat notices about 200 ms after the last one. The alert says only that something changed, never which item or what; the app reads its binders and items again. A write of the service's can send two alerts, one for the write and one when the watch sees the file change. Its `seq` is on the same sequence as the other alerts.

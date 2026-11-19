@@ -1,11 +1,13 @@
 // The page's query keys. `logs` is the prefix of every `log(agentId)`, `proposalDetails` of every
-// `proposal(proposalId)` and `binderItemLists` of every `binderItems(binderId)`, for finding the cached ones.
+// `proposal(proposalId)`, `binderItemLists` of every `binderItems(binderId)` and `itemDetails` of every `item(ref)`,
+// for finding the cached ones.
 import type { QueryKey } from "@tanstack/react-query";
 
 const LOG = "log";
 const PROPOSAL = "proposal";
 const PROPOSAL_VERSION = "proposal-version";
 const BINDER_ITEMS = "binder-items";
+const ITEM = "item";
 
 export const keys = {
   agents: ["agents"],
@@ -21,6 +23,8 @@ export const keys = {
   binders: ["binders"],
   binderItemLists: [BINDER_ITEMS],
   binderItems: (binderId: string) => [BINDER_ITEMS, binderId],
+  itemDetails: [ITEM],
+  item: (ref: string) => [ITEM, ref],
 } as const satisfies Record<string, QueryKey | ((id: string, version: number) => QueryKey)>;
 
 /** The proposal a `keys.proposal(id)` key names; undefined for any other key. */

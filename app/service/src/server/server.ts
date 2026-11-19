@@ -20,7 +20,7 @@ import { requireAgent } from "../agents/errors.ts";
 import { AgentError, type Manager } from "../agents/manager.ts";
 import { folderOf } from "../agents/resume.ts";
 import { handlesById, summarize, withLinks } from "../items/api-view.ts";
-import { findByHandle, type Catalog } from "../items/catalog.ts";
+import { findByRef, type Catalog } from "../items/catalog.ts";
 import type { Writer } from "../items/write.ts";
 import type { Harness } from "../harness/harness.ts";
 import { harnessFeatures } from "../harness/registry.ts";
@@ -251,17 +251,17 @@ export const startServer = async ({
     return c.json(checked(ROUTES.binderItems.response, { items: listed }) satisfies ResponseOf<typeof ROUTES.binderItems>);
   });
 
-  app.get("/items/:handle", async (c) => {
+  app.get("/items/:ref", async (c) => {
     if (!items) return notConfigured(c);
-    const handle = c.req.param("handle");
+    const ref = c.req.param("ref");
     const { binders, items: all } = await items.snapshot();
-    const found = findByHandle(all, handle);
+    const found = findByRef(all, ref);
     if (!found) {
       return errorResponse(
         c,
         ITEMS_STATUS.item_not_found,
         ItemsErrorCode.enum.item_not_found,
-        `There's no item ${handle}. List a binder's items to see their handles.`,
+        `There's no item ${ref}. List a binder's items to see their handles.`,
       );
     }
     const handles = handlesById(all);

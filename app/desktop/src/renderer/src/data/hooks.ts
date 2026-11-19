@@ -21,12 +21,10 @@ export const useProposals = () => useQuery(proposalsQuery());
 export const useProposal = (proposalId: string, version?: number) =>
   useQuery(version === undefined ? proposalQuery(proposalId) : proposalVersionQuery(proposalId, version));
 
-/** The items' binders; nothing announces their changes, so each caller's mount reads them again. */
-export const useBinders = () => useQuery({ ...bindersQuery(), refetchOnMount: "always" });
+export const useBinders = () => useQuery(bindersQuery());
 
-/** The items of each binder in `binderIds`, in that order; read again on each caller's mount, like the binders. */
-export const useBinderItems = (binderIds: readonly string[]) =>
-  useQueries({ queries: binderIds.map((binderId) => ({ ...binderItemsQuery(binderId), refetchOnMount: "always" as const })) });
+/** The items of each binder in `binderIds`, in that order. */
+export const useBinderItems = (binderIds: readonly string[]) => useQueries({ queries: binderIds.map((binderId) => binderItemsQuery(binderId)) });
 
 export const useAgentLog = (agentId: string) => useQuery(agentLogQuery(useQueryClient(), agentId));
 

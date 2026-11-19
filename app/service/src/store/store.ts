@@ -37,6 +37,8 @@ export type Store = ProposalStore & {
   readonly dbId: string;
   /** The last seq handed out; 0 for a fresh database. */
   currentSeq: () => number;
+  /** Takes the next seq for a change stored elsewhere (the items, on disk), so its alert joins the sequence. */
+  takeSeq: () => number;
   /** Stores the entries as one transaction and returns their seqs; throws, storing nothing, on failure. */
   append: (agentId: string, entries: NewLogEntry[]) => number[];
   putAgent: (summary: AgentSummary) => number;
@@ -225,19 +227,22 @@ export const openStore = ({
     };
   };
 
+  const takeSeq = () => transaction(() => takeSeqs(1)[0] ?? 0);
+
   const nextHandleNumber = (binder: string, floor: number) =>
     transaction(() => asNumber(statements.nextHandleNumber.get(binder, floor)?.last));
 
   return {
     dbId,
     currentSeq,
+    takeSeq,
     append,
     putAgent,
     listAgents,
     deleteAgent,
     readLog,
     nextHandleNumber,
-    ...openProposalStore(db, transaction, () => takeSeqs(1)[0] ?? 0, now),
+    ...openProposalStore(db, transaction, takeSeq, now),
     transaction,
     close: () => db.close(),
   };

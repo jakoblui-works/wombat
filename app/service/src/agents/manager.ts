@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { AgentErrorCode, PROPOSAL_ALERT, type AgentSummary } from "@wombat/shared/api";
+import { AgentErrorCode, ITEMS_ALERT, PROPOSAL_ALERT, type AgentSummary } from "@wombat/shared/api";
 import { emptyFold } from "@wombat/shared/log-fold";
 
 import type { CacheState, Harness } from "../harness/harness.ts";
@@ -300,6 +300,9 @@ export const createManager = ({
   /** Tells the listeners about a committed proposal change (stored, approved, rejected, conflict). */
   const proposalCommitted = (proposalId: string, seq: number) => emit({ seq, type: PROPOSAL_ALERT, proposalId });
 
+  /** Tells the listeners that an item or a binder's settings changed (a write of the service's or one by hand). */
+  const itemsCommitted = (seq: number) => emit({ seq, type: ITEMS_ALERT });
+
   /** The agent's live cache state (`AgentSummary.cache`): undefined without a process, null when none is known. */
   const liveCache = (agentId: string): CacheState | null | undefined => procOf(agentId)?.cache;
 
@@ -318,6 +321,7 @@ export const createManager = ({
     setNoteSource,
     agentForToken,
     proposalCommitted,
+    itemsCommitted,
     liveCache,
   };
 };

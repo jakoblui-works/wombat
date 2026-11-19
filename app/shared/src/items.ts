@@ -358,6 +358,6 @@ const itemFields = {
 export const ItemSummary = z.object(itemFields);
 export type ItemSummary = z.infer<typeof ItemSummary>;
 
-/** One item (`GET /items/:handle`, by handle or alias): the summary plus its body, everything after the title line. */
+/** One item (`GET /items/:ref`, by id, handle or alias): the summary plus its body, everything after the title line. */
 export const Item = z.object({ ...itemFields, body: z.string().nullable() });
 export type Item = z.infer<typeof Item>;

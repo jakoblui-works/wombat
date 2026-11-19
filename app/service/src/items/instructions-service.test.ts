@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { INSTRUCTIONS_DEBOUNCE_MS } from "./instructions.ts";
+import { WATCH_DEBOUNCE_MS } from "./watch.ts";
 import { ACCESS_FILES } from "../../test/access-fixtures.ts";
 import { INSTRUCTIONS_FILES } from "../../test/instructions-fixtures.ts";
 import { TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
@@ -28,7 +28,7 @@ const SETTLE_MS = 1_000;
 
 /** Waits until the instructions file passes `check`, for at most the debounce plus the settle tolerance. */
 const untilFile = async (service: RunningService, what: string, check: (text: string) => boolean) => {
-  const deadline = Date.now() + INSTRUCTIONS_DEBOUNCE_MS + SETTLE_MS;
+  const deadline = Date.now() + WATCH_DEBOUNCE_MS + SETTLE_MS;
   for (;;) {
     const text = readInstructions(service) ?? "";
     if (check(text)) return text;
@@ -100,7 +100,7 @@ describe("the instructions file in the service", () => {
       const before = await untilLogged(service, settled);
       const offFile = join(root, "backlog/a-note-while-off.md");
       writeFileSync(offFile, "# A note while the backlog is off\n\nInvented.\n");
-      await expect.poll(() => readFileSync(offFile, "utf8"), { message: "the id first sight gives", timeout: INSTRUCTIONS_DEBOUNCE_MS + SETTLE_MS }).toMatch(/^id: /m);
+      await expect.poll(() => readFileSync(offFile, "utf8"), { message: "the id first sight gives", timeout: WATCH_DEBOUNCE_MS + SETTLE_MS }).toMatch(/^id: /m);
       edit("bugs/BUG-3-accents.md", "# Search ignores accents", "# Search ignores accents and case");
       const current = await untilFile(service, "an edited title", (text) => text.includes("ignores accents and case"));
       expect(current.replace("ignores accents and case", "ignores accents"), "the switched-off file changed nothing").toBe(settled);

@@ -10,7 +10,7 @@ import { ServiceError } from "../../../data/client.ts";
 import { useDecide } from "../../../data/commands.ts";
 import { useAgents, useConnection, useProposal } from "../../../data/hooks.ts";
 import { keys } from "../../../data/keys.ts";
-import { refresh, refreshItems } from "../../../data/refresh.ts";
+import { refresh } from "../../../data/refresh.ts";
 import { useHarnessFeatures } from "../../../data/harness-features.ts";
 import { setReference } from "../Chat/Composer/unsent.ts";
 import { useActiveTab, useWorkbench } from "../../workbench-context.ts";
@@ -114,12 +114,11 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: Pane
   const [rejecting, setRejecting] = useState(false);
   const queryClient = useQueryClient();
   const active = isProposalTab(useActiveTab(), proposalId);
-  // Nothing announces a hand edit of the file or the items, so the tab reads the proposal, the binders and the items
-  // it shows again each time it's brought to the front.
+  // A hand edit of the proposal's target sends no proposal alert (and a plain file outside the items root no alert at
+  // all), so the tab reads the proposal, with the target as it is now, again each time it's brought to the front.
   useEffect(() => {
     if (!active) return;
     void refresh(queryClient, keys.proposal(proposalId));
-    refreshItems(queryClient);
   }, [active, queryClient, proposalId]);
   const proposal: ProposalDetail | undefined = read.data;
   const fileDraft = useDraftEditor(proposalId, proposal);

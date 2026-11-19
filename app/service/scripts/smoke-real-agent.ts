@@ -245,7 +245,7 @@ const main = async (): Promise<boolean> => {
       for await (const line of lines) {
         if (!line.startsWith("data:")) continue;
         const alert = Alert.safeParse(JSON.parse(line.slice(5)));
-        if (alert.success && alert.data.type !== "proposal" && alert.data.agentId === agentId) nudge();
+        if (alert.success && "agentId" in alert.data && alert.data.agentId === agentId) nudge();
       }
     })().catch(() => undefined);
 

@@ -28,7 +28,7 @@ describe("commit before alert", () => {
       const seen: { seq: number; type: string }[] = [];
       t.manager.onCommitted((event) => {
         const { seq, type } = event;
-        const agentId = event.type === "proposal" ? `proposal ${event.proposalId}` : event.agentId;
+        const agentId = event.type === "proposal" ? `proposal ${event.proposalId}` : "agentId" in event ? event.agentId : "items";
         const previous = seen.at(-1)?.seq ?? 0;
         seen.push({ seq, type });
         const where = `${type} ${seq} for ${agentId}`;

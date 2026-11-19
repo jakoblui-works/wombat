@@ -64,7 +64,7 @@ const PAGE_ROUTES = {
   deleteAgent: { method: "DELETE", pattern: "/agents/:id", response: NoContent },
   listBinders: { method: "GET", pattern: "/binders", response: ListBindersResponse },
   binderItems: { method: "GET", pattern: "/binders/:id/items", response: ListItemsResponse },
-  getItem: { method: "GET", pattern: "/items/:handle", response: GetItemResponse },
+  getItem: { method: "GET", pattern: "/items/:ref", response: GetItemResponse },
   listProposals: { method: "GET", pattern: "/proposals", query: ListProposalsQuery, response: ListProposalsResponse },
   getProposal: { method: "GET", pattern: "/proposals/:id", query: ProposalDetailQuery, response: ProposalDetail },
   saveDraft: { method: "PUT", pattern: "/proposals/:id/draft", body: DraftRequest, response: Proposal },

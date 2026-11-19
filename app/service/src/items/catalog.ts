@@ -57,6 +57,10 @@ export type Snapshot = { binders: LoadedBinder[]; items: LoadedItem[] };
 export const findByHandle = (items: readonly LoadedItem[], handle: string): LoadedItem | undefined =>
   items.find((item) => item.handle === handle) ?? items.find((item) => item.aliases.includes(handle));
 
+/** The item a reference names: by id first, then as `findByHandle`. */
+export const findByRef = (items: readonly LoadedItem[], ref: string): LoadedItem | undefined =>
+  items.find((item) => item.id === ref) ?? findByHandle(items, ref);
+
 export type Catalog = {
   /** The items root, as given. */
   root: string;

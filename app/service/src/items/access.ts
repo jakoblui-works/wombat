@@ -5,7 +5,7 @@
 import type { Problem } from "@wombat/shared/items";
 
 import { agentWriteError, itemFor, linkNotFound, scrubbed, binderFor, viewOf, type View } from "./agent-view.ts";
-import { findByHandle, type Catalog, type LoadedItem, type Snapshot, type ValidBinder } from "./catalog.ts";
+import { findByRef, type Catalog, type LoadedItem, type Snapshot, type ValidBinder } from "./catalog.ts";
 import { writeGuards } from "./guards.ts";
 import { newItem, type ItemInput } from "./refusals.ts";
 import { ownValue, propertyOf, setOwn } from "./validate.ts";
@@ -62,7 +62,7 @@ const agentBinder = (view: View, binder: ValidBinder): AgentBinder => ({
 const linkHandle = (view: View, to: string, value: unknown) => {
   if (typeof value !== "string" || !view.binders.has(to)) return null;
   const inTarget = view.items.filter((item) => item.binder === to);
-  return (inTarget.find((item) => item.id === value) ?? findByHandle(inTarget, value))?.handle ?? null;
+  return findByRef(inTarget, value)?.handle ?? null;
 };
 
 /**

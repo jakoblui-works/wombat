@@ -1,4 +1,4 @@
-import { PROPOSAL_ALERT, type Alert } from "@wombat/shared/api";
+import { ITEMS_ALERT, PROPOSAL_ALERT, type Alert } from "@wombat/shared/api";
 
 import type { Committed, Manager } from "../agents/manager.ts";
 
@@ -12,6 +12,13 @@ const encoder = new TextEncoder();
  */
 export const MAX_QUEUED_ALERTS = 1_000;
 
+/** The alert as sent: only the fields its type names, so nothing else a committed change holds can reach the stream. */
+const alertOf = (event: Committed, dbId: string): Alert => {
+  if (event.type === PROPOSAL_ALERT) return { seq: event.seq, dbId, type: event.type, proposalId: event.proposalId };
+  if (event.type === ITEMS_ALERT) return { seq: event.seq, dbId, type: event.type };
+  return { seq: event.seq, dbId, type: event.type, agentId: event.agentId };
+};
+
 export type AlertStreamsOptions = {
   onCommitted: Manager["onCommitted"];
   dbId: string;
@@ -20,7 +27,7 @@ export type AlertStreamsOptions = {
 
 /**
  * `GET /events`: one alert per committed change, from the moment the stream is opened (no replay; the app
- * catches up through the log route). Alerts carry ids and seqs only, never agent content.
+ * catches up through the log route). Alerts carry ids and seqs only, never agent or item content.
  */
 export const createAlertStreams = ({ onCommitted, dbId, heartbeatMs }: AlertStreamsOptions) => {
   const open = new Set<() => void>();
@@ -43,10 +50,7 @@ export const createAlertStreams = ({ onCommitted, dbId, heartbeatMs }: AlertStre
           }
         };
         const unsubscribe = onCommitted((event: Committed) => {
-          const alert: Alert =
-            event.type === PROPOSAL_ALERT
-              ? { seq: event.seq, dbId, type: event.type, proposalId: event.proposalId }
-              : { seq: event.seq, dbId, type: event.type, agentId: event.agentId };
+          const alert = alertOf(event, dbId);
           write(`id: ${event.seq}\ndata: ${JSON.stringify(alert)}\n\n`);
         });
         const heartbeat = setInterval(() => write(": ping\n"), heartbeatMs);
