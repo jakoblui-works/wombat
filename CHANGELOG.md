@@ -70,7 +70,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The app needs Node 26 or newer (was 24).
-- The saved window layout (splits, tabs, sidebar widths) resets to the default once, on the first start of this version.
 - Quitting with no agent process stops the agent service with the app, without asking. With agents that have a process, the question names how many and offers Keep running, Stop agents and quit, or Cancel; "Don't ask again" remembers the answer (an earlier "Don't ask again" stays Keep). A service kept running at quit is announced by a desktop notification ("The agent service is still running with N agents. Open Wombat to stop it.").
 - Restart Service works in every connection state: it asks first only when agents have a process, then stops the service and starts it from the code on disk. A Restart that fails says why in a dialog, whatever the app shows.
 - A service of the app's whose process runs but doesn't answer is never joined by a second one: opening Wombat, Restart and Switch Workspace fail instead, naming its pid and how to stop it.
