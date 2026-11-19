@@ -236,15 +236,15 @@ export const openItemProposals = ({ catalog, writer, store }: ItemProposalsOptio
       if (stored.kind === "create") {
         const { written } = createInputOf(fields, stored.file);
         const { itemId } = (stored.intent ?? {}) as ItemIntent;
-        const created = await writer.createItem(binder.id, newItem(written, written.properties), itemId ?? undefined);
+        const created = await writer.createItem(stored.agentId, binder.id, newItem(written, written.properties), itemId ?? undefined);
         return created.id === null ? { written: true } : { written: true, itemId: created.id, ...(created.handle === null ? {} : { itemHandle: created.handle }) };
       }
       const target = targetItem(snapshot.items, stored);
       if (target === "gone" || (stored.kind === "delete" && ((stored.intent ?? {}) as ItemIntent).path == null)) return ITEM_GONE;
       if ("movedTo" in target) return conflict(`The item moved to ${target.movedTo} since the agent read it, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
       const baseVersion = stored.baseVersion ?? "";
-      if (stored.kind === "update") await writer.updateItem(target.handle, fields, baseVersion);
-      else await writer.deleteItem(target.handle, baseVersion);
+      if (stored.kind === "update") await writer.updateItem(stored.agentId, target.handle, fields, baseVersion);
+      else await writer.deleteItem(stored.agentId, target.handle, baseVersion);
       return { written: true };
     } catch (error) {
       const applied = writeFailure(error, stored);

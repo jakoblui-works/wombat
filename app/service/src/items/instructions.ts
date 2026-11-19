@@ -281,18 +281,18 @@ export const openInstructions = ({ catalog, workspaceRoot, watch, itemsRoot, log
 
 /** The writer with the instructions file refreshed after each write, before the write's call answers. */
 export const refreshingWriter = (writer: Writer, refresh: () => Promise<void>): Writer => ({
-  createItem: async (binderId, item, id) => {
-    const created = await writer.createItem(binderId, item, id);
+  createItem: async (by, binderId, item, id) => {
+    const created = await writer.createItem(by, binderId, item, id);
     await refresh();
     return created;
   },
-  updateItem: async (handle, fields, baseVersion) => {
-    const updated = await writer.updateItem(handle, fields, baseVersion);
+  updateItem: async (by, handle, fields, baseVersion) => {
+    const updated = await writer.updateItem(by, handle, fields, baseVersion);
     await refresh();
     return updated;
   },
-  deleteItem: async (handle, baseVersion) => {
-    await writer.deleteItem(handle, baseVersion);
+  deleteItem: async (by, handle, baseVersion) => {
+    await writer.deleteItem(by, handle, baseVersion);
     await refresh();
   },
   checkNewFile: (binderId, file, unseen) => writer.checkNewFile(binderId, file, unseen),

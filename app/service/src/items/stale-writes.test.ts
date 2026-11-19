@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { ItemWriteError } from "./write.ts";
+import { ItemWriteError, ME } from "./write.ts";
 import { VALID_FILES, expectWriteError, itemAt, openItems, readAt, writeAt, writeRoot } from "../../test/items-fixtures.ts";
 
 const FILE = "bugs/BUG-1-login-times-out.md";
@@ -19,9 +19,9 @@ describe("stale writes are refused", () => {
     const handEdited = `${readAt(root, FILE)}\nAlso seen on production, 2026-11-08.\n`;
     writeAt(root, FILE, handEdited);
 
-    await expectWriteError(writer.updateItem("BUG-1", { repo: "site-web" }, before.version), "stale_version", "update");
-    await expectWriteError(writer.updateItem("BUG-1", { body: "Replaced.\n" }, before.version), "stale_version", "body update");
-    await expectWriteError(writer.deleteItem("BUG-1", before.version), "stale_version", "delete");
+    await expectWriteError(writer.updateItem(ME, "BUG-1", { repo: "site-web" }, before.version), "stale_version", "update");
+    await expectWriteError(writer.updateItem(ME, "BUG-1", { body: "Replaced.\n" }, before.version), "stale_version", "body update");
+    await expectWriteError(writer.deleteItem(ME, "BUG-1", before.version), "stale_version", "delete");
 
     expect(existsSync(join(root, FILE))).toBe(true);
     expect(readAt(root, FILE)).toBe(handEdited);
@@ -33,8 +33,8 @@ describe("stale writes are refused", () => {
     const base = itemAt((await catalog.snapshot()).items.filter((item) => item.binder === "bugs"), FILE).version;
 
     const results = await Promise.allSettled([
-      writer.updateItem("BUG-1", { repo: "site-web" }, base),
-      writer.updateItem("BUG-1", { note: "Changed by the second writer" }, base),
+      writer.updateItem(ME, "BUG-1", { repo: "site-web" }, base),
+      writer.updateItem(ME, "BUG-1", { note: "Changed by the second writer" }, base),
     ]);
 
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);

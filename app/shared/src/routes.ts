@@ -7,6 +7,8 @@ import {
   AgentSummary,
   AnswerPermissionRequest,
   ContextBreakdown,
+  CreateItemRequest,
+  DeleteItemQuery,
   GetItemResponse,
   ListAgentsResponse,
   ListBindersResponse,
@@ -21,6 +23,7 @@ import {
   SetConfigRequest,
   ShutdownResponse,
   StartAgentRequest,
+  UpdateItemRequest,
   VersionResponse,
 } from "./api.ts";
 import {
@@ -41,7 +44,7 @@ export { MAX_BODY_BYTES } from "./api.ts";
  * request body it takes, if any. `response`: the schema of a 2xx body, or "stream" for an event stream.
  */
 export type AppRoute = {
-  method: "GET" | "POST" | "PUT" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   pattern: string;
   query?: z.ZodType;
   body?: z.ZodType;
@@ -65,6 +68,9 @@ const PAGE_ROUTES = {
   listBinders: { method: "GET", pattern: "/binders", response: ListBindersResponse },
   binderItems: { method: "GET", pattern: "/binders/:id/items", response: ListItemsResponse },
   getItem: { method: "GET", pattern: "/items/:ref", response: GetItemResponse },
+  createItem: { method: "POST", pattern: "/binders/:id/items", body: CreateItemRequest, response: GetItemResponse },
+  updateItem: { method: "PATCH", pattern: "/items/:ref", body: UpdateItemRequest, response: GetItemResponse },
+  deleteItem: { method: "DELETE", pattern: "/items/:ref", query: DeleteItemQuery, response: NoContent },
   listProposals: { method: "GET", pattern: "/proposals", query: ListProposalsQuery, response: ListProposalsResponse },
   getProposal: { method: "GET", pattern: "/proposals/:id", query: ProposalDetailQuery, response: ProposalDetail },
   saveDraft: { method: "PUT", pattern: "/proposals/:id/draft", body: DraftRequest, response: Proposal },

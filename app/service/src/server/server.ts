@@ -32,6 +32,7 @@ import type { Store } from "../store/store.ts";
 import { listRepos, RepoError } from "../workspace.ts";
 import { AGENT_STATUS, errorResponse, ITEMS_STATUS, SERVER_STATUS } from "./errors.ts";
 import { createAlertStreams } from "./events.ts";
+import { itemRoutes, noItem } from "./item-routes.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { portRules } from "./port-rules.ts";
 import { proposalRoutes } from "./proposal-routes.ts";
@@ -256,19 +257,13 @@ export const startServer = async ({
     const ref = c.req.param("ref");
     const { binders, items: all } = await items.snapshot();
     const found = findByRef(all, ref);
-    if (!found) {
-      return errorResponse(
-        c,
-        ITEMS_STATUS.item_not_found,
-        ItemsErrorCode.enum.item_not_found,
-        `There's no item ${ref}. List a binder's items to see their handles.`,
-      );
-    }
+    if (!found) return noItem(c, ref);
     const handles = handlesById(all);
     return c.json(checked(ROUTES.getItem.response, withLinks(found, binders, handles)) satisfies ResponseOf<typeof ROUTES.getItem>);
   });
 
   manager.setNoteSource(notes);
+  itemRoutes(app, items && writer ? { catalog: items, writer } : undefined, notConfigured);
   proposalRoutes(app, proposals);
 
   app.get("/events", (c) => {

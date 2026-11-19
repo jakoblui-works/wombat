@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { ItemWriteError } from "./write.ts";
+import { ItemWriteError, ME } from "./write.ts";
 import { BUGS_SETTINGS, VALID_FILES, expectWriteError, mdFilesIn, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 import { SETTINGS_FILE } from "./binders.ts";
 
@@ -18,7 +18,7 @@ describe("created files", () => {
     const { writer } = openItems(root);
     const before = { root: mdFilesIn(root, ""), guides: mdFilesIn(root, "guides"), bugs: mdFilesIn(root, "bugs") };
 
-    await expectWriteError(writer.createItem("docs", { title: "Deploying", body: "", properties: {}, ...(file === undefined ? {} : { file }) }), "invalid_fields", String(file));
+    await expectWriteError(writer.createItem(ME, "docs", { title: "Deploying", body: "", properties: {}, ...(file === undefined ? {} : { file }) }), "invalid_fields", String(file));
 
     expect({ root: mdFilesIn(root, ""), guides: mdFilesIn(root, "guides"), bugs: mdFilesIn(root, "bugs") }).toEqual(before);
     expect(readAt(root, "guides/setup.md")).toBe(VALID_FILES["guides/setup.md"]);
@@ -35,7 +35,7 @@ describe("created files", () => {
     });
     const { writer } = openItems(root);
 
-    const refused = await writer.createItem("notes", { title: "Deploying", body: "", properties: {}, file }).then(
+    const refused = await writer.createItem(ME, "notes", { title: "Deploying", body: "", properties: {}, file }).then(
       () => undefined,
       (error: unknown) => error,
     );
@@ -52,7 +52,7 @@ describe("created files", () => {
     symlinkSync(join(root, "elsewhere/guides"), join(root, "guides"));
     const { writer } = openItems(root);
 
-    await expectWriteError(writer.createItem("docs", { title: "Deploying", body: "", properties: {}, file: "guides/deploying.md" }), "invalid_fields", "symlink");
+    await expectWriteError(writer.createItem(ME, "docs", { title: "Deploying", body: "", properties: {}, file: "guides/deploying.md" }), "invalid_fields", "symlink");
 
     expect(existsSync(join(root, "elsewhere/guides/deploying.md"))).toBe(false);
   });

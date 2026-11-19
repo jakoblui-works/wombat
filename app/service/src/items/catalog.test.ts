@@ -7,6 +7,7 @@ import { describe, expect, test, onTestFinished } from "vitest";
 import { ACCESS_FILES, AGENT, openAccessRoot } from "../../test/access-fixtures.ts";
 import { BROKEN_BINDER_FILES, DOCS_SETTINGS, IDS, VALID_FILES, isOldSettingsProblem, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
 import { OLD_SETTINGS_FILE, SETTINGS_FILE } from "./binders.ts";
+import { ME } from "./write.ts";
 
 const UNASSIGNED = "---\nproject: wombat\n---\n# Typed by hand\n";
 
@@ -83,9 +84,9 @@ describe("binder problems", () => {
     expect(backlog?.id).toBe("backlog");
     expect(backlog?.problems.map((problem) => isOldSettingsProblem(problem, "delete")), JSON.stringify(backlog?.problems)).toEqual([true]);
 
-    const created = await writer.createItem("backlog", { title: "Export as CSV", body: "From the binder's list.\n", properties: { project: "wombat" } });
+    const created = await writer.createItem(ME, "backlog", { title: "Export as CSV", body: "From the binder's list.\n", properties: { project: "wombat" } });
     expect(created.handle).toMatch(/^BL-\d+$/);
-    expect((await writer.updateItem("BL-1", { owner: "Kim" }, await version("BL-1"))).properties.owner).toBe("Kim");
+    expect((await writer.updateItem(ME, "BL-1", { owner: "Kim" }, await version("BL-1"))).properties.owner).toBe("Kim");
     const byAgent = await access.create(AGENT, "backlog", { title: "Import from CSV", body: "The other way round.\n" });
     expect("written" in byAgent ? (await access.get(byAgent.written)).title : undefined).toBe("Import from CSV");
     await access.update(AGENT, "BL-2", { owner: "Sam" }, await version("BL-2"));

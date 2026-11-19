@@ -68,6 +68,29 @@ export const ListLogQuery = z.strictObject(
 );
 export type ListLogQuery = z.infer<typeof ListLogQuery>;
 
+const ItemVersion = z.string().regex(/^[0-9a-f]{64}$/, { message: "version must be the item's version as you read it (64 hex characters)" });
+
+/** `POST /binders/:id/items`: the service checks the values against the binder, as for an agent's create. */
+export const CreateItemRequest = z.strictObject({
+  title: z.string(),
+  body: z.string(),
+  properties: z.record(z.string(), z.unknown()),
+  /** Free naming only: the file's path relative to the binder's folder. */
+  file: z.string().exactOptional(),
+});
+export type CreateItemRequest = z.infer<typeof CreateItemRequest>;
+
+/** `PATCH /items/:ref`: only the changed fields among title, body and property names; null clears a property. */
+export const UpdateItemRequest = z.strictObject({ version: ItemVersion, fields: z.record(z.string(), z.unknown()) });
+export type UpdateItemRequest = z.infer<typeof UpdateItemRequest>;
+
+/** `DELETE /items/:ref?version=`: the version the delete is based on. */
+export const DeleteItemQuery = z.strictObject(
+  { version: ItemVersion },
+  { error: (issue) => (issue.code === "unrecognized_keys" ? "unknown query parameter; send only version" : undefined) },
+);
+export type DeleteItemQuery = z.infer<typeof DeleteItemQuery>;
+
 // Responses (lenient)
 
 const ErrorDetail = z.object({
@@ -152,9 +175,9 @@ export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 /**
  * The items routes' error codes: `items_not_configured` when the service runs without an items root (the app hides
  * the items views), `binder_not_found` and `item_not_found` for an unknown binder id or handle (the app
- * refetches the binders). The proposal routes add the ProposalErrorCode codes. `items_not_writable` is reserved
- * for a write the items root's filesystem can't take; no route sends it yet: such a failure on approve settles the
- * proposal as a conflict.
+ * refetches the binders). The proposal routes add the ProposalErrorCode codes. `items_not_writable`: my write to
+ * an item or binder with identity problems, or one the items root's filesystem can't take; on approve such a failure
+ * settles the proposal as a conflict instead.
  */
 export const ItemsErrorCode = z.enum([
   "items_not_configured",
@@ -166,7 +189,7 @@ export const ItemsErrorCode = z.enum([
 export type ItemsErrorCode = z.infer<typeof ItemsErrorCode>;
 
 /**
- * Why the item writer refused a write; nothing on disk changed. Internal to the service, never sent. On /mcp the
+ * Why the item writer refused a write; nothing on disk changed. The item write routes send it as is. On /mcp the
  * access module turns each one but `items_not_writable` into an AccessErrorCode refusal (the agent gets its message);
  * approving a proposal turns every one of them into a `conflict` proposal. `items_not_writable` fails an /mcp call:
  * the agent gets a generic failure.

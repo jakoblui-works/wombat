@@ -3,7 +3,7 @@
 // caller leaves out is left out.
 import { describe, expect, test } from "vitest";
 
-import { ItemWriteError } from "./write.ts";
+import { ItemWriteError, ME } from "./write.ts";
 import { VALID_FILES, expectWriteError, mdFilesIn, openItems, writeRoot } from "../../test/items-fixtures.ts";
 
 describe("property names on a write", () => {
@@ -14,7 +14,7 @@ describe("property names on a write", () => {
     // Parsed from JSON, as a tool call's input is, so `__proto__` is a key and not the prototype.
     const properties = JSON.parse(`{ "repo": "api", ${JSON.stringify(key)}: "hi" }`) as Record<string, unknown>;
 
-    const refused = writer.createItem("bugs", { title: "A key named like a member", body: "", properties });
+    const refused = writer.createItem(ME, "bugs", { title: "A key named like a member", body: "", properties });
 
     await expectWriteError(refused, "invalid_fields", key);
     const error = await refused.catch((thrown: unknown) => thrown as ItemWriteError);

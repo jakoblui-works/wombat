@@ -10,6 +10,7 @@ import { describe, expect, test } from "vitest";
 
 import { ACCESS_FILES, AGENT, HIDDEN, MARKER, expectRefused, leaks, openAccessRoot, refusal, snapshotFiles } from "../../test/access-fixtures.ts";
 import { FIXTURE_FILES, expectWriteError, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
+import { ME } from "./write.ts";
 
 const versionOf = async (opened: ReturnType<typeof openItems>, file: string) => itemAt((await opened.catalog.snapshot()).items.filter((item) => item.binder === "bugs"), file).version;
 
@@ -21,17 +22,17 @@ describe("changing invalid items", () => {
     const missingRequired = "bugs/BUG-12-missing-repo.md";
 
     // Another field changes; the existing value problem stays and nothing new appears.
-    await opened.writer.updateItem("BUG-13", { note: "Seen on the mobile build" }, await versionOf(opened, unknownOption));
+    await opened.writer.updateItem(ME, "BUG-13", { note: "Seen on the mobile build" }, await versionOf(opened, unknownOption));
     expect(itemAt((await opened.catalog.snapshot()).items.filter((item) => item.binder === "bugs"), unknownOption).properties.note).toBe("Seen on the mobile build");
 
     // A field that was fine gets a problem: refused, file unchanged.
     const before = readAt(root, unknownOption);
-    await expectWriteError(opened.writer.updateItem("BUG-13", { order: "soon" }, await versionOf(opened, unknownOption)), "invalid_fields", "order");
+    await expectWriteError(opened.writer.updateItem(ME, "BUG-13", { order: "soon" }, await versionOf(opened, unknownOption)), "invalid_fields", "order");
     expect(readAt(root, unknownOption)).toBe(before);
 
     // Fixing the values makes both items valid.
-    await opened.writer.updateItem("BUG-13", { repo: "api" }, await versionOf(opened, unknownOption));
-    await opened.writer.updateItem("BUG-12", { repo: "site-web" }, await versionOf(opened, missingRequired));
+    await opened.writer.updateItem(ME, "BUG-13", { repo: "api" }, await versionOf(opened, unknownOption));
+    await opened.writer.updateItem(ME, "BUG-12", { repo: "site-web" }, await versionOf(opened, missingRequired));
     const bugs = (await opened.catalog.snapshot()).items.filter((item) => item.binder === "bugs");
     expect(itemAt(bugs, unknownOption).problems).toEqual([]);
     expect(itemAt(bugs, missingRequired).problems).toEqual([]);
@@ -45,8 +46,8 @@ describe("changing invalid items", () => {
 
     // Each file's current version: a stale_version here would send the caller round a re-read loop it can't leave.
     for (const file of files) {
-      await expectWriteError(opened.writer.updateItem("BUG-18", { note: "Seen twice" }, await versionOf(opened, file)), "invalid_fields", `update, ${file}`);
-      await expectWriteError(opened.writer.deleteItem("BUG-18", await versionOf(opened, file)), "invalid_fields", `delete, ${file}`);
+      await expectWriteError(opened.writer.updateItem(ME, "BUG-18", { note: "Seen twice" }, await versionOf(opened, file)), "invalid_fields", `update, ${file}`);
+      await expectWriteError(opened.writer.deleteItem(ME, "BUG-18", await versionOf(opened, file)), "invalid_fields", `delete, ${file}`);
     }
 
     expect(files.map((file) => readAt(root, file))).toEqual(before);

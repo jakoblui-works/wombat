@@ -174,36 +174,36 @@ export const openAccess = ({ catalog, writer }: AccessOptions): Access => {
       return { items: hits.slice(0, SEARCH_LIMIT).map((item) => agentSummary(current, item)), truncated: hits.length > SEARCH_LIMIT };
     },
 
-    create: async (_agentId, binderId, input) => {
+    create: async (agentId, binderId, input) => {
       const current = await view();
       const binder = binderFor(current, binderId);
       const linked = await guards.create(current, binder, input, "edit");
       try {
-        const created = await writer.createItem(binderId, newItem(input, linked));
+        const created = await writer.createItem(agentId, binderId, newItem(input, linked));
         return { written: created.handle ?? "", version: created.version };
       } catch (error) {
         throw agentWriteError(current, error, { binder });
       }
     },
 
-    update: async (_agentId, handle, fields, version) => {
+    update: async (agentId, handle, fields, version) => {
       const current = await view();
       const { binder, handle: target } = itemFor(current, handle);
       const linked = guards.update(current, binder, fields, "edit");
       try {
-        const updated = await writer.updateItem(target, linked, version);
+        const updated = await writer.updateItem(agentId, target, linked, version);
         return { written: updated.handle ?? target, version: updated.version };
       } catch (error) {
         throw agentWriteError(current, error, { handle, binder });
       }
     },
 
-    remove: async (_agentId, handle, version) => {
+    remove: async (agentId, handle, version) => {
       const current = await view();
       const { item, binder, handle: target } = itemFor(current, handle);
       guards.remove(current, binder, item, target, "edit");
       try {
-        await writer.deleteItem(target, version);
+        await writer.deleteItem(agentId, target, version);
         return { deleted: target };
       } catch (error) {
         throw agentWriteError(current, error, { handle, binder });

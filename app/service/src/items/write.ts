@@ -44,13 +44,18 @@ export type NewItem = {
   file?: string;
 };
 
+/** Who a write is for, named on its log line: ME for my writes through the app, an agent's id otherwise. */
+export type Actor = string;
+
+export const ME: Actor = "me";
+
 export type Writer = {
   /** `id` is the new item's id when the caller chose it beforehand (an approve's intent); a fresh one otherwise. */
-  createItem(binderId: string, item: NewItem, id?: string): Promise<LoadedItem>;
+  createItem(by: Actor, binderId: string, item: NewItem, id?: string): Promise<LoadedItem>;
   /** One or more fields, title and body included; refused when the file changed since `baseVersion`. */
-  updateItem(handle: string, fields: Record<string, unknown>, baseVersion: string): Promise<LoadedItem>;
+  updateItem(by: Actor, handle: string, fields: Record<string, unknown>, baseVersion: string): Promise<LoadedItem>;
   /** The handle's number stays taken: the store's counter never goes back. */
-  deleteItem(handle: string, baseVersion: string): Promise<void>;
+  deleteItem(by: Actor, handle: string, baseVersion: string): Promise<void>;
   /**
    * The problems of `file` as a new item's path in a free-named binder, without writing anything. A path in
    * one of `unseen` (folders relative to the root) gets the problem of a folder that doesn't exist.
@@ -380,7 +385,7 @@ const checkUpdate = async (root: string, handle: string, fields: Record<string, 
 const checkDelete = async (root: string, handle: string, baseVersion: string) => writableItem(root, await readRoot(root), handle, baseVersion, "deleted");
 
 export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
-  createItem: (binderId, item, id = randomUUIDv7()) =>
+  createItem: (by, binderId, item, id = randomUUIDv7()) =>
     queueWrite(root, async () => {
       const { read, binder, title, textFor } = await checkCreate(root, binderId, item);
       const { settings } = binder;
@@ -399,23 +404,23 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
           { field: "file", message: `file: ${file} was created by someone else meanwhile; try again${settings.naming === "free" ? " with another file" : ""}` },
         ]);
       }
-      log?.("item_created", { binder: settings.id, handle });
+      log?.("item_created", { binder: settings.id, handle, by });
       return loadedItem(binder, path, text, read.links);
     }),
 
-  updateItem: (handle, fields, baseVersion) =>
+  updateItem: (by, handle, fields, baseVersion) =>
     queueWrite(root, async () => {
       const { read, item, binder, text, names } = await checkUpdate(root, handle, fields, baseVersion);
       await staleIfChanged(handle, "updated", () => writeAtomic(join(root, item.path), text, { expectedVersion: baseVersion }));
-      log?.("item_updated", { binder: binder.id, handle, fields: names.length });
+      log?.("item_updated", { binder: binder.id, handle, fields: names.length, by });
       return loadedItem(binder, item.path, text, read.links);
     }),
 
-  deleteItem: (handle, baseVersion) =>
+  deleteItem: (by, handle, baseVersion) =>
     queueWrite(root, async () => {
       const { item, binder } = await checkDelete(root, handle, baseVersion);
       await staleIfChanged(handle, "deleted", () => removeUnchanged(join(root, item.path), baseVersion));
-      log?.("item_deleted", { binder: binder.id, handle });
+      log?.("item_deleted", { binder: binder.id, handle, by });
     }),
 
   checkNewFile: async (binderId, file, unseen = []) => {

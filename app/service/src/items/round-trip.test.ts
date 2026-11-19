@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 
 import { findByHandle } from "./catalog.ts";
 import { IDS, VALID_FILES, expectWriteError, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
+import { ME } from "./write.ts";
 
 const FILE = "bugs/BUG-1-login-times-out.md";
 const ORIGINAL = VALID_FILES[FILE] ?? "";
@@ -31,7 +32,7 @@ describe("item file round trip", () => {
     const { catalog, writer } = openItems(root);
     const before = itemAt((await catalog.snapshot()).items.filter((item) => item.binder === "bugs"), FILE);
 
-    const updated = await writer.updateItem("BUG-1", { [field]: value }, before.version);
+    const updated = await writer.updateItem(ME, "BUG-1", { [field]: value }, before.version);
 
     const after = readAt(root, FILE);
     const changed = changedLines(ORIGINAL, after);
@@ -58,7 +59,7 @@ describe("item file round trip", () => {
     expect(before.problems, "the anchored file is a valid item").toEqual([]);
     expect(before.properties.note).toBe("api");
 
-    await expectWriteError(writer.updateItem("BUG-3", { repo: "site-web" }, before.version), "invalid_fields", "repo");
+    await expectWriteError(writer.updateItem(ME, "BUG-3", { repo: "site-web" }, before.version), "invalid_fields", "repo");
 
     expect(readAt(root, file)).toBe(text);
   });
@@ -79,7 +80,7 @@ describe("item file round trip", () => {
       fc.asyncProperty(created, async ({ title, body, project, parent }) => {
         const properties = { ...(project === undefined ? {} : { project }), ...(parent === undefined ? {} : { parent }) };
 
-        const item = await writer.createItem("backlog", { title, body, properties });
+        const item = await writer.createItem(ME, "backlog", { title, body, properties });
         const read = findByHandle((await catalog.snapshot()).items, item.handle ?? "");
 
         expect(read?.problems).toEqual([]);

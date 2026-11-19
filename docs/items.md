@@ -109,4 +109,17 @@ Wombat doesn't drop a broken binder or item. The app lists it with its problems.
 
 `GET /items/:ref` answers one item with its body. `ref` is the item's id, its handle or one of its aliases, tried in that order.
 
-Every change to an item file or a binder's `_binder.yaml` sends an `items` alert on `GET /events`: `{ seq, dbId, type: "items" }`. It covers the service's own writes (agents' tools, approved proposals) and edits made by hand, which Wombat notices about 200 ms after the last one. The alert says only that something changed, never which item or what; the app reads its binders and items again. A write of the service's can send two alerts, one for the write and one when the watch sees the file change. Its `seq` is on the same sequence as the other alerts.
+The app writes items through three routes. They check the values as an agent's writes are checked, but access levels and locked fields don't apply: you can change anything an agent may only propose.
+
+- `POST /binders/:id/items` with `{ title, body, properties, file? }` creates an item and answers it (201) with its new handle. `file` is for free-named binders only. A link value may be the target's handle or id.
+- `PATCH /items/:ref` with `{ version, fields }` changes an item and answers it. `fields` holds only what changes: `title`, `body` or property names; `null` clears a property. `version` is the version you read.
+- `DELETE /items/:ref?version=<version>` deletes the item's file (204). Its handle number is never given out again.
+
+A refused write changes nothing on disk and answers one of:
+
+- `409 stale_version`: the file changed since `version`. Read the item again and redo the change.
+- `400 invalid_fields`: the values don't fit the binder, or the item or its binder has problems to fix by hand first. `problems` lists each one as `{ field, message }`.
+- `404 item_not_found` or `binder_not_found`: no item has that id, handle or alias, or no binder that id.
+- `409 items_not_writable`: the item has no handle yet (fix its file by hand), or the items folder can't take the write.
+
+Every change to an item file or a binder's `_binder.yaml` sends an `items` alert on `GET /events`: `{ seq, dbId, type: "items" }`. It covers the service's own writes (your writes through these routes, agents' tools, approved proposals) and edits made by hand, which Wombat notices about 200 ms after the last one. The alert says only that something changed, never which item or what; the app reads its binders and items again. A write of the service's can send two alerts, one for the write and one when the watch sees the file change. Its `seq` is on the same sequence as the other alerts.
