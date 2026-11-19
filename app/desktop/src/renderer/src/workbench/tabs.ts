@@ -237,8 +237,8 @@ const oldestPending = (agent: AgentSummary | undefined): string | undefined => {
   return oldest?.requestId;
 };
 
-/** What openBinder needs of the page: the binders as it knows them now, and the Desk's sidebar showing a binder. */
-export type DeskHost = { binders: () => readonly BinderSummary[] | undefined; showBinder: (binderId: string, view: string | undefined) => void };
+/** What openBinder needs of the page: the binders (read when the page has none yet; undefined when they can't be), and the Desk's sidebar showing a binder. */
+export type DeskHost = { binders: () => Promise<readonly BinderSummary[] | undefined>; showBinder: (binderId: string, view: string | undefined) => void };
 
 /**
  * The workbench's actions on `host`; `ctx` gives the agents as the page knows them now (for titles and the oldest
@@ -276,11 +276,13 @@ export const workbenchActions = (
       actions.openTab(PROPOSAL_PANEL, { proposalId } satisfies ProposalParams);
     },
     openBinder: (binderId, reveal, view) => {
-      const place = binderPlace(desk.binders()?.find(({ id }) => id === binderId), view);
-      if (place.board !== undefined) actions.openTab(BOARD_PANEL, { binderId, view: place.board } satisfies BoardParams, reveal);
-      reveals.set(sidebarRevealKey(DESK_PANEL), place.board === undefined && reveal !== undefined ? { target: reveal } : undefined);
-      desk.showBinder(binderId, place.sidebarView);
-      showActivity(DESK_ACTIVITY);
+      void desk.binders().then((binders) => {
+        const place = binderPlace(binders?.find(({ id }) => id === binderId), view);
+        if (place.board !== undefined) actions.openTab(BOARD_PANEL, { binderId, view: place.board } satisfies BoardParams, reveal);
+        reveals.set(sidebarRevealKey(DESK_PANEL), place.board === undefined && reveal !== undefined ? { target: reveal } : undefined);
+        desk.showBinder(binderId, place.sidebarView);
+        showActivity(DESK_ACTIVITY);
+      });
     },
     openItem: (binderId, itemId) => {
       actions.openTab(ITEM_PANEL, { binderId, itemId } satisfies ItemParams);

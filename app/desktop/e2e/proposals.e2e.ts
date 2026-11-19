@@ -165,7 +165,9 @@ test("dropping a field of an agent's item update and approving writes only the f
   await waitForConnection(page, "connected");
   const toggle = page.getByRole("button", { name: /^Needs me\b/ });
   if ((await toggle.getAttribute("aria-pressed")) !== "true") await click(toggle);
+  // An item proposal's row in Needs me opens the Desk on its binder; its mark there opens the proposal's tab.
   await click(needsMe(page).getByRole("button").filter({ hasText: `bugs/${bug.handle}` }));
+  await click(page.getByRole("complementary", { name: "Desk" }).getByRole("button", { name: "Update proposed", exact: true }));
   const tab = page.locator(".dv-groupview .dv-content-container").filter({ hasText: `bugs/${bug.handle}` });
   await click(tab.getByRole("group", { name: "status", exact: true }).getByRole("button", { name: "Drop", exact: true }));
 

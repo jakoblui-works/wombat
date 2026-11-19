@@ -2,13 +2,14 @@ import { type QueryState, useQueryClient } from "@tanstack/react-query";
 import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewPanel, type IDockviewPanelProps } from "dockview-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 
-import type { ListAgentsResponse, ListBindersResponse } from "@wombat/shared/api";
+import type { ListAgentsResponse } from "@wombat/shared/api";
 import type { ListProposalsResponse } from "@wombat/shared/proposals";
 import type { ConnectionState } from "../../../../shared/bridge.ts";
 import { isSettled, NO_RESTART, restartAttempt, showsBanner } from "@/lib/connection-state";
 import { cn } from "@/lib/utils";
 import { useAgents, useConnection, useProposals } from "../../data/hooks.ts";
 import { keys } from "../../data/keys.ts";
+import { bindersQuery } from "../../data/query-client.ts";
 // Registers the activities and their panels, which the workbench reads from the registry.
 import "../activities.ts";
 import { needsMeCount } from "../../data/needs-me.ts";
@@ -259,7 +260,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
       api === undefined
         ? NO_ACTIONS
         : workbenchActions(api, reveals, () => ({ agents: agentsRef.current, proposals: proposalsRef.current }), showActivity, {
-            binders: () => queryClient.getQueryData<ListBindersResponse>(keys.binders)?.binders,
+            binders: () => queryClient.ensureQueryData(bindersQuery()).then(({ binders }) => binders, () => undefined),
             showBinder: (binderId, view) => changeDesk((desk) => showBinder(desk, binderId, view)),
           }),
     [api, reveals, showActivity, queryClient, changeDesk],

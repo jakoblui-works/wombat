@@ -2,7 +2,7 @@
 
 A proposal is a change an agent suggests and you decide on. The agent sends it, the service keeps it, and nothing changes until you approve it. You can approve it, reject it, or adjust it first with your own version.
 
-There are two kinds. A file proposal changes a plain text file. An item proposal changes an [item](items.md) in a binder with `access: propose`. Both are listed, read and decided through the same routes, and both use `revise_proposal`.
+There are two kinds. A file proposal changes a plain text file. An item proposal changes an [item](items.md) in a binder with `access: propose`. Both are listed, read and decided through the same routes, and both use `revise_proposal`. In the app, an item proposal is decided in place, in the Desk's views, and Needs me only points to it: its row has no buttons, and a click opens the binder's first view with the proposal revealed (the proposal's tab when the binder is gone or broken). A file proposal's row keeps Approve and Reject.
 
 ## Agent tools
 

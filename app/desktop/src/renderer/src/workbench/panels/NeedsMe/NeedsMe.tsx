@@ -1,3 +1,5 @@
+import { useQueryClient } from "@tanstack/react-query";
+
 import { Button } from "../../../components/ui/button";
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { useNow } from "../../../lib/ago";
@@ -5,6 +7,7 @@ import { StateMark } from "../../../lib/state-mark";
 import { useDecide } from "../../../data/commands.ts";
 import { useAgents, useConnection, useProposals } from "../../../data/hooks.ts";
 import { needsMeCount } from "../../../data/needs-me.ts";
+import { bindersQuery } from "../../../data/query-client.ts";
 import { proposalActions, proposalShows } from "../../proposals/proposal-actions.ts";
 import { useHarnessFeatures } from "../../../data/harness-features.ts";
 import { PathText } from "../../proposals/PathText/PathText.tsx";
@@ -14,6 +17,7 @@ import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useWorkbench } from "../../workbench-context.ts";
 import { AgentsError } from "../approvals/LogError/LogError.tsx";
 import { KIND_ICONS } from "../Chat/ToolCall/ToolCall.tsx";
+import { binderOf } from "../Item/item-state.ts";
 import { type NeedsMeRow, needsMeRows } from "./needs-me-rows.ts";
 import { type ProposalRow, proposalRows } from "./proposal-rows.ts";
 
@@ -36,7 +40,8 @@ const RequestRow = ({ row, onOpen }: { row: NeedsMeRow; onOpen: () => void }) =>
 };
 
 /**
- * One open proposal: what it changes, whose it is, its age, and Approve and Reject. Approve names the version this
+ * One open proposal: what it changes, whose it is, its age, and Approve and Reject (an item proposal has neither: it
+ * is decided where it is shown, and its row only points there). Approve names the version this
  * row last read; an approve that meets a newer version opens the tab instead (`onOpen`), so it's seen first.
  */
 const ProposalRowView = ({ row, onOpen }: { row: ProposalRow; onOpen: () => void }) => {
@@ -45,6 +50,7 @@ const ProposalRowView = ({ row, onOpen }: { row: ProposalRow; onOpen: () => void
   const { proposal } = row;
   const actions = proposalActions(proposal, row.agent, connection.state, useHarnessFeatures(row.agent?.harness));
   const shows = proposalShows(proposal.status);
+  const notification = proposal.target === "item";
   const busy = decide.isPending;
   // A version this row never showed: its tab shows it before anything is approved.
   const approve = () => decide.mutate({ proposalId: proposal.id, decision: "approve", version: proposal.version }, { onSuccess: (result) => result === "changed" && onOpen() });
@@ -63,16 +69,18 @@ const ProposalRowView = ({ row, onOpen }: { row: ProposalRow; onOpen: () => void
           {shows.mark === undefined ? null : <span className="shrink-0 text-xs text-fg-tertiary">{shows.mark}</span>}
         </span>
       </button>
-      <div className="flex items-center gap-1.5">
-        {!shows.approve ? null : (
-          <Button type="button" variant="secondary" size="xs" disabled={!actions.approve || busy} onClick={approve}>
-            Approve
+      {notification ? null : (
+        <div className="flex items-center gap-1.5">
+          {!shows.approve ? null : (
+            <Button type="button" variant="secondary" size="xs" disabled={!actions.approve || busy} onClick={approve}>
+              Approve
+            </Button>
+          )}
+          <Button type="button" variant="secondary" size="xs" disabled={!actions.reject || busy} onClick={() => decide.mutate({ proposalId: proposal.id, decision: "reject" })}>
+            Reject
           </Button>
-        )}
-        <Button type="button" variant="secondary" size="xs" disabled={!actions.reject || busy} onClick={() => decide.mutate({ proposalId: proposal.id, decision: "reject" })}>
-          Reject
-        </Button>
-      </div>
+        </div>
+      )}
       <AnswerError error={decide.error ?? undefined} className="rounded-sm px-0 py-0.5 text-xs" />
     </div>
   );
@@ -84,12 +92,21 @@ const ProposalRowView = ({ row, onOpen }: { row: ProposalRow; onOpen: () => void
  */
 export const NeedsMe = () => {
   const agents = useAgents();
-  const { openAgentChat, openProposal } = useWorkbench();
+  const { openAgentChat, openProposal, openBinder } = useWorkbench();
+  const queryClient = useQueryClient();
   const proposals = useProposals();
   const now = useNow();
   const rows = agents.data === undefined ? undefined : needsMeRows(agents.data.agents, now);
   const proposalList = agents.data === undefined ? [] : proposalRows(proposals.data?.proposals ?? [], agents.data.agents, now);
   const count = agents.data === undefined ? undefined : needsMeCount(agents.data.agents, proposals.data?.proposals ?? []);
+  // An item proposal opens its binder's view with it revealed; one whose binder isn't usable opens its tab.
+  const open = ({ proposal }: ProposalRow) => {
+    if (proposal.target !== "item") return openProposal(proposal.id);
+    void queryClient.ensureQueryData(bindersQuery()).then(
+      ({ binders }) => (binderOf(proposal.binder, binders).kind === "binder" ? openBinder(proposal.binder, proposal.id) : openProposal(proposal.id)),
+      () => openProposal(proposal.id),
+    );
+  };
   return (
     <div className="flex h-full min-h-0 flex-col">
       <SidebarHeader title="Needs me" {...(count === undefined ? {} : { count })} />
@@ -107,7 +124,7 @@ export const NeedsMe = () => {
               <section className="flex flex-col">
                 <h3 className="px-2.5 pt-3 pb-1 text-xs font-semibold text-fg-tertiary">Proposals</h3>
                 {proposalList.map((row) => (
-                  <ProposalRowView key={row.key} row={row} onOpen={() => openProposal(row.proposal.id)} />
+                  <ProposalRowView key={row.key} row={row} onOpen={() => open(row)} />
                 ))}
               </section>
             )}
