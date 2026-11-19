@@ -1,14 +1,14 @@
-// Creating, changing and deleting item files. Each write runs in the root's write queue on a fresh read of the
-// root, is refused when the file changed since the version the caller read, and is parsed again before it's
-// written: a write either reads back exactly as intended or doesn't happen. Updates touch only the bytes of the
-// fields they set, so comments, key order and line endings stay as they were typed.
+// Creating, changing and deleting item files, and writing new binders' starter settings. Each write runs in the
+// root's write queue on a fresh read of the root, is refused when the file changed since the version the caller read,
+// and is parsed again before it's written: a write either reads back exactly as intended or doesn't happen. Updates
+// touch only the bytes of the fields they set, so comments, key order and line endings stay as they were typed.
 import { randomUUIDv7 } from "node:crypto";
-import { lstat } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { lstat, mkdir, rmdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import { ItemWriteErrorCode } from "@wombat/shared/api";
 import { isAlreadyThere, isMissingPath } from "@wombat/shared/errno";
-import { ITEM_FIELDS, OWN_KEYS, type Problem, type BinderSettings } from "@wombat/shared/items";
+import { ITEM_FIELDS, OWN_KEYS, slugOf, type Problem, type BinderSettings } from "@wombat/shared/items";
 import { stringify } from "yaml";
 
 import type { Log } from "../log.ts";
@@ -16,7 +16,8 @@ import type { Store } from "../store/store.ts";
 import { blockingProblems, findByHandle, isClash, loadItem, readRoot, type LoadedItem, type LoadedBinder, type NamedProblem, type ProblemNames, type RootRead, type ValidBinder } from "./catalog.ts";
 import { NoHardLinks, queueWrite, readAtVersion, removeUnchanged, VersionChanged, versionOfText, writeAtomic, type VersionedFile } from "./files.ts";
 import { bodyEdit, checkedText, parseItemFile, readsBackAs, setKeyEdits, titleEdit, type ParsedItemFile } from "./item-file.ts";
-import { inFolder, isIncluded, isSkippedPath, joinRootPath, SETTINGS_FILE, throughSymlink } from "./binders.ts";
+import { inFolder, isIncluded, isPlainPath, isSkippedPath, joinRootPath, SETTINGS_FILE, throughSymlink } from "./binders.ts";
+import { checkNewBinder, type NewBinder } from "./new-binder.ts";
 import { formatHandle, setOwn, validateProperties, type LinkLookup } from "./validate.ts";
 
 /**
@@ -56,6 +57,8 @@ export type Writer = {
   updateItem(by: Actor, handle: string, fields: Record<string, unknown>, baseVersion: string): Promise<LoadedItem>;
   /** The handle's number stays taken: the store's counter never goes back. */
   deleteItem(by: Actor, handle: string, baseVersion: string): Promise<void>;
+  /** Writes a new binder's starter settings, creating its missing folders; resolves with its folder, root-relative. */
+  createBinder(by: Actor, binder: NewBinder): Promise<string>;
   /**
    * The problems of `file` as a new item's path in a free-named binder, without writing anything. A path in
    * one of `unseen` (folders relative to the root) gets the problem of a folder that doesn't exist.
@@ -78,20 +81,6 @@ export type ItemChange =
   | { kind: "delete"; handle: string; baseVersion: string };
 
 export type WriterOptions = { root: string; store: Store; log?: Log };
-
-const SLUG_LENGTH = 50;
-
-/** Lowercase ASCII words of the title joined by `-`, cut at a word to at most 50 characters. */
-export const slugOf = (title: string) => {
-  const words = title.normalize("NFKD").toLowerCase().match(/[a-z0-9]+/g) ?? [];
-  let slug = "";
-  for (const word of words) {
-    const next = slug === "" ? word : `${slug}-${word}`;
-    if (next.length > SLUG_LENGTH) return slug === "" ? word.slice(0, SLUG_LENGTH) : slug;
-    slug = next;
-  }
-  return slug;
-};
 
 /** A value as one line of YAML that reads back as the same value. */
 const yamlValue = (value: unknown) => {
@@ -203,8 +192,7 @@ const missingFolder = (file: string) => `the folder of ${file} doesn't exist; cr
 const checkFreeFile = async (root: string, binder: ValidBinder, file: unknown, binders: LoadedBinder[], unseen: readonly string[] = []): Promise<NamedProblem[]> => {
   const problem = (message: string, names?: ProblemNames): NamedProblem[] => [{ field: "file", message: `file: ${message}`, ...(names === undefined ? {} : { names }) }];
   if (typeof file !== "string" || file === "") return problem(`${binder.id} names files freely, so give the new file's path in its folder, like notes.md`);
-  const segments = file.split("/");
-  if (isAbsolute(file) || file.includes("\\") || segments.some((segment) => segment === "" || segment === "." || segment === "..")) {
+  if (!isPlainPath(file)) {
     return problem(`${file} must be a plain path relative to the binder's folder, with / and without "..", like guides/setup.md`);
   }
   if (!file.endsWith(".md")) return problem(`${file} must end in .md`);
@@ -384,6 +372,18 @@ const checkUpdate = async (root: string, handle: string, fields: Record<string, 
 
 const checkDelete = async (root: string, handle: string, baseVersion: string) => writableItem(root, await readRoot(root), handle, baseVersion, "deleted");
 
+/** Removes `deepest` and the folders above it up to `top` (all made by one recursive mkdir), stopping at one that isn't empty. */
+const removeEmptyFolders = async (deepest: string, top: string) => {
+  for (let folder = deepest; ; folder = dirname(folder)) {
+    try {
+      await rmdir(folder);
+    } catch {
+      return;
+    }
+    if (folder === top) return;
+  }
+};
+
 export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
   createItem: (by, binderId, item, id = randomUUIDv7()) =>
     queueWrite(root, async () => {
@@ -421,6 +421,27 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
       const { item, binder } = await checkDelete(root, handle, baseVersion);
       await staleIfChanged(handle, "deleted", () => removeUnchanged(join(root, item.path), baseVersion));
       log?.("item_deleted", { binder: binder.id, handle, by });
+    }),
+
+  createBinder: (by, binder) =>
+    queueWrite(root, async () => {
+      const { snapshot } = await readRoot(root);
+      const { problems, text, id } = await checkNewBinder(root, snapshot.binders, binder);
+      if (problems.length > 0) throw invalid(`The binder can't be created: ${listed(problems)}. Nothing was written.`, problems);
+      const folder = join(root, binder.path);
+      const created = await mkdir(folder, { recursive: true });
+      try {
+        await writeAtomic(join(folder, SETTINGS_FILE), text, { create: true });
+      } catch (error) {
+        if (created !== undefined) await removeEmptyFolders(folder, created);
+        if (error instanceof NoHardLinks) throw new ItemWriteError(ItemWriteErrorCode.enum.items_not_writable, error.message);
+        if (!isAlreadyThere(error)) throw error;
+        throw invalid(`${binder.path}/${SETTINGS_FILE} was created by someone else meanwhile; nothing was written, so pick another folder.`, [
+          { field: "path", message: `path: ${binder.path} got a ${SETTINGS_FILE} meanwhile; pick another folder` },
+        ]);
+      }
+      log?.("binder_created", { binder: id, by });
+      return binder.path;
     }),
 
   checkNewFile: async (binderId, file, unseen = []) => {

@@ -1,10 +1,10 @@
 // My item writes: create, update and delete through the one Writer, with its validation and version check but no
-// access levels or locks. Items alerts come from the Writer the server is given, never from here.
+// access levels or locks; and a new binder, through the same Writer. Items alerts come from the Writer the server is given, never from here.
 import { ItemsErrorCode } from "@wombat/shared/api";
 import { ROUTES, type ResponseOf } from "@wombat/shared/routes";
 import type { Context, Hono } from "hono";
 
-import { handlesById, withLinks } from "../items/api-view.ts";
+import { handlesById, summarize, withLinks } from "../items/api-view.ts";
 import { findByRef, type Catalog, type LoadedItem } from "../items/catalog.ts";
 import { ItemWriteError, ME, type Writer } from "../items/write.ts";
 import { errorResponse, ITEMS_STATUS, itemWriteResponse } from "./errors.ts";
@@ -51,6 +51,19 @@ const writing = async (c: Context, write: () => Promise<Response>) => {
 
 /** `notConfigured` answers each route when the service runs without items. */
 export const itemRoutes = (app: Hono, items: ItemWrites | undefined, notConfigured: (c: Context) => Response) => {
+  app.post("/binders", async (c) => {
+    if (!items) return notConfigured(c);
+    const { catalog, writer } = items;
+    const binder = await readBody(c, ROUTES.createBinder.body);
+    return writing(c, async () => {
+      const path = await writer.createBinder(ME, binder);
+      const { binders, items: all } = await catalog.snapshot();
+      const created = binders.find((candidate) => candidate.path === path);
+      if (created === undefined) throw new Error(`The new binder at ${path} was written but isn't listed in the read after it.`);
+      return c.json(checked(ROUTES.createBinder.response, summarize(created, all)) satisfies ResponseOf<typeof ROUTES.createBinder>, 201);
+    });
+  });
+
   app.post("/binders/:id/items", async (c) => {
     if (!items) return notConfigured(c);
     const { catalog, writer } = items;

@@ -55,6 +55,23 @@ export const ITEM_FIELDS: ReadonlySet<string> = new Set(["title", "body"]);
 /** Names an item's own fields take; a property can't use them. */
 const RESERVED_NAMES: ReadonlySet<string> = new Set([...OWN_KEYS, ...ITEM_FIELDS]);
 
+const SLUG_LENGTH = 50;
+
+/**
+ * Lowercase ASCII words of the title joined by `-`, cut at a word to at most 50 characters: the name part of an item's
+ * file, and a new binder's id and suggested folder.
+ */
+export const slugOf = (title: string) => {
+  const words = title.normalize("NFKD").toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  let slug = "";
+  for (const word of words) {
+    const next = slug === "" ? word : `${slug}-${word}`;
+    if (next.length > SLUG_LENGTH) return slug === "" ? word.slice(0, SLUG_LENGTH) : slug;
+    slug = next;
+  }
+  return slug;
+};
+
 /** The pattern of a handle prefix (`BUG` in `BUG-14`), as regex source to build the prefix's and a handle's regex from. */
 export const HANDLE_PREFIX_PATTERN = "[A-Z][A-Z0-9]{0,9}";
 

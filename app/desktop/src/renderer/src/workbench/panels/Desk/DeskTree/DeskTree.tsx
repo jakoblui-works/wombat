@@ -1,7 +1,8 @@
 import { SETTINGS_FILE } from "@wombat/shared/items";
-import { ChevronRight, Folder, FolderOpen, Notebook, TriangleAlert } from "lucide-react";
-import { type KeyboardEvent, useMemo } from "react";
+import { ChevronRight, Folder, FolderOpen, Notebook, Plus, TriangleAlert } from "lucide-react";
+import { type KeyboardEvent, useEffect, useMemo } from "react";
 
+import { Button } from "../../../../components/ui/button";
 import { cn } from "../../../../lib/utils";
 import { type DeskNode, type DeskRow, deskKey, deskRows, nodeName, rowLabel } from "../desk-tree.ts";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
@@ -13,6 +14,11 @@ type Props = {
   openDrawers: readonly string[];
   onToggleDrawer: (path: string, open: boolean) => void;
   onOpenBinder: (binderId: string) => void;
+  /** Opens New binder in the drawer at this path. */
+  onNewBinder: (drawer: string) => void;
+  /** A row to focus as soon as it shows (a just-created binder's folder); `onFocused` follows. */
+  focusKey?: string | undefined;
+  onFocused?: () => void;
 };
 
 const RowContent = ({ row }: { row: DeskRow }) => {
@@ -59,9 +65,16 @@ const RowContent = ({ row }: { row: DeskRow }) => {
 };
 
 /** The Desk's tree of drawers and binders (the WAI-ARIA tree pattern, its rows flat with their levels). */
-export const DeskTree = ({ nodes, openDrawers, onToggleDrawer, onOpenBinder }: Props) => {
+export const DeskTree = ({ nodes, openDrawers, onToggleDrawer, onOpenBinder, onNewBinder, focusKey, onFocused }: Props) => {
   const rows = useMemo(() => deskRows(nodes, new Set(openDrawers)), [nodes, openDrawers]);
   const focus = useTreeFocus(rows.map(({ key }) => key));
+  const { focus: focusRow } = focus;
+
+  useEffect(() => {
+    if (focusKey === undefined || !rows.some((row) => row.key === focusKey)) return;
+    focusRow(focusKey);
+    onFocused?.();
+  }, [rows, focusKey, focusRow, onFocused]);
 
   const act = (index: number, key: string, event?: KeyboardEvent) => {
     const action = deskKey(rows, index, key);
@@ -76,29 +89,46 @@ export const DeskTree = ({ nodes, openDrawers, onToggleDrawer, onOpenBinder }: P
 
   return (
     <div role="tree" aria-label="Drawers and binders" className="flex flex-col gap-px px-1.5 pt-1 pb-3">
-      {rows.map((row, index) => (
-        <div
-          key={row.key}
-          ref={focus.register(row.key)}
-          role="treeitem"
-          aria-level={row.level}
-          aria-setsize={row.setSize}
-          aria-posinset={row.posInSet}
-          aria-expanded={row.expanded}
-          aria-label={rowLabel(row.node)}
-          tabIndex={focus.tabIndex(index)}
-          onFocus={() => focus.onFocus(row.key)}
-          onClick={() => act(index, "Enter")}
-          onKeyDown={(event) => act(index, event.key, event)}
-          className={cn(
-            "focus-ring flex cursor-default rounded-md py-1 pr-2 text-left text-base select-none transition-colors hover:bg-surface-2",
-            row.node.kind === "binder" && row.node.binder.id === null && "cursor-auto",
-          )}
-          style={{ paddingLeft: rowIndent(row.level) }}
-        >
-          <RowContent row={row} />
-        </div>
-      ))}
+      {rows.map((row, index) => {
+        const { node } = row;
+        return (
+          <div key={row.key} className="group/row relative">
+            <div
+              ref={focus.register(row.key)}
+              role="treeitem"
+              aria-level={row.level}
+              aria-setsize={row.setSize}
+              aria-posinset={row.posInSet}
+              aria-expanded={row.expanded}
+              aria-label={rowLabel(node)}
+              tabIndex={focus.tabIndex(index)}
+              onFocus={() => focus.onFocus(row.key)}
+              onClick={() => act(index, "Enter")}
+              onKeyDown={(event) => act(index, event.key, event)}
+              className={cn(
+                "focus-ring flex cursor-default rounded-md py-1 pr-2 text-left text-base select-none transition-colors hover:bg-surface-2 focus:bg-surface-2",
+                node.kind === "binder" && node.binder.id === null && "cursor-auto",
+              )}
+              style={{ paddingLeft: rowIndent(row.level) }}
+            >
+              <RowContent row={row} />
+            </div>
+            {node.kind === "drawer" ? (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                tabIndex={focus.tabIndex(index)}
+                className="absolute top-1 right-1 bg-surface-1 text-fg-tertiary opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
+                aria-label={`New binder in ${node.name}`}
+                title={`New binder in ${node.name}`}
+                onClick={() => onNewBinder(node.path)}
+              >
+                <Plus />
+              </Button>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 };

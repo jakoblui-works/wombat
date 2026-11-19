@@ -3,7 +3,7 @@
 // and to no other: a binder's access level covers exactly its own files, so a nested hidden binder's items
 // never show through its parent.
 import { glob, lstat, readdir, readFile, realpath } from "node:fs/promises";
-import { join, matchesGlob, posix, relative, sep } from "node:path";
+import { isAbsolute, join, matchesGlob, posix, relative, sep } from "node:path";
 
 import { errorCode, isMissing } from "@wombat/shared/errno";
 import { BinderSettings, type Problem, SETTINGS_FILE } from "@wombat/shared/items";
@@ -78,9 +78,30 @@ export const binderFolders = async (root: string): Promise<{ folders: BinderFold
 /** True for a path the scan never enters: one with a dot folder or node_modules in it, or a dot file. */
 export const isSkippedPath = (path: string) => path.split("/").some(skipped);
 
+/** True for a plain relative path: `/` between non-empty segments, none of them `.` or `..`, no backslash, not absolute. */
+export const isPlainPath = (path: string) =>
+  !isAbsolute(path) && !path.includes("\\") && path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
+
+const includeGlobs = (settings: BinderSettings) => (settings.include ?? []).map((pattern) => pattern.replace(/^(\.\/)+/, ""));
+
 /** True when a folder-relative path matches one of a free binder's `include` globs. */
-export const isIncluded = (settings: BinderSettings, path: string) =>
-  (settings.include ?? []).some((pattern) => matchesGlob(path, pattern.replace(/^(\.\/)+/, "")));
+export const isIncluded = (settings: BinderSettings, path: string) => includeGlobs(settings).some((pattern) => matchesGlob(path, pattern));
+
+/**
+ * True when one of a free binder's `include` globs can match a file inside `folder` (folder-relative, plain): each
+ * folder segment matches the glob's segment there, or the glob reaches a `**` first.
+ */
+export const includeReaches = (settings: BinderSettings, folder: string) =>
+  includeGlobs(settings).some((pattern) => {
+    const globSegments = pattern.split("/");
+    for (const [index, segment] of folder.split("/").entries()) {
+      const glob = globSegments[index];
+      if (glob === "**") return true;
+      // The glob's last segment names files, never a folder on the way.
+      if (glob === undefined || index === globSegments.length - 1 || !matchesGlob(segment, glob)) return false;
+    }
+    return true;
+  });
 
 /** Whether the root-relative `path` is the folder `folder` or inside it; "" is the root, which holds everything. */
 export const inFolder = (folder: string, path: string) => folder === "" || path === folder || path.startsWith(`${folder}/`);

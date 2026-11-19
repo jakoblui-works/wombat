@@ -17,6 +17,7 @@ import {
   ListLogQuery,
   ListLogResponse,
   ListReposResponse,
+  NewBinderRequest,
   NoContent,
   SendMessageRequest,
   SendMessageResponse,
@@ -26,6 +27,7 @@ import {
   UpdateItemRequest,
   VersionResponse,
 } from "./api.ts";
+import { BinderSummary } from "./items.ts";
 import {
   ApproveRequest,
   DraftRequest,
@@ -66,6 +68,7 @@ const PAGE_ROUTES = {
   stopAgent: { method: "POST", pattern: "/agents/:id/stop", response: NoContent },
   deleteAgent: { method: "DELETE", pattern: "/agents/:id", response: NoContent },
   listBinders: { method: "GET", pattern: "/binders", response: ListBindersResponse },
+  createBinder: { method: "POST", pattern: "/binders", body: NewBinderRequest, response: BinderSummary },
   binderItems: { method: "GET", pattern: "/binders/:id/items", response: ListItemsResponse },
   getItem: { method: "GET", pattern: "/items/:ref", response: GetItemResponse },
   createItem: { method: "POST", pattern: "/binders/:id/items", body: CreateItemRequest, response: GetItemResponse },

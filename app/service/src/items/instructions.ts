@@ -295,6 +295,11 @@ export const refreshingWriter = (writer: Writer, refresh: () => Promise<void>): 
     await writer.deleteItem(by, handle, baseVersion);
     await refresh();
   },
+  createBinder: async (by, binder) => {
+    const path = await writer.createBinder(by, binder);
+    await refresh();
+    return path;
+  },
   checkNewFile: (binderId, file, unseen) => writer.checkNewFile(binderId, file, unseen),
   check: (change) => writer.check(change),
 });

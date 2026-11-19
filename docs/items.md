@@ -10,6 +10,19 @@ When you run the service on its own, set the items root with `WOMBAT_ITEMS`, an 
 
 A binder is a folder with a `_binder.yaml` in it. Every markdown file below that folder belongs to it, up to the next folder that has its own `_binder.yaml`. A file belongs to exactly one binder, so a nested binder's access level covers only its own files. Folders starting with `.` and `node_modules` are never read.
 
+In the app, New binder at the top of the Desk's tree (or in its empty state), or the + on a drawer's row, asks for a name, a handle prefix and a folder, and writes a starter `_binder.yaml` there; everything after that you edit by hand, and the Desk follows. The prefix and folder are suggested from the name. The folder is relative to the items root, or to the drawer you started from, and may hold `/` to make new drawers. The starter for "Team Chores" with the prefix `CHORE`:
+
+```yaml
+version: 1
+id: team-chores
+name: Team Chores
+prefix: CHORE
+access: read
+views:
+  - name: List
+    kind: list
+```
+
 A folder that still holds a `_structure.yaml`, the file's old name, and no `_binder.yaml` shows the problem `_structure.yaml: rename this file to _binder.yaml` and doesn't load: its files are in no binder until you rename the file, and its settings aren't read. Beside a `_binder.yaml`, the old file is a leftover whose problem asks you to delete it; the binder loads and is written as usual.
 
 ```yaml
@@ -117,6 +130,12 @@ The app writes items through three routes. They check the values as an agent's w
 - `PATCH /items/:ref` with `{ version, fields }` changes an item and answers it. `fields` holds only what changes: `title`, `body` or property names; `null` clears a property. `version` is the version you read.
 - `DELETE /items/:ref?version=<version>` deletes the item's file (204). Its handle number is never given out again.
 
+`POST /binders` with `{ path, name, prefix }` creates a binder and answers it (201) as `GET /binders` lists it. `path` is its folder relative to the items root, with `/`; missing folders on the way are created. The service writes `<path>/_binder.yaml` with the starter above: the id is the name's slug (lowercase letters and digits, words joined by `-`), access is `read`, and there's one list view named List. It's refused with `400 invalid_fields`, and nothing written, when:
+
+- `name`: the id made from it is taken by another binder (hidden ones too), or doesn't fit the id's pattern (a lowercase letter first, at most 40 characters).
+- `prefix`: another binder (hidden ones too) has it, or it isn't an uppercase letter followed by up to 9 uppercase letters or digits.
+- `path`: it isn't a plain relative path inside the items root (absolute, or with `..`), it's in a dot folder or `node_modules`, it goes through a symlink or a file, its folder already holds a `_binder.yaml` or `_structure.yaml`, or it's inside a binder with `naming: free` whose `include` reaches it.
+
 A refused write changes nothing on disk and answers one of:
 
 - `409 stale_version`: the file changed since `version`. Read the item again and redo the change.
@@ -124,4 +143,4 @@ A refused write changes nothing on disk and answers one of:
 - `404 item_not_found` or `binder_not_found`: no item has that id, handle or alias, or no binder that id.
 - `409 items_not_writable`: the item has no handle yet (fix its file by hand), or the items folder can't take the write.
 
-Every change to an item file or a binder's `_binder.yaml` sends an `items` alert on `GET /events`: `{ seq, dbId, type: "items" }`. It covers the service's own writes (your writes through these routes, agents' tools, approved proposals) and edits made by hand, which Wombat notices about 200 ms after the last one. The alert says only that something changed, never which item or what; the app reads its binders and items again. A write of the service's can send two alerts, one for the write and one when the watch sees the file change. Its `seq` is on the same sequence as the other alerts.
+Every change to an item file or a binder's `_binder.yaml` sends an `items` alert on `GET /events`: `{ seq, dbId, type: "items" }`. It covers the service's own writes (your writes through these routes, a new binder, agents' tools, approved proposals) and edits made by hand, which Wombat notices about 200 ms after the last one. The alert says only that something changed, never which item or what; the app reads its binders and items again. A write of the service's can send two alerts, one for the write and one when the watch sees the file change. Its `seq` is on the same sequence as the other alerts.

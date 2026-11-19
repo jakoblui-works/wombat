@@ -37,6 +37,7 @@ export const appRoutes = (agentId: string): { method: string; path: string; body
   { method: "POST", path: "/shutdown" },
   { method: "GET", path: "/events" },
   { method: "GET", path: "/binders" },
+  { method: "POST", path: "/binders", body: { path: "refused", name: "Refused", prefix: "REF" } },
   { method: "GET", path: "/binders/bugs/items" },
   { method: "GET", path: "/items/BUG-1" },
   { method: "POST", path: "/binders/bugs/items", body: { title: "Refused item", body: "", properties: {} } },

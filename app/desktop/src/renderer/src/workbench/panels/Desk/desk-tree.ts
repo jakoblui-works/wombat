@@ -83,6 +83,19 @@ export const toggleDrawer = (openDrawers: readonly string[], path: string, open?
   return next ? [...openDrawers, path] : openDrawers.filter((other) => other !== path);
 };
 
+/** The open drawers with every drawer above the binder at `path` opened, so its row shows. */
+export const revealBinder = (binders: readonly BinderSummary[], openDrawers: readonly string[], path: string): string[] => {
+  const above = (nodes: readonly DeskNode[]): string[] | undefined => {
+    for (const node of nodes) {
+      if (nodeKey(node) === path) return [];
+      const inner = above(node.children);
+      if (inner !== undefined) return node.kind === "drawer" ? [node.path, ...inner] : inner;
+    }
+    return undefined;
+  };
+  return (above(deskTree(binders)) ?? []).reduce((open, drawer) => toggleDrawer(open, drawer, true), [...openDrawers]);
+};
+
 export type DeskKeyAction = { type: "focus"; index: number } | { type: "toggle"; path: string; open: boolean } | { type: "open"; binderId: string };
 
 /** What a key does on row `index`, per the WAI-ARIA tree pattern; undefined when it does nothing there. */
