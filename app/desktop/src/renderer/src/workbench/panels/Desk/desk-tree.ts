@@ -1,6 +1,9 @@
 // The Desk's tree, pure: which folders are drawers, how binders nest, the order, and the rows and keys of the tree.
 import { type BinderSummary, type Problem, SETTINGS_FILE } from "@wombat/shared/items";
 
+import { treeKey } from "./tree-keys.ts";
+import { compareText } from "./view-model/values.ts";
+
 export type DeskNode = { kind: "drawer"; name: string; path: string; children: DeskNode[] } | { kind: "binder"; binder: BinderSummary; children: DeskNode[] };
 
 const ROOT = "";
@@ -19,8 +22,7 @@ export const nodeName = (node: DeskNode): string =>
 /** A node's identity in the tree, and what the open set holds for a drawer. */
 export const nodeKey = (node: DeskNode): string => (node.kind === "drawer" ? node.path : normalized(node.binder.path));
 
-const byName = (a: DeskNode, b: DeskNode): number =>
-  nodeName(a).localeCompare(nodeName(b), undefined, { sensitivity: "base", numeric: true }) || (nodeKey(a) < nodeKey(b) ? -1 : nodeKey(a) > nodeKey(b) ? 1 : 0);
+const byName = (a: DeskNode, b: DeskNode): number => compareText(nodeName(a), nodeName(b)) || compareText(nodeKey(a), nodeKey(b));
 
 /**
  * The binders as a tree that follows their folders: the folders on the way to a binder are drawers, a binder inside
@@ -99,36 +101,18 @@ export type DeskKeyAction = { type: "focus"; index: number } | { type: "toggle";
 export const deskKey = (rows: readonly DeskRow[], index: number, key: string): DeskKeyAction | undefined => {
   const row = rows[index];
   if (row === undefined) return undefined;
-  const focus = (to: number | undefined): DeskKeyAction | undefined => (to === undefined || to === index || rows[to] === undefined ? undefined : { type: "focus", index: to });
   const { node } = row;
-  switch (key) {
-    case "ArrowDown":
-      return focus(index + 1);
-    case "ArrowUp":
-      return focus(index - 1);
-    case "Home":
-      return focus(0);
-    case "End":
-      return focus(rows.length - 1);
-    case "ArrowRight":
-      if (row.expanded === false && node.kind === "drawer") return { type: "toggle", path: node.path, open: true };
-      return row.expanded === true ? focus(index + 1) : undefined;
-    case "ArrowLeft":
-      if (row.expanded === true && node.kind === "drawer") return { type: "toggle", path: node.path, open: false };
-      return focus(row.parent);
-    case "Enter":
-    case " ":
-      if (node.kind === "drawer") return { type: "toggle", path: node.path, open: row.expanded !== true };
-      return node.binder.id === null ? undefined : { type: "open", binderId: node.binder.id };
-    default:
-      return undefined;
-  }
+  const action = treeKey(rows, index, key, node.kind === "drawer");
+  if (action === undefined || action.type === "focus") return action;
+  if (node.kind === "drawer") return { type: "toggle", path: node.path, open: action.type === "toggle" ? action.open : row.expanded !== true };
+  if (action.type === "toggle") return undefined;
+  return node.binder.id === null ? undefined : { type: "open", binderId: node.binder.id };
 };
 
 const items = (count: number): string => `${String(count)} ${count === 1 ? "item" : "items"}`;
 
-/** Where a broken binder's problem is, "_binder.yaml, line 4"; undefined when the problem names no line. */
-export const problemLocation = ({ line }: Problem): string | undefined => (line === undefined ? undefined : `${SETTINGS_FILE}, line ${String(line)}`);
+/** Where a problem is in `file`, "_binder.yaml, line 4"; undefined when the problem names no line. */
+export const problemLocation = ({ line }: Problem, file: string = SETTINGS_FILE): string | undefined => (line === undefined ? undefined : `${file}, line ${String(line)}`);
 
 const problemLabel = (problem: Problem): string => {
   const location = problemLocation(problem);

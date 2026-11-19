@@ -1,11 +1,20 @@
+import type { BinderSummary, LenientView } from "@wombat/shared/items";
 import { CircleAlert } from "lucide-react";
 
 import { useBinderItems } from "../../../../data/hooks.ts";
 import { EmptyState } from "../../EmptyState/EmptyState.tsx";
+import { ListView } from "../ListView/ListView.tsx";
+import { TreeView } from "../TreeView/TreeView.tsx";
 
-/** A binder's items as a plain list: handle and title, an invalid one marked. */
-export const BinderItems = ({ binderId }: { binderId: string }) => {
-  const [read] = useBinderItems([binderId]);
+type Props = {
+  binder: Extract<BinderSummary, { id: string }>;
+  view: LenientView | undefined;
+  onOpenItem?: ((itemId: string) => void) | undefined;
+};
+
+/** A binder's items in its list or tree view; without one, as a plain list: handle and title, an invalid one marked. */
+export const BinderItems = ({ binder, view, onOpenItem }: Props) => {
+  const [read] = useBinderItems([binder.id]);
   const items = read?.data?.items;
   if (items === undefined) {
     return read?.error ? (
@@ -17,6 +26,8 @@ export const BinderItems = ({ binderId }: { binderId: string }) => {
     );
   }
   if (items.length === 0) return <EmptyState title="No items yet" body="Items are the Markdown files in the binder's folder." />;
+  if (view?.kind === "list") return <ListView items={items} view={view} properties={binder.properties} onOpenItem={onOpenItem} />;
+  if (view?.kind === "tree") return <TreeView key={view.name} items={items} view={view} properties={binder.properties} onOpenItem={onOpenItem} />;
   return (
     <ul aria-label="Items" className="flex flex-col gap-px px-1.5 pt-1 pb-3">
       {items.map((item) => (

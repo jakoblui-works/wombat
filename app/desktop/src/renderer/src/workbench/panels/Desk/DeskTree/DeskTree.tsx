@@ -1,8 +1,9 @@
 import { ChevronRight, Folder, FolderOpen, Notebook, TriangleAlert } from "lucide-react";
-import { type KeyboardEvent, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useMemo } from "react";
 
 import { cn } from "../../../../lib/utils";
 import { type DeskNode, type DeskRow, deskKey, deskRows, nodeName, problemLocation, rowLabel } from "../desk-tree.ts";
+import { useTreeFocus } from "../use-tree-focus.ts";
 
 type Props = {
   nodes: readonly DeskNode[];
@@ -66,9 +67,7 @@ const RowContent = ({ row }: { row: DeskRow }) => {
 /** The Desk's tree of drawers and binders (the WAI-ARIA tree pattern, its rows flat with their levels). */
 export const DeskTree = ({ nodes, openDrawers, onToggleDrawer, onOpenBinder }: Props) => {
   const rows = useMemo(() => deskRows(nodes, new Set(openDrawers)), [nodes, openDrawers]);
-  const [focused, setFocused] = useState<string>();
-  const elements = useRef(new Map<string, HTMLElement>());
-  const tabbable = Math.max(0, rows.findIndex(({ key }) => key === focused));
+  const focus = useTreeFocus(rows.map(({ key }) => key));
 
   const act = (index: number, key: string, event?: KeyboardEvent) => {
     const action = deskKey(rows, index, key);
@@ -76,9 +75,7 @@ export const DeskTree = ({ nodes, openDrawers, onToggleDrawer, onOpenBinder }: P
     event?.preventDefault();
     if (action.type === "focus") {
       const target = rows[action.index];
-      if (target === undefined) return;
-      setFocused(target.key);
-      elements.current.get(target.key)?.focus();
+      if (target !== undefined) focus.focus(target.key);
     } else if (action.type === "toggle") onToggleDrawer(action.path, action.open);
     else onOpenBinder(action.binderId);
   };
@@ -88,18 +85,15 @@ export const DeskTree = ({ nodes, openDrawers, onToggleDrawer, onOpenBinder }: P
       {rows.map((row, index) => (
         <div
           key={row.key}
-          ref={(element) => {
-            if (element === null) elements.current.delete(row.key);
-            else elements.current.set(row.key, element);
-          }}
+          ref={focus.register(row.key)}
           role="treeitem"
           aria-level={row.level}
           aria-setsize={row.setSize}
           aria-posinset={row.posInSet}
           aria-expanded={row.expanded}
           aria-label={rowLabel(row.node)}
-          tabIndex={index === tabbable ? 0 : -1}
-          onFocus={() => setFocused(row.key)}
+          tabIndex={focus.tabIndex(index)}
+          onFocus={() => focus.onFocus(row.key)}
           onClick={() => act(index, "Enter")}
           onKeyDown={(event) => act(index, event.key, event)}
           className={cn(
