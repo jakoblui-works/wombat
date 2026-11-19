@@ -3,11 +3,11 @@
 // parent), with nothing showing it. Items are the .md files directly in a binder's folder, or a free
 // binder's `include` matches; never a file inside another binder's folder; dot folders and node_modules
 // are never scanned; a file outside every binder is left alone.
-import type { Problem } from "@wombat/shared/items";
+import { BinderSettings, type Problem } from "@wombat/shared/items";
 import { describe, expect, test } from "vitest";
 
 import { BACKLOG_SETTINGS, BUGS_SETTINGS, DOCS_SETTINGS, isOldSettingsProblem, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
-import { OLD_SETTINGS_FILE, SETTINGS_FILE } from "./binders.ts";
+import { includeReaches, OLD_SETTINGS_FILE, SETTINGS_FILE } from "./binders.ts";
 
 let serial = 0;
 /** A valid item file with an id of its own. */
@@ -108,5 +108,22 @@ describe("membership", () => {
     expect(vault.map((binder) => binder.id), "the nested folder is listed once, unloaded").toEqual([null]);
     expect(vault[0]?.problems.some(problem), JSON.stringify(vault[0]?.problems)).toBe(true);
     expect(readAt(root, "vault/typed.md"), "no id or handle written into its files").toBe(typed);
+  });
+});
+
+// Whether a free binder's include can take a file somewhere inside a folder: a new binder there would take files
+// the free binder holds. Each folder is reached when some file inside it, at any depth, matches the glob.
+describe("includeReaches", () => {
+  const FOLDERS = ["docs", "notes", "docs/api", "docs/api/v1", "a", "a/x/y"] as const;
+  test.each<[string, readonly string[]]>([
+    ["*.md", []],
+    ["docs/*.md", ["docs"]],
+    ["docs/**", ["docs", "docs/api", "docs/api/v1"]],
+    ["**/*.md", FOLDERS],
+    ["docs/*/*.md", ["docs", "docs/api"]],
+    ["a/**/b.md", ["a", "a/x/y"]],
+  ])("include %s reaches %j", (glob, reached) => {
+    const settings = BinderSettings.parse({ version: 1, id: "guides", name: "Guides", prefix: "GD", access: "read", naming: "free", include: [glob] });
+    expect(FOLDERS.filter((folder) => includeReaches(settings, folder))).toEqual(reached);
   });
 });

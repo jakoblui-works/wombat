@@ -1,12 +1,15 @@
 // What a binder's list and tree views show: every visible item once (filtered ones never), in groups that follow the
 // options with the no-value group last, in the view's sort with text as a person reads it, nested under its parent
-// with cycles cut. The expected orders come from the rules below, written out by hand, not from the code.
+// with cycles cut; and a new item asked for in a view starts inside it. The expected orders come from the rules below,
+// written out by hand, not from the code.
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
 import type { ItemSummary, LenientProperty, LenientView } from "@wombat/shared/items";
 
-import { listGroups, treeRows, type TreeRow } from "./view-model.ts";
+import { draftStart, type FieldValue } from "../../Item/item-edit.ts";
+import { matchesFilter } from "./values.ts";
+import { listGroups, type NewItemPlace, shownGroups, treeRows, type TreeRow, viewContext } from "./view-model.ts";
 
 type Properties = Record<string, LenientProperty>;
 
@@ -221,6 +224,67 @@ describe("treeRows", () => {
         },
       ),
       { numRuns: 300 },
+    );
+  });
+});
+
+describe("a new item's start values", () => {
+  type Filter = Record<string, string | number | boolean>;
+
+  /** The filter without a link value that names none of the items: no new item can hold that. */
+  const satisfiable = (filter: Filter | undefined, items: readonly ItemSummary[]): Filter =>
+    Object.fromEntries(Object.entries(filter ?? {}).filter(([name, want]) => name !== "parent" || items.some((one) => one.handle === want || one.id === want)));
+
+  /**
+   * What "+ New" in `view` at `place` starts with, as the draft's form holds it, and checks that each filtered value, as
+   * the new item would hold it, passes the view's filter; a link filter starts as its target's id.
+   */
+  const startIn = (view: LenientView, place: NewItemPlace | undefined, items: readonly ItemSummary[], properties: Properties): Record<string, FieldValue> => {
+    const start = draftStart(viewContext(view, place), properties, (binderId) => (binderId === "backlog" ? items : undefined));
+    for (const [name, want] of Object.entries(view.filter ?? {})) {
+      if (properties[name]?.type === "link") {
+        const target = items.find((one) => one.handle === want || one.id === want);
+        expect(start[name], `${name}: a link filter ${String(want)} starts as its target's id`).toBe(target?.id);
+        expect(matchesFilter({ id: start[name], handle: target?.handle ?? null }, want), `${name} as the new item holds it`).toBe(true);
+      } else {
+        expect(matchesFilter(start[name], want), `${name}: ${JSON.stringify(start[name])} against the filter's ${JSON.stringify(want)}`).toBe(true);
+      }
+    }
+    return start;
+  };
+
+  test("in a list, each shown group's + New starts inside the view's filter with the group's value", () => {
+    fc.assert(
+      fc.property(
+        binderArb.chain((binder) => fc.tuple(fc.constant(binder), viewArb(binder.numbers))),
+        ([{ items, properties }, generated]) => {
+          const view = { ...generated, filter: satisfiable(generated.filter, items) };
+          startIn(view, undefined, items, properties);
+          for (const group of shownGroups(listGroups(items, view, properties))) {
+            const start = startIn(view, group, items, properties);
+            if (group.kind === "value" && view.group !== undefined) expect(start[view.group], `the group ${JSON.stringify(group.value)}'s value`).toEqual(group.value);
+          }
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  test("in a tree, each row's + New starts inside the view's filter with the row's item as its parent", () => {
+    fc.assert(
+      fc.property(
+        binderArb.chain((binder) => fc.tuple(fc.constant(binder), filterArb(binder.numbers))),
+        ([{ items, properties }, filter]) => {
+          // A filter on the tree's own parent link can't hold for a child of a row.
+          const others = Object.fromEntries(Object.entries(filter).filter(([name]) => name !== "parent"));
+          const view: LenientView = { name: "Tree", kind: "tree", parent: "parent", filter: others };
+          const rows = (nodes: readonly TreeRow[]): TreeRow[] => nodes.flatMap((row) => [row, ...rows(row.children)]);
+          for (const row of rows(treeRows(items, view, properties))) {
+            expect(startIn(view, row, items, properties).parent, `a child of ${String(row.item.handle)}`).toBe(row.item.id);
+          }
+        },
+      ),
+      { numRuns: 200 },
     );
   });
 });

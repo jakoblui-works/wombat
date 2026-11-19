@@ -1,12 +1,14 @@
 // The saved layout: a saved
 // layout with unknown panels or deleted agents restores without them, and one that can't be read gives the default.
+// A new item's draft tab is never saved, and never restored from a layout that holds one.
 import type { SerializedDockview } from "dockview-react";
 import fc from "fast-check";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import "./activities.ts";
 import { defaultLayout, type IsKnown, pruneLayout, restoreLayout, SavedLayout } from "./layout.ts";
-import { activities, isKnown as registryIsKnown } from "./registry.ts";
+import { ITEM_PANEL } from "./panels/Item/item-params.ts";
+import { activities, isKnown as registryIsKnown, isRestorable, isSaved } from "./registry.ts";
 import { summary } from "../../../../test/summaries.ts";
 
 type Leaf = { type: "leaf"; data: { id: string; views: string[]; activeView?: string }; size: number };
@@ -229,5 +231,23 @@ describe("restoreLayout", () => {
     expect(restored).toEqual(defaultLayout());
     expect(warned).toHaveLength(1);
     expect(warned.join("\n")).not.toContain(MARKER);
+  });
+});
+
+describe("a draft item tab", () => {
+  const item = panel(ITEM_PANEL, { binderId: "tasks", itemId: "0196f3c2-3f00-7000-8000-000000000001" });
+  const draft = panel(ITEM_PANEL, { binderId: "tasks", draft: "draft-1", context: { status: "todo" } });
+  const withDraft = (): SavedLayout => ({
+    ...savedSplit(),
+    dockview: dockview({ type: "branch", size: 800, data: [leaf("g1", [chatA1, item, draft], draft.id)] }, [chatA1, item, draft], "g1"),
+  });
+
+  test("is left out of the layout the workbench saves", () => {
+    expect(panelIds(pruneLayout(withDraft(), isSaved))).toEqual([chatA1.id, item.id].sort());
+  });
+
+  test("is left out when a layout holding one is restored", () => {
+    const restored = restoreLayout(JSON.parse(JSON.stringify(withDraft())), isRestorable({ agents: [summary("a1")] }), () => undefined);
+    expect(panelIds(restored)).toEqual([chatA1.id, item.id].sort());
   });
 });

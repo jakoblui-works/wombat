@@ -12,7 +12,7 @@ import { expect, onTestFinished } from "vitest";
 import { openCatalog } from "../src/items/catalog.ts";
 import { openWriter } from "../src/items/write.ts";
 import { startServer } from "../src/server/server.ts";
-import { fixtureHarnesses, REPO, setup, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
+import { fixtureHarnesses, type LogLine, REPO, setup, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
 
 export { APP_ORIGIN };
 
@@ -246,8 +246,8 @@ export type ServeOptions = SetupOptions & {
   /** A send that fails this way, as a broken store or agent below the manager would make it. */
   sendFails?: Error;
   /**
-   * An items root: the server gets a catalog and a writer on it (on the fixture's store), for the items and
-   * proposal routes and the agents' /mcp tools; without it they aren't configured.
+   * An items root: the server gets a catalog and a writer on it (on the fixture's store, logging to the fixture's
+   * `logs`), for the items and proposal routes and the agents' /mcp tools; without it they aren't configured.
    */
   itemsRoot?: string;
   /** Stub agent tokens (token → agent id) /mcp takes besides the live agents' own, so a test needs no agent for one. */
@@ -299,20 +299,21 @@ export const serve = async ({ heartbeatMs, sendFails, itemsRoot, agentTokens = {
       };
     },
   };
+  const log = (event: string, fields: LogLine["fields"]) => t.logs.push({ event, fields });
   const server = await startServer({
     manager,
     store: t.store,
     harnesses,
     workspaceRoot: t.root,
     token,
-    log: (event, fields) => t.logs.push({ event, fields }),
+    log,
     onShutdown: () => {
       shutdownRequests += 1;
     },
     ...(heartbeatMs === undefined ? {} : { heartbeatMs }),
     ...(itemsRoot === undefined
       ? {}
-      : { items: openCatalog({ root: itemsRoot, store: t.store }), writer: openWriter({ root: itemsRoot, store: t.store }) }),
+      : { items: openCatalog({ root: itemsRoot, store: t.store }), writer: openWriter({ root: itemsRoot, store: t.store, log }) }),
   });
   let closed: Promise<void> | undefined;
   const close = () => (closed ??= server.close());
