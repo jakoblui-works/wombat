@@ -130,11 +130,12 @@ The app writes items through three routes. They check the values as an agent's w
 - `PATCH /items/:ref` with `{ version, fields }` changes an item and answers it. `fields` holds only what changes: `title`, `body` or property names; `null` clears a property. `version` is the version you read.
 - `DELETE /items/:ref?version=<version>` deletes the item's file (204). Its handle number is never given out again.
 
-`POST /binders` with `{ path, name, prefix }` creates a binder and answers it (201) as `GET /binders` lists it. `path` is its folder relative to the items root, with `/`; missing folders on the way are created. The service writes `<path>/_binder.yaml` with the starter above: the id is the name's slug (lowercase letters and digits, words joined by `-`), access is `read`, and there's one list view named List. It's refused with `400 invalid_fields`, and nothing written, when:
+`POST /binders` with `{ path, name, prefix, adopt? }` creates a binder and answers it (201) as `GET /binders` lists it. `path` is its folder relative to the items root, with `/`; missing folders on the way are created. The service writes `<path>/_binder.yaml` with the starter above: the id is the name's slug (lowercase letters and digits, words joined by `-`), access is `read`, and there's one list view named List. It's refused with `400 invalid_fields`, and nothing written, when:
 
 - `name`: the id made from it is taken by another binder (hidden ones too), or doesn't fit the id's pattern (a lowercase letter first, at most 40 characters).
 - `prefix`: another binder (hidden ones too) has it, or it isn't an uppercase letter followed by up to 9 uppercase letters or digits.
 - `path`: it isn't a plain relative path inside the items root (absolute, or with `..`), it's in a dot folder or `node_modules`, it goes through a symlink or a file, its folder already holds a `_binder.yaml` or `_structure.yaml`, or it's inside a binder with `naming: free` whose `include` reaches it.
+- `adopt`: the folder already holds Markdown files the new binder would take as its items (the next read writes an id and a handle into each); send `adopt: true` to create it anyway.
 
 A refused write changes nothing on disk and answers one of:
 

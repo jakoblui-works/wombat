@@ -390,4 +390,26 @@ describe("POST /binders", () => {
     },
     TEST_TIMEOUT_MS,
   );
+
+  test(
+    "a folder already holding Markdown files is refused until the request adopts them; adopting makes them the binder's items",
+    async () => {
+      const root = writeRoot({ ...WRITE_FILES, "notes/groceries.md": "# Groceries\n\nMilk.\n" });
+      const s = await serve({ itemsRoot: root });
+      const body = { path: "notes", name: "Notes", prefix: "NOTE" };
+      const before = tree(root);
+
+      const asked = await s.api("POST", "/binders", body);
+      expect(asked.status, asked.text).toBe(400);
+      expect((errorOf(asked).problems ?? []).map((problem) => problem.field), asked.text).toEqual(["adopt"]);
+      expect(tree(root), "nothing written while not adopted").toStrictEqual(before);
+
+      const created = await s.api("POST", "/binders", { ...body, adopt: true });
+      expect(created.status, created.text).toBe(201);
+      const listed = await s.api("GET", "/binders/notes/items");
+      expect(listed.status, listed.text).toBe(200);
+      expect((listed.json as { items: { title: string; handle: string | null }[] }).items.map(({ title, handle }) => ({ title, handle }))).toEqual([{ title: "Groceries", handle: "NOTE-1" }]);
+    },
+    TEST_TIMEOUT_MS,
+  );
 });

@@ -8,9 +8,9 @@ import { BinderSettings, slugOf } from "@wombat/shared/items";
 import { parse, stringify } from "yaml";
 
 import type { LoadedBinder, NamedProblem, ValidBinder } from "./catalog.ts";
-import { includeReaches, isPlainPath, isSkippedPath, OLD_SETTINGS_FILE, ownerOf, SETTINGS_FILE } from "./binders.ts";
+import { binderFiles, includeReaches, isPlainPath, isSkippedPath, OLD_SETTINGS_FILE, ownerOf, SETTINGS_FILE } from "./binders.ts";
 
-export type NewBinder = { path: string; name: string; prefix: string };
+export type NewBinder = { path: string; name: string; prefix: string; adopt?: boolean | undefined };
 
 const starter = (name: string, prefix: string) => ({
   version: 1,
@@ -96,11 +96,25 @@ const pathProblems = async (root: string, path: string, binders: readonly Loaded
   return [];
 };
 
+/**
+ * Markdown files already in the folder would become the new binder's items on the next read, which writes an id and
+ * a handle into each: refused until the caller says to adopt them.
+ */
+const adoptProblems = async (root: string, path: string, binders: readonly LoadedBinder[]): Promise<NamedProblem[]> => {
+  const folders = new Set([...binders.map((binder) => binder.path), path]);
+  const { files } = await binderFiles(root, path, BinderSettings.parse(starter("Adopted", "A")), folders);
+  if (files.length === 0) return [];
+  const count = files.length === 1 ? "1 Markdown file" : `${files.length} Markdown files`;
+  return [{ field: "adopt", message: `adopt: ${path} holds ${count}; the new binder makes them its items and writes an id and a handle into each. Create it anyway, or pick an empty folder.` }];
+};
+
 /** The starter to write at `<path>/_binder.yaml`, or every problem that keeps it from being written. */
-export const checkNewBinder = async (root: string, binders: readonly LoadedBinder[], { path, name, prefix }: NewBinder): Promise<{ problems: NamedProblem[]; text: string; id: string }> => {
+export const checkNewBinder = async (root: string, binders: readonly LoadedBinder[], { path, name, prefix, adopt }: NewBinder): Promise<{ problems: NamedProblem[]; text: string; id: string }> => {
   const text = starterSettings(name, prefix);
   const own = settingsProblems(name, text);
   const id = slugOf(name);
   const taken = takenProblems(binders, id, prefix).filter((problem) => !own.some((other) => other.field === problem.field));
-  return { problems: [...own, ...taken, ...(await pathProblems(root, path, binders))], text, id };
+  const problems = [...own, ...taken, ...(await pathProblems(root, path, binders))];
+  if (problems.length > 0 || adopt === true) return { problems, text, id };
+  return { problems: await adoptProblems(root, path, binders), text, id };
 };

@@ -8,7 +8,7 @@ import { writeProblems } from "../../../../data/write-failure.ts";
 import { Field, FIELD_INPUT } from "../Field/Field.tsx";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
 import { problemsByField } from "../view-model/problems.ts";
-import { EMPTY_FORM, editForm, type NewBinderField, newBinderRequest } from "./new-binder.ts";
+import { ADOPT, EMPTY_FORM, editForm, type NewBinderField, newBinderRequest } from "./new-binder.ts";
 
 type Props = {
   open: boolean;
@@ -29,6 +29,7 @@ const TextField = ({ label, hint, value, problems, onChange }: { label: string; 
 
 const NewBinderForm = ({ drawer, onCancel, onCreated }: Omit<Props, "open">) => {
   const [form, setForm] = useState(EMPTY_FORM);
+  const [askedFor, setAskedFor] = useState<string>();
   const create = useCreateBinder();
   const error = create.error;
   const problems = error === null ? [] : writeProblems(error);
@@ -36,9 +37,15 @@ const NewBinderForm = ({ drawer, onCancel, onCreated }: Omit<Props, "open">) => 
   const problemsAt = (field: NewBinderField) => at.get(PROBLEM_FIELD[field]) ?? [];
   const edit = (field: NewBinderField) => (value: string) => setForm((current) => editForm(current, field, value));
 
+  const request = newBinderRequest(drawer, form, askedFor);
+  const adopting = request.adopt === true;
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    create.mutate(newBinderRequest(drawer, form), { onSuccess: onCreated });
+    create.mutate(request, {
+      onSuccess: onCreated,
+      onError: (failure) => setAskedFor(adopting || writeProblems(failure).some((problem) => problem.field === ADOPT) ? request.path : undefined),
+    });
   };
 
   return (
@@ -60,7 +67,7 @@ const NewBinderForm = ({ drawer, onCancel, onCreated }: Omit<Props, "open">) => 
           Cancel
         </Button>
         <Button type="submit" disabled={create.isPending}>
-          Create
+          {adopting ? "Create anyway" : "Create"}
         </Button>
       </DialogFooter>
     </form>

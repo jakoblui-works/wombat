@@ -29,8 +29,15 @@ export const editForm = (form: NewBinderForm, field: NewBinderField, value: stri
   };
 };
 
-/** The request for a binder in `drawer` (root-relative, "" for the items folder); Folder is relative to it. */
-export const newBinderRequest = (drawer: string, form: NewBinderForm): NewBinderRequest => {
+/** The request's key, and the problem's field, for adopting the Markdown files already in the folder. */
+export const ADOPT: keyof NewBinderRequest = "adopt";
+
+/**
+ * The request for a binder in `drawer` (root-relative, "" for the items folder); Folder is relative to it. It adopts
+ * the folder's Markdown files only when `confirmed` is that very folder, so a confirmation never carries to another.
+ */
+export const newBinderRequest = (drawer: string, form: NewBinderForm, confirmed?: string): NewBinderRequest => {
   const folder = form.folder.trim();
-  return { name: form.name.trim(), prefix: form.prefix.trim(), path: drawer === "" ? folder : `${drawer}/${folder}` };
+  const path = drawer === "" ? folder : `${drawer}/${folder}`;
+  return { name: form.name.trim(), prefix: form.prefix.trim(), path, ...(confirmed === path ? { [ADOPT]: true } : {}) };
 };

@@ -84,7 +84,7 @@ export type CreateItemRequest = z.infer<typeof CreateItemRequest>;
  * `POST /binders`: a new binder in `path` (its folder relative to the items root, with `/`; missing parent folders
  * are created), with a starter `_binder.yaml` whose id is the name's slug. Answers the BinderSummary GET /binders lists.
  */
-export const NewBinderRequest = z.strictObject({ path: z.string(), name: z.string(), prefix: z.string() });
+export const NewBinderRequest = z.strictObject({ path: z.string(), name: z.string(), prefix: z.string(), adopt: z.boolean().optional() });
 export type NewBinderRequest = z.infer<typeof NewBinderRequest>;
 
 /** `PATCH /items/:ref`: only the changed fields among title, body and property names; null clears a property. */
