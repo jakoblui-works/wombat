@@ -31,6 +31,20 @@ const HAND_CHANGES: { what: string; change: (root: string) => void }[] = [
   },
 ];
 
+// Identity problems only a fix by hand clears; the conflict names the field to fix, unlike a filesystem failure.
+const IDENTITY_CHANGES: { what: string; change: (root: string) => void; field: string }[] = [
+  {
+    what: "a file added by hand shares its handle",
+    change: (root) => writeAt(root, "bugs/BUG-2-copy.md", "---\nid: 0196f3c2-b100-7000-8000-000000000099\nhandle: BUG-2\nrepo: api\n---\n# A copy made by hand\n\nInvented.\n"),
+    field: "handle",
+  },
+  {
+    what: "its binder's settings broke",
+    change: (root) => writeAt(root, `bugs/${SETTINGS_FILE}`, `${readAt(root, `bugs/${SETTINGS_FILE}`)}  parent: { type: link, to: nowhere }\n`),
+    field: "properties.parent.to",
+  },
+];
+
 describe("approve never overwrites", () => {
   test.each(HAND_CHANGES)("approving an update after $what marks it conflict and changes no file", async ({ change }) => {
     const { access, root } = openAccessRoot();
@@ -43,6 +57,21 @@ describe("approve never overwrites", () => {
 
     expect(decided.status).toBe("conflict");
     expect(decided.problem?.message.trim().length, "the problem says what changed").toBeGreaterThan(0);
+    expect(snapshotFiles(root)).toEqual(before);
+  });
+
+  test.each(IDENTITY_CHANGES)("approving an update after $what marks it conflict naming the field to fix by hand", async ({ change, field }) => {
+    const { access, root } = openAccessRoot();
+    const { version } = await access.get("BUG-2");
+    const { proposed } = await access.proposeUpdate(AGENT, "BUG-2", { note: "Overlap fixed by the new layout" }, version, "Seen again");
+    change(root);
+    const before = snapshotFiles(root);
+
+    const decided = await access.approve(proposed, 1);
+
+    expect(decided.status).toBe("conflict");
+    expect(decided.problem?.field).toBe(field);
+    expect(decided.problem?.message, "not the filesystem's advice").not.toMatch(/filesystem/i);
     expect(snapshotFiles(root)).toEqual(before);
   });
 

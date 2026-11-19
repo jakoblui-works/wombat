@@ -1,6 +1,7 @@
 // The items routes on a valid root: shapes, lookup by handle or alias, link values, hidden binders, and the
 // refusals, and problems sent with only the shared Problem's keys. My writes through the routes: refused exactly
-// when an agent's edit of the same fields is, a stale version refused with nothing written, each write's log line
+// when an agent's edit of the same fields is, an item or binder to fix by hand refused as items_not_writable
+// with its problems (an agent gets invalid_fields), a stale version refused with nothing written, each write's log line
 // naming who wrote it, and a new binder's refusals writing nothing. Invalid items over HTTP are
 // items-invalid-visible.test.ts.
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -207,6 +208,20 @@ const VALUE_CASES: { what: string; properties: Record<string, unknown> }[] = [
   { what: "a link to an item that doesn't exist", properties: { task: "TSK-99" } },
 ];
 
+/** Problems only a fix by hand clears, each with the field it names. */
+const IDENTITY_CASES: { what: string; files: Record<string, string>; field: string }[] = [
+  {
+    what: "a handle a file added by hand shares",
+    files: { ...WRITE_FILES, "intake/INT-1-copy.md": `---\nid: 0196f3c2-c100-7000-8000-000000000099\nhandle: INT-1\n---\n# A copy made by hand\n\nInvented.\n` },
+    field: "handle",
+  },
+  {
+    what: "a binder whose settings link to no binder",
+    files: { ...WRITE_FILES, [`intake/${SETTINGS_FILE}`]: `${WRITE_FILES[`intake/${SETTINGS_FILE}`] ?? ""}  parent: { type: link, to: nowhere }\n` },
+    field: "properties.parent.to",
+  },
+];
+
 describe("my item writes", () => {
   test.each(VALUE_CASES)(
     "$what: PATCH and POST are refused exactly when an agent's edit of the same fields is, with the same problems",
@@ -234,6 +249,22 @@ describe("my item writes", () => {
       const mineCreate = routeOutcome(await s.api("POST", "/binders/intake/items", input), 201);
       const agentCreate = await agentOutcome(agent.access.create("agent-intake", "intake", input));
       expectSame(mineCreate, agentCreate, "POST against create_item");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  test.each(IDENTITY_CASES)(
+    "$what: my PATCH is 409 items_not_writable with its problems, an agent's update_item an invalid_fields refusal",
+    async ({ files, field }) => {
+      const s = await serve({ itemsRoot: writeRoot(files) });
+      const agent = openAccessRoot(files);
+
+      const mine = await s.api("PATCH", "/items/INT-1", { version: await versionOf(s, "INT-1"), fields: { effort: 2 } });
+      expect(mine.status, mine.text).toBe(409);
+      expect(routeOutcome(mine, 200)).toEqual({ written: false, code: "items_not_writable", problems: expect.arrayContaining([expect.objectContaining({ field })]) as unknown });
+
+      const theirs = await agentOutcome(agent.access.update("agent-intake", "INT-1", { effort: 2 }, (await agent.access.get("INT-1")).version));
+      expect(theirs).toEqual({ written: false, code: "invalid_fields", problems: expect.arrayContaining([expect.objectContaining({ field })]) as unknown });
     },
     TEST_TIMEOUT_MS,
   );
