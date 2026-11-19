@@ -1,48 +1,75 @@
-import type { ItemSummary, LenientProperty, LenientView } from "@wombat/shared/items";
+import type { LenientProperty, LenientView } from "@wombat/shared/items";
 import { Plus } from "lucide-react";
+import { useRef } from "react";
 
 import { Button } from "../../../../components/ui/button";
-import { ItemRow } from "../ItemRow/ItemRow.tsx";
-import { groupHeading, listGroups, type NewItem, newItemLabel, offersNew, type Row, shownGroups, viewContext } from "../view-model/view-model.ts";
+import type { Reveal } from "../../../registry.ts";
+import { useWorkbench } from "../../../workbench-context.ts";
+import { ItemRow, PendingItemRow } from "../ItemRow/ItemRow.tsx";
+import { ProposalLine } from "../ProposalLine/ProposalLine.tsx";
+import { proposalProps, REVEALABLE, useReveal } from "../use-reveal.ts";
+import { groupHeading, isOutsideFilter, isPending, listGroups, type NewItem, newItemLabel, offersNew, type Row, rowKey, proposedTitle, shownGroups, viewContext } from "../view-model/view-model.ts";
+import { OUTSIDE_FILTER } from "../view-model/with-proposals.ts";
 
 type Props = {
-  items: readonly ItemSummary[];
+  rows: readonly Row[];
   view: Extract<LenientView, { kind: "list" }>;
   properties: Record<string, LenientProperty>;
   onOpenItem?: ((itemId: string) => void) | undefined;
   onNewItem: NewItem;
+  reveal?: Reveal | undefined;
+  onRevealed?: (() => void) | undefined;
 };
 
-const Rows = ({ rows, label, onOpenItem }: { rows: readonly Row[]; label: string; onOpenItem: Props["onOpenItem"] }) => (
-  <ul aria-label={label} className="flex flex-col gap-px">
-    {rows.map(({ item }) => (
-      <li key={item.path}>
+const ROW = "focus-ring flex w-full items-center gap-2 rounded-md px-2.5 py-1 text-left text-base transition-colors select-none hover:bg-surface-2";
+
+const ListRow = ({ row, view, properties, onOpenItem }: { row: Row; view: Props["view"]; properties: Props["properties"]; onOpenItem: Props["onOpenItem"] }) => {
+  const { openProposal } = useWorkbench();
+  return (
+    <div {...proposalProps(row)} className={REVEALABLE}>
+      {isPending(row) ? (
+        <PendingItemRow title={proposedTitle(row)} render={<button type="button" onClick={() => openProposal(row.pending.id)} className={ROW} />} />
+      ) : (
         <ItemRow
-          item={item}
+          item={row.item}
+          struck={row.proposal?.kind === "delete"}
           render={
             <button
               type="button"
               onClick={() => {
-                if (item.id !== null) onOpenItem?.(item.id);
+                if (row.item.id !== null) onOpenItem?.(row.item.id);
               }}
-              className="focus-ring flex w-full items-center gap-2 rounded-md px-2.5 py-1 text-left text-base transition-colors select-none hover:bg-surface-2"
+              className={ROW}
             />
           }
         />
+      )}
+      <ProposalLine row={row} outside={isOutsideFilter(row, view, properties)} className="pr-2 pb-1 pl-2.5" />
+    </div>
+  );
+};
+
+const Rows = ({ rows, label, view, properties, onOpenItem }: { rows: readonly Row[]; label: string; view: Props["view"]; properties: Props["properties"]; onOpenItem: Props["onOpenItem"] }) => (
+  <ul aria-label={label} className="flex flex-col gap-px">
+    {rows.map((row) => (
+      <li key={rowKey(row)}>
+        <ListRow row={row} view={view} properties={properties} onOpenItem={onOpenItem} />
       </li>
     ))}
   </ul>
 );
 
-/** A binder's list view: its items in the view's groups and order. */
-export const ListView = ({ items, view, properties, onOpenItem, onNewItem }: Props) => {
-  const groups = shownGroups(listGroups(items, view, properties));
-  if (groups.length === 0) return <p className="p-3 text-sm text-fg-tertiary">No items in this view.</p>;
+/** A binder's list view: its rows in the view's groups and order, the proposed creates its filter hides first. */
+export const ListView = ({ rows, view, properties, onOpenItem, onNewItem, reveal, onRevealed }: Props) => {
+  const ref = useRef<HTMLDivElement>(null);
+  useReveal(reveal, ref, onRevealed);
+  const groups = shownGroups(listGroups(rows, view, properties));
   return (
-    <div className="flex flex-col gap-1 px-1.5 pt-1 pb-3">
+    <div ref={ref} className="flex flex-col gap-1 px-1.5 pt-1 pb-3">
+      {groups.length === 0 ? <p className="p-1.5 text-sm text-fg-tertiary">No items in this view.</p> : null}
       {groups.map((group) => {
         const name = groupHeading(group, view, properties);
-        if (name === undefined) return <Rows key={group.key} rows={group.rows} label="Items" onOpenItem={onOpenItem} />;
+        if (name === undefined) return <Rows key={group.key} rows={group.rows} label={group.kind === "outside" ? OUTSIDE_FILTER : "Items"} view={view} properties={properties} onOpenItem={onOpenItem} />;
         return (
           <section key={group.key} aria-label={name}>
             <div className="flex items-center gap-1 pt-1 pr-1">
@@ -63,7 +90,7 @@ export const ListView = ({ items, view, properties, onOpenItem, onNewItem }: Pro
                 </Button>
               ) : null}
             </div>
-            <Rows rows={group.rows} label={name} onOpenItem={onOpenItem} />
+            <Rows rows={group.rows} label={name} view={view} properties={properties} onOpenItem={onOpenItem} />
           </section>
         );
       })}

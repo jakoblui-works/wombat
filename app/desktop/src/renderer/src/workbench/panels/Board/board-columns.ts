@@ -2,7 +2,7 @@
 import type { ItemSummary, LenientProperty, LenientView } from "@wombat/shared/items";
 
 import { clearable, displayValue, valueRank } from "../Desk/view-model/values.ts";
-import { type Row, sorted, visibleItems } from "../Desk/view-model/view-model.ts";
+import { outsideFilter, type Row, rowValue, sorted, visibleItems } from "../Desk/view-model/view-model.ts";
 
 type Properties = Readonly<Record<string, LenientProperty>>;
 
@@ -19,18 +19,19 @@ const NONE_KEY = "none";
 const optionsOf = (property: LenientProperty | undefined): readonly string[] => (property?.type === "select" ? property.options : []);
 
 /**
- * The view's visible items, sorted, in one column per option of its column property in option order (empty ones too),
- * after a first column for the items without a value (`valueRank`) when there are any.
+ * The view's visible rows, sorted, in one column per option of its column property in option order (empty ones too),
+ * after a first column for the rows without a value (`valueRank`) when there are any. A proposed create the view's
+ * filter would hide goes first in its column.
  */
-export const boardColumns = (items: readonly ItemSummary[], view: BoardView, properties: Properties): Column[] => {
+export const boardColumns = (rows: readonly Row[], view: BoardView, properties: Properties): Column[] => {
   const property = properties[view.column];
   const columns: Extract<Column, { kind: "value" }>[] = optionsOf(property).map((option) => ({ key: `value:${option}`, kind: "value", value: option, rows: [] }));
   const none: Row[] = [];
-  for (const item of sorted(visibleItems(items, view), view, properties)) {
-    const rank = valueRank(property, item.properties[view.column]);
+  for (const row of [...sorted(outsideFilter(rows, view, properties), view, properties), ...sorted(visibleItems(rows, view, properties), view, properties)]) {
+    const rank = valueRank(property, rowValue(row, view.column, properties));
     const column = typeof rank === "number" ? columns[rank] : undefined;
-    if (column === undefined) none.push({ item });
-    else column.rows.push({ item });
+    if (column === undefined) none.push(row);
+    else column.rows.push(row);
   }
   return none.length > 0 ? [{ key: NONE_KEY, kind: "none", rows: none }, ...columns] : columns;
 };

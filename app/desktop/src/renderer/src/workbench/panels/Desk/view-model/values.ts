@@ -105,6 +105,11 @@ export const heldValue = (property: LenientProperty | undefined, value: unknown,
   }
 };
 
+/** The binders `properties`' links name, each once. */
+export const linkedBinders = (properties: Readonly<Record<string, LenientProperty>>): string[] => [
+  ...new Set(Object.values(properties).flatMap((property) => (property.type === "link" ? [property.to] : []))),
+];
+
 /** A property may be emptied unless the binder requires it. */
 export const clearable = (property: LenientProperty): boolean => !("required" in property && property.required === true);
 

@@ -3,7 +3,7 @@ import { Bot, Columns2, FilePen, Files, FileText, Inbox, GitBranch, Kanban, Layo
 import { createElement } from "react";
 
 import "../harnesses/claude/claude-ui.ts";
-import { AGENTS_ACTIVITY, DESK_ACTIVITY } from "./activity-ids.ts";
+import { AGENTS_ACTIVITY, DESK_ACTIVITY, DESK_PANEL } from "./activity-ids.ts";
 import { type ActivityDescriptor, registerActivity, registerPanel } from "./registry.ts";
 import { AgentsList } from "./panels/AgentsList/AgentsList.tsx";
 import { Chat } from "./panels/Chat/Chat.tsx";
@@ -68,8 +68,8 @@ const register = (): void => {
 
   registerPanel({ id: "needs-me", title: "Needs me", icon: Inbox, locations: ["right"], component: NeedsMe });
 
-  registerActivity({ id: DESK_ACTIVITY, title: "Desk", icon: LibraryBig, sidebarPanel: "desk" });
-  registerPanel({ id: "desk", title: "Desk", icon: LibraryBig, locations: ["left"], activity: DESK_ACTIVITY, component: Desk });
+  registerActivity({ id: DESK_ACTIVITY, title: "Desk", icon: LibraryBig, sidebarPanel: DESK_PANEL });
+  registerPanel({ id: DESK_PANEL, title: "Desk", icon: LibraryBig, locations: ["left"], activity: DESK_ACTIVITY, component: Desk });
   registerPanel({
     id: BOARD_PANEL,
     // The panel reports "<binder> · <view>" once it has read the binders.

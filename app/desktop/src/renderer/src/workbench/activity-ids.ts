@@ -3,3 +3,5 @@
 
 export const AGENTS_ACTIVITY = "agents";
 export const DESK_ACTIVITY = "desk";
+/** The Desk activity's sidebar panel. */
+export const DESK_PANEL = "desk";

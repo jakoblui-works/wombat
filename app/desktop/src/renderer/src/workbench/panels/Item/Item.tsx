@@ -1,11 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import type { Item as ItemData, ItemSummary, LenientProperty } from "@wombat/shared/items";
+import type { ItemProposal } from "@wombat/shared/proposals";
 import { useCallback, useEffect, useReducer, useState } from "react";
 
 import { Button } from "../../../components/ui/button";
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { useCreateItem, useSaveItem } from "../../../data/commands.ts";
-import { useBinderItems, useBinders, useItem } from "../../../data/hooks.ts";
+import { useBinderItems, useBinders, useItem, useProposals } from "../../../data/hooks.ts";
 import { itemQuery } from "../../../data/query-client.ts";
 import { writeFailure } from "../../../data/write-failure.ts";
 import { asError } from "../../../lib/errors.ts";
@@ -16,7 +17,8 @@ import { Note } from "../approvals/Note/Note.tsx";
 import { Field } from "../Desk/Field/Field.tsx";
 import { ProblemList } from "../Desk/ProblemList/ProblemList.tsx";
 import { problemsByField } from "../Desk/view-model/problems.ts";
-import { linkValue } from "../Desk/view-model/values.ts";
+import { linkedBinders, linkValue } from "../Desk/view-model/values.ts";
+import { proposalsOnItem } from "../Desk/view-model/with-proposals.ts";
 import { Body } from "./Body/Body.tsx";
 import { CloseDialog } from "./CloseDialog/CloseDialog.tsx";
 import { Conflict } from "./Conflict/Conflict.tsx";
@@ -25,6 +27,7 @@ import { linkTarget, valueText } from "./fields/field-input.ts";
 import { Fields } from "./fields/Fields.tsx";
 import { ItemActions } from "./ItemActions/ItemActions.tsx";
 import { ItemNotice } from "./ItemNotice/ItemNotice.tsx";
+import { ProposalBanner } from "./ProposalBanner/ProposalBanner.tsx";
 import { propertyRows } from "./fields/property-rows.ts";
 import {
   canSave,
@@ -55,7 +58,7 @@ type Listed = (binderId: string) => readonly ItemSummary[] | undefined;
 
 /** The items of the binders the properties link to, by binder id; `pending` while one hasn't been read yet. */
 const useLinkLists = (properties: Readonly<Record<string, LenientProperty>>): { listed: Listed; pending: boolean } => {
-  const listIds = [...new Set(Object.values(properties).flatMap((property) => (property.type === "link" ? [property.to] : [])))];
+  const listIds = linkedBinders(properties);
   const lists = useBinderItems(listIds);
   const listed: Listed = (id) => {
     const list = lists[listIds.indexOf(id)];
@@ -78,7 +81,7 @@ type Editing = { kind: "saved"; tab: SavedItemParams } | { kind: "draft"; tab: D
  * An item tab's content, for both kinds of tab: the read's notice, and the form (`itemForm`) from the first read until
  * the tab closes, so my edits and the close guard outlive an item or binder that can't be shown for a while.
  */
-const ItemTabBody = ({ shown, editing }: { shown: ItemShown; editing: Editing }) => {
+const ItemTabBody = ({ shown, editing, proposals = [] }: { shown: ItemShown; editing: Editing; proposals?: readonly ItemProposal[] }) => {
   const { openItem } = useWorkbench();
   const form = itemForm(shown, useLastListed(listedBinder(shown)), editing.kind === "draft");
   const properties = form?.binder?.properties ?? NO_PROPERTIES;
@@ -92,6 +95,9 @@ const ItemTabBody = ({ shown, editing }: { shown: ItemShown; editing: Editing })
     <ScrollArea className="h-full min-h-0">
       <article className="mx-auto flex max-w-chat flex-col gap-5 px-5 pt-6 pb-10">
         {shown.kind === "loading" ? null : <ItemNotice shown={shown} />}
+        {proposals.map((proposal) => (
+          <ProposalBanner key={proposal.id} proposal={proposal} />
+        ))}
         {ready ? (
           <EditItem
             editing={editing}
@@ -120,11 +126,13 @@ const ItemTab = ({ binderId, itemId, setTitle }: SavedItemParams & { setTitle: P
 
   const known = lastKnown(shown);
   const title = known === undefined ? undefined : itemTitle(known);
+  const listedProposals = useProposals();
+  const proposals = proposalsOnItem(listedProposals.data?.proposals ?? [], binderId, known?.handle ?? null);
   useEffect(() => {
     if (title !== undefined) setTitle?.(title);
   }, [title, setTitle]);
 
-  return <ItemTabBody shown={shown} editing={{ kind: "saved", tab: { binderId, itemId } }} />;
+  return <ItemTabBody shown={shown} editing={{ kind: "saved", tab: { binderId, itemId } }} proposals={proposals} />;
 };
 
 /** A new item's tab: the item form on no file, its context's values set, written on the first Save. */

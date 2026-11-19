@@ -9,7 +9,7 @@ import type { ItemSummary, LenientProperty, LenientView } from "@wombat/shared/i
 
 import { draftStart, type FieldValue } from "../../Item/item-edit.ts";
 import { matchesFilter } from "./values.ts";
-import { listGroups, type NewItemPlace, shownGroups, treeRows, type TreeRow, viewContext } from "./view-model.ts";
+import { isPending, listGroups, type NewItemPlace, type Row, shownGroups, treeRows, type TreeRow, viewContext } from "./view-model.ts";
 
 type Properties = Record<string, LenientProperty>;
 
@@ -28,6 +28,13 @@ const item = (n: number, properties: Record<string, unknown> = {}): ItemSummary 
   version: "0".repeat(64),
   problems: [],
 });
+
+/** The items as the rows the view functions take, none of them pending. */
+const rowsOf = (items: readonly ItemSummary[]): Row[] => items.map((item) => ({ item }));
+const itemOf = (row: Row): ItemSummary => {
+  if (isPending(row)) throw new Error(`a pending row where only items were given: ${JSON.stringify(row)}`);
+  return row.item;
+};
 
 const numberOf = (one: ItemSummary): number => Number(one.handle?.slice("BL-".length));
 const handles = (items: readonly ItemSummary[]): (string | null)[] => items.map((one) => one.handle);
@@ -143,9 +150,9 @@ describe("listGroups", () => {
         ([{ items, properties }, view]) => {
           const order = expectedOrder(view.sort ?? [], properties);
           const visible = expectedVisible(items, view).toSorted(order);
-          const got = listGroups(items, view, properties).map((group) => ({
+          const got = listGroups(rowsOf(items), view, properties).map((group) => ({
             group: group.kind === "value" ? group.value : group.kind,
-            rows: handles(group.rows.map((row) => row.item)),
+            rows: handles(group.rows.map(itemOf)),
           }));
 
           const name = view.group;
@@ -174,7 +181,7 @@ describe("listGroups", () => {
 describe("treeRows", () => {
   /** Each row's item with the item it sits under (null at the top). */
   const placed = (rows: readonly TreeRow[], parent: ItemSummary | null = null): { item: ItemSummary; parent: ItemSummary | null }[] =>
-    rows.flatMap((row) => [{ item: row.item, parent }, ...placed(row.children, row.item)]);
+    rows.flatMap((row) => [{ item: itemOf(row), parent }, ...placed(row.children, itemOf(row))]);
 
   // Mostly unfiltered, so most runs hold cycles.
   const treeViewArb = (numbers: readonly number[]) =>
@@ -188,7 +195,7 @@ describe("treeRows", () => {
         binderArb.chain((binder) => fc.tuple(fc.constant(binder), treeViewArb(binder.numbers))),
         ([{ items, properties }, view]) => {
           const visible = expectedVisible(items, view);
-          const rows = placed(treeRows(items, view, properties));
+          const rows = placed(treeRows(rowsOf(items), view, properties));
           expect(handles(rows.map((row) => row.item)).toSorted()).toEqual(handles(visible).toSorted());
 
           const byId = new Map(visible.map((one) => [one.id, one]));
@@ -260,7 +267,7 @@ describe("a new item's start values", () => {
         ([{ items, properties }, generated]) => {
           const view = { ...generated, filter: satisfiable(generated.filter, items) };
           startIn(view, undefined, items, properties);
-          for (const group of shownGroups(listGroups(items, view, properties))) {
+          for (const group of shownGroups(listGroups(rowsOf(items), view, properties))) {
             const start = startIn(view, group, items, properties);
             if (group.kind === "value" && view.group !== undefined) expect(start[view.group], `the group ${JSON.stringify(group.value)}'s value`).toEqual(group.value);
           }
@@ -279,8 +286,9 @@ describe("a new item's start values", () => {
           const others = Object.fromEntries(Object.entries(filter).filter(([name]) => name !== "parent"));
           const view: LenientView = { name: "Tree", kind: "tree", parent: "parent", filter: others };
           const rows = (nodes: readonly TreeRow[]): TreeRow[] => nodes.flatMap((row) => [row, ...rows(row.children)]);
-          for (const row of rows(treeRows(items, view, properties))) {
-            expect(startIn(view, row, items, properties).parent, `a child of ${String(row.item.handle)}`).toBe(row.item.id);
+          for (const row of rows(treeRows(rowsOf(items), view, properties))) {
+            const item = itemOf(row);
+            expect(startIn(view, { item }, items, properties).parent, `a child of ${String(item.handle)}`).toBe(item.id);
           }
         },
       ),

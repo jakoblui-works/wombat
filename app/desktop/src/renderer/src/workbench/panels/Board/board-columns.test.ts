@@ -7,7 +7,7 @@ import { describe, expect, test } from "vitest";
 
 import type { ItemSummary, LenientProperty } from "@wombat/shared/items";
 
-import { sorted, visibleItems } from "../Desk/view-model/view-model.ts";
+import { isPending, type Row, sorted, visibleItems } from "../Desk/view-model/view-model.ts";
 import { boardColumns, type BoardView, liveMoves, type Move, versionToSend } from "./board-columns.ts";
 
 type Properties = Record<string, LenientProperty>;
@@ -15,6 +15,13 @@ type Properties = Record<string, LenientProperty>;
 // ---- Invented items ----
 
 const idOf = (n: number): string => `0196f3c2-6e00-7000-8000-${n.toString(16).padStart(12, "0")}`;
+
+/** The items as the rows the board takes, none of them pending. */
+const rowsOf = (items: readonly ItemSummary[]): Row[] => items.map((one) => ({ item: one }));
+const itemOf = (row: Row): ItemSummary => {
+  if (isPending(row)) throw new Error(`a pending row where only items were given: ${JSON.stringify(row)}`);
+  return row.item;
+};
 
 const item = (n: number, properties: Record<string, unknown> = {}, version = "0".repeat(64)): ItemSummary => ({
   id: idOf(n),
@@ -79,10 +86,11 @@ describe("boardColumns", () => {
   test("for any items and board view: every shown item in exactly its value's column, options in order, No value first and only with cards, the list views' order within", () => {
     fc.assert(
       fc.property(binderArb, viewArb, ({ options, properties, items }, view) => {
-        const columns = boardColumns(items, view, properties);
-        const visible = visibleItems(items, view);
-        const order = sorted(visible, view, properties);
-        const cards = columns.flatMap((column) => column.rows.map(({ item: card }) => card));
+        const rows = rowsOf(items);
+        const columns = boardColumns(rows, view, properties);
+        const visible = visibleItems(rows, view, properties).map(itemOf);
+        const order = sorted(visibleItems(rows, view, properties), view, properties).map(itemOf);
+        const cards = columns.flatMap((column) => column.rows.map(itemOf));
 
         expect(handles(cards).sort(), "each shown item once, and only those").toEqual(handles(visible).sort());
         expect(
@@ -95,7 +103,7 @@ describe("boardColumns", () => {
 
         for (const column of columns) {
           const want = column.kind === "value" ? column.value : null;
-          const held = column.rows.map(({ item: card }) => card);
+          const held = column.rows.map(itemOf);
           for (const card of held) expect(homeOf(options, card.properties["stage"]), `${String(card.handle)} under ${String(want)}`).toBe(want);
           expect(handles(held), `${String(want)}: the view's order`).toEqual(handles(order.filter((one) => held.includes(one))));
         }

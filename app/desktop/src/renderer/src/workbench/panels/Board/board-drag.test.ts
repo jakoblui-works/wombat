@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import type { ItemSummary } from "@wombat/shared/items";
 
+import { rowKey } from "../Desk/view-model/view-model.ts";
 import type { Column } from "./board-columns.ts";
 import { drag, type DragEvent, type Held, shownCards } from "./board-drag.ts";
 
@@ -39,7 +40,7 @@ describe("a held card", () => {
   test("held by mouse over another column: hidden but still rendered at home, a preview where it is held, nowhere else", () => {
     const held = run([pick(true), { type: "over", column: ACTIVE }]);
 
-    const shown = (key: string) => shownCards(key, BEFORE, AFTER, held).map(({ row, mode }) => ({ path: row.item.path, mode }));
+    const shown = (key: string) => shownCards(key, BEFORE, AFTER, held).map(({ row, mode }) => ({ path: rowKey(row), mode }));
 
     expect(shown(QUEUED)).toEqual([
       { path: MOVED.path, mode: "hidden" },

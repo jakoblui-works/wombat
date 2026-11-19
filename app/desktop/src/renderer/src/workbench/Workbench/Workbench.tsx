@@ -33,6 +33,7 @@ import {
   type Reveals,
   retitleTabs,
   revealStore,
+  sidebarRevealKey,
   TAB_COMPONENT,
   type TabParams,
   tabTitles,
@@ -84,8 +85,18 @@ const NO_ACTIONS: WorkbenchActions = {
   replaceTab: () => undefined,
 };
 
-const NO_REVEALS: Reveals = { get: () => undefined, subscribe: () => () => undefined };
+const NO_REVEALS: Reveals = { get: () => undefined, forget: () => undefined, subscribe: () => () => undefined };
 const RevealsContext = createContext<Reveals>(NO_REVEALS);
+
+/** The left sidebar's panel, with what it was last asked to reveal until it has shown it. */
+const SidebarContent = ({ panelId }: { panelId: string }) => {
+  const reveals = useContext(RevealsContext);
+  const key = sidebarRevealKey(panelId);
+  const reveal = useSyncExternalStore(reveals.subscribe, () => reveals.get(key));
+  const onRevealed = useCallback(() => reveals.forget(key), [reveals, key]);
+  const Panel = getPanel(panelId)?.component;
+  return Panel === undefined ? null : <Panel params={{}} reveal={reveal} onRevealed={onRevealed} />;
+};
 
 const TitlesContext = createContext<ReturnType<typeof tabTitles>>(tabTitles());
 
@@ -299,7 +310,6 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   }, []);
 
   const activity = activityOrDefault(chrome.activity);
-  const Sidebar = activity === undefined ? undefined : getPanel(activity.sidebarPanel)?.component;
   const resize = (side: "left" | "right", dx: number) =>
     changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, [side]: clampWidth(current.sidebars[side] + dx) } }));
 
@@ -365,7 +375,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
                   <div inert={blocked} className="relative flex min-w-0 flex-1">
                     <aside aria-label={activity?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.left }}>
-                      {Sidebar && <Sidebar params={{}} />}
+                      {activity === undefined ? null : <SidebarContent panelId={activity.sidebarPanel} />}
                     </aside>
                     <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
                     <main className="min-w-0 flex-1">

@@ -24,6 +24,8 @@ export type Reveal = { target: string };
 export type PanelProps = {
   params: unknown;
   reveal?: Reveal | undefined;
+  /** For a sidebar panel: called once it has shown `reveal`, which is then forgotten (no replay when it shows again). */
+  onRevealed?: (() => void) | undefined;
   /**
    * For a panel whose tab title needs more than the agents list (the diff tab's file name, from the log): the title it
    * reports takes the place of its `title` for this tab until the tab closes.

@@ -6,6 +6,7 @@ import { Button } from "../../../components/ui/button";
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { useBinders } from "../../../data/hooks.ts";
 import { runLogged } from "../../commands/registry.ts";
+import type { PanelProps } from "../../registry.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useDesk, useWorkbench } from "../../workbench-context.ts";
 import { EmptyState } from "../EmptyState/EmptyState.tsx";
@@ -16,7 +17,7 @@ import { DeskTree } from "./DeskTree/DeskTree.tsx";
 import { NewBinder } from "./NewBinder/NewBinder.tsx";
 
 /** The Desk's sidebar: the tree of drawers and binders, or one binder in place of it. */
-export const Desk = () => {
+export const Desk = ({ reveal, onRevealed }: PanelProps) => {
   const binders = useBinders();
   const { desk, changeDesk } = useDesk();
   const { openBinder, openItem, openNewItem } = useWorkbench();
@@ -43,6 +44,8 @@ export const Desk = () => {
         onView={(name) => openBinder(binder.id, undefined, name)}
         onOpenItem={(itemId) => openItem(binder.id, itemId)}
         onNewItem={(context) => openNewItem(binder.id, context)}
+        reveal={reveal}
+        onRevealed={onRevealed}
       />
     );
   }

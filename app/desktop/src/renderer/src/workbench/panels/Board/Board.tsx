@@ -5,15 +5,19 @@ import { useSaveItem } from "../../../data/commands.ts";
 import { useBinderItems, useBinders } from "../../../data/hooks.ts";
 import { refusedByService, writeFailure } from "../../../data/write-failure.ts";
 import { lastPathPart } from "../../../lib/path.ts";
-import type { PanelProps } from "../../registry.ts";
+import type { PanelProps, Reveal } from "../../registry.ts";
 import { useWorkbench } from "../../workbench-context.ts";
 import { Note } from "../approvals/Note/Note.tsx";
 import { ProblemList } from "../Desk/ProblemList/ProblemList.tsx";
-import { offersNew, viewContext } from "../Desk/view-model/view-model.ts";
+import { useItemProposals } from "../Desk/use-item-proposals.ts";
+import { useLinkTargets } from "../Desk/use-link-targets.ts";
+import { useReveal } from "../Desk/use-reveal.ts";
+import { isOutsideFilter, offersNew, rowKey, viewContext } from "../Desk/view-model/view-model.ts";
+import { type ItemProposalRead, withProposals } from "../Desk/view-model/with-proposals.ts";
 import { BinderNotice, READ_FAILED } from "../Item/ItemNotice/ItemNotice.tsx";
 import { itemName } from "../Item/item-params.ts";
 import type { Binder } from "../Item/item-state.ts";
-import { BoardCard } from "./BoardCard/BoardCard.tsx";
+import { BoardCard, PendingCard } from "./BoardCard/BoardCard.tsx";
 import { BoardColumn, COLUMN_SELECTOR } from "./BoardColumn/BoardColumn.tsx";
 import { BoardParams } from "./board-params.ts";
 import { boardColumns, type BoardView, columnLabel, columnValue, dropOutcome, liveMoves, type Move, NO_VALUE, versionToSend, withMoves } from "./board-columns.ts";
@@ -51,9 +55,24 @@ const RefusalNote = ({ refusal }: { refusal: Refusal }) => (
   </div>
 );
 
-/** A binder's board view: a column per option of its column property, cards moved between them by drag. */
-const BoardContent = ({ binder, view, items }: { binder: Binder; view: BoardView; items: readonly ItemSummary[] }) => {
-  const { openItem, openNewItem } = useWorkbench();
+/**
+ * A binder's board view: a column per option of its column property, cards moved between them by drag; the open item
+ * proposals as cards (a create) or on their cards.
+ */
+const BoardContent = ({
+  binder,
+  view,
+  items,
+  proposals,
+  reveal,
+}: {
+  binder: Binder;
+  view: BoardView;
+  items: readonly ItemSummary[];
+  proposals: readonly ItemProposalRead[];
+  reveal: Reveal | undefined;
+}) => {
+  const { openItem, openNewItem, openProposal } = useWorkbench();
   const save = useSaveItem();
   const properties = binder.properties;
 
@@ -74,8 +93,12 @@ const BoardContent = ({ binder, view, items }: { binder: Binder; view: BoardView
   const [refusal, setRefusal] = useState<Refusal>();
   const pill = useRef<HTMLDivElement>(null);
   const swallowClick = useRef(false);
+  const boardRef = useRef<HTMLDivElement>(null);
+  useReveal(reveal, boardRef);
 
-  const base = boardColumns(withMoves(items, view, live), view, properties);
+  const targets = useLinkTargets(binder.id, properties, items);
+  const rowsWith = (shown: readonly Move[]) => withProposals(withMoves(items, view, shown), proposals, binder.id, targets);
+  const base = boardColumns(rowsWith(live), view, properties);
   const columnOf = (key: string) => base.find((column) => column.key === key);
   const labelOf = (key: string): string => {
     const column = columnOf(key);
@@ -83,7 +106,7 @@ const BoardContent = ({ binder, view, items }: { binder: Binder; view: BoardView
   };
   const overColumn = held === undefined || held.over === held.from ? undefined : columnOf(held.over);
   const preview =
-    held === undefined || overColumn === undefined ? base : boardColumns(withMoves(items, view, [...live, { path: held.id, value: columnValue(overColumn), version: "" }]), view, properties);
+    held === undefined || overColumn === undefined ? base : boardColumns(rowsWith([...live, { path: held.id, value: columnValue(overColumn), version: "" }]), view, properties);
 
   const [lastItems, setLastItems] = useState(items);
   if (lastItems !== items) {
@@ -133,6 +156,12 @@ const BoardContent = ({ binder, view, items }: { binder: Binder; view: BoardView
     return "moved";
   };
 
+  const swallowed = (): boolean => {
+    if (!swallowClick.current) return false;
+    swallowClick.current = false;
+    return true;
+  };
+
   const pick = (item: ItemSummary, from: string, byMouse: boolean) => {
     setEndedOn(undefined);
     apply({ type: "pick", id: item.path, from, byMouse });
@@ -158,7 +187,7 @@ const BoardContent = ({ binder, view, items }: { binder: Binder; view: BoardView
     const title = itemName(item);
     const pickOrDrop = event.key === " " || event.key === "Enter";
     if (now === undefined) {
-      if (!pickOrDrop || !canMove(item)) return;
+      if (!pickOrDrop || !canMove({ item })) return;
       event.preventDefault();
       pick(item, from, false);
       setSaid(pickedUp(title, labelOf(from)));
@@ -209,6 +238,7 @@ const BoardContent = ({ binder, view, items }: { binder: Binder; view: BoardView
     <div className="flex h-full min-h-0 flex-col">
       {refusal === undefined ? null : <RefusalNote refusal={refusal} />}
       <div
+        ref={boardRef}
         className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3"
         onPointerDownCapture={() => {
           swallowClick.current = pressOnlyEndsHold(heldRef.current);
@@ -226,22 +256,33 @@ const BoardContent = ({ binder, view, items }: { binder: Binder; view: BoardView
               onNewItem={offersNew(view, column) ? () => openNewItem(binder.id, viewContext(view, column)) : undefined}
               {...columnDrag(column.key)}
             >
-              {cards.map(({ row: { item }, mode }) => (
-                <div key={item.path} hidden={mode === "hidden"}>
-                  <BoardCard
-                    item={item}
-                    mode={mode}
-                    movable={canMove(item)}
-                    focus={takesFocus(item.path, mode, held, endedOn)}
-                    onOpen={() => {
-                      if (swallowClick.current) swallowClick.current = false;
-                      else if (heldRef.current === undefined && item.id !== null) openItem(binder.id, item.id);
-                    }}
-                    onDragStart={onDragStart(item, column.key)}
-                    onDragEnd={onDragEnd}
-                    onBlur={onBlur(item)}
-                    onKeyDown={onKeyDown(item, column.key)}
-                  />
+              {cards.map(({ row, mode }) => (
+                <div key={rowKey(row)} hidden={mode === "hidden"}>
+                  {"pending" in row ? (
+                    <PendingCard
+                      row={row}
+                      outside={isOutsideFilter(row, view, properties)}
+                      onOpen={() => {
+                        if (!swallowed() && heldRef.current === undefined) openProposal(row.pending.id);
+                      }}
+                      swallowed={swallowed}
+                    />
+                  ) : (
+                    <BoardCard
+                      row={row}
+                      mode={mode}
+                      movable={canMove(row)}
+                      focus={takesFocus(row.item.path, mode, held, endedOn)}
+                      onOpen={() => {
+                        if (!swallowed() && heldRef.current === undefined && row.item.id !== null) openItem(binder.id, row.item.id);
+                      }}
+                      swallowed={swallowed}
+                      onDragStart={onDragStart(row.item, column.key)}
+                      onDragEnd={onDragEnd}
+                      onBlur={onBlur(row.item)}
+                      onKeyDown={onKeyDown(row.item, column.key)}
+                    />
+                  )}
                 </div>
               ))}
             </BoardColumn>
@@ -257,12 +298,13 @@ const BoardContent = ({ binder, view, items }: { binder: Binder; view: BoardView
 };
 
 /** A binder's board view as a tab, titled with the binder's and the view's names; says so when it can't be shown. */
-export const Board = ({ params, setTitle }: PanelProps) => {
+export const Board = ({ params, reveal, setTitle }: PanelProps) => {
   const parsed = BoardParams.safeParse(params);
   const binderId = parsed.data?.binderId ?? "";
   const viewName = parsed.data?.view ?? "";
   const binders = useBinders();
   const [items] = useBinderItems(parsed.success ? [binderId] : []);
+  const proposals = useItemProposals(binderId);
   const shown = boardShown(binderId, viewName, { data: binders.data?.binders, error: binders.error }, { data: items?.data?.items, error: items?.error });
 
   const name = shown.kind === "board" || shown.kind === "no-view" ? shown.binder.name : undefined;
@@ -290,6 +332,6 @@ export const Board = ({ params, setTitle }: PanelProps) => {
     case "no-view":
       return <Note>{`${shown.binder.name} has no board view named ${viewName}: it was renamed or removed in its ${SETTINGS_FILE}. Open the binder again, or close this tab.`}</Note>;
     case "board":
-      return <BoardContent key={`${shown.binder.id}:${shown.view.name}`} binder={shown.binder} view={shown.view} items={shown.items} />;
+      return <BoardContent key={`${shown.binder.id}:${shown.view.name}`} binder={shown.binder} view={shown.view} items={shown.items} proposals={proposals} reveal={reveal} />;
   }
 };

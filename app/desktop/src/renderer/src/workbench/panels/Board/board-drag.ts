@@ -1,10 +1,11 @@
 // A card held on the board, by mouse or keyboard, and what each column shows meanwhile, pure.
 import type { ItemSummary } from "@wombat/shared/items";
 
+import { isPending, type Row, rowKey } from "../Desk/view-model/view-model.ts";
 import type { Column } from "./board-columns.ts";
 
-/** A card can be picked up only when its item has an id to write it by (its file parses). */
-export const canMove = (item: Pick<ItemSummary, "id">): boolean => item.id !== null;
+/** A card can be picked up only when it is an item with an id to write it by (its file parses); a proposed create can't. */
+export const canMove = (row: Row): row is Row & { item: ItemSummary } => !isPending(row) && row.item.id !== null;
 
 /** The card at path `id`, picked up in column `from` and now over column `over` (column keys). */
 export type Held = { id: string; from: string; over: string; byMouse: boolean; dropped: boolean };
@@ -37,7 +38,7 @@ export const drag = (held: Held | undefined, event: DragEvent): Held | undefined
       return held?.byMouse === true && held.over !== held.from ? { ...held, over: held.from } : held;
     case "cards": {
       const home = event.columns.find(({ key }) => key === held?.from);
-      return held === undefined || home?.rows.some(({ item }) => item.path === held.id) === true ? held : undefined;
+      return held === undefined || home?.rows.some((row) => rowKey(row) === held.id) === true ? held : undefined;
     }
     case "blur":
       return held !== undefined && !held.byMouse && held.id === event.id ? undefined : held;
@@ -68,10 +69,10 @@ export type ShownCard = { row: Column["rows"][number]; mode: CardMode };
 export const shownCards = (key: string, base: readonly Column[], preview: readonly Column[], held: Held | undefined): ShownCard[] => {
   const rowsIn = (columns: readonly Column[]) => columns.find((column) => column.key === key)?.rows ?? [];
   const modeOf = (path: string, mode: CardMode): CardMode => (path === held?.id ? mode : "card");
-  if (held === undefined || held.over === held.from) return rowsIn(base).map((row) => ({ row, mode: modeOf(row.item.path, "held") }));
-  if (!held.byMouse) return rowsIn(preview).map((row) => ({ row, mode: modeOf(row.item.path, "held") }));
-  if (key === held.over) return rowsIn(preview).map((row) => ({ row, mode: modeOf(row.item.path, "preview") }));
-  return rowsIn(base).map((row) => ({ row, mode: modeOf(row.item.path, "hidden") }));
+  if (held === undefined || held.over === held.from) return rowsIn(base).map((row) => ({ row, mode: modeOf(rowKey(row), "held") }));
+  if (!held.byMouse) return rowsIn(preview).map((row) => ({ row, mode: modeOf(rowKey(row), "held") }));
+  if (key === held.over) return rowsIn(preview).map((row) => ({ row, mode: modeOf(rowKey(row), "preview") }));
+  return rowsIn(base).map((row) => ({ row, mode: modeOf(rowKey(row), "hidden") }));
 };
 
 export const pickedUp = (title: string, column: string): string =>

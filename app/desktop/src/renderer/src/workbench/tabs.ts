@@ -5,7 +5,7 @@ import type { AgentSummary } from "@wombat/shared/api";
 import type { BinderSummary } from "@wombat/shared/items";
 
 import { newCommandId } from "../data/commands.ts";
-import { AGENTS_ACTIVITY, DESK_ACTIVITY } from "./activity-ids.ts";
+import { AGENTS_ACTIVITY, DESK_ACTIVITY, DESK_PANEL } from "./activity-ids.ts";
 import type { IsKnown } from "./layout.ts";
 import { getPanel, paramsFit, type ResolveContext, type Reveal, panelTitle } from "./registry.ts";
 import { CHAT_PANEL } from "./panels/Chat/chat-params.ts";
@@ -198,9 +198,13 @@ export const tabTitles = () => {
  */
 export const withoutTitleChanges = (reasons: ReadonlySet<string>): ReadonlySet<string> => new Set([...reasons].filter((reason) => reason !== "panelTitle"));
 
-/** What each tab was last asked to reveal; tab contents read it by their tab's key. */
+/** The key a sidebar panel's reveal requests are kept under, apart from every tab's. */
+export const sidebarRevealKey = (panelId: string): string => `sidebar:${panelId}`;
+
+/** What each tab and sidebar panel was last asked to reveal; tab contents read it by their tab's key. */
 export type Reveals = {
   get: (key: string) => Reveal | undefined;
+  forget: (key: string) => void;
   subscribe: (listener: () => void) => () => void;
 };
 
@@ -208,17 +212,19 @@ export type Reveals = {
 export const revealStore = (): Reveals & { set: (key: string, reveal: Reveal | undefined) => void } => {
   const reveals = new Map<string, Reveal>();
   const listeners = new Set<() => void>();
+  const set = (key: string, reveal: Reveal | undefined): void => {
+    if (reveal === undefined) reveals.delete(key);
+    else reveals.set(key, reveal);
+    for (const listener of listeners) listener();
+  };
   return {
     get: (key) => reveals.get(key),
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    set: (key, reveal) => {
-      if (reveal === undefined) reveals.delete(key);
-      else reveals.set(key, reveal);
-      for (const listener of listeners) listener();
-    },
+    set,
+    forget: (key) => set(key, undefined),
   };
 };
 
@@ -272,6 +278,7 @@ export const workbenchActions = (
     openBinder: (binderId, reveal, view) => {
       const place = binderPlace(desk.binders()?.find(({ id }) => id === binderId), view);
       if (place.board !== undefined) actions.openTab(BOARD_PANEL, { binderId, view: place.board } satisfies BoardParams, reveal);
+      reveals.set(sidebarRevealKey(DESK_PANEL), place.board === undefined && reveal !== undefined ? { target: reveal } : undefined);
       desk.showBinder(binderId, place.sidebarView);
       showActivity(DESK_ACTIVITY);
     },

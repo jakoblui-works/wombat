@@ -36,3 +36,6 @@ export const proposalKindWord = (proposal: Pick<Proposal, "target" | "kind">): "
 
 /** The left side of a file proposal's diff: the file as it is now, empty for a new file or one that can't be read. One rule for the tab's diff and a draft's base. */
 export const fileSide = ({ kind, current }: { kind: FileProposalKind; current: string | null }): string => (kind === "create" ? "" : (current ?? ""));
+
+/** A reason's first line, where the place shows only one. */
+export const reasonFirstLine = (reason: string): string => reason.trimStart().split(/\r?\n/, 1)[0] ?? "";

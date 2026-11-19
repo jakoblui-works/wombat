@@ -4,6 +4,7 @@ import { ArrowLeft, Kanban, List, ListTree, Plus } from "lucide-react";
 import { Button } from "../../../../components/ui/button";
 import { ScrollArea } from "../../../../components/ui/scroll-area";
 import { cn } from "../../../../lib/utils";
+import type { Reveal } from "../../../registry.ts";
 import { BinderItems } from "../BinderItems/BinderItems.tsx";
 import { type NewItem, paneView, viewContext } from "../view-model/view-model.ts";
 
@@ -14,12 +15,14 @@ type Props = {
   onView: (view: string) => void;
   onOpenItem?: ((itemId: string) => void) | undefined;
   onNewItem: NewItem;
+  reveal?: Reveal | undefined;
+  onRevealed?: (() => void) | undefined;
 };
 
 const VIEW_ICON = { list: List, tree: ListTree, board: Kanban } as const;
 
 /** One binder in the Desk's sidebar: a way back to the tree, its views, and the view shown. */
-export const BinderPane = ({ binder, view, onBack, onView, onOpenItem, onNewItem }: Props) => (
+export const BinderPane = ({ binder, view, onBack, onView, onOpenItem, onNewItem, reveal, onRevealed }: Props) => (
   <div className="flex h-full min-h-0 flex-col">
     <header className="flex h-tab-strip shrink-0 items-center gap-1 border-b border-line pr-3 pl-1.5">
       <Button variant="ghost" size="icon-sm" aria-label="Back to the Desk" title="Back to the Desk" onClick={onBack}>
@@ -54,7 +57,7 @@ export const BinderPane = ({ binder, view, onBack, onView, onOpenItem, onNewItem
       </nav>
     )}
     <ScrollArea className="min-h-0 flex-1">
-      <BinderItems binder={binder} view={view} onOpenItem={onOpenItem} onNewItem={onNewItem} />
+      <BinderItems binder={binder} view={view} onOpenItem={onOpenItem} onNewItem={onNewItem} reveal={reveal} onRevealed={onRevealed} />
     </ScrollArea>
   </div>
 );
