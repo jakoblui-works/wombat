@@ -1,4 +1,4 @@
-import type { LenientProperty, LinkValue } from "@wombat/shared/items";
+import type { ItemSummary, LenientProperty, LinkValue } from "@wombat/shared/items";
 
 type Rank = number | string;
 
@@ -67,11 +67,42 @@ export const compareValues = (property: LenientProperty | undefined, a: unknown,
   }
 };
 
-/** Whether a value equals a view filter's value: a link by its handle or id, anything else as text on both sides. */
-export const matchesFilter = (value: unknown, want: string | number | boolean): boolean => {
+/** A view filter's value as written. */
+type Written = string | number | boolean;
+
+/** Whether a value written in a view's settings names this item: by its handle or by its id. */
+const namesItem = (want: Written, item: { id: string | null; handle: string | null }): boolean => item.handle === String(want) || item.id === String(want);
+
+/** Whether a value equals a view filter's value: a link by its handle or id (`namesItem`), anything else as text on both sides. */
+export const matchesFilter = (value: unknown, want: Written): boolean => {
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value) === String(want);
   const link = linkValue(value);
-  return link !== undefined && (link.handle === String(want) || link.id === String(want));
+  return link !== undefined && namesItem(want, link);
+};
+
+/**
+ * A value given for `property` as an item holds it. A value written in a view's settings (a filter's) names it: a link's
+ * as the item it names among `targets`, the link's binder's items (`namesItem`; as written while none does), a number's
+ * text as the number, any other type's as text. Any other value (an item's own, a link) is returned as it is.
+ */
+export const heldValue = (property: LenientProperty | undefined, value: unknown, targets: readonly ItemSummary[] | undefined): unknown => {
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") return value;
+  switch (property?.type) {
+    case "link": {
+      const target = targets?.find((item) => item.id !== null && namesItem(value, item));
+      return target === undefined || target.id === null ? value : ({ id: target.id, handle: target.handle } satisfies LinkValue);
+    }
+    case "number": {
+      const number = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+      return typeof number === "number" && Number.isFinite(number) ? number : value;
+    }
+    case "select":
+    case "text":
+    case "date":
+      return String(value);
+    default:
+      return value;
+  }
 };
 
 /** What a link shows when its target is gone. */

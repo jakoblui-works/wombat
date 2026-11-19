@@ -1,12 +1,10 @@
 // What an item tab holds while I edit it, pure: the item my changes are on, the file as last read, my changes, a save
 // under way, a refused save's problems and a conflict after a stale save. A draft (an item not written yet) is the
 // same state on an empty item, its context's values as the changes it starts with.
-import { type CreateItemRequest, ItemWriteErrorCode } from "@wombat/shared/api";
-import { ITEM_FIELDS, type Item, type Problem } from "@wombat/shared/items";
+import type { CreateItemRequest } from "@wombat/shared/api";
+import { ITEM_FIELDS, type Item, type ItemSummary, type LenientProperty, type Problem } from "@wombat/shared/items";
 
-import { ServiceError } from "../../../data/client.ts";
-import { asError } from "../../../lib/errors.ts";
-import { linkValue } from "../Desk/view-model/values.ts";
+import { heldValue, linkValue } from "../Desk/view-model/values.ts";
 
 /** A field as the form edits it: title, body or a property's value (a link as its target's id); null clears a property. */
 export type FieldValue = string | number | null;
@@ -56,12 +54,22 @@ export const fileValue = (item: Item, field: string): FieldValue => {
 /** What a draft edits: an item with no file, no handle and no values. */
 export const NO_FILE: Item = { id: null, handle: null, aliases: [], title: "", body: "", properties: {}, path: "", version: "", problems: [] };
 
-/** A draft's starting changes from its context (`viewContext`): each value as the form edits it, empty ones left out. */
-export const draftStart = (context: Readonly<Record<string, unknown>>): Record<string, FieldValue> =>
-  Object.fromEntries(Object.entries(context).flatMap(([field, value]) => {
-    const start = fieldValue(value);
-    return start === null ? [] : [[field, start]];
-  }));
+/**
+ * A draft's starting changes from its context (`viewContext`): each value as its property holds it (`heldValue`; a
+ * link's against `targets`, its binder's items), then as the form edits it, empty ones left out.
+ */
+export const draftStart = (
+  context: Readonly<Record<string, unknown>>,
+  properties: Readonly<Record<string, LenientProperty>>,
+  targets: (binderId: string) => readonly ItemSummary[] | undefined,
+): Record<string, FieldValue> =>
+  Object.fromEntries(
+    Object.entries(context).flatMap(([field, value]) => {
+      const property = properties[field];
+      const start = fieldValue(heldValue(property, value, property?.type === "link" ? targets(property.to) : undefined));
+      return start === null ? [] : [[field, start]];
+    }),
+  );
 
 /**
  * Drops my changes the file as last read already holds (a change back to the base while the file moved on stays one);
@@ -147,10 +155,3 @@ export const isSaving = (state: ItemEditState): boolean => state.saving;
 
 /** Save is offered with changes, none under way and no conflict open (Keep mine saves then). */
 export const canSave = (state: ItemEditState): boolean => Object.keys(state.mine).length > 0 && !state.saving && !state.conflict;
-
-/** What a failed save comes to: "stale" (read the item again for the conflict), else the problems to show. */
-export const saveFailure = (error: unknown): "stale" | Problem[] => {
-  if (error instanceof ServiceError && error.code === ItemWriteErrorCode.enum.stale_version) return "stale";
-  if (error instanceof ServiceError && error.problems !== undefined && error.problems.length > 0) return [...error.problems];
-  return [{ message: asError(error).message }];
-};

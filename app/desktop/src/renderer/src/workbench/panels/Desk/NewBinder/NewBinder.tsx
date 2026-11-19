@@ -1,11 +1,11 @@
 import { type BinderSummary, type Problem, SETTINGS_FILE } from "@wombat/shared/items";
-import { type FormEvent, useId, useRef, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 
 import { Button } from "../../../../components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "../../../../components/ui/dialog";
-import { ServiceError } from "../../../../data/client.ts";
 import { useCreateBinder } from "../../../../data/commands.ts";
-import { asError } from "../../../../lib/errors.ts";
+import { writeProblems } from "../../../../data/write-failure.ts";
+import { Field, FIELD_INPUT } from "../Field/Field.tsx";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
 import { problemsByField } from "../view-model/problems.ts";
 import { EMPTY_FORM, editForm, type NewBinderField, newBinderRequest } from "./new-binder.ts";
@@ -21,38 +21,17 @@ type Props = {
 /** The service's problem field for each of the form's fields. */
 const PROBLEM_FIELD: Record<NewBinderField, string> = { name: "name", prefix: "prefix", folder: "path" };
 
-const Field = ({ label, hint, value, problems, onChange }: { label: string; hint?: string; value: string; problems: readonly Problem[]; onChange: (value: string) => void }) => {
-  const id = useId();
-  return (
-    <div className="flex flex-col gap-1 text-sm">
-      <label htmlFor={id} className="text-fg-secondary">
-        {label}
-      </label>
-      <input
-        id={id}
-        className="focus-ring h-8 w-full min-w-0 rounded-md border border-line-strong bg-surface-1 px-2.5 text-sm text-fg-primary"
-        value={value}
-        spellCheck={false}
-        autoComplete="off"
-        aria-invalid={problems.length > 0}
-        aria-describedby={hint === undefined ? `${id}-problems` : `${id}-hint ${id}-problems`}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      {hint === undefined ? null : (
-        <p id={`${id}-hint`} className="text-xs text-fg-tertiary">
-          {hint}
-        </p>
-      )}
-      <ProblemList id={`${id}-problems`} problems={problems} file={undefined} className="text-sm text-danger" />
-    </div>
-  );
-};
+const TextField = ({ label, hint, value, problems, onChange }: { label: string; hint?: string; value: string; problems: readonly Problem[]; onChange: (value: string) => void }) => (
+  <Field label={label} hint={hint} problems={problems} file={undefined}>
+    {(control) => <input {...control} className={FIELD_INPUT} value={value} spellCheck={false} autoComplete="off" onChange={(event) => onChange(event.target.value)} />}
+  </Field>
+);
 
 const NewBinderForm = ({ drawer, onCancel, onCreated }: Omit<Props, "open">) => {
   const [form, setForm] = useState(EMPTY_FORM);
   const create = useCreateBinder();
   const error = create.error;
-  const problems = error instanceof ServiceError ? (error.problems ?? []) : [];
+  const problems = error === null ? [] : writeProblems(error);
   const { at, rest } = problemsByField(problems, Object.values(PROBLEM_FIELD));
   const problemsAt = (field: NewBinderField) => at.get(PROBLEM_FIELD[field]) ?? [];
   const edit = (field: NewBinderField) => (value: string) => setForm((current) => editForm(current, field, value));
@@ -64,22 +43,18 @@ const NewBinderForm = ({ drawer, onCancel, onCreated }: Omit<Props, "open">) => 
 
   return (
     <form className="flex flex-col gap-4" onSubmit={submit}>
-      <Field label="Name" value={form.name} problems={problemsAt("name")} onChange={edit("name")} />
-      <Field label="Prefix" hint={`Items get handles like ${form.prefix === "" ? "BUG" : form.prefix}-1.`} value={form.prefix} problems={problemsAt("prefix")} onChange={edit("prefix")} />
-      <Field
+      <TextField label="Name" value={form.name} problems={problemsAt("name")} onChange={edit("name")} />
+      <TextField label="Prefix" hint={`Items get handles like ${form.prefix === "" ? "BUG" : form.prefix}-1.`} value={form.prefix} problems={problemsAt("prefix")} onChange={edit("prefix")} />
+      <TextField
         label="Folder"
         hint={`${drawer === "" ? "In the items folder" : `In ${drawer}`}; a / makes new drawers.`}
         value={form.folder}
         problems={problemsAt("folder")}
         onChange={edit("folder")}
       />
-      {error === null ? null : problems.length > 0 ? (
+      <div role="alert">
         <ProblemList problems={rest} file={undefined} className="text-sm text-danger" />
-      ) : (
-        <p role="alert" className="text-sm whitespace-pre-line text-danger">
-          {asError(error).message}
-        </p>
-      )}
+      </div>
       <DialogFooter>
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel

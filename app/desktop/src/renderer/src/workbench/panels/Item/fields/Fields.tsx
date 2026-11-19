@@ -1,10 +1,11 @@
 import type { ItemSummary, LenientProperty, LinkValue, Problem } from "@wombat/shared/items";
 import { ArrowUpRight } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { Button } from "../../../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../../components/ui/select";
-import { ProblemList } from "../../Desk/ProblemList/ProblemList.tsx";
+import { cn } from "../../../../lib/utils";
+import { Field as FieldFrame, FIELD_INPUT, type FieldControl } from "../../Desk/Field/Field.tsx";
 import { displayValue, MISSING_ITEM } from "../../Desk/view-model/values.ts";
 import type { FieldValue } from "../item-edit.ts";
 import { clearable, inputValue, type LinkOption, linkOptions, linkTarget, numberDraft, pickedByUser, shownNumber } from "./field-input.ts";
@@ -13,26 +14,25 @@ import type { PropertyRow } from "./property-rows.ts";
 /** The clear entry of an optional select or link. */
 const CLEAR = "None";
 
-const INPUT = "focus-ring h-8 w-full min-w-0 rounded-md border border-line-strong bg-surface-1 px-2.5 text-base text-fg-primary";
+const INPUT = cn(FIELD_INPUT, "text-base");
 
 /** The types whose control is an input the label points at; the others are named through aria-labelledby. */
 const INPUT_TYPES: ReadonlySet<string> = new Set(["text", "number", "date"]);
 
 type Edit = (field: string, value: FieldValue) => void;
 
-type ControlProps = { name: string; labelId: string; inputId: string; property: LenientProperty; value: FieldValue; onEdit: Edit; invalid: boolean };
+type ControlProps = { name: string; control: FieldControl; labelId: string; property: LenientProperty; value: FieldValue; onEdit: Edit };
 
-const NumberInput = ({ name, inputId, value, onEdit, invalid, required }: Omit<ControlProps, "labelId" | "property"> & { required: boolean }) => {
+const NumberInput = ({ name, control, value, onEdit, required }: Omit<ControlProps, "labelId" | "property"> & { required: boolean }) => {
   const [draft, setDraft] = useState(() => (value === null ? "" : String(value)));
   return (
     <input
-      id={inputId}
+      {...control}
       type="text"
       inputMode="decimal"
       className={INPUT}
       value={shownNumber(draft, value)}
       required={required}
-      aria-invalid={invalid}
       onChange={(event) => {
         const { text, value: next } = numberDraft(event.target.value);
         setDraft(text);
@@ -50,6 +50,7 @@ const LinkLabel = ({ option }: { option: LinkOption }) => (
 );
 
 const Choice = ({
+  control,
   labelId,
   value,
   onChange,
@@ -57,6 +58,7 @@ const Choice = ({
   items,
   shown,
 }: {
+  control: FieldControl;
   labelId: string;
   value: FieldValue;
   onChange: (value: string | null) => void;
@@ -67,7 +69,7 @@ const Choice = ({
   <Select value={value === null ? null : String(value)} onValueChange={(next: string | null, details) => {
       if (pickedByUser(details.reason)) onChange(next);
     }}>
-    <SelectTrigger aria-labelledby={labelId} className="min-w-0 flex-1">
+    <SelectTrigger aria-labelledby={labelId} aria-invalid={control["aria-invalid"]} aria-describedby={control["aria-describedby"]} className="min-w-0 flex-1">
       <SelectValue className="min-w-0 truncate">{(current: string | null) => (current === null ? <span className="text-fg-tertiary">none</span> : shown(current))}</SelectValue>
     </SelectTrigger>
     <SelectContent>
@@ -83,12 +85,11 @@ const Choice = ({
 
 const Control = ({
   name,
+  control,
   labelId,
-  inputId,
   property,
   value,
   onEdit,
-  invalid,
   listed,
   onOpenItem,
   fileLink,
@@ -98,6 +99,7 @@ const Control = ({
     case "select":
       return (
         <Choice
+          control={control}
           labelId={labelId}
           value={value}
           optional={optional}
@@ -112,6 +114,7 @@ const Control = ({
       return (
         <div className="flex min-w-0 items-center gap-1.5">
           <Choice
+            control={control}
             labelId={labelId}
             value={value}
             optional={optional}
@@ -128,17 +131,16 @@ const Control = ({
       );
     }
     case "number":
-      return <NumberInput name={name} inputId={inputId} value={value} onEdit={onEdit} invalid={invalid} required={!optional} />;
+      return <NumberInput name={name} control={control} value={value} onEdit={onEdit} required={!optional} />;
     case "text":
     case "date":
       return (
         <input
-          id={inputId}
+          {...control}
           type={property.type}
           className={INPUT}
           value={value === null ? "" : String(value)}
           required={!optional}
-          aria-invalid={invalid}
           onChange={(event) => onEdit(name, inputValue(event.target.value))}
         />
       );
@@ -171,22 +173,13 @@ const Field = ({
   onOpenItem: OpenItem;
   fileLink: LinkValue | undefined;
 }) => {
-  const id = useId();
-  const labelId = `${id}-label`;
-  const inputId = `${id}-input`;
   const problems = [...row.problems, ...saveProblems];
   return (
-    <div className="contents">
-      <dt className="flex h-8 items-center text-fg-tertiary">
-        <label id={labelId} htmlFor={INPUT_TYPES.has(property.type) ? inputId : undefined}>
-          {row.name}
-        </label>
-      </dt>
-      <dd className="flex min-w-0 flex-col gap-1">
-        <Control name={row.name} labelId={labelId} inputId={inputId} property={property} value={value} onEdit={onEdit} invalid={problems.length > 0} listed={listed} onOpenItem={onOpenItem} fileLink={fileLink} />
-        <ProblemList problems={problems} file={file} className="text-sm text-danger" />
-      </dd>
-    </div>
+    <FieldFrame label={row.name} labelsInput={INPUT_TYPES.has(property.type)} problems={problems} file={file} layout="row">
+      {(control, labelId) => (
+        <Control name={row.name} control={control} labelId={labelId} property={property} value={value} onEdit={onEdit} listed={listed} onOpenItem={onOpenItem} fileLink={fileLink} />
+      )}
+    </FieldFrame>
   );
 };
 

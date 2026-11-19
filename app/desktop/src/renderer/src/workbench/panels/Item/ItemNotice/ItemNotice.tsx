@@ -5,9 +5,9 @@ import { lastPathPart } from "../../../../lib/path.ts";
 import { ProblemList } from "../../Desk/ProblemList/ProblemList.tsx";
 import { type BrokenBinder, type ItemShown, settingsPath } from "../item-state.ts";
 
-export const READ_FAILED = { item: "Couldn't read the item", binders: "Couldn't read the binders", "binder-items": "Couldn't read the binder's items" } as const;
+const READ_FAILED = { item: "Couldn't read the item", binders: "Couldn't read the binders", "binder-items": "Couldn't read the binder's items" } as const;
 
-export const Notice = ({ children }: { children: ReactNode }) => (
+const Notice = ({ children }: { children: ReactNode }) => (
   <div role="status" className="flex flex-col gap-2 rounded-md border border-line bg-surface-2 px-3 py-2.5 text-sm text-fg-secondary">
     {children}
   </div>

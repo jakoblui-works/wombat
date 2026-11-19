@@ -1,17 +1,19 @@
 import { useQueryClient } from "@tanstack/react-query";
-import type { Item as ItemData, ItemSummary, LenientProperty, Naming } from "@wombat/shared/items";
-import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import type { Item as ItemData, ItemSummary, LenientProperty } from "@wombat/shared/items";
+import { useCallback, useEffect, useReducer, useState } from "react";
 
 import { Button } from "../../../components/ui/button";
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { useCreateItem, useSaveItem } from "../../../data/commands.ts";
 import { useBinderItems, useBinders, useItem } from "../../../data/hooks.ts";
 import { itemQuery } from "../../../data/query-client.ts";
+import { writeFailure } from "../../../data/write-failure.ts";
 import { asError } from "../../../lib/errors.ts";
 import { lastPathPart } from "../../../lib/path.ts";
 import type { PanelProps } from "../../registry.ts";
 import { useCloseGuard, useWorkbench } from "../../workbench-context.ts";
 import { Note } from "../approvals/Note/Note.tsx";
+import { Field } from "../Desk/Field/Field.tsx";
 import { ProblemList } from "../Desk/ProblemList/ProblemList.tsx";
 import { problemsByField } from "../Desk/view-model/problems.ts";
 import { linkValue } from "../Desk/view-model/values.ts";
@@ -22,7 +24,7 @@ import { FileName } from "./FileName/FileName.tsx";
 import { linkTarget, valueText } from "./fields/field-input.ts";
 import { Fields } from "./fields/Fields.tsx";
 import { ItemActions } from "./ItemActions/ItemActions.tsx";
-import { ItemNotice, Notice, READ_FAILED } from "./ItemNotice/ItemNotice.tsx";
+import { ItemNotice } from "./ItemNotice/ItemNotice.tsx";
 import { propertyRows } from "./fields/property-rows.ts";
 import {
   canSave,
@@ -37,14 +39,12 @@ import {
   isSaving,
   type ItemEditState,
   itemEdit,
-  NO_FILE,
-  saveFailure,
   saveProblems,
   saveRequest,
   valueOf,
 } from "./item-edit.ts";
 import { type DraftItemParams, ITEM_PANEL, ItemParams, itemTitle, type SavedItemParams } from "./item-params.ts";
-import { type ItemShown, itemShown, lastKnown, listedBinder, usable } from "./item-state.ts";
+import { type Binder, draftShown, type ItemForm, itemForm, type ItemShown, itemShown, lastKnown, listedBinder, usable } from "./item-state.ts";
 
 const NO_PROPERTIES: Readonly<Record<string, LenientProperty>> = {};
 
@@ -53,31 +53,70 @@ const FILE_FIELD = "file";
 
 type Listed = (binderId: string) => readonly ItemSummary[] | undefined;
 
-type Binder = NonNullable<ReturnType<typeof listedBinder>>;
-
-/** The items of the binders the properties link to, by binder id; undefined while a list is unknown. */
-const useLinkLists = (properties: Readonly<Record<string, LenientProperty>>): Listed => {
+/** The items of the binders the properties link to, by binder id; `pending` while one hasn't been read yet. */
+const useLinkLists = (properties: Readonly<Record<string, LenientProperty>>): { listed: Listed; pending: boolean } => {
   const listIds = [...new Set(Object.values(properties).flatMap((property) => (property.type === "link" ? [property.to] : [])))];
   const lists = useBinderItems(listIds);
-  return (id) => {
+  const listed: Listed = (id) => {
     const list = lists[listIds.indexOf(id)];
     return usable({ data: list?.data?.items, error: list?.error });
   };
+  return { listed, pending: lists.some((list) => list.isPending) };
+};
+
+/** The binder `binder` names now, else the last one it named. */
+const useLastListed = (binder: Binder | undefined): Binder | undefined => {
+  const [last, setLast] = useState(binder);
+  if (binder !== undefined && binder !== last) setLast(binder);
+  return binder ?? last;
+};
+
+/** What an item form edits: an item read from its file, or a draft with the context it was opened with. */
+type Editing = { kind: "saved"; tab: SavedItemParams } | { kind: "draft"; tab: DraftItemParams };
+
+/**
+ * An item tab's content, for both kinds of tab: the read's notice, and the form (`itemForm`) from the first read until
+ * the tab closes, so my edits and the close guard outlive an item or binder that can't be shown for a while.
+ */
+const ItemTabBody = ({ shown, editing }: { shown: ItemShown; editing: Editing }) => {
+  const { openItem } = useWorkbench();
+  const form = itemForm(shown, useLastListed(listedBinder(shown)), editing.kind === "draft");
+  const properties = form?.binder?.properties ?? NO_PROPERTIES;
+  const links = useLinkLists(properties);
+  const [start, setStart] = useState<Record<string, FieldValue>>();
+  if (editing.kind === "draft" && start === undefined && form !== undefined && !links.pending) setStart(draftStart(editing.tab.context, properties, links.listed));
+  const ready = form !== undefined && (editing.kind === "saved" || start !== undefined);
+
+  if (!ready && (shown.kind === "loading" || form !== undefined)) return <Note>Loading…</Note>;
+  return (
+    <ScrollArea className="h-full min-h-0">
+      <article className="mx-auto flex max-w-chat flex-col gap-5 px-5 pt-6 pb-10">
+        {shown.kind === "loading" ? null : <ItemNotice shown={shown} />}
+        {ready ? (
+          <EditItem
+            editing={editing}
+            form={form}
+            fresh={editing.kind === "saved" && shown.kind === "item" ? shown.item : undefined}
+            start={start}
+            properties={properties}
+            listed={links.listed}
+            onOpenItem={openItem}
+          />
+        ) : null}
+      </article>
+    </ScrollArea>
+  );
 };
 
 const ItemTab = ({ binderId, itemId, setTitle }: SavedItemParams & { setTitle: PanelProps["setTitle"] }) => {
   const item = useItem(itemId);
   const binders = useBinders();
-  const { openItem } = useWorkbench();
   const [own] = useBinderItems([binderId]);
   const shown = itemShown(itemId, binderId, {
     item: { data: item.data, error: item.error },
     binders: { data: binders.data?.binders, error: binders.error },
     listed: { data: own?.data?.items, error: own?.error },
   });
-  const binder = listedBinder(shown);
-  const properties = binder?.properties ?? NO_PROPERTIES;
-  const listed = useLinkLists(properties);
 
   const known = lastKnown(shown);
   const title = known === undefined ? undefined : itemTitle(known);
@@ -85,68 +124,14 @@ const ItemTab = ({ binderId, itemId, setTitle }: SavedItemParams & { setTitle: P
     if (title !== undefined) setTitle?.(title);
   }, [title, setTitle]);
 
-  if (shown.kind === "loading") return <Note>Loading…</Note>;
-  return (
-    <ScrollArea className="h-full min-h-0">
-      <article className="mx-auto flex max-w-chat flex-col gap-5 px-5 pt-6 pb-10">
-        {known === undefined ? (
-          <ItemNotice shown={shown} />
-        ) : (
-          <EditItem
-            key={itemId}
-            editing={{ kind: "saved", tab: { binderId, itemId }, shown }}
-            item={known}
-            binderName={binder?.name}
-            properties={properties}
-            listed={listed}
-            onOpenItem={openItem}
-          />
-        )}
-      </article>
-    </ScrollArea>
-  );
+  return <ItemTabBody shown={shown} editing={{ kind: "saved", tab: { binderId, itemId } }} />;
 };
 
 /** A new item's tab: the item form on no file, its context's values set, written on the first Save. */
-const DraftTab = ({ binderId, draft, context }: DraftItemParams) => {
+const DraftTab = (params: DraftItemParams) => {
   const binders = useBinders();
-  const { openItem } = useWorkbench();
-  const list = usable({ data: binders.data?.binders, error: binders.error });
-  const binder = list?.find((each): each is Binder => each.id === binderId);
-  const properties = binder?.properties ?? NO_PROPERTIES;
-  const listed = useLinkLists(properties);
-  const start = useMemo(() => draftStart(context), [context]);
-
-  if (list === undefined) {
-    return binders.error === null ? (
-      <Note>Loading…</Note>
-    ) : (
-      <p role="alert" className="p-5 text-sm text-danger">
-        {READ_FAILED.binders}: {asError(binders.error).message}
-      </p>
-    );
-  }
-  return (
-    <ScrollArea className="h-full min-h-0">
-      <article className="mx-auto flex max-w-chat flex-col gap-5 px-5 pt-6 pb-10">
-        {binder === undefined ? (
-          <Notice>
-            <p>This new item's binder no longer exists, so the item can't be saved. Close this tab.</p>
-          </Notice>
-        ) : (
-          <EditItem
-            key={draft}
-            editing={{ kind: "draft", tab: { binderId, draft, context }, naming: binder.naming, start }}
-            item={NO_FILE}
-            binderName={binder.name}
-            properties={properties}
-            listed={listed}
-            onOpenItem={openItem}
-          />
-        )}
-      </article>
-    </ScrollArea>
-  );
+  const shown = draftShown(params.binderId, { data: binders.data?.binders, error: binders.error });
+  return <ItemTabBody shown={shown} editing={{ kind: "draft", tab: params }} />;
 };
 
 const Meta = ({ item, binderName }: { item: ItemData; binderName: string | undefined }) => (
@@ -159,11 +144,6 @@ const Meta = ({ item, binderName }: { item: ItemData; binderName: string | undef
 
 const fieldLabel = (field: string): string => (field === "title" ? "Title" : field === "body" ? "Body" : field);
 
-/** What an item form edits: an item read from its file (with what the tab shows of it), or a draft. */
-type Editing =
-  | { kind: "saved"; tab: SavedItemParams; shown: Exclude<ItemShown, { kind: "loading" }> }
-  | { kind: "draft"; tab: DraftItemParams; naming: Naming; start: Readonly<Record<string, FieldValue>> };
-
 /**
  * The item's fields and body as I edit them, from the first read on: my changes stay while the tab can't show the item
  * (its notice above them, Save off) and the close still asks. A draft's first Save creates the item, and its tab becomes
@@ -171,43 +151,45 @@ type Editing =
  */
 const EditItem = ({
   editing,
-  item,
-  binderName,
+  form: { item, binder, savable },
+  fresh,
+  start,
   properties,
   listed,
   onOpenItem,
 }: {
   editing: Editing;
-  /** The item as last read; `NO_FILE` for a draft. */
-  item: ItemData;
-  binderName: string | undefined;
+  form: ItemForm;
+  /** The item as read now; undefined while the tab can't show it (and for a draft). */
+  fresh: ItemData | undefined;
+  /** A draft's starting values (`draftStart`). */
+  start: Readonly<Record<string, FieldValue>> | undefined;
   properties: Readonly<Record<string, LenientProperty>>;
   listed: Listed;
   onOpenItem: (binderId: string, itemId: string) => void;
 }) => {
   const { tab } = editing;
-  const [state, dispatch] = useReducer(itemEdit, undefined, () => initialEdit(item, editing.kind === "draft" ? editing.start : undefined));
-  const fresh = editing.kind === "saved" && editing.shown.kind === "item" ? editing.shown.item : undefined;
+  const [state, dispatch] = useReducer(itemEdit, undefined, () => initialEdit(item, start));
   useEffect(() => {
     if (fresh !== undefined) dispatch({ type: "refreshed", item: fresh });
   }, [fresh]);
-  const showable = editing.kind === "draft" || fresh !== undefined;
   const queryClient = useQueryClient();
   const save = useSaveItem();
   const create = useCreateItem();
   const { closeTab, replaceTab } = useWorkbench();
   const [fileName, setFileName] = useState("");
   const [staleDelete, setStaleDelete] = useState(false);
+  const asksFile = editing.kind === "draft" && binder?.naming === "free";
 
   const refuse = (error: unknown) => {
-    const failure = saveFailure(error);
+    const failure = writeFailure(error);
     dispatch({ type: "refused", problems: failure === "stale" ? [{ message: asError(error).message }] : failure });
   };
   const send = (from: ItemEditState) => {
     dispatch({ type: "saving" });
     if (editing.kind === "draft") {
       create.mutate(
-        { binderId: tab.binderId, ...createRequest(from, editing.naming === "free" ? fileName : "") },
+        { binderId: tab.binderId, ...createRequest(from, asksFile ? fileName : "") },
         {
           onSuccess: (written) => {
             if (written.id === null) {
@@ -227,7 +209,7 @@ const EditItem = ({
       {
         onSuccess: (written) => dispatch({ type: "saved", item: written }),
         onError: (error) => {
-          if (saveFailure(error) !== "stale") {
+          if (writeFailure(error) !== "stale") {
             refuse(error);
             return;
           }
@@ -249,10 +231,8 @@ const EditItem = ({
   const file = lastPathPart(item.path);
   const fileLink = (field: string) => linkValue(Object.hasOwn(item.properties, field) ? item.properties[field] : undefined);
   const names = Object.keys(properties);
-  const { rows, rest } = propertyRows(properties, showable ? item : { problems: [] });
-  const asksFile = editing.kind === "draft" && editing.naming === "free";
+  const { rows, rest } = propertyRows(properties, savable ? item : { problems: [] });
   const refused = problemsByField(saveProblems(state), [...names, "title", "body", ...(asksFile ? [FILE_FIELD] : [])]);
-  const titleProblems = refused.at.get("title") ?? [];
   const text = (field: string, value: FieldValue) => {
     const property = properties[field];
     return valueText(property, value, property?.type === "link" ? linkTarget(value, listed(property.to), fileLink(field)) : undefined);
@@ -261,30 +241,31 @@ const EditItem = ({
 
   return (
     <>
-      {editing.kind === "saved" ? <ItemNotice shown={editing.shown} /> : null}
       <header className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">
-          <Meta item={item} binderName={binderName} />
+          <Meta item={item} binderName={binder?.name} />
           <div className="flex shrink-0 items-center gap-2">
             <Button type="button" variant="outline" disabled={!changed || isSaving(state)} onClick={() => dispatch({ type: "discard" })}>
               Discard
             </Button>
-            <Button type="button" disabled={!showable || !canSave(state)} onClick={() => send(state)}>
+            <Button type="button" disabled={!savable || !canSave(state)} onClick={() => send(state)}>
               Save
             </Button>
             {editing.kind === "saved" && fresh !== undefined ? <ItemActions tab={editing.tab} item={fresh} onStale={setStaleDelete} /> : null}
           </div>
         </div>
-        <h1 className="text-xl font-semibold text-fg-primary">
-          <input
-            aria-label="Title"
-            aria-invalid={titleProblems.length > 0}
-            className="focus-ring -mx-1.5 w-[calc(100%+0.75rem)] rounded-md border border-transparent bg-transparent px-1.5 py-0.5 hover:border-line-strong focus:border-line-strong"
-            value={valueOf(state, "title") ?? ""}
-            onChange={(event) => edit("title", event.target.value)}
-          />
-        </h1>
-        <ProblemList problems={titleProblems} file={file} className="text-sm text-danger" />
+        <Field label="Title" hideLabel problems={refused.at.get("title") ?? []} file={file}>
+          {(control) => (
+            <h1 className="text-xl font-semibold text-fg-primary">
+              <input
+                {...control}
+                className="focus-ring -mx-1.5 w-[calc(100%+0.75rem)] rounded-md border border-transparent bg-transparent px-1.5 py-0.5 hover:border-line-strong focus:border-line-strong"
+                value={valueOf(state, "title") ?? ""}
+                onChange={(event) => edit("title", event.target.value)}
+              />
+            </h1>
+          )}
+        </Field>
       </header>
       {staleDelete ? (
         <div role="alert" className="rounded-md border border-state-waiting/40 bg-surface-2 px-3 py-2.5 text-sm text-fg-secondary">
@@ -301,7 +282,7 @@ const EditItem = ({
         <Conflict
           entries={conflictEntries}
           onTakeTheirs={(field) => dispatch({ type: "takeTheirs", field })}
-          keepable={showable}
+          keepable={savable}
           onKeepMine={() => {
             const mine = itemEdit(state, { type: "keepMine" });
             dispatch({ type: "keepMine" });

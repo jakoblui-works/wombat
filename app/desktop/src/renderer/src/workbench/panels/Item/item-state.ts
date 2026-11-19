@@ -4,8 +4,9 @@ import { ItemsErrorCode } from "@wombat/shared/api";
 import { type BinderSummary, type Item, type ItemSummary, SETTINGS_FILE } from "@wombat/shared/items";
 import { ServiceError } from "../../../data/client.ts";
 import { asError } from "../../../lib/errors.ts";
+import { NO_FILE } from "./item-edit.ts";
 
-type Binder = Extract<BinderSummary, { id: string }>;
+export type Binder = Extract<BinderSummary, { id: string }>;
 export type BrokenBinder = Extract<BinderSummary, { id: null }>;
 
 export type ItemShown =
@@ -126,4 +127,35 @@ export const lastKnown = (shown: ItemShown): Item | undefined => {
     default:
       return shown.last;
   }
+};
+
+/**
+ * What a draft's tab shows, from the binders: the draft (an item with no file yet) while its binder is listed, else
+ * why not. Without an item there is no path, so a broken binder is never claimed as the draft's own.
+ */
+export const draftShown = (binderId: string, binders: Read<readonly BinderSummary[]>): ItemShown => {
+  const binderList = usable(binders);
+  if (binderList === undefined) {
+    const failed = unshown(binders);
+    return failed === undefined ? { kind: "loading" } : { kind: "error", what: "binders", message: failed, last: undefined };
+  }
+  const binder = binderList.find((each): each is Binder => each.id === binderId);
+  if (binder !== undefined) return { kind: "item", item: NO_FILE, binder };
+  const broken = binderList.filter(isBroken);
+  return broken.length > 0 ? { kind: "binder-missing", broken, last: undefined } : { kind: "binder-gone", last: undefined };
+};
+
+/** What an item tab's form edits: the item as last read (a draft's `NO_FILE`) in the binder last listed. */
+export type ItemForm = { item: Item; binder: Binder | undefined; savable: boolean };
+
+/**
+ * The form an item tab keeps for as long as it is open, from its first read on: the item as last read (a draft's
+ * `NO_FILE`), the binder shown now else the one last listed (`lastBinder`), and `savable` only while the tab shows the
+ * item now. Undefined before there is an item to edit, and for a draft before its binder was listed (its start values
+ * and naming come from the binder).
+ */
+export const itemForm = (shown: ItemShown, lastBinder: Binder | undefined, draft: boolean): ItemForm | undefined => {
+  const binder = listedBinder(shown) ?? lastBinder;
+  const item = draft ? (binder === undefined ? undefined : NO_FILE) : lastKnown(shown);
+  return item === undefined ? undefined : { item, binder, savable: shown.kind === "item" };
 };

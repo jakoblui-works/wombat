@@ -1,7 +1,9 @@
+import type { Problem } from "@wombat/shared/items";
 import { useRef } from "react";
 
 import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "../../../../components/ui/alert-dialog";
 import { Button } from "../../../../components/ui/button";
+import { ProblemList } from "../../Desk/ProblemList/ProblemList.tsx";
 
 type Props = {
   /** The item's handle and title. */
@@ -10,13 +12,13 @@ type Props = {
   open: boolean;
   pending: boolean;
   /** Why the last delete failed, shown in the dialog. */
-  error: string | undefined;
+  problems: readonly Problem[];
   onCancel: () => void;
   onDelete: () => void;
 };
 
 /** Asks once before an item's file is deleted (focus starts on Cancel). */
-export const DeleteItemDialog = ({ name, file, open, pending, error, onCancel, onDelete }: Props) => {
+export const DeleteItemDialog = ({ name, file, open, pending, problems, onCancel, onDelete }: Props) => {
   const cancelRef = useRef<HTMLButtonElement>(null);
   return (
     <AlertDialog
@@ -28,11 +30,9 @@ export const DeleteItemDialog = ({ name, file, open, pending, error, onCancel, o
       <AlertDialogContent initialFocus={cancelRef}>
         <AlertDialogTitle>Delete {name}?</AlertDialogTitle>
         <AlertDialogDescription>This deletes the item's file, {file}. This can't be undone.</AlertDialogDescription>
-        {error === undefined ? null : (
-          <p role="alert" className="text-sm whitespace-pre-line text-danger">
-            {error}
-          </p>
-        )}
+        <div role="alert">
+          <ProblemList problems={problems} file={file} className="text-sm text-danger" />
+        </div>
         <AlertDialogFooter>
           <Button ref={cancelRef} type="button" variant="ghost" onClick={onCancel}>
             Cancel
