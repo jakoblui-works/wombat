@@ -84,7 +84,7 @@ export const openWatch = ({ root, timing = {}, log = logToStderr }: WatchOptions
       clearInterval(rootCheck);
       watcher?.close();
       watcher = undefined;
-      if (!failing) log("instructions_watch_failed", { error: errorCode(error), retryMs });
+      if (!failing) log("items_watch_failed", { error: errorCode(error), retryMs });
       failing = true;
       clearTimeout(restart);
       const wait = retryMs;
@@ -93,7 +93,7 @@ export const openWatch = ({ root, timing = {}, log = logToStderr }: WatchOptions
         if (closed) return;
         start();
         if (watcher !== undefined) {
-          log("instructions_watch_restarted", {});
+          log("items_watch_restarted", {});
           failing = false;
           retryMs = watchRestartMs;
           // Changes made while nothing watched are caught up here: only once the watch is back, never while the

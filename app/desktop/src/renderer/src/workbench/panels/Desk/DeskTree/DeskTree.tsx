@@ -1,8 +1,11 @@
+import { SETTINGS_FILE } from "@wombat/shared/items";
 import { ChevronRight, Folder, FolderOpen, Notebook, TriangleAlert } from "lucide-react";
 import { type KeyboardEvent, useMemo } from "react";
 
 import { cn } from "../../../../lib/utils";
-import { type DeskNode, type DeskRow, deskKey, deskRows, nodeName, problemLocation, rowLabel } from "../desk-tree.ts";
+import { type DeskNode, type DeskRow, deskKey, deskRows, nodeName, rowLabel } from "../desk-tree.ts";
+import { ProblemList } from "../ProblemList/ProblemList.tsx";
+import { rowIndent } from "../tree-keys.ts";
 import { useTreeFocus } from "../use-tree-focus.ts";
 
 type Props = {
@@ -11,9 +14,6 @@ type Props = {
   onToggleDrawer: (path: string, open: boolean) => void;
   onOpenBinder: (binderId: string) => void;
 };
-
-const INDENT_PX = 12;
-const ROW_START_PX = 6;
 
 const RowContent = ({ row }: { row: DeskRow }) => {
   const { node } = row;
@@ -30,22 +30,16 @@ const RowContent = ({ row }: { row: DeskRow }) => {
   const { binder } = node;
   if (binder.id === null) {
     return (
-      <span className="flex w-full flex-col gap-0.5">
+      <div className="flex w-full flex-col gap-0.5">
         <span className="flex w-full items-center gap-1.5">
           <span aria-hidden className="size-3.5 shrink-0" />
           <TriangleAlert aria-hidden className="size-4 shrink-0 text-danger" />
           <span className="min-w-0 flex-1 truncate text-fg-primary">{nodeName(node)}</span>
         </span>
-        {binder.problems.map((problem, index) => {
-          const location = problemLocation(problem);
-          return (
-            <span key={index} className="flex flex-col pl-10 text-xs select-text">
-              <span className="text-danger">{problem.message}</span>
-              {location === undefined ? null : <span className="text-fg-tertiary">{location}</span>}
-            </span>
-          );
-        })}
-      </span>
+        <div className="pl-10 select-text">
+          <ProblemList problems={binder.problems} file={SETTINGS_FILE} className="text-xs text-danger" />
+        </div>
+      </div>
     );
   }
   return (
@@ -100,7 +94,7 @@ export const DeskTree = ({ nodes, openDrawers, onToggleDrawer, onOpenBinder }: P
             "focus-ring flex cursor-default rounded-md py-1 pr-2 text-left text-base select-none transition-colors hover:bg-surface-2",
             row.node.kind === "binder" && row.node.binder.id === null && "cursor-auto",
           )}
-          style={{ paddingLeft: ROW_START_PX + (row.level - 1) * INDENT_PX }}
+          style={{ paddingLeft: rowIndent(row.level) }}
         >
           <RowContent row={row} />
         </div>

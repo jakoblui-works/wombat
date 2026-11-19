@@ -39,7 +39,7 @@ import {
   workbenchActions,
 } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
-import { showBinder } from "../panels/Desk/desk-view.ts";
+import { showBinder } from "../panels/Desk/desk-place.ts";
 import { type ActiveTab, ActiveTabContext, DeskContext, type DeskState, type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
 import { ZoomToast } from "../ZoomToast/ZoomToast.tsx";
 

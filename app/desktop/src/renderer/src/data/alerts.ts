@@ -60,7 +60,6 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
       case "proposal":
         void refresh(queryClient, keys.proposals);
         void refresh(queryClient, keys.proposal(alert.proposalId));
-        refreshItems(queryClient);
         break;
       case "items":
         refreshItems(queryClient);

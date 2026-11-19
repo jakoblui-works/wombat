@@ -8,10 +8,11 @@ import type { PanelProps } from "../../registry.ts";
 import { useWorkbench } from "../../workbench-context.ts";
 import { Note } from "../approvals/Note/Note.tsx";
 import { Body } from "./Body/Body.tsx";
-import { Fields, Problems } from "./fields/Fields.tsx";
+import { ProblemList } from "../Desk/ProblemList/ProblemList.tsx";
+import { Fields } from "./fields/Fields.tsx";
 import { propertyRows } from "./fields/property-rows.ts";
-import { ItemParams, itemTitle, type SavedItemParams } from "./item-params.ts";
-import { type BrokenBinder, type ItemShown, itemShown, lastKnown, settingsPath, usable } from "./item-state.ts";
+import { ItemParams, itemName, itemTitle, type SavedItemParams } from "./item-params.ts";
+import { type BrokenBinder, type ItemShown, itemShown, lastKnown, listedBinder, settingsPath, usable } from "./item-state.ts";
 
 const NO_PROPERTIES: Readonly<Record<string, LenientProperty>> = {};
 
@@ -24,7 +25,7 @@ const Header = ({ item, binderName }: { item: ItemData; binderName: string | und
       {item.handle === null || binderName === undefined ? null : <span aria-hidden>·</span>}
       {binderName === undefined ? null : <span>{binderName}</span>}
     </p>
-    <h1 className="text-xl font-semibold text-fg-primary">{item.title ?? lastPathPart(item.path)}</h1>
+    <h1 className="text-xl font-semibold text-fg-primary">{itemName(item)}</h1>
   </header>
 );
 
@@ -41,7 +42,7 @@ const Unreadable = ({ entries }: { entries: readonly ItemSummary[] }) => (
     {entries.map((entry) => (
       <li key={entry.path} className="flex flex-col gap-1">
         <Path path={entry.path} />
-        <Problems problems={entry.problems} file={lastPathPart(entry.path)} />
+        <ProblemList problems={entry.problems} file={lastPathPart(entry.path)} className="text-sm text-danger" />
       </li>
     ))}
   </ul>
@@ -52,7 +53,7 @@ const BrokenBinders = ({ binders }: { binders: readonly BrokenBinder[] }) => (
     {binders.map((binder) => (
       <li key={binder.path} className="flex flex-col gap-1">
         <Path path={settingsPath(binder)} />
-        <Problems problems={binder.problems} file={SETTINGS_FILE} />
+        <ProblemList problems={binder.problems} file={SETTINGS_FILE} className="text-sm text-danger" />
       </li>
     ))}
   </ul>
@@ -68,7 +69,7 @@ const Content = ({ shown, listed, onOpenItem }: { shown: Exclude<ItemShown, { ki
       return (
         <Notice>
           <p>This item's file can't be read, so its fields and body can't be shown:</p>
-          <Problems problems={shown.entry.problems} file={lastPathPart(shown.entry.path)} />
+          <ProblemList problems={shown.entry.problems} file={lastPathPart(shown.entry.path)} className="text-sm text-danger" />
           <p>
             Fix <Path path={shown.entry.path} /> by hand; the item shows here again once it can be read.
           </p>
@@ -96,7 +97,7 @@ const Content = ({ shown, listed, onOpenItem }: { shown: Exclude<ItemShown, { ki
       return (
         <Notice>
           <p>This item's binder can't be read, so the item can't be shown: its {SETTINGS_FILE} has problems.</p>
-          <Problems problems={shown.binder.problems} file={SETTINGS_FILE} />
+          <ProblemList problems={shown.binder.problems} file={SETTINGS_FILE} className="text-sm text-danger" />
           <p>
             Fix <Path path={settingsPath(shown.binder)} /> by hand; the item shows here again once it can be read.
           </p>
@@ -128,18 +129,21 @@ const ItemTab = ({ binderId, itemId, setTitle }: SavedItemParams & { setTitle: P
   const item = useItem(itemId);
   const binders = useBinders();
   const { openItem } = useWorkbench();
-  const binderList = usable({ data: binders.data?.binders, error: binders.error });
-  const binder = binderList?.find(({ id }) => id === binderId);
-  const properties = binder === undefined || binder.id === null ? NO_PROPERTIES : binder.properties;
-  const listIds = [...new Set([binderId, ...Object.values(properties).flatMap((property) => (property.type === "link" ? [property.to] : []))])];
+  const [own] = useBinderItems([binderId]);
+  const shown = itemShown(itemId, binderId, {
+    item: { data: item.data, error: item.error },
+    binders: { data: binders.data?.binders, error: binders.error },
+    listed: { data: own?.data?.items, error: own?.error },
+  });
+  const binder = listedBinder(shown);
+  const properties = binder?.properties ?? NO_PROPERTIES;
+  const listIds = [...new Set(Object.values(properties).flatMap((property) => (property.type === "link" ? [property.to] : [])))];
   const lists = useBinderItems(listIds);
-  const readOf = (id: string) => {
+  const listed: Listed = (id) => {
     const list = lists[listIds.indexOf(id)];
-    return { data: list?.data?.items, error: list?.error };
+    return usable({ data: list?.data?.items, error: list?.error });
   };
-  const listed: Listed = (id) => usable(readOf(id));
 
-  const shown = itemShown(itemId, binderId, { item: { data: item.data, error: item.error }, binders: { data: binders.data?.binders, error: binders.error }, listed: readOf(binderId) });
   const known = lastKnown(shown);
   const title = known === undefined ? undefined : itemTitle(known);
   useEffect(() => {
@@ -147,11 +151,10 @@ const ItemTab = ({ binderId, itemId, setTitle }: SavedItemParams & { setTitle: P
   }, [title, setTitle]);
 
   if (shown.kind === "loading") return <Note>Loading…</Note>;
-  const binderName = "binder" in shown && shown.binder.id !== null ? shown.binder.name : undefined;
   return (
     <ScrollArea className="h-full min-h-0">
       <article className="mx-auto flex max-w-chat flex-col gap-5 px-5 pt-6 pb-10">
-        {known === undefined ? null : <Header item={known} binderName={binderName} />}
+        {known === undefined ? null : <Header item={known} binderName={binder?.name} />}
         <Content shown={shown} listed={listed} onOpenItem={openItem} />
       </article>
     </ScrollArea>
@@ -175,7 +178,7 @@ const Valid = ({
     <>
       {rest.length === 0 ? null : (
         <div className="rounded-md border border-danger/40 bg-danger-subtle px-3 py-2.5">
-          <Problems problems={rest} file={file} />
+          <ProblemList problems={rest} file={file} className="text-sm text-danger" />
         </div>
       )}
       {rows.length === 0 ? null : <Fields rows={rows} file={file} onOpenItem={onOpenItem} />}

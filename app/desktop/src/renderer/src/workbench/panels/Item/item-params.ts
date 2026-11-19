@@ -1,4 +1,3 @@
-// The item tab's params and title, pure (the registry, openItem and the panel read them).
 import { z } from "zod";
 
 import type { ItemSummary } from "@wombat/shared/items";
@@ -17,6 +16,8 @@ export const ITEM_PANEL = "item";
 /** The tab's title until its panel has read the item. */
 export const ITEM_TITLE = "Item";
 
-/** The item's handle and title; the file's name for what its file doesn't give. */
-export const itemTitle = ({ handle, title, path }: Pick<ItemSummary, "handle" | "title" | "path">): string =>
-  [handle, title ?? (handle === null ? lastPathPart(path) : undefined)].filter((part) => part !== null && part !== undefined).join(" ");
+/** The item's title, else its file's name. */
+export const itemName = ({ title, path }: Pick<ItemSummary, "title" | "path">): string => title ?? lastPathPart(path);
+
+/** The item's handle and title; without a handle, its name. */
+export const itemTitle = (item: Pick<ItemSummary, "handle" | "title" | "path">): string => (item.handle === null ? itemName(item) : [item.handle, item.title].filter((part) => part !== null).join(" "));

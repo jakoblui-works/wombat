@@ -1,4 +1,3 @@
-// The board tab's params (the registry and openBinder read them).
 import { z } from "zod";
 
 export const BoardParams = z.object({ binderId: z.string(), view: z.string() });

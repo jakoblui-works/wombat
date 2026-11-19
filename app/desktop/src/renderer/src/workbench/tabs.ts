@@ -9,7 +9,7 @@ import type { IsKnown } from "./layout.ts";
 import { getPanel, paramsFit, type ResolveContext, type Reveal, panelTitle } from "./registry.ts";
 import { CHAT_PANEL } from "./panels/Chat/chat-params.ts";
 import { BOARD_PANEL, type BoardParams } from "./panels/Desk/board-params.ts";
-import { binderPlace } from "./panels/Desk/desk-view.ts";
+import { binderPlace } from "./panels/Desk/desk-place.ts";
 import { ITEM_PANEL, type ItemParams } from "./panels/Item/item-params.ts";
 import { PROPOSAL_PANEL, type ProposalParams } from "./panels/Proposal/proposal-params.ts";
 import type { TabRef, WorkbenchActions } from "./workbench-context.ts";

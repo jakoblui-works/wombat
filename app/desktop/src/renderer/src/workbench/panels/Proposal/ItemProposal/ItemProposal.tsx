@@ -6,11 +6,14 @@ import type { ItemProposalKind } from "@wombat/shared/proposals";
 import { Button } from "../../../../components/ui/button";
 import { ScrollArea } from "../../../../components/ui/scroll-area";
 import { useBinderItems, useBinders } from "../../../../data/hooks.ts";
+import { lastPathPart } from "../../../../lib/path.ts";
 import { LazyMonacoDiff } from "../../Diff/MonacoDiff/LazyMonacoDiff.tsx";
 import { Note } from "../../approvals/Note/Note.tsx";
 import { type FieldRow, fieldRows } from "./field-rows.ts";
+import { ProblemList } from "../../Desk/ProblemList/ProblemList.tsx";
 import { problemsByField } from "../../Desk/view-model/problems.ts";
-import { inputText, typedValue, UNKNOWN_ITEM, valueText, withField, withoutField } from "./field-values.ts";
+import { MISSING_ITEM } from "../../Desk/view-model/values.ts";
+import { inputText, typedValue, valueText, withField, withoutField } from "./field-values.ts";
 
 type Fields = Readonly<Record<string, unknown>>;
 
@@ -21,17 +24,6 @@ type Option = { value: string; label: string };
 
 const controlClass = "focus-ring h-7 min-w-0 max-w-96 flex-1 rounded-md border border-line-strong bg-surface-1 px-2 text-sm text-fg-primary";
 
-const Problems = ({ problems }: { problems: readonly Problem[] }) =>
-  problems.length === 0 ? null : (
-    <ul className="flex flex-col gap-0.5 text-sm text-danger">
-      {problems.map((problem, index) => (
-        <li key={index} className="whitespace-pre-wrap">
-          {problem.message}
-        </li>
-      ))}
-    </ul>
-  );
-
 /** A property's new value as a control: a select for options and links, a plain text box otherwise (a date too). */
 const PropertyControl = ({ name, value, property, links, onChange }: { name: string; value: unknown; property: LenientProperty | undefined; links: readonly Option[]; onChange: (value: unknown) => void }) => {
   const label = `New ${name}`;
@@ -41,7 +33,7 @@ const PropertyControl = ({ name, value, property, links, onChange }: { name: str
     const options = [
       ...(property.required && chosen !== "" ? [] : [{ value: "", label: "(none)" }]),
       ...known,
-      ...(chosen === "" || known.some((option) => option.value === chosen) ? [] : [{ value: chosen, label: property.type === "link" ? UNKNOWN_ITEM : chosen }]),
+      ...(chosen === "" || known.some((option) => option.value === chosen) ? [] : [{ value: chosen, label: property.type === "link" ? MISSING_ITEM : chosen }]),
     ];
     return (
       <select aria-label={label} value={chosen} onChange={(event) => onChange(event.target.value === "" ? null : event.target.value)} className={controlClass}>
@@ -72,13 +64,15 @@ type RowProps = {
   links: readonly Option[];
   edit: ItemEdit | undefined;
   problems: readonly Problem[];
+  /** The item's file name; undefined for a create. */
+  file: string | undefined;
   /** For a title or body: whether its diff shows in the row, and how to show it there. */
   opened: boolean;
   open: () => void;
   proposalId: string;
 };
 
-const Row = ({ row, sides, property, text, links, edit, problems, opened, open, proposalId }: RowProps) => {
+const Row = ({ row, sides, property, text, links, edit, problems, file, opened, open, proposalId }: RowProps) => {
   const editing = edit !== undefined;
   const held = Object.hasOwn(row, "mine");
   const newValue = held ? row.mine : row.proposed;
@@ -130,7 +124,7 @@ const Row = ({ row, sides, property, text, links, edit, problems, opened, open, 
           ) : null}
         </span>
       </div>
-      <Problems problems={problems} />
+      <ProblemList problems={problems} file={file} className="text-sm text-danger" />
       {isText && opened && !row.dropped && showsNew ? (
         <LazyMonacoDiff
           path={`${proposalId}/${row.name}.md`}
@@ -184,13 +178,14 @@ export const ItemProposal = ({
   const [chosen, setChosen] = useState<string>();
   const opened = chosen !== undefined && names.includes(chosen) ? chosen : names.includes("body") ? "body" : "title";
   const split = problemsByField(problems, names);
+  const file = current === null ? undefined : lastPathPart(current.path);
 
   if (binders.isPending || items.some((read) => read.isPending)) return <Note>Loading…</Note>;
   return (
     <ScrollArea className="min-h-0 flex-1">
       {split.rest.length === 0 ? null : (
         <div className="border-b border-line px-3 py-1.5">
-          <Problems problems={split.rest} />
+          <ProblemList problems={split.rest} file={file} className="text-sm text-danger" />
         </div>
       )}
       {rows.length === 0 ? (
@@ -208,6 +203,7 @@ export const ItemProposal = ({
               links={property?.type === "link" ? linksTo(property.to) : []}
               edit={edit}
               problems={split.at.get(row.name) ?? []}
+              file={file}
               opened={opened === row.name}
               open={() => setChosen(row.name)}
               proposalId={proposalId}

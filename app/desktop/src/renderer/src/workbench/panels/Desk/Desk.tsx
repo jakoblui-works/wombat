@@ -5,9 +5,9 @@ import { useBinders } from "../../../data/hooks.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useDesk, useWorkbench } from "../../workbench-context.ts";
 import { EmptyState } from "../EmptyState/EmptyState.tsx";
-import { BinderView } from "./BinderView/BinderView.tsx";
+import { BinderPane } from "./BinderPane/BinderPane.tsx";
 import { toggleDrawer } from "./desk-tree.ts";
-import { deskContent, showTree } from "./desk-view.ts";
+import { deskContent, showTree } from "./desk-place.ts";
 import { DeskTree } from "./DeskTree/DeskTree.tsx";
 
 /** The Desk's sidebar: the tree of drawers and binders, or one binder in place of it. */
@@ -20,7 +20,7 @@ export const Desk = () => {
   if (content.kind === "binder") {
     const { binder, view } = content;
     return (
-      <BinderView
+      <BinderPane
         binder={binder}
         view={view}
         onBack={() => changeDesk(showTree)}

@@ -17,7 +17,7 @@ type Props = {
 const VIEW_ICON = { list: List, tree: ListTree, board: Kanban } as const;
 
 /** One binder in the Desk's sidebar: a way back to the tree, its views, and the view shown. */
-export const BinderView = ({ binder, view, onBack, onView, onOpenItem }: Props) => (
+export const BinderPane = ({ binder, view, onBack, onView, onOpenItem }: Props) => (
   <div className="flex h-full min-h-0 flex-col">
     <header className="flex h-tab-strip shrink-0 items-center gap-1 border-b border-line pr-3 pl-1.5">
       <Button variant="ghost" size="icon-sm" aria-label="Back to the Desk" title="Back to the Desk" onClick={onBack}>

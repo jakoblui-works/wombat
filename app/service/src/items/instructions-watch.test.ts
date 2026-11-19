@@ -35,7 +35,7 @@ test("after the items root is removed and put back (a re-clone), hand edits reac
   writeAt(root, "rules/RUL-1-a.md", `${rule(1)}\nFrom the re-clone.\n`);
   // The edit comes once the watch is back and its catch-up write is in the file, so only the new watch can carry it.
   await expect
-    .poll(() => events.includes("instructions_watch_restarted"), { timeout: TIMING.rootCheckMs + TIMING.watchRestartMs + SETTLE_MS })
+    .poll(() => events.includes("items_watch_restarted"), { timeout: TIMING.rootCheckMs + TIMING.watchRestartMs + SETTLE_MS })
     .toBe(true);
   await expect.poll(() => readFileSync(file, "utf8"), { timeout: TIMING.debounceMs + SETTLE_MS }).toContain("From the re-clone.");
 

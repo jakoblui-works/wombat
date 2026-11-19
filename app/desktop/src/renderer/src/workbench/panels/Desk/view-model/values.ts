@@ -70,15 +70,19 @@ export const compareValues = (property: LenientProperty | undefined, a: unknown,
 /** Whether a value equals a view filter's value: a link by its handle or id, anything else as text on both sides. */
 export const matchesFilter = (value: unknown, want: string | number | boolean): boolean => {
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value) === String(want);
-  if (typeof value !== "object" || value === null) return false;
-  const { id, handle } = value as Record<string, unknown>;
-  return (typeof handle === "string" && handle === String(want)) || (typeof id === "string" && id === String(want));
+  const link = linkValue(value);
+  return link !== undefined && (link.handle === String(want) || link.id === String(want));
 };
 
-/** A value as text; empty for a missing value, the handle for a link ("missing item" when its target is gone). */
+/** What a link shows when its target is gone. */
+export const MISSING_ITEM = "missing item";
+
+/** A value as text; empty for a missing value, the handle for a link whatever the property (`MISSING_ITEM` when its target is gone). */
 export const displayValue = (property: LenientProperty | undefined, value: unknown): string => {
   if (value === undefined || value === null) return "";
-  if (property?.type === "link" && typeof value === "object") return linkHandle(value) ?? "missing item";
+  const link = linkValue(value);
+  if (link !== undefined) return link.handle ?? MISSING_ITEM;
+  if (property?.type === "link" && typeof value === "object") return MISSING_ITEM;
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   return JSON.stringify(value);

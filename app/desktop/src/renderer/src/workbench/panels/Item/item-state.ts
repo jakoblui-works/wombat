@@ -61,8 +61,18 @@ const isBroken = (binder: BinderSummary): binder is BrokenBinder => binder.id ==
 const isListed = (binder: BinderSummary): binder is Binder => binder.id !== null;
 
 /**
+ * The binder an item tab shows: the tab's binder while its list holds the item by id, else the binder whose folder
+ * holds the item's file as read (a file moved by hand into another binder), else the tab's binder.
+ */
+const shownBinder = (itemId: string, binderId: string, binders: readonly BinderSummary[], item: Item | undefined, listed: Read<readonly ItemSummary[]>): Binder | undefined => {
+  const named = binders.find((each): each is Binder => each.id === binderId);
+  if (named !== undefined && usable(listed)?.some(({ id }) => id === itemId) === true) return named;
+  return item === undefined ? named : binderHolding(binders.filter(isListed), item.path);
+};
+
+/**
  * The binders decide first, then the read by id, then the binder's list. An item the service reads is shown in the
- * binder that lists it by id, else in the binder whose folder holds its file.
+ * binder `shownBinder` picks.
  */
 export const itemShown = (itemId: string, binderId: string, { item, binders, listed }: Reads): ItemShown => {
   const shownItem = usable(item);
@@ -73,7 +83,7 @@ export const itemShown = (itemId: string, binderId: string, { item, binders, lis
     const failed = unshown(binders);
     return failed === undefined ? { kind: "loading" } : { kind: "error", what: "binders", message: failed, last };
   }
-  const binder = binderList.find((each): each is Binder => each.id === binderId) ?? (shownItem === undefined ? undefined : binderHolding(binderList.filter(isListed), shownItem.path));
+  const binder = shownBinder(itemId, binderId, binderList, shownItem, listed);
   if (binder === undefined) {
     const broken = binderList.filter(isBroken);
     const holding = last === undefined ? undefined : binderHolding(broken, last.path);
@@ -102,6 +112,9 @@ export const itemShown = (itemId: string, binderId: string, { item, binders, lis
   if (last === undefined || unreadable.length > 0) return { kind: "missing", unreadable, last, binder };
   return { kind: "gone", last, binder };
 };
+
+/** The listed binder the tab shows the item in, for its header and fields; undefined when it shows none. */
+export const listedBinder = (shown: ItemShown): Binder | undefined => ("binder" in shown && shown.binder.id !== null ? shown.binder : undefined);
 
 /** The item as last read, for the tab's title and header; undefined before any read succeeded. */
 export const lastKnown = (shown: ItemShown): Item | undefined => {

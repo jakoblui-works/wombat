@@ -1,7 +1,8 @@
 // The Desk's tree, pure: which folders are drawers, how binders nest, the order, and the rows and keys of the tree.
 import { type BinderSummary, type Problem, SETTINGS_FILE } from "@wombat/shared/items";
 
-import { treeKey } from "./tree-keys.ts";
+import { type FlatRow, flatTree, treeKey } from "./tree-keys.ts";
+import { problemLocation } from "./view-model/problems.ts";
 import { compareText } from "./view-model/values.ts";
 
 export type DeskNode = { kind: "drawer"; name: string; path: string; children: DeskNode[] } | { kind: "binder"; binder: BinderSummary; children: DeskNode[] };
@@ -65,27 +66,14 @@ export const deskTree = (binders: readonly BinderSummary[]): DeskNode[] => {
   return sortAll(top);
 };
 
-/** One visible row of the tree; `expanded` only for a row with children. */
-export type DeskRow = { node: DeskNode; key: string; level: number; parent: number | undefined; setSize: number; posInSet: number; expanded: boolean | undefined };
+export type DeskRow = FlatRow<DeskNode>;
 
 /**
  * The rows the tree shows, in order, given the open drawers. A binder holding binders always shows them: only drawers
  * open and close.
  */
-export const deskRows = (nodes: readonly DeskNode[], openDrawers: ReadonlySet<string>): DeskRow[] => {
-  const rows: DeskRow[] = [];
-  const walk = (list: readonly DeskNode[], level: number, parent: number | undefined): void => {
-    list.forEach((node, index) => {
-      const key = nodeKey(node);
-      const hasChildren = node.children.length > 0;
-      const expanded = !hasChildren ? undefined : node.kind === "binder" || openDrawers.has(key);
-      rows.push({ node, key, level, parent, setSize: list.length, posInSet: index + 1, expanded });
-      if (expanded === true) walk(node.children, level + 1, rows.length - 1);
-    });
-  };
-  walk(nodes, 1, undefined);
-  return rows;
-};
+export const deskRows = (nodes: readonly DeskNode[], openDrawers: ReadonlySet<string>): DeskRow[] =>
+  flatTree(nodes, { key: nodeKey, children: (node) => node.children, expanded: (node, key) => node.kind === "binder" || openDrawers.has(key) });
 
 /** The open drawers with `path` opened or closed (`open` omitted: toggled). */
 export const toggleDrawer = (openDrawers: readonly string[], path: string, open?: boolean): string[] => {
@@ -111,11 +99,8 @@ export const deskKey = (rows: readonly DeskRow[], index: number, key: string): D
 
 const items = (count: number): string => `${String(count)} ${count === 1 ? "item" : "items"}`;
 
-/** Where a problem is in `file`, "_binder.yaml, line 4"; undefined when the problem names no line. */
-export const problemLocation = ({ line }: Problem, file: string = SETTINGS_FILE): string | undefined => (line === undefined ? undefined : `${file}, line ${String(line)}`);
-
 const problemLabel = (problem: Problem): string => {
-  const location = problemLocation(problem);
+  const location = problemLocation(problem, SETTINGS_FILE);
   return location === undefined ? problem.message : `${problem.message} (${location})`;
 };
 

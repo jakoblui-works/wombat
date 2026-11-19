@@ -13,3 +13,7 @@ export const problemsByField = (problems: readonly Problem[], names: readonly st
   }
   return { at, rest };
 };
+
+/** Where a problem is in `file`, "_binder.yaml, line 4"; undefined when the problem names no line or there is no file yet. */
+export const problemLocation = ({ line }: Problem, file: string | undefined): string | undefined =>
+  line === undefined || file === undefined ? undefined : `${file}, line ${String(line)}`;

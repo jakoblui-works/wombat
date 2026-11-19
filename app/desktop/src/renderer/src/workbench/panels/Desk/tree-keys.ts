@@ -1,7 +1,39 @@
-// The WAI-ARIA tree pattern's keys over a tree's visible rows, pure.
+// The WAI-ARIA tree pattern over a tree's visible rows, pure: the rows, their indent and the keys.
 
 /** A visible row: the index of the row it sits under, and `expanded` only when it has children. */
 export type KeyRow = { parent: number | undefined; expanded: boolean | undefined };
+
+/** One visible row of `node`; `expanded` only for a row with children. */
+export type FlatRow<N> = KeyRow & { node: N; key: string; level: number; setSize: number; posInSet: number };
+
+type TreeShape<N> = {
+  key: (node: N) => string;
+  children: (node: N) => readonly N[];
+  /** Whether a node with children shows them. */
+  expanded: (node: N, key: string) => boolean;
+};
+
+/** The rows a tree shows, in order: each node, then its children while it is expanded. */
+export const flatTree = <N>(nodes: readonly N[], { key, children, expanded }: TreeShape<N>): FlatRow<N>[] => {
+  const rows: FlatRow<N>[] = [];
+  const walk = (list: readonly N[], level: number, parent: number | undefined): void => {
+    list.forEach((node, index) => {
+      const nodeKey = key(node);
+      const under = children(node);
+      const open = under.length === 0 ? undefined : expanded(node, nodeKey);
+      rows.push({ node, key: nodeKey, level, parent, setSize: list.length, posInSet: index + 1, expanded: open });
+      if (open === true) walk(under, level + 1, rows.length - 1);
+    });
+  };
+  walk(nodes, 1, undefined);
+  return rows;
+};
+
+const ROW_START_PX = 6;
+const INDENT_PX = 12;
+
+/** A row's left padding in pixels at its `level` (1 at the top). */
+export const rowIndent = (level: number): number => ROW_START_PX + (level - 1) * INDENT_PX;
 
 export type TreeKeyAction = { type: "focus"; index: number } | { type: "toggle"; open: boolean } | { type: "activate" };
 

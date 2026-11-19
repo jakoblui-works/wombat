@@ -1,29 +1,18 @@
 import type { LenientProperty } from "@wombat/shared/items";
 
-import { linkValue } from "../../Desk/view-model/values.ts";
+import { displayValue, MISSING_ITEM } from "../../Desk/view-model/values.ts";
 
 type Fields = Readonly<Record<string, unknown>>;
 
-/** The text a link shows for a target the items list doesn't hold (deleted, or in a binder not read). */
-export const UNKNOWN_ITEM = "an item not found";
-
 /**
- * A field's value as text: a link as its target's handle (`handleOf` answers a bare id's, as a proposal holds it),
- * never its id; nothing for an empty value; a list joined.
+ * A field's value as text (`displayValue`), and a link held as a bare id, as a proposal holds it, as its target's
+ * handle from `handleOf` (`MISSING_ITEM` when the items lists don't hold it), never its id.
  */
-export const valueText = (value: unknown, property: LenientProperty | undefined, handleOf: (id: string) => string | undefined): string => {
-  const link = linkValue(value);
-  if (link !== undefined) return link.handle ?? UNKNOWN_ITEM;
-  if (property?.type === "link" && typeof value === "string") return handleOf(value) ?? UNKNOWN_ITEM;
-  return inputText(value);
-};
+export const valueText = (value: unknown, property: LenientProperty | undefined, handleOf: (id: string) => string | undefined): string =>
+  property?.type === "link" && typeof value === "string" ? (handleOf(value) ?? MISSING_ITEM) : displayValue(property, value);
 
-/** A value as its text box holds it, and as its row shows it when it isn't a link. */
-export const inputText = (value: unknown): string => {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value;
-  return typeof value === "number" || typeof value === "boolean" ? String(value) : JSON.stringify(value);
-};
+/** A value as its text box holds it. */
+export const inputText = (value: unknown): string => displayValue(undefined, value);
 
 /**
  * What a property's typed text proposes: nothing (null) for an empty box, a number for a number property's text that

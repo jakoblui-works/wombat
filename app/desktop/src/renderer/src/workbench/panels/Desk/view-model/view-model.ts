@@ -1,11 +1,14 @@
 // The rows a binder's views show, pure: which items, in what order, grouped or nested.
 import type { ItemSummary, LenientProperty, LenientView } from "@wombat/shared/items";
 
-import { compareHandles, compareValues, displayValue, matchesFilter, valueRank } from "./values.ts";
+import { compareHandles, compareValues, displayValue, linkValue, matchesFilter, valueRank } from "./values.ts";
 
 type Properties = Readonly<Record<string, LenientProperty>>;
 
 export type Row = { item: ItemSummary };
+
+/** The list a binder without a list or tree view shows: every item, by handle number. */
+export const PLAIN_LIST: Extract<LenientView, { kind: "list" }> = { name: "Items", kind: "list" };
 
 /** `value`: the group's value as items hold it; `none`: the items without a value; `all`: a view without `group`. */
 export type Group = { key: string; rows: Row[] } & ({ kind: "value"; value: unknown } | { kind: "none" } | { kind: "all" });
@@ -76,12 +79,6 @@ export const groupHeading = (group: Group, view: LenientView, properties: Proper
   return group.kind === "none" ? `No ${name}` : displayValue(properties[name], group.value);
 };
 
-const linkedId = (value: unknown): string | undefined => {
-  if (typeof value !== "object" || value === null) return undefined;
-  const id: unknown = (value as Record<string, unknown>)["id"];
-  return typeof id === "string" ? id : undefined;
-};
-
 /**
  * The view's visible items, sorted, each under the item its `parent` link names. An item whose parent is missing,
  * filtered out or itself sits at the top; a cycle is cut where a walk up its links first repeats an item, which then
@@ -95,7 +92,7 @@ export const treeRows = (items: readonly ItemSummary[], view: LenientView, prope
   const parentOf = new Map<ItemSummary, ItemSummary>();
   if (link !== undefined) {
     for (const item of shown) {
-      const id = linkedId(item.properties[link]);
+      const id = linkValue(item.properties[link])?.id;
       const parent = id === undefined ? undefined : byId.get(id);
       if (parent !== undefined && parent !== item) parentOf.set(item, parent);
     }

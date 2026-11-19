@@ -4,7 +4,7 @@ import { type KeyboardEvent, useMemo, useState } from "react";
 
 import { cn } from "../../../../lib/utils";
 import { ItemRow } from "../ItemRow/ItemRow.tsx";
-import { treeKey } from "../tree-keys.ts";
+import { rowIndent, treeKey } from "../tree-keys.ts";
 import { useTreeFocus } from "../use-tree-focus.ts";
 import { treeRows } from "../view-model/view-model.ts";
 import { setClosed, visibleTreeRows } from "./tree-view.ts";
@@ -15,9 +15,6 @@ type Props = {
   properties: Record<string, LenientProperty>;
   onOpenItem?: ((itemId: string) => void) | undefined;
 };
-
-const INDENT_PX = 12;
-const ROW_START_PX = 6;
 
 export const TreeView = ({ items, view, properties, onOpenItem }: Props) => {
   const [closed, setClosedRows] = useState<ReadonlySet<string>>(new Set());
@@ -34,7 +31,7 @@ export const TreeView = ({ items, view, properties, onOpenItem }: Props) => {
       const target = rows[action.index];
       if (target !== undefined) focus.focus(target.key);
     } else if (action.type === "toggle") setClosedRows((current) => setClosed(current, row.key, action.open));
-    else if (row.item.id !== null) onOpenItem?.(row.item.id);
+    else if (row.node.item.id !== null) onOpenItem?.(row.node.item.id);
   };
 
   if (rows.length === 0) return <p className="p-3 text-sm text-fg-tertiary">No items in this view.</p>;
@@ -43,7 +40,7 @@ export const TreeView = ({ items, view, properties, onOpenItem }: Props) => {
       {rows.map((row, index) => (
         <ItemRow
           key={row.key}
-          item={row.item}
+          item={row.node.item}
           lead={
             <span
               aria-hidden
@@ -72,7 +69,7 @@ export const TreeView = ({ items, view, properties, onOpenItem }: Props) => {
               onClick={() => act(index, "Enter")}
               onKeyDown={(event) => act(index, event.key, event)}
               className="focus-ring flex cursor-default items-center gap-1.5 rounded-md py-1 pr-2 text-left text-base select-none transition-colors hover:bg-surface-2"
-              style={{ paddingLeft: ROW_START_PX + (row.level - 1) * INDENT_PX }}
+              style={{ paddingLeft: rowIndent(row.level) }}
             />
           }
         />

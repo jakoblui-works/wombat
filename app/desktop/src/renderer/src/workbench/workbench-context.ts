@@ -30,7 +30,7 @@ export type WorkbenchActions = {
    * Switches to the Desk and shows the binder in its sidebar on its view `view` (else its first) when that is a list or
    * a tree, else on its first view that isn't a board, else as a list of its items. When `view` (else the first view) is
    * a board, it also opens or focuses that board's tab, and `reveal` (a proposal id) reaches the board panel as its
-   * `reveal` prop; otherwise `reveal` is ignored for now.
+   * `reveal` prop; otherwise `reveal` reaches nothing and nothing is revealed.
    */
   openBinder: (binderId: string, reveal?: string, view?: string) => void;
   /** Opens or focuses the item's tab. */

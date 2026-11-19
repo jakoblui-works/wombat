@@ -42,7 +42,6 @@ test("a proposal alert reads the proposals again and nothing else", async () => 
 });
 
 test.each<[string, (service: FakeService) => void]>([
-  ["a proposal alert", (service) => service.alert("agent_changed", A, { type: "proposal", proposalId: "proposal-1" })],
   [
     "a reconnect",
     (service) => {
