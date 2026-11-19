@@ -183,8 +183,9 @@ export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
  * The items routes' error codes: `items_not_configured` when the service runs without an items root (the app hides
  * the items views), `binder_not_found` and `item_not_found` for an unknown binder id or handle (the app
  * refetches the binders). The proposal routes add the ProposalErrorCode codes. `items_not_writable`: my write to
- * an item or binder with identity problems, or one the items root's filesystem can't take; on approve such a failure
- * settles the proposal as a conflict instead.
+ * an item or binder to fix by hand first (a shared handle, problems on disk, broken binder settings), sent with its
+ * `problems`; or one the items root's filesystem can't take, sent without. On approve either settles the proposal as
+ * a conflict instead.
  */
 export const ItemsErrorCode = z.enum([
   "items_not_configured",
@@ -196,10 +197,12 @@ export const ItemsErrorCode = z.enum([
 export type ItemsErrorCode = z.infer<typeof ItemsErrorCode>;
 
 /**
- * Why the item writer refused a write; nothing on disk changed. The item write routes send it as is. On /mcp the
- * access module turns each one but `items_not_writable` into an AccessErrorCode refusal (the agent gets its message);
- * approving a proposal turns every one of them into a `conflict` proposal. `items_not_writable` fails an /mcp call:
- * the agent gets a generic failure.
+ * Why the item writer refused a write; nothing on disk changed. The item write routes send it as is:
+ * `invalid_fields` for values that don't fit, `items_not_writable` with `problems` for an item or binder to fix by
+ * hand first, or without them when the items root's filesystem can't take the write. On /mcp the access module turns
+ * each one into an AccessErrorCode refusal (an item or binder to fix by hand reads as `invalid_fields`), except the
+ * filesystem's `items_not_writable`, which fails the call: the agent gets a generic failure. Approving a proposal
+ * turns every one of them into a `conflict` proposal.
  */
 export const ItemWriteErrorCode = z.enum([
   "stale_version",

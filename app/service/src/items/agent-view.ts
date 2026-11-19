@@ -8,7 +8,7 @@ import { blockingProblems, findByHandle, isClash, linkOfField, unknownTargetMess
 import { invalidFields, noItem, noBinder, nothingChanged, stale } from "./refusals.ts";
 import { SETTINGS_FILE } from "./binders.ts";
 import { propertyOf } from "./validate.ts";
-import { ItemWriteError, listed, BinderProblemsError } from "./write.ts";
+import { ItemIdentityError, ItemWriteError, listed, BinderProblemsError } from "./write.ts";
 
 /** One read of the root as an agent may see it. */
 export type View = {
@@ -164,11 +164,21 @@ export const checkBinder = (view: View, binder: ValidBinder) => {
   if (problems.length > 0) throw binderRefusal(view, binder, problems);
 };
 
+/**
+ * Always built from the scrubbed problems, never the writer's message: that shows root-relative paths, and one
+ * format whatever was scrubbed means a scrubbed refusal can't be told apart by its shape.
+ */
+const itemRefusal = (view: View, error: ItemWriteError, subject: { handle?: string; binder: ValidBinder }) => {
+  const problems = scrubbed(view, error.problems, subject.handle ?? "the item", subject.binder);
+  return invalidFields(nothingChanged(problems), problems);
+};
+
 /** A writer refusal as the agent gets it: never naming anything hidden, saying what to do next. */
 export const agentWriteError = (view: View, error: unknown, subject: { handle?: string; binder: ValidBinder }) => {
   if (!(error instanceof ItemWriteError)) return error;
   // The binder's problems found by the writer's own read (they appeared after the view's).
   if (error instanceof BinderProblemsError) return binderRefusal(view, subject.binder, error.problems);
+  if (error instanceof ItemIdentityError) return itemRefusal(view, error, subject);
   switch (error.code) {
     case ItemWriteErrorCode.enum.stale_version:
       return stale(subject.handle ?? "The item");
@@ -179,12 +189,8 @@ export const agentWriteError = (view: View, error: unknown, subject: { handle?: 
     case ItemWriteErrorCode.enum.field_not_writable:
       // Names only the service's own keys the call gave; it has no problems.
       return invalidFields(error.message);
-    case ItemWriteErrorCode.enum.invalid_fields: {
-      // Always built from the scrubbed problems, never the writer's message: that shows root-relative paths, and
-      // one format whatever was scrubbed means a scrubbed refusal can't be told apart by its shape.
-      const problems = scrubbed(view, error.problems, subject.handle ?? "the item", subject.binder);
-      return invalidFields(nothingChanged(problems), problems);
-    }
+    case ItemWriteErrorCode.enum.invalid_fields:
+      return itemRefusal(view, error, subject);
     case ItemWriteErrorCode.enum.items_not_writable:
       return error;
   }

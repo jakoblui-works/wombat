@@ -17,7 +17,7 @@ import { blockingProblems, type Catalog, type LoadedItem, type LoadedBinder, typ
 import { writeGuards, type WriteGuards } from "../items/guards.ts";
 import { lockedNames, newItem, type Change, type ItemInput } from "../items/refusals.ts";
 import { SETTINGS_FILE } from "../items/binders.ts";
-import { ItemWriteError, presentValues, type Writer } from "../items/write.ts";
+import { ItemIdentityError, ItemWriteError, presentValues, type Writer } from "../items/write.ts";
 import type { VersionAuthor } from "../store/proposal-rules.ts";
 import { fieldsOf } from "../store/proposals.ts";
 import type { NewProposal, ProposalVersionHead, Store, StoredProposal } from "../store/store.ts";
@@ -141,7 +141,7 @@ const ITEM_CHANGED = conflict(`The item changed (edited, renamed or deleted) sin
 const writeFailure = (error: unknown, stored: StoredItemProposal): Applied | undefined => {
   if (!(error instanceof ItemWriteError)) return failureOutcome(error, stored.kind === "create" ? "create" : "edit", "write");
   if (error.code === ItemWriteErrorCode.enum.stale_version || error.code === ItemWriteErrorCode.enum.item_not_found) return ITEM_CHANGED;
-  if (error.code === ItemWriteErrorCode.enum.items_not_writable) {
+  if (error.code === ItemWriteErrorCode.enum.items_not_writable && !(error instanceof ItemIdentityError)) {
     return conflict(`${error.message} Nothing was written: keep the items root on a local filesystem and ask the agent to propose again, or reject the proposal.`);
   }
   const [only] = error.problems;

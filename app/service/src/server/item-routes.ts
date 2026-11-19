@@ -26,6 +26,8 @@ const handleOf = async (c: Context, catalog: Catalog, ref: string): Promise<{ ha
         ITEMS_STATUS.items_not_writable,
         ItemsErrorCode.enum.items_not_writable,
         `${ref} has no handle yet, so it can't be changed here; fix the file (${found.path}) by hand first.`,
+        undefined,
+        found.problems.length > 0 ? found.problems : undefined,
       ),
     };
   }

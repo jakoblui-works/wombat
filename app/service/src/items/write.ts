@@ -22,8 +22,9 @@ import { formatHandle, setOwn, validateProperties, type LinkLookup } from "./val
 
 /**
  * Why a write was refused; nothing on disk changed. The message is for people and may show root-relative paths;
- * an agent never gets an `invalid_fields` message, only the problems, which keep their `names` (the catalog's
- * included) for access.ts to decide from. So every `invalid_fields` refusal says what went wrong in its problems.
+ * an agent never gets the message of an `invalid_fields` or ItemIdentityError refusal, only the problems, which keep
+ * their `names` (the catalog's included) for access.ts to decide from. So every such refusal says what went wrong in
+ * its problems.
  */
 export class ItemWriteError extends Error {
   readonly code: ItemWriteErrorCode;
@@ -109,12 +110,24 @@ const refuseOwnKeys = (keys: string[], what: string) => {
 };
 
 /**
- * A write refused for the binder's own problems (its settings), not the item's: `invalid_fields` like any other.
+ * A write refused for the item's or binder's identity (a shared handle, problems on disk, broken settings), which
+ * only a fix by hand clears: `items_not_writable` with the problems, unlike the filesystem's refusal of that code,
+ * which has none.
+ */
+export class ItemIdentityError extends ItemWriteError {
+  constructor(message: string, problems: NamedProblem[]) {
+    super(ItemWriteErrorCode.enum.items_not_writable, message, problems);
+    this.name = "ItemIdentityError";
+  }
+}
+
+/**
+ * A write refused for the binder's own problems (its settings), not the item's.
  * The problems are the catalog's, with the `names` of the other binders they name; the message lists them.
  */
-export class BinderProblemsError extends ItemWriteError {
+export class BinderProblemsError extends ItemIdentityError {
   constructor(message: string, problems: NamedProblem[]) {
-    super(ItemWriteErrorCode.enum.invalid_fields, message, problems);
+    super(message, problems);
     this.name = "BinderProblemsError";
   }
 }
@@ -244,7 +257,7 @@ const writableItem = async (root: string, read: RootRead, handle: string, baseVe
   // stale_version would send it round a re-read loop it can't leave.
   const shared = item.problems.filter(isClash);
   if (shared.length > 0) {
-    throw invalid(`${handle} names more than one file (${listed(shared)}), so it can't be ${action}; fix the handles by hand first.`, shared);
+    throw new ItemIdentityError(`${handle} names more than one file (${listed(shared)}), so it can't be ${action}; fix the handles by hand first.`, shared);
   }
   const stale = () =>
     new ItemWriteError(ItemWriteErrorCode.enum.stale_version, `${handle} changed since it was read (by hand or by another write), so it wasn't ${action}; read it again and redo the change on the new version.`);
@@ -264,10 +277,10 @@ const writableItem = async (root: string, read: RootRead, handle: string, baseVe
   if (blocking.length > 0 || item.handle === null) {
     const problems = blocking.length > 0 ? blocking : item.problems;
     const said = problems.length > 0 ? problems : [{ message: "handle: none yet; it's assigned once the file's problems are fixed by hand" }];
-    throw invalid(`${handle} has problems on disk (${listed(said)}), so it can't be ${action}; fix the file (${item.path}) by hand first.`, said);
+    throw new ItemIdentityError(`${handle} has problems on disk (${listed(said)}), so it can't be ${action}; fix the file (${item.path}) by hand first.`, said);
   }
   if (action === "updated" && item.id === null) {
-    throw invalid(`${handle} has no id yet, so it can't be ${action}; read its binder so it gets one, then try again.`, [
+    throw new ItemIdentityError(`${handle} has no id yet, so it can't be ${action}; read its binder so it gets one, then try again.`, [
       { field: "id", message: "id: none yet; reading the binder assigns one" },
     ]);
   }

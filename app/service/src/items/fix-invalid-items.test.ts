@@ -46,8 +46,8 @@ describe("changing invalid items", () => {
 
     // Each file's current version: a stale_version here would send the caller round a re-read loop it can't leave.
     for (const file of files) {
-      await expectWriteError(opened.writer.updateItem(ME, "BUG-18", { note: "Seen twice" }, await versionOf(opened, file)), "invalid_fields", `update, ${file}`);
-      await expectWriteError(opened.writer.deleteItem(ME, "BUG-18", await versionOf(opened, file)), "invalid_fields", `delete, ${file}`);
+      await expectWriteError(opened.writer.updateItem(ME, "BUG-18", { note: "Seen twice" }, await versionOf(opened, file)), "items_not_writable", `update, ${file}`);
+      await expectWriteError(opened.writer.deleteItem(ME, "BUG-18", await versionOf(opened, file)), "items_not_writable", `delete, ${file}`);
     }
 
     expect(files.map((file) => readAt(root, file))).toEqual(before);

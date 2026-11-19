@@ -139,8 +139,8 @@ The app writes items through three routes. They check the values as an agent's w
 A refused write changes nothing on disk and answers one of:
 
 - `409 stale_version`: the file changed since `version`. Read the item again and redo the change.
-- `400 invalid_fields`: the values don't fit the binder, or the item or its binder has problems to fix by hand first. `problems` lists each one as `{ field, message }`.
+- `400 invalid_fields`: the values don't fit the binder. `problems` lists each one as `{ field, message }`.
 - `404 item_not_found` or `binder_not_found`: no item has that id, handle or alias, or no binder that id.
-- `409 items_not_writable`: the item has no handle yet (fix its file by hand), or the items folder can't take the write.
+- `409 items_not_writable`: the item or its binder needs a fix by hand first: its handle is shared with another file, its file has problems on disk (or no handle yet), or the binder's `_binder.yaml` has problems. `problems` lists what to fix, as above. It's also the answer, without `problems`, when the items folder can't take the write.
 
 Every change to an item file or a binder's `_binder.yaml` sends an `items` alert on `GET /events`: `{ seq, dbId, type: "items" }`. It covers the service's own writes (your writes through these routes, a new binder, agents' tools, approved proposals) and edits made by hand, which Wombat notices about 200 ms after the last one. The alert says only that something changed, never which item or what; the app reads its binders and items again. A write of the service's can send two alerts, one for the write and one when the watch sees the file change. Its `seq` is on the same sequence as the other alerts.
