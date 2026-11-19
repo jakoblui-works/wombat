@@ -12,10 +12,10 @@ import { keys } from "../../data/keys.ts";
 // Registers the activities and their panels, which the workbench reads from the registry.
 import "../activities.ts";
 import { needsMeCount } from "../../data/needs-me.ts";
-import { DEFAULT_DESK, type DeskLayout, defaultLayout, restoreLayout, type SavedLayout } from "../layout.ts";
+import { DEFAULT_DESK, type DeskLayout, defaultLayout, pruneLayout, restoreLayout, type SavedLayout } from "../layout.ts";
 import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
-import { activities, activityOrDefault, getPanel, isKnown, isRestorable, panelsFor, panelTitle } from "../registry.ts";
+import { activities, activityOrDefault, getPanel, isKnown, isRestorable, isSaved, panelsFor, panelTitle } from "../registry.ts";
 import { ActivityBar } from "../ActivityBar/ActivityBar.tsx";
 import { commandForKey, runLogged } from "../commands/registry.ts";
 import { activityCommandId, registerWorkbenchCommands, WORKBENCH_COMMAND } from "../commands/workbench-commands.ts";
@@ -80,6 +80,8 @@ const NO_ACTIONS: WorkbenchActions = {
   openProposal: () => undefined,
   openBinder: () => undefined,
   openItem: () => undefined,
+  openNewItem: () => undefined,
+  replaceTab: () => undefined,
 };
 
 const NO_REVEALS: Reveals = { get: () => undefined, subscribe: () => () => undefined };
@@ -176,7 +178,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   useEffect(() => {
     if (!ready || saved?.readable !== true) return;
     const current = layoutSaver(
-      () => ({ version: 2, dockview: api.toJSON(), ...chromeRef.current }),
+      () => pruneLayout({ version: 2, dockview: api.toJSON(), ...chromeRef.current }, isSaved),
       (layout) => {
         window.wombat.settings.set({ layout }).catch(() => {
           console.warn("Wombat couldn't save the layout.");

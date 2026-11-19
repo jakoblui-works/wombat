@@ -16,7 +16,7 @@ import { DeskTree } from "./DeskTree/DeskTree.tsx";
 export const Desk = () => {
   const binders = useBinders();
   const { desk, changeDesk } = useDesk();
-  const { openBinder, openItem } = useWorkbench();
+  const { openBinder, openItem, openNewItem } = useWorkbench();
   const content = deskContent(binders.data?.binders, binders.error, desk);
 
   if (content.kind === "binder") {
@@ -28,6 +28,7 @@ export const Desk = () => {
         onBack={() => changeDesk(showTree)}
         onView={(name) => openBinder(binder.id, undefined, name)}
         onOpenItem={(itemId) => openItem(binder.id, itemId)}
+        onNewItem={(context) => openNewItem(binder.id, context)}
       />
     );
   }

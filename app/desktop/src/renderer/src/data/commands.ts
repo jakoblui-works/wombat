@@ -2,7 +2,7 @@
 // that follow: nothing is updated optimistically.
 import { mutationOptions, type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 
-import type { AgentSummary, AnswerPermissionRequest, ContextBreakdown, SetConfigRequest, StartAgentRequest, UpdateItemRequest } from "@wombat/shared/api";
+import type { AgentSummary, AnswerPermissionRequest, ContextBreakdown, CreateItemRequest, SetConfigRequest, StartAgentRequest, UpdateItemRequest } from "@wombat/shared/api";
 import type { Item } from "@wombat/shared/items";
 import { isOpen, type Proposal, ProposalErrorCode } from "@wombat/shared/proposals";
 import { ROUTES } from "@wombat/shared/routes";
@@ -142,6 +142,18 @@ export type SaveItemVars = UpdateItemRequest & { ref: string };
 /** Writes my changed fields of item `ref` on the version they're based on; answers the item as written. */
 export const saveItemFn = ({ ref, version, fields }: SaveItemVars): Promise<Item> => callRoute(ROUTES.updateItem, { params: { ref }, body: { version, fields } });
 
+export type CreateItemVars = CreateItemRequest & { binderId: string };
+
+/** Writes a new item into the binder; answers the item as written, with its id and handle. */
+export const createItemFn = ({ binderId, ...body }: CreateItemVars): Promise<Item> => callRoute(ROUTES.createItem, { params: { id: binderId }, body });
+
+export type DeleteItemVars = { ref: string; version: string };
+
+/** Deletes item `ref`'s file if it is still at `version`. */
+export const deleteItemFn = async ({ ref, version }: DeleteItemVars): Promise<void> => {
+  await callRoute(ROUTES.deleteItem, { params: { ref }, query: { version } });
+};
+
 const refreshProposal = (queryClient: QueryClient, proposalId: string): Promise<void> =>
   Promise.all([refresh(queryClient, keys.proposals), refresh(queryClient, keys.proposal(proposalId))]).then(() => undefined);
 
@@ -185,6 +197,14 @@ export const deleteAgentMutation = (queryClient: QueryClient) =>
 export const saveItemMutation = (queryClient: QueryClient) =>
   mutationOptions({ mutationFn: saveItemFn, onSettled: () => refreshItems(queryClient) });
 
+/** A refused create rejects with the ServiceError, its problems at the fields (`file` for the file name). */
+export const createItemMutation = (queryClient: QueryClient) =>
+  mutationOptions({ mutationFn: createItemFn, onSettled: () => refreshItems(queryClient) });
+
+/** A stale delete (the file changed since `version`) rejects with the ServiceError and deletes nothing. */
+export const deleteItemMutation = (queryClient: QueryClient) =>
+  mutationOptions({ mutationFn: deleteItemFn, onSettled: () => refreshItems(queryClient) });
+
 const decideMutation = (queryClient: QueryClient) =>
   mutationOptions({
     mutationFn: decideFn,
@@ -204,4 +224,6 @@ export const useStopAgent = () => useMutation(stopAgentMutation(useQueryClient()
 export const useDecide = () => useMutation(decideMutation(useQueryClient()));
 export const useDraft = () => useMutation(draftMutation(useQueryClient()));
 export const useSaveItem = () => useMutation(saveItemMutation(useQueryClient()));
+export const useCreateItem = () => useMutation(createItemMutation(useQueryClient()));
+export const useDeleteItem = () => useMutation(deleteItemMutation(useQueryClient()));
 export const useDeleteAgent = () => useMutation(deleteAgentMutation(useQueryClient()));

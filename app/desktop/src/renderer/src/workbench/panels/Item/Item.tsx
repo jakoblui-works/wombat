@@ -1,10 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { type Item as ItemData, type ItemSummary, type LenientProperty, SETTINGS_FILE } from "@wombat/shared/items";
-import { type ReactNode, useCallback, useEffect, useReducer, useState } from "react";
+import type { Item as ItemData, ItemSummary, LenientProperty, Naming } from "@wombat/shared/items";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 
 import { Button } from "../../../components/ui/button";
 import { ScrollArea } from "../../../components/ui/scroll-area";
-import { useSaveItem } from "../../../data/commands.ts";
+import { useCreateItem, useSaveItem } from "../../../data/commands.ts";
 import { useBinderItems, useBinders, useItem } from "../../../data/hooks.ts";
 import { itemQuery } from "../../../data/query-client.ts";
 import { asError } from "../../../lib/errors.ts";
@@ -18,125 +18,51 @@ import { linkValue } from "../Desk/view-model/values.ts";
 import { Body } from "./Body/Body.tsx";
 import { CloseDialog } from "./CloseDialog/CloseDialog.tsx";
 import { Conflict } from "./Conflict/Conflict.tsx";
+import { FileName } from "./FileName/FileName.tsx";
 import { linkTarget, valueText } from "./fields/field-input.ts";
 import { Fields } from "./fields/Fields.tsx";
+import { ItemActions } from "./ItemActions/ItemActions.tsx";
+import { ItemNotice, Notice, READ_FAILED } from "./ItemNotice/ItemNotice.tsx";
 import { propertyRows } from "./fields/property-rows.ts";
 import {
   canSave,
   changedFields,
   conflicts,
+  createRequest,
+  draftStart,
+  edited,
   type FieldValue,
   fileChanged,
   initialEdit,
   isSaving,
   type ItemEditState,
   itemEdit,
+  NO_FILE,
   saveFailure,
   saveProblems,
   saveRequest,
   valueOf,
 } from "./item-edit.ts";
-import { ITEM_PANEL, ItemParams, itemTitle, type SavedItemParams } from "./item-params.ts";
-import { type BrokenBinder, type ItemShown, itemShown, lastKnown, listedBinder, settingsPath, usable } from "./item-state.ts";
+import { type DraftItemParams, ITEM_PANEL, ItemParams, itemTitle, type SavedItemParams } from "./item-params.ts";
+import { type ItemShown, itemShown, lastKnown, listedBinder, usable } from "./item-state.ts";
 
 const NO_PROPERTIES: Readonly<Record<string, LenientProperty>> = {};
 
-const READ_FAILED = { item: "Couldn't read the item", binders: "Couldn't read the binders", "binder-items": "Couldn't read the binder's items" } as const;
-
-const Notice = ({ children }: { children: ReactNode }) => (
-  <div role="status" className="flex flex-col gap-2 rounded-md border border-line bg-surface-2 px-3 py-2.5 text-sm text-fg-secondary">
-    {children}
-  </div>
-);
-
-const Path = ({ path }: { path: string }) => <span className="font-mono text-xs break-all text-fg-primary">{path}</span>;
-
-const Unreadable = ({ entries }: { entries: readonly ItemSummary[] }) => (
-  <ul className="flex flex-col gap-2">
-    {entries.map((entry) => (
-      <li key={entry.path} className="flex flex-col gap-1">
-        <Path path={entry.path} />
-        <ProblemList problems={entry.problems} file={lastPathPart(entry.path)} className="text-sm text-danger" />
-      </li>
-    ))}
-  </ul>
-);
-
-const BrokenBinders = ({ binders }: { binders: readonly BrokenBinder[] }) => (
-  <ul className="flex flex-col gap-2">
-    {binders.map((binder) => (
-      <li key={binder.path} className="flex flex-col gap-1">
-        <Path path={settingsPath(binder)} />
-        <ProblemList problems={binder.problems} file={SETTINGS_FILE} className="text-sm text-danger" />
-      </li>
-    ))}
-  </ul>
-);
+/** The field a refused file name's problems name. */
+const FILE_FIELD = "file";
 
 type Listed = (binderId: string) => readonly ItemSummary[] | undefined;
 
-const Content = ({ shown }: { shown: Exclude<ItemShown, { kind: "loading" }> }) => {
-  switch (shown.kind) {
-    case "item":
-      return null;
-    case "unparseable":
-      return (
-        <Notice>
-          <p>This item's file can't be read, so its fields and body can't be shown:</p>
-          <ProblemList problems={shown.entry.problems} file={lastPathPart(shown.entry.path)} className="text-sm text-danger" />
-          <p>
-            Fix <Path path={shown.entry.path} /> by hand; the item shows here again once it can be read.
-          </p>
-        </Notice>
-      );
-    case "missing":
-      return (
-        <Notice>
-          <p>This item can't be found: its file was deleted or can't be read.</p>
-          {shown.unreadable.length === 0 ? null : (
-            <>
-              <p>These files in {shown.binder.name} can't be read; if one of them is this item, fix it by hand:</p>
-              <Unreadable entries={shown.unreadable} />
-            </>
-          )}
-        </Notice>
-      );
-    case "gone":
-      return (
-        <Notice>
-          <p>This item no longer exists: its file is no longer in {shown.binder.name}. Close this tab.</p>
-        </Notice>
-      );
-    case "binder-broken":
-      return (
-        <Notice>
-          <p>This item's binder can't be read, so the item can't be shown: its {SETTINGS_FILE} has problems.</p>
-          <ProblemList problems={shown.binder.problems} file={SETTINGS_FILE} className="text-sm text-danger" />
-          <p>
-            Fix <Path path={settingsPath(shown.binder)} /> by hand; the item shows here again once it can be read.
-          </p>
-        </Notice>
-      );
-    case "binder-missing":
-      return (
-        <Notice>
-          <p>This item's binder can't be found: its folder was deleted or its {SETTINGS_FILE} can't be read. These binders can't be read; if one of them is this item's, fix it by hand:</p>
-          <BrokenBinders binders={shown.broken} />
-        </Notice>
-      );
-    case "binder-gone":
-      return (
-        <Notice>
-          <p>This item's binder no longer exists, so the item can't be shown. Close this tab.</p>
-        </Notice>
-      );
-    case "error":
-      return (
-        <p role="alert" className="text-sm text-danger">
-          {READ_FAILED[shown.what]}: {shown.message}
-        </p>
-      );
-  }
+type Binder = NonNullable<ReturnType<typeof listedBinder>>;
+
+/** The items of the binders the properties link to, by binder id; undefined while a list is unknown. */
+const useLinkLists = (properties: Readonly<Record<string, LenientProperty>>): Listed => {
+  const listIds = [...new Set(Object.values(properties).flatMap((property) => (property.type === "link" ? [property.to] : [])))];
+  const lists = useBinderItems(listIds);
+  return (id) => {
+    const list = lists[listIds.indexOf(id)];
+    return usable({ data: list?.data?.items, error: list?.error });
+  };
 };
 
 const ItemTab = ({ binderId, itemId, setTitle }: SavedItemParams & { setTitle: PanelProps["setTitle"] }) => {
@@ -151,12 +77,7 @@ const ItemTab = ({ binderId, itemId, setTitle }: SavedItemParams & { setTitle: P
   });
   const binder = listedBinder(shown);
   const properties = binder?.properties ?? NO_PROPERTIES;
-  const listIds = [...new Set(Object.values(properties).flatMap((property) => (property.type === "link" ? [property.to] : [])))];
-  const lists = useBinderItems(listIds);
-  const listed: Listed = (id) => {
-    const list = lists[listIds.indexOf(id)];
-    return usable({ data: list?.data?.items, error: list?.error });
-  };
+  const listed = useLinkLists(properties);
 
   const known = lastKnown(shown);
   const title = known === undefined ? undefined : itemTitle(known);
@@ -169,14 +90,55 @@ const ItemTab = ({ binderId, itemId, setTitle }: SavedItemParams & { setTitle: P
     <ScrollArea className="h-full min-h-0">
       <article className="mx-auto flex max-w-chat flex-col gap-5 px-5 pt-6 pb-10">
         {known === undefined ? (
-          <Content shown={shown} />
+          <ItemNotice shown={shown} />
         ) : (
           <EditItem
             key={itemId}
-            tab={{ binderId, itemId }}
-            shown={shown}
+            editing={{ kind: "saved", tab: { binderId, itemId }, shown }}
             item={known}
             binderName={binder?.name}
+            properties={properties}
+            listed={listed}
+            onOpenItem={openItem}
+          />
+        )}
+      </article>
+    </ScrollArea>
+  );
+};
+
+/** A new item's tab: the item form on no file, its context's values set, written on the first Save. */
+const DraftTab = ({ binderId, draft, context }: DraftItemParams) => {
+  const binders = useBinders();
+  const { openItem } = useWorkbench();
+  const list = usable({ data: binders.data?.binders, error: binders.error });
+  const binder = list?.find((each): each is Binder => each.id === binderId);
+  const properties = binder?.properties ?? NO_PROPERTIES;
+  const listed = useLinkLists(properties);
+  const start = useMemo(() => draftStart(context), [context]);
+
+  if (list === undefined) {
+    return binders.error === null ? (
+      <Note>Loading…</Note>
+    ) : (
+      <p role="alert" className="p-5 text-sm text-danger">
+        {READ_FAILED.binders}: {asError(binders.error).message}
+      </p>
+    );
+  }
+  return (
+    <ScrollArea className="h-full min-h-0">
+      <article className="mx-auto flex max-w-chat flex-col gap-5 px-5 pt-6 pb-10">
+        {binder === undefined ? (
+          <Notice>
+            <p>This new item's binder no longer exists, so the item can't be saved. Close this tab.</p>
+          </Notice>
+        ) : (
+          <EditItem
+            key={draft}
+            editing={{ kind: "draft", tab: { binderId, draft, context }, naming: binder.naming, start }}
+            item={NO_FILE}
+            binderName={binder.name}
             properties={properties}
             listed={listed}
             onOpenItem={openItem}
@@ -197,52 +159,79 @@ const Meta = ({ item, binderName }: { item: ItemData; binderName: string | undef
 
 const fieldLabel = (field: string): string => (field === "title" ? "Title" : field === "body" ? "Body" : field);
 
+/** What an item form edits: an item read from its file (with what the tab shows of it), or a draft. */
+type Editing =
+  | { kind: "saved"; tab: SavedItemParams; shown: Exclude<ItemShown, { kind: "loading" }> }
+  | { kind: "draft"; tab: DraftItemParams; naming: Naming; start: Readonly<Record<string, FieldValue>> };
+
 /**
  * The item's fields and body as I edit them, from the first read on: my changes stay while the tab can't show the item
- * (its notice above them, Save off) and the close still asks. Decisions are `itemEdit`'s; this runs the saves and the
- * reread.
+ * (its notice above them, Save off) and the close still asks. A draft's first Save creates the item, and its tab becomes
+ * the item's. Decisions are `itemEdit`'s; this runs the saves, the reread and the delete.
  */
 const EditItem = ({
-  tab,
-  shown,
+  editing,
   item,
   binderName,
   properties,
   listed,
   onOpenItem,
 }: {
-  tab: SavedItemParams;
-  shown: Exclude<ItemShown, { kind: "loading" }>;
-  /** The item as last read. */
+  editing: Editing;
+  /** The item as last read; `NO_FILE` for a draft. */
   item: ItemData;
   binderName: string | undefined;
   properties: Readonly<Record<string, LenientProperty>>;
   listed: Listed;
   onOpenItem: (binderId: string, itemId: string) => void;
 }) => {
-  const [state, dispatch] = useReducer(itemEdit, item, initialEdit);
-  const fresh = shown.kind === "item" ? shown.item : undefined;
+  const { tab } = editing;
+  const [state, dispatch] = useReducer(itemEdit, undefined, () => initialEdit(item, editing.kind === "draft" ? editing.start : undefined));
+  const fresh = editing.kind === "saved" && editing.shown.kind === "item" ? editing.shown.item : undefined;
   useEffect(() => {
     if (fresh !== undefined) dispatch({ type: "refreshed", item: fresh });
   }, [fresh]);
-  const showable = fresh !== undefined;
+  const showable = editing.kind === "draft" || fresh !== undefined;
   const queryClient = useQueryClient();
   const save = useSaveItem();
-  const { closeTab } = useWorkbench();
+  const create = useCreateItem();
+  const { closeTab, replaceTab } = useWorkbench();
+  const [fileName, setFileName] = useState("");
+  const [staleDelete, setStaleDelete] = useState(false);
 
+  const refuse = (error: unknown) => {
+    const failure = saveFailure(error);
+    dispatch({ type: "refused", problems: failure === "stale" ? [{ message: asError(error).message }] : failure });
+  };
   const send = (from: ItemEditState) => {
     dispatch({ type: "saving" });
+    if (editing.kind === "draft") {
+      create.mutate(
+        { binderId: tab.binderId, ...createRequest(from, editing.naming === "free" ? fileName : "") },
+        {
+          onSuccess: (written) => {
+            if (written.id === null) {
+              dispatch({ type: "refused", problems: [{ message: "The item was saved, but the service sent no id for it. Find it in the binder's list." }] });
+              return;
+            }
+            replaceTab({ panelId: ITEM_PANEL, params: tab }, { panelId: ITEM_PANEL, params: { binderId: tab.binderId, itemId: written.id } satisfies SavedItemParams });
+          },
+          onError: refuse,
+        },
+      );
+      return;
+    }
+    const { itemId } = editing.tab;
     save.mutate(
-      { ref: tab.itemId, ...saveRequest(from) },
+      { ref: itemId, ...saveRequest(from) },
       {
         onSuccess: (written) => dispatch({ type: "saved", item: written }),
         onError: (error) => {
-          const failure = saveFailure(error);
-          if (failure !== "stale") {
-            dispatch({ type: "refused", problems: failure });
+          if (saveFailure(error) !== "stale") {
+            refuse(error);
             return;
           }
-          queryClient.fetchQuery({ ...itemQuery(tab.itemId), staleTime: 0 }).then(
+          queryClient.fetchQuery({ ...itemQuery(itemId), staleTime: 0 }).then(
             (now) => dispatch({ type: "stale", item: now }),
             (reread: unknown) => dispatch({ type: "refused", problems: [{ message: asError(reread).message }] }),
           );
@@ -252,7 +241,7 @@ const EditItem = ({
   };
   const edit = (field: string, value: FieldValue) => dispatch({ type: "edit", field, value });
 
-  const changed = Object.keys(changedFields(state)).length > 0;
+  const changed = edited(state);
   const [asking, setAsking] = useState(false);
   const ask = useCallback(() => setAsking(true), []);
   useCloseGuard({ panelId: ITEM_PANEL, params: tab }, changed ? ask : undefined);
@@ -261,7 +250,8 @@ const EditItem = ({
   const fileLink = (field: string) => linkValue(Object.hasOwn(item.properties, field) ? item.properties[field] : undefined);
   const names = Object.keys(properties);
   const { rows, rest } = propertyRows(properties, showable ? item : { problems: [] });
-  const refused = problemsByField(saveProblems(state), [...names, "title", "body"]);
+  const asksFile = editing.kind === "draft" && editing.naming === "free";
+  const refused = problemsByField(saveProblems(state), [...names, "title", "body", ...(asksFile ? [FILE_FIELD] : [])]);
   const titleProblems = refused.at.get("title") ?? [];
   const text = (field: string, value: FieldValue) => {
     const property = properties[field];
@@ -271,7 +261,7 @@ const EditItem = ({
 
   return (
     <>
-      <Content shown={shown} />
+      {editing.kind === "saved" ? <ItemNotice shown={editing.shown} /> : null}
       <header className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">
           <Meta item={item} binderName={binderName} />
@@ -282,6 +272,7 @@ const EditItem = ({
             <Button type="button" disabled={!showable || !canSave(state)} onClick={() => send(state)}>
               Save
             </Button>
+            {editing.kind === "saved" && fresh !== undefined ? <ItemActions tab={editing.tab} item={fresh} onStale={setStaleDelete} /> : null}
           </div>
         </div>
         <h1 className="text-xl font-semibold text-fg-primary">
@@ -295,6 +286,12 @@ const EditItem = ({
         </h1>
         <ProblemList problems={titleProblems} file={file} className="text-sm text-danger" />
       </header>
+      {staleDelete ? (
+        <div role="alert" className="rounded-md border border-state-waiting/40 bg-surface-2 px-3 py-2.5 text-sm text-fg-secondary">
+          This item's file changed since you asked to delete it, so nothing was deleted. Look at the item again, then delete it if you still want to.
+        </div>
+      ) : null}
+      {asksFile ? <FileName value={fileName} onChange={setFileName} problems={refused.at.get(FILE_FIELD) ?? []} /> : null}
       {fileChanged(state) ? (
         <div role="status" className="rounded-md border border-state-waiting/40 bg-surface-2 px-3 py-2.5 text-sm text-fg-secondary">
           This item's file changed since you started editing. Your changes are kept here; Save shows where they differ from the file.
@@ -332,7 +329,7 @@ const EditItem = ({
       )}
       <Body path={item.path} file={file} text={String(valueOf(state, "body") ?? "")} onChange={(body) => edit("body", body)} problems={refused.at.get("body") ?? []} />
       <CloseDialog
-        name={itemTitle(item)}
+        name={editing.kind === "draft" ? "this new item" : itemTitle(item)}
         open={asking}
         onCancel={() => setAsking(false)}
         onClose={() => {
@@ -344,8 +341,9 @@ const EditItem = ({
   );
 };
 
-/** An item as a tab: its handle, title and binder, its properties and body to edit, and its problems. */
+/** An item tab names no item or names a draft; each reads what it shows itself. */
 export const Item = ({ params, setTitle }: PanelProps) => {
   const parsed = ItemParams.safeParse(params);
-  return parsed.success ? <ItemTab {...parsed.data} setTitle={setTitle} /> : <Note>This tab names no item; close it.</Note>;
+  if (!parsed.success) return <Note>This tab names no item; close it.</Note>;
+  return "itemId" in parsed.data ? <ItemTab {...parsed.data} setTitle={setTitle} /> : <DraftTab {...parsed.data} />;
 };

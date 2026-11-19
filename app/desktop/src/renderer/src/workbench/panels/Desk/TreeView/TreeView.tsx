@@ -1,12 +1,14 @@
 import type { ItemSummary, LenientProperty, LenientView } from "@wombat/shared/items";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { type KeyboardEvent, useMemo, useState } from "react";
 
+import { Button } from "../../../../components/ui/button";
 import { cn } from "../../../../lib/utils";
+import { itemName } from "../../Item/item-params.ts";
 import { ItemRow } from "../ItemRow/ItemRow.tsx";
 import { rowIndent, treeKey } from "../tree-keys.ts";
 import { useTreeFocus } from "../use-tree-focus.ts";
-import { treeRows } from "../view-model/view-model.ts";
+import { type NewItem, treeRows, viewContext } from "../view-model/view-model.ts";
 import { setClosed, visibleTreeRows } from "./tree-view.ts";
 
 type Props = {
@@ -14,9 +16,10 @@ type Props = {
   view: Extract<LenientView, { kind: "tree" }>;
   properties: Record<string, LenientProperty>;
   onOpenItem?: ((itemId: string) => void) | undefined;
+  onNewItem: NewItem;
 };
 
-export const TreeView = ({ items, view, properties, onOpenItem }: Props) => {
+export const TreeView = ({ items, view, properties, onOpenItem, onNewItem }: Props) => {
   const [closed, setClosedRows] = useState<ReadonlySet<string>>(new Set());
   const tree = useMemo(() => treeRows(items, view, properties), [items, view, properties]);
   const rows = useMemo(() => visibleTreeRows(tree, closed), [tree, closed]);
@@ -38,41 +41,55 @@ export const TreeView = ({ items, view, properties, onOpenItem }: Props) => {
   return (
     <div role="tree" aria-label={view.name} className="flex flex-col gap-px px-1.5 pt-1 pb-3">
       {rows.map((row, index) => (
-        <ItemRow
-          key={row.key}
-          item={row.node.item}
-          lead={
-            <span
-              aria-hidden
-              className="flex size-3.5 shrink-0 items-center justify-center"
-              onClick={(event) => {
-                if (row.expanded === undefined) return;
-                event.stopPropagation();
-                setClosedRows((current) => setClosed(current, row.key, !row.expanded));
-              }}
-            >
-              {row.expanded === undefined ? null : (
-                <ChevronRight className={cn("size-3.5 text-fg-tertiary transition-transform", row.expanded && "rotate-90")} />
-              )}
-            </span>
-          }
-          render={
-            <div
-              ref={focus.register(row.key)}
-              role="treeitem"
-              aria-level={row.level}
-              aria-setsize={row.setSize}
-              aria-posinset={row.posInSet}
-              aria-expanded={row.expanded}
+        <div key={row.key} className="group/row relative">
+          <ItemRow
+            item={row.node.item}
+            lead={
+              <span
+                aria-hidden
+                className="flex size-3.5 shrink-0 items-center justify-center"
+                onClick={(event) => {
+                  if (row.expanded === undefined) return;
+                  event.stopPropagation();
+                  setClosedRows((current) => setClosed(current, row.key, !row.expanded));
+                }}
+              >
+                {row.expanded === undefined ? null : (
+                  <ChevronRight className={cn("size-3.5 text-fg-tertiary transition-transform", row.expanded && "rotate-90")} />
+                )}
+              </span>
+            }
+            render={
+              <div
+                ref={focus.register(row.key)}
+                role="treeitem"
+                aria-level={row.level}
+                aria-setsize={row.setSize}
+                aria-posinset={row.posInSet}
+                aria-expanded={row.expanded}
+                tabIndex={focus.tabIndex(index)}
+                onFocus={() => focus.onFocus(row.key)}
+                onClick={() => act(index, "Enter")}
+                onKeyDown={(event) => act(index, event.key, event)}
+                className="focus-ring flex cursor-default items-center gap-1.5 rounded-md py-1 pr-2 text-left text-base select-none transition-colors hover:bg-surface-2"
+                style={{ paddingLeft: rowIndent(row.level) }}
+              />
+            }
+          />
+          {row.node.item.id === null ? null : (
+            <Button
+              variant="ghost"
+              size="icon-xs"
               tabIndex={focus.tabIndex(index)}
-              onFocus={() => focus.onFocus(row.key)}
-              onClick={() => act(index, "Enter")}
-              onKeyDown={(event) => act(index, event.key, event)}
-              className="focus-ring flex cursor-default items-center gap-1.5 rounded-md py-1 pr-2 text-left text-base select-none transition-colors hover:bg-surface-2"
-              style={{ paddingLeft: rowIndent(row.level) }}
-            />
-          }
-        />
+              className="absolute inset-y-0 right-1 my-auto bg-surface-1 text-fg-tertiary opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
+              aria-label={`New child of ${row.node.item.handle ?? itemName(row.node.item)}`}
+              title={`New child of ${row.node.item.handle ?? itemName(row.node.item)}`}
+              onClick={() => onNewItem(viewContext(view, row.node))}
+            >
+              <Plus />
+            </Button>
+          )}
+        </div>
       ))}
     </div>
   );

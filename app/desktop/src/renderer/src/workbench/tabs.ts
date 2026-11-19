@@ -4,13 +4,14 @@ import type { DockviewApi, IDockviewPanel } from "dockview-react";
 import type { AgentSummary } from "@wombat/shared/api";
 import type { BinderSummary } from "@wombat/shared/items";
 
+import { newCommandId } from "../data/commands.ts";
 import { AGENTS_ACTIVITY, DESK_ACTIVITY } from "./activity-ids.ts";
 import type { IsKnown } from "./layout.ts";
 import { getPanel, paramsFit, type ResolveContext, type Reveal, panelTitle } from "./registry.ts";
 import { CHAT_PANEL } from "./panels/Chat/chat-params.ts";
 import { BOARD_PANEL, type BoardParams } from "./panels/Desk/board-params.ts";
 import { binderPlace } from "./panels/Desk/desk-place.ts";
-import { ITEM_PANEL, type ItemParams } from "./panels/Item/item-params.ts";
+import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE } from "./panels/Item/item-params.ts";
 import { PROPOSAL_PANEL, type ProposalParams } from "./panels/Proposal/proposal-params.ts";
 import type { TabRef, WorkbenchActions } from "./workbench-context.ts";
 
@@ -34,22 +35,35 @@ const stableJson = (value: unknown): string =>
 /** A tab's identity: its panel and its params. */
 export const tabKey = (panelId: string, params: unknown): string => `${panelId}:${stableJson(params)}`;
 
+type TabPosition = NonNullable<Parameters<TabHost["addPanel"]>[0]["position"]>;
+
+/** Adds the tab for (panel, params) at `position` (dockview's default place without one). */
+const addTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveContext, position: TabPosition | undefined): void => {
+  const panel = getPanel(panelId);
+  if (panel === undefined) throw new Error(`There's no panel "${panelId}" to open; register it in workbench/activities.ts.`);
+  if (!paramsFit(panel, params)) {
+    throw new Error(`The params for the panel "${panelId}" don't match its paramsSchema; pass what the panel registered.`);
+  }
+  const tab: TabParams = { panelId, params };
+  host.addPanel({
+    id: tabKey(panelId, params),
+    component: TAB_COMPONENT,
+    title: panelTitle(panel, params, ctx),
+    params: tab,
+    ...(position === undefined ? {} : { position }),
+  });
+};
+
 /**
  * Focuses the tab for (panel, params) if it's open; otherwise adds it to the active group (or the first group). With
  * `beside` (another tab's key, while that tab is open) it goes beside that tab instead: into the group to the right of
  * that tab's group, or a new group there.
  */
 export const openTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveContext = { agents: undefined }, beside?: string): void => {
-  const id = tabKey(panelId, params);
-  const open = host.getPanel(id);
+  const open = host.getPanel(tabKey(panelId, params));
   if (open !== undefined) {
     open.api.setActive();
     return;
-  }
-  const panel = getPanel(panelId);
-  if (panel === undefined) throw new Error(`There's no panel "${panelId}" to open; register it in workbench/activities.ts.`);
-  if (!paramsFit(panel, params)) {
-    throw new Error(`The params for the panel "${panelId}" don't match its paramsSchema; pass what the panel registered.`);
   }
   const besideGroup = beside === undefined ? undefined : host.getPanel(beside)?.group;
   const right = besideGroup === undefined ? undefined : host.adjacentGroupInDirection(besideGroup, "right");
@@ -62,14 +76,20 @@ export const openTab = (host: TabHost, panelId: string, params: unknown, ctx: Re
       : right === undefined
         ? { referenceGroup: besideGroup, direction: "right" as const }
         : { referenceGroup: right.id };
-  const tab: TabParams = { panelId, params };
-  host.addPanel({
-    id,
-    component: TAB_COMPONENT,
-    title: panelTitle(panel, params, ctx),
-    params: tab,
-    ...(position === undefined ? {} : { position }),
-  });
+  addTab(host, panelId, params, ctx, position);
+};
+
+/** Puts the tab `to` where the open tab `from` is (same group, same position) and closes `from`. */
+export const replaceTab = (host: TabHost, from: string, to: TabRef, ctx: ResolveContext = { agents: undefined }): void => {
+  const old = host.getPanel(from);
+  if (old === undefined) {
+    openTab(host, to.panelId, to.params, ctx);
+    return;
+  }
+  const open = host.getPanel(tabKey(to.panelId, to.params));
+  if (open === undefined) addTab(host, to.panelId, to.params, ctx, { referenceGroup: old.group, index: old.group.panels.indexOf(old) });
+  else open.api.setActive();
+  host.removePanel(old);
 };
 
 /** The sides of a group a split can open on. */
@@ -257,6 +277,14 @@ export const workbenchActions = (
     },
     openItem: (binderId, itemId) => {
       actions.openTab(ITEM_PANEL, { binderId, itemId } satisfies ItemParams);
+    },
+    openNewItem: (binderId, context) => {
+      const params = { binderId, draft: newCommandId(), context } satisfies ItemParams;
+      actions.openTab(ITEM_PANEL, params);
+      host.getPanel(tabKey(ITEM_PANEL, params))?.api.setTitle(NEW_ITEM_TITLE);
+    },
+    replaceTab: (from, to) => {
+      replaceTab(host, tabKey(from.panelId, from.params), to, ctx());
     },
   };
   return actions;

@@ -1,7 +1,8 @@
 // What an item tab holds while I edit it, pure: the item my changes are on, the file as last read, my changes, a save
-// under way, a refused save's problems and a conflict after a stale save.
-import { ItemWriteErrorCode } from "@wombat/shared/api";
-import type { Item, Problem } from "@wombat/shared/items";
+// under way, a refused save's problems and a conflict after a stale save. A draft (an item not written yet) is the
+// same state on an empty item, its context's values as the changes it starts with.
+import { type CreateItemRequest, ItemWriteErrorCode } from "@wombat/shared/api";
+import { ITEM_FIELDS, type Item, type Problem } from "@wombat/shared/items";
 
 import { ServiceError } from "../../../data/client.ts";
 import { asError } from "../../../lib/errors.ts";
@@ -29,6 +30,8 @@ export type ItemEditState = {
   readonly latest: Item;
   /** My changes, each different from the file as last read. */
   readonly mine: Readonly<Record<string, FieldValue>>;
+  /** The changes the tab started with: a draft's context values; none for an item read from its file. */
+  readonly start: Readonly<Record<string, FieldValue>>;
   /** The fields the save under way sent, as sent. */
   readonly sent: Readonly<Record<string, FieldValue>>;
   readonly conflict: boolean;
@@ -36,15 +39,29 @@ export type ItemEditState = {
   readonly problems: readonly Problem[];
 };
 
-/** The file's value of `field` in `item`; a value of no field type (an invalid item's) as its JSON text. */
-export const fileValue = (item: Item, field: string): FieldValue => {
-  if (field === "title") return item.title;
-  if (field === "body") return item.body;
-  const value = Object.hasOwn(item.properties, field) ? item.properties[field] : undefined;
+/** A property's value as the form edits it: a link as its target's id, any other non-field value as its JSON text. */
+const fieldValue = (value: unknown): FieldValue => {
   if (value === undefined || value === null) return null;
   if (typeof value === "string" || typeof value === "number") return value;
   return linkValue(value)?.id ?? JSON.stringify(value);
 };
+
+/** The file's value of `field` in `item`; a value of no field type (an invalid item's) as its JSON text. */
+export const fileValue = (item: Item, field: string): FieldValue => {
+  if (field === "title") return item.title;
+  if (field === "body") return item.body;
+  return fieldValue(Object.hasOwn(item.properties, field) ? item.properties[field] : undefined);
+};
+
+/** What a draft edits: an item with no file, no handle and no values. */
+export const NO_FILE: Item = { id: null, handle: null, aliases: [], title: "", body: "", properties: {}, path: "", version: "", problems: [] };
+
+/** A draft's starting changes from its context (`viewContext`): each value as the form edits it, empty ones left out. */
+export const draftStart = (context: Readonly<Record<string, unknown>>): Record<string, FieldValue> =>
+  Object.fromEntries(Object.entries(context).flatMap(([field, value]) => {
+    const start = fieldValue(value);
+    return start === null ? [] : [[field, start]];
+  }));
 
 /**
  * Drops my changes the file as last read already holds (a change back to the base while the file moved on stays one);
@@ -55,7 +72,11 @@ const settled = (state: ItemEditState): ItemEditState => {
   return Object.keys(mine).length === 0 ? { ...state, mine, base: state.latest, conflict: false } : { ...state, mine };
 };
 
-export const initialEdit = (item: Item): ItemEditState => ({ base: item, latest: item, mine: {}, sent: {}, conflict: false, saving: false, problems: [] });
+/** The tab's state on `item` as read; `start` gives the changes it starts with (a draft's, on `NO_FILE`). */
+export const initialEdit = (item: Item, start: Readonly<Record<string, FieldValue>> = {}): ItemEditState => {
+  const state = settled({ base: item, latest: item, mine: start, start: {}, sent: {}, conflict: false, saving: false, problems: [] });
+  return { ...state, start: state.mine };
+};
 
 /**
  * My changes once a save of `sent` is written: a sent field is cleared unless I changed it again meanwhile. Not by
@@ -86,8 +107,14 @@ export const itemEdit = (state: ItemEditState, event: ItemEditEvent): ItemEditSt
     case "takeTheirs":
       return settled({ ...state, mine: without(state.mine, event.field) });
     case "discard":
-      return settled({ ...state, mine: {}, problems: [], conflict: false });
+      return settled({ ...state, mine: state.start, problems: [], conflict: false });
   }
+};
+
+/** Whether I changed anything since the tab started: what Discard undoes and a close asks about. */
+export const edited = (state: ItemEditState): boolean => {
+  const [mine, start] = [Object.entries(state.mine), state.start];
+  return mine.length !== Object.keys(start).length || mine.some(([field, value]) => !Object.hasOwn(start, field) || start[field] !== value);
 };
 
 /** What a save sends: my changes. */
@@ -95,6 +122,14 @@ export const changedFields = (state: ItemEditState): Record<string, FieldValue> 
 
 /** The PATCH body: my changes on the version they're based on. */
 export const saveRequest = (state: ItemEditState): { version: string; fields: Record<string, FieldValue> } => ({ version: state.base.version, fields: changedFields(state) });
+
+/** A draft's POST body: its title, body and set properties, and the file name when one is given. */
+export const createRequest = (state: ItemEditState, file: string): CreateItemRequest => ({
+  title: String(valueOf(state, "title") ?? ""),
+  body: String(valueOf(state, "body") ?? ""),
+  properties: Object.fromEntries(Object.entries(state.mine).filter(([field, value]) => !ITEM_FIELDS.has(field) && value !== null)),
+  ...(file.trim() === "" ? {} : { file }),
+});
 
 /** What the form shows for `field`: my value when I changed it, else the file's as last read. */
 export const valueOf = (state: ItemEditState, field: string): FieldValue => (Object.hasOwn(state.mine, field) ? (state.mine[field] ?? null) : fileValue(state.latest, field));

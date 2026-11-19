@@ -36,6 +36,13 @@ export type WorkbenchActions = {
   openBinder: (binderId: string, reveal?: string, view?: string) => void;
   /** Opens or focuses the item's tab. */
   openItem: (binderId: string, itemId: string) => void;
+  /** Opens a new tab on an item not written yet in the binder, starting with `context`'s values (`viewContext`). */
+  openNewItem: (binderId: string, context: Record<string, unknown>) => void;
+  /**
+   * Opens tab `to` where tab `from` is (same group, same position) and closes `from` without asking its close guard;
+   * with `from` not open, opens `to` as openTab does.
+   */
+  replaceTab: (from: TabRef, to: TabRef) => void;
 };
 
 export const WorkbenchContext = createContext<WorkbenchActions | undefined>(undefined);

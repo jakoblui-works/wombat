@@ -42,6 +42,8 @@ export type PanelDescriptor = {
   resolves?: (params: unknown, ctx: KnownContext) => boolean;
   /** Whether a saved tab comes back at the next start, on top of `resolves` (checked only by the restore). */
   restores?: (params: unknown, ctx: KnownContext) => boolean;
+  /** Whether an open tab is saved with the layout (default: yes); a tab that isn't is never restored either. */
+  saves?: (params: unknown) => boolean;
 };
 
 export type ActivityDescriptor = {
@@ -90,14 +92,17 @@ export const isKnown =
     return agents === undefined || panel.resolves === undefined || panel.resolves(params, { agents, proposals });
   };
 
+/** Whether an open tab goes into the saved layout: its panel's `saves`. */
+export const isSaved: IsKnown = (panelId, params) => panels.get(panelId)?.saves?.(params) ?? true;
+
 /**
- * Whether a saved tab comes back at the next start: `isKnown`, plus, once the agents list is known, its panel's
+ * Whether a saved tab comes back at the next start: `isKnown` and `isSaved`, plus, once the agents list is known, its panel's
  * `restores` (a diff tab of an answered request isn't restored).
  */
 export const isRestorable =
   (ctx: ResolveContext): IsKnown =>
   (panelId, params) => {
-    if (!isKnown(ctx)(panelId, params)) return false;
+    if (!isKnown(ctx)(panelId, params) || !isSaved(panelId, params)) return false;
     const restores = panels.get(panelId)?.restores;
     return ctx.agents === undefined || restores === undefined || restores(params, { agents: ctx.agents, proposals: ctx.proposals });
   };

@@ -10,6 +10,10 @@ export type Row = { item: ItemSummary };
 /** The list a binder without a list or tree view shows: every item, by handle number. */
 export const PLAIN_LIST: Extract<LenientView, { kind: "list" }> = { name: "Items", kind: "list" };
 
+/** The view the sidebar shows a binder in: `view` when it's a list or a tree, else `PLAIN_LIST`. */
+export const paneView = (view: LenientView | undefined): Extract<LenientView, { kind: "list" | "tree" }> =>
+  view?.kind === "list" || view?.kind === "tree" ? view : PLAIN_LIST;
+
 /** `value`: the group's value as items hold it; `none`: the items without a value; `all`: a view without `group`. */
 export type Group = { key: string; rows: Row[] } & ({ kind: "value"; value: unknown } | { kind: "none" } | { kind: "all" });
 
@@ -122,4 +126,27 @@ export const treeRows = (items: readonly ItemSummary[], view: LenientView, prope
     top.set(at, build(at));
   }
   return shown.flatMap((item) => top.get(item) ?? []);
+};
+
+/** Where "+ New" was asked: a group or a board's column (by its value), or a row (its item becomes the new one's parent). */
+export type NewItemPlace = { kind: "value"; value: unknown } | { kind: "none" } | { kind: "all" } | Row;
+
+/** Opens a new item starting with `context` (`viewContext`). */
+export type NewItem = (context: Record<string, unknown>) => void;
+
+/**
+ * The values a new item asked for in `view` starts with: the view's filter values, then the place's: a group's or
+ * column's value for the view's group or column property (nothing for the items without one), or the row's item as the
+ * tree's parent link.
+ */
+export const viewContext = (view: LenientView, place?: NewItemPlace): Record<string, unknown> => {
+  const context: Record<string, unknown> = { ...view.filter };
+  if (place === undefined) return context;
+  if ("item" in place) {
+    if (view.kind === "tree" && place.item.id !== null) context[view.parent] = { id: place.item.id, handle: place.item.handle };
+    return context;
+  }
+  const property = view.kind === "list" ? view.group : view.kind === "board" ? view.column : undefined;
+  if (place.kind === "value" && property !== undefined) context[property] = place.value;
+  return context;
 };

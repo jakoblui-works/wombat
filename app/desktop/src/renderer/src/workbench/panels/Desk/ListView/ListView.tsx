@@ -1,13 +1,16 @@
 import type { ItemSummary, LenientProperty, LenientView } from "@wombat/shared/items";
+import { Plus } from "lucide-react";
 
+import { Button } from "../../../../components/ui/button";
 import { ItemRow } from "../ItemRow/ItemRow.tsx";
-import { groupHeading, listGroups, type Row, shownGroups } from "../view-model/view-model.ts";
+import { groupHeading, listGroups, type NewItem, type Row, shownGroups, viewContext } from "../view-model/view-model.ts";
 
 type Props = {
   items: readonly ItemSummary[];
   view: Extract<LenientView, { kind: "list" }>;
   properties: Record<string, LenientProperty>;
   onOpenItem?: ((itemId: string) => void) | undefined;
+  onNewItem: NewItem;
 };
 
 const Rows = ({ rows, label, onOpenItem }: { rows: readonly Row[]; label: string; onOpenItem: Props["onOpenItem"] }) => (
@@ -32,7 +35,7 @@ const Rows = ({ rows, label, onOpenItem }: { rows: readonly Row[]; label: string
 );
 
 /** A binder's list view: its items in the view's groups and order. */
-export const ListView = ({ items, view, properties, onOpenItem }: Props) => {
+export const ListView = ({ items, view, properties, onOpenItem, onNewItem }: Props) => {
   const groups = shownGroups(listGroups(items, view, properties));
   if (groups.length === 0) return <p className="p-3 text-sm text-fg-tertiary">No items in this view.</p>;
   return (
@@ -42,10 +45,22 @@ export const ListView = ({ items, view, properties, onOpenItem }: Props) => {
         if (name === undefined) return <Rows key={group.key} rows={group.rows} label="Items" onOpenItem={onOpenItem} />;
         return (
           <section key={group.key} aria-label={name}>
-            <h3 className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 text-xs font-medium text-fg-tertiary">
-              <span className="truncate">{name}</span>
-              <span className="tabular-nums">{group.rows.length}</span>
-            </h3>
+            <div className="flex items-center gap-1 pt-1 pr-1">
+              <h3 className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5 pt-1 pb-1 text-xs font-medium text-fg-tertiary">
+                <span className="truncate">{name}</span>
+                <span className="tabular-nums">{group.rows.length}</span>
+              </h3>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="text-fg-tertiary"
+                aria-label={`New item in ${name}`}
+                title={`New item in ${name}`}
+                onClick={() => onNewItem(viewContext(view, group))}
+              >
+                <Plus />
+              </Button>
+            </div>
             <Rows rows={group.rows} label={name} onOpenItem={onOpenItem} />
           </section>
         );

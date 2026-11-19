@@ -18,7 +18,7 @@ import { BOARD_PANEL, BOARD_TITLE, BoardParams } from "./panels/Desk/board-param
 import { BoardPlaceholder } from "./panels/Desk/BoardPlaceholder/BoardPlaceholder.tsx";
 import { Desk } from "./panels/Desk/Desk.tsx";
 import { Item } from "./panels/Item/Item.tsx";
-import { ITEM_PANEL, ITEM_TITLE, ItemParams } from "./panels/Item/item-params.ts";
+import { ITEM_PANEL, ITEM_TITLE, ItemParams, itemTabSaved } from "./panels/Item/item-params.ts";
 
 /** An activity that isn't built yet: its sidebar panel shows its empty state. */
 const unbuilt = (id: string, title: string, icon: LucideIcon, emptyState: NonNullable<ActivityDescriptor["emptyState"]>): void => {
@@ -89,6 +89,7 @@ const register = (): void => {
     activity: DESK_ACTIVITY,
     component: Item,
     paramsSchema: ItemParams,
+    saves: itemTabSaved,
   });
 
   unbuilt("files", "Files", Files, { title: "Files arrive in step 9", body: "Browse and edit the workspace's files here." });
