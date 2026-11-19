@@ -3,7 +3,7 @@ import { Plus } from "lucide-react";
 
 import { Button } from "../../../../components/ui/button";
 import { ItemRow } from "../ItemRow/ItemRow.tsx";
-import { groupHeading, listGroups, type NewItem, type Row, shownGroups, viewContext } from "../view-model/view-model.ts";
+import { groupHeading, listGroups, type NewItem, newItemLabel, offersNew, type Row, shownGroups, viewContext } from "../view-model/view-model.ts";
 
 type Props = {
   items: readonly ItemSummary[];
@@ -50,16 +50,18 @@ export const ListView = ({ items, view, properties, onOpenItem, onNewItem }: Pro
                 <span className="truncate">{name}</span>
                 <span className="tabular-nums">{group.rows.length}</span>
               </h3>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="text-fg-tertiary"
-                aria-label={`New item in ${name}`}
-                title={`New item in ${name}`}
-                onClick={() => onNewItem(viewContext(view, group))}
-              >
-                <Plus />
-              </Button>
+              {offersNew(view, group) ? (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-fg-tertiary"
+                  aria-label={newItemLabel(name)}
+                  title={newItemLabel(name)}
+                  onClick={() => onNewItem(viewContext(view, group))}
+                >
+                  <Plus />
+                </Button>
+              ) : null}
             </div>
             <Rows rows={group.rows} label={name} onOpenItem={onOpenItem} />
           </section>

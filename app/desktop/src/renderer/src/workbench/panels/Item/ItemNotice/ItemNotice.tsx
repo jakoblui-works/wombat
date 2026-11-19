@@ -3,9 +3,10 @@ import type { ReactNode } from "react";
 
 import { lastPathPart } from "../../../../lib/path.ts";
 import { ProblemList } from "../../Desk/ProblemList/ProblemList.tsx";
-import { type BrokenBinder, type ItemShown, settingsPath } from "../item-state.ts";
+import { type BrokenBinder, type ItemShown, type NoBinder, settingsPath } from "../item-state.ts";
 
-const READ_FAILED = { item: "Couldn't read the item", binders: "Couldn't read the binders", "binder-items": "Couldn't read the binder's items" } as const;
+/** What a failed read of a tab's content says before the error's message. */
+export const READ_FAILED = { item: "Couldn't read the item", binders: "Couldn't read the binders", "binder-items": "Couldn't read the binder's items" } as const;
 
 const Notice = ({ children }: { children: ReactNode }) => (
   <div role="status" className="flex flex-col gap-2 rounded-md border border-line bg-surface-2 px-3 py-2.5 text-sm text-fg-secondary">
@@ -36,6 +37,24 @@ const BrokenBinders = ({ binders }: { binders: readonly BrokenBinder[] }) => (
     ))}
   </ul>
 );
+
+/** What a tab showing an item or a board says when its binder isn't listed. */
+export const BinderNotice = ({ shown, tab }: { shown: NoBinder; tab: "item" | "board" }) =>
+  shown.kind === "binder-missing" ? (
+    <Notice>
+      <p>
+        This {tab}'s binder can't be found: its folder was deleted or its {SETTINGS_FILE} can't be read. These binders can't be read; if one of them is this {tab}'s, fix it by
+        hand:
+      </p>
+      <BrokenBinders binders={shown.broken} />
+    </Notice>
+  ) : (
+    <Notice>
+      <p>
+        This {tab}'s binder no longer exists, so the {tab} can't be shown. Close this tab.
+      </p>
+    </Notice>
+  );
 
 /** What the tab says about the item when it can't show it as read; nothing while it can. */
 export const ItemNotice = ({ shown }: { shown: Exclude<ItemShown, { kind: "loading" }> }) => {
@@ -81,18 +100,8 @@ export const ItemNotice = ({ shown }: { shown: Exclude<ItemShown, { kind: "loadi
         </Notice>
       );
     case "binder-missing":
-      return (
-        <Notice>
-          <p>This item's binder can't be found: its folder was deleted or its {SETTINGS_FILE} can't be read. These binders can't be read; if one of them is this item's, fix it by hand:</p>
-          <BrokenBinders binders={shown.broken} />
-        </Notice>
-      );
     case "binder-gone":
-      return (
-        <Notice>
-          <p>This item's binder no longer exists, so the item can't be shown. Close this tab.</p>
-        </Notice>
-      );
+      return <BinderNotice shown={shown} tab="item" />;
     case "error":
       return (
         <p role="alert" className="text-sm text-danger">

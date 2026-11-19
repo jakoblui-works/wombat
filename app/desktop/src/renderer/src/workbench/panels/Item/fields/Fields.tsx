@@ -6,9 +6,9 @@ import { Button } from "../../../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../../components/ui/select";
 import { cn } from "../../../../lib/utils";
 import { Field as FieldFrame, FIELD_INPUT, type FieldControl } from "../../Desk/Field/Field.tsx";
-import { displayValue, MISSING_ITEM } from "../../Desk/view-model/values.ts";
+import { clearable, displayValue, MISSING_ITEM } from "../../Desk/view-model/values.ts";
 import type { FieldValue } from "../item-edit.ts";
-import { clearable, inputValue, type LinkOption, linkOptions, linkTarget, numberDraft, pickedByUser, shownNumber } from "./field-input.ts";
+import { inputValue, type LinkOption, linkOptions, linkTarget, numberDraft, pickedByUser, shownNumber } from "./field-input.ts";
 import type { PropertyRow } from "./property-rows.ts";
 
 /** The clear entry of an optional select or link. */

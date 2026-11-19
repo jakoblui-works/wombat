@@ -105,6 +105,9 @@ export const heldValue = (property: LenientProperty | undefined, value: unknown,
   }
 };
 
+/** A property may be emptied unless the binder requires it. */
+export const clearable = (property: LenientProperty): boolean => !("required" in property && property.required === true);
+
 /** What a link shows when its target is gone. */
 export const MISSING_ITEM = "missing item";
 

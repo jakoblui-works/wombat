@@ -12,7 +12,7 @@ import { Note } from "../../approvals/Note/Note.tsx";
 import { type FieldRow, fieldRows } from "./field-rows.ts";
 import { ProblemList } from "../../Desk/ProblemList/ProblemList.tsx";
 import { problemsByField } from "../../Desk/view-model/problems.ts";
-import { MISSING_ITEM } from "../../Desk/view-model/values.ts";
+import { clearable, MISSING_ITEM } from "../../Desk/view-model/values.ts";
 import { inputText, typedValue, valueText, withField, withoutField } from "./field-values.ts";
 
 type Fields = Readonly<Record<string, unknown>>;
@@ -31,7 +31,7 @@ const PropertyControl = ({ name, value, property, links, onChange }: { name: str
     const known: Option[] = property.type === "select" ? property.options.map((option) => ({ value: option, label: option })) : [...links];
     const chosen = inputText(value);
     const options = [
-      ...(property.required && chosen !== "" ? [] : [{ value: "", label: "(none)" }]),
+      ...(!clearable(property) && chosen !== "" ? [] : [{ value: "", label: "(none)" }]),
       ...known,
       ...(chosen === "" || known.some((option) => option.value === chosen) ? [] : [{ value: chosen, label: property.type === "link" ? MISSING_ITEM : chosen }]),
     ];

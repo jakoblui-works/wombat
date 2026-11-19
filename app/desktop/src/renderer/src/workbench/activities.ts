@@ -14,8 +14,8 @@ import { NeedsMe } from "./panels/NeedsMe/NeedsMe.tsx";
 import { Proposal } from "./panels/Proposal/Proposal.tsx";
 import { PROPOSAL_TITLE, PROPOSAL_PANEL, ProposalParams, proposalResolves, proposalRestores } from "./panels/Proposal/proposal-params.ts";
 import { EmptyActivity } from "./panels/EmptyActivity/EmptyActivity.tsx";
-import { BOARD_PANEL, BOARD_TITLE, BoardParams } from "./panels/Desk/board-params.ts";
-import { BoardPlaceholder } from "./panels/Desk/BoardPlaceholder/BoardPlaceholder.tsx";
+import { BOARD_PANEL, BOARD_TITLE, BoardParams } from "./panels/Board/board-params.ts";
+import { Board } from "./panels/Board/Board.tsx";
 import { Desk } from "./panels/Desk/Desk.tsx";
 import { Item } from "./panels/Item/Item.tsx";
 import { ITEM_PANEL, ITEM_TITLE, ItemParams, itemTabSaved } from "./panels/Item/item-params.ts";
@@ -77,7 +77,7 @@ const register = (): void => {
     icon: Kanban,
     locations: ["editor"],
     activity: DESK_ACTIVITY,
-    component: BoardPlaceholder,
+    component: Board,
     paramsSchema: BoardParams,
   });
   registerPanel({

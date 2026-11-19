@@ -4,9 +4,6 @@ import type { ItemSummary, LenientProperty, LinkValue } from "@wombat/shared/ite
 import { MISSING_ITEM } from "../../Desk/view-model/values.ts";
 import type { FieldValue } from "../item-edit.ts";
 
-/** A property may be emptied unless the binder requires it. */
-export const clearable = (property: LenientProperty): boolean => !("required" in property && property.required === true);
-
 /** The value an emptied text, date or number input sends. */
 export const inputValue = (text: string): FieldValue => (text === "" ? null : text);
 

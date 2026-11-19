@@ -131,6 +131,12 @@ export const treeRows = (items: readonly ItemSummary[], view: LenientView, prope
 /** Where "+ New" was asked: a group or a board's column (by its value), or a row (its item becomes the new one's parent). */
 export type NewItemPlace = { kind: "value"; value: unknown } | { kind: "none" } | { kind: "all" } | Row;
 
+/** Whether a group or column offers "+ New": every group of a list, a board's columns but its No value. */
+export const offersNew = (view: LenientView, place: Pick<Group, "kind">): boolean => view.kind !== "board" || place.kind === "value";
+
+/** The name of a group's or column's "+ New", by its heading. */
+export const newItemLabel = (heading: string): string => `New item in ${heading}`;
+
 /** Opens a new item starting with `context` (`viewContext`). */
 export type NewItem = (context: Record<string, unknown>) => void;
 

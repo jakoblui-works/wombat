@@ -12,3 +12,6 @@ export const writeProblems = (error: unknown): Problem[] =>
 /** What a failed item write comes to: "stale" (the file changed since the version it named), else its problems. */
 export const writeFailure = (error: unknown): "stale" | Problem[] =>
   error instanceof ServiceError && error.code === ItemWriteErrorCode.enum.stale_version ? "stale" : writeProblems(error);
+
+/** Whether a failed write was answered by the service (a refusal), not lost on the way (no connection, a timeout). */
+export const refusedByService = (error: unknown): boolean => error instanceof ServiceError;

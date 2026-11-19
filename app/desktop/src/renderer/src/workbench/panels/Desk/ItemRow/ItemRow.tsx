@@ -4,6 +4,7 @@ import { type ReactElement, type ReactNode, useId } from "react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../../../components/ui/tooltip";
 import { lastPathPart } from "../../../../lib/path.ts";
+import { cn } from "../../../../lib/utils";
 import { itemName } from "../../Item/item-params.ts";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
 
@@ -13,10 +14,12 @@ type Props = {
   render: ReactElement<Record<string, unknown>>;
   /** Shown before the handle (a tree row's chevron). */
   lead?: ReactNode;
+  /** The title on as many lines as it needs (a board's card), not cut to one. */
+  wrap?: boolean;
 };
 
 /** One item in a view: its handle and title, and an invalid one's mark, its problems on hover or focus. */
-export const ItemRow = ({ item, render, lead }: Props) => {
+export const ItemRow = ({ item, render, lead, wrap = false }: Props) => {
   const described = useId();
   const invalid = item.problems.length > 0;
   return (
@@ -25,7 +28,7 @@ export const ItemRow = ({ item, render, lead }: Props) => {
         <TooltipTrigger delay={200} render={render} aria-describedby={invalid ? described : undefined}>
           {lead}
           <span className="w-14 shrink-0 truncate font-mono text-xs text-fg-tertiary">{item.handle}</span>{" "}
-          <span className="min-w-0 flex-1 truncate text-fg-primary">{itemName(item)}</span>
+          <span className={cn("min-w-0 flex-1 text-fg-primary", wrap ? "break-words" : "truncate")}>{itemName(item)}</span>
           {invalid ? <TriangleAlert role="img" aria-label="Invalid" className="size-3.5 shrink-0 text-danger" /> : null}
         </TooltipTrigger>
         {invalid ? (

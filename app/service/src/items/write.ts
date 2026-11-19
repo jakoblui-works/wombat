@@ -122,6 +122,15 @@ export class ItemIdentityError extends ItemWriteError {
 }
 
 /**
+ * The refusal of a write to an item whose file has problems only a fix by hand clears (blocking ones, or no handle):
+ * its problems, else the missing handle as the one problem.
+ */
+export const unfixedItem = (ref: string, path: string, problems: readonly NamedProblem[], action: "updated" | "deleted"): ItemIdentityError => {
+  const said = problems.length > 0 ? [...problems] : [{ message: "handle: none yet; it's assigned once the file's problems are fixed by hand" }];
+  return new ItemIdentityError(`${ref} has problems on disk (${listed(said)}), so it can't be ${action}; fix the file (${path}) by hand first.`, said);
+};
+
+/**
  * A write refused for the binder's own problems (its settings), not the item's.
  * The problems are the catalog's, with the `names` of the other binders they name; the message lists them.
  */
@@ -274,11 +283,7 @@ const writableItem = async (root: string, read: RootRead, handle: string, baseVe
   if (item.version !== current.version) throw stale();
   writableBinder(binder, action);
   const blocking = action === "updated" ? item.problems.filter((problem) => !isValueProblem(binder.settings, problem)) : [];
-  if (blocking.length > 0 || item.handle === null) {
-    const problems = blocking.length > 0 ? blocking : item.problems;
-    const said = problems.length > 0 ? problems : [{ message: "handle: none yet; it's assigned once the file's problems are fixed by hand" }];
-    throw new ItemIdentityError(`${handle} has problems on disk (${listed(said)}), so it can't be ${action}; fix the file (${item.path}) by hand first.`, said);
-  }
+  if (blocking.length > 0 || item.handle === null) throw unfixedItem(handle, item.path, blocking.length > 0 ? blocking : item.problems, action);
   if (action === "updated" && item.id === null) {
     throw new ItemIdentityError(`${handle} has no id yet, so it can't be ${action}; read its binder so it gets one, then try again.`, [
       { field: "id", message: "id: none yet; reading the binder assigns one" },

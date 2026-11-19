@@ -6,7 +6,7 @@ import type { Context, Hono } from "hono";
 
 import { handlesById, summarize, withLinks } from "../items/api-view.ts";
 import { findByRef, type Catalog, type LoadedItem } from "../items/catalog.ts";
-import { ItemWriteError, ME, type Writer } from "../items/write.ts";
+import { ItemWriteError, ME, unfixedItem, type Writer } from "../items/write.ts";
 import { errorResponse, ITEMS_STATUS, itemWriteResponse } from "./errors.ts";
 import { checked, readBody, readQuery } from "./request.ts";
 
@@ -16,21 +16,10 @@ export const noItem = (c: Context, ref: string) =>
   errorResponse(c, ITEMS_STATUS.item_not_found, ItemsErrorCode.enum.item_not_found, `There's no item ${ref}. List a binder's items to see their handles.`);
 
 /** The handle the Writer takes for `ref` (id, handle or alias), or the refusal to answer. */
-const handleOf = async (c: Context, catalog: Catalog, ref: string): Promise<{ handle: string } | { refused: Response }> => {
+const handleOf = async (c: Context, catalog: Catalog, ref: string, action: "updated" | "deleted"): Promise<{ handle: string } | { refused: Response }> => {
   const found = findByRef((await catalog.snapshot()).items, ref);
   if (found === undefined) return { refused: noItem(c, ref) };
-  if (found.handle === null) {
-    return {
-      refused: errorResponse(
-        c,
-        ITEMS_STATUS.items_not_writable,
-        ItemsErrorCode.enum.items_not_writable,
-        `${ref} has no handle yet, so it can't be changed here; fix the file (${found.path}) by hand first.`,
-        undefined,
-        found.problems.length > 0 ? found.problems : undefined,
-      ),
-    };
-  }
+  if (found.handle === null) return { refused: itemWriteResponse(c, unfixedItem(ref, found.path, found.problems, action)) };
   return { handle: found.handle };
 };
 
@@ -80,7 +69,7 @@ export const itemRoutes = (app: Hono, items: ItemWrites | undefined, notConfigur
     if (!items) return notConfigured(c);
     const { catalog, writer } = items;
     const { version, fields } = await readBody(c, ROUTES.updateItem.body);
-    const target = await handleOf(c, catalog, c.req.param("ref"));
+    const target = await handleOf(c, catalog, c.req.param("ref"), "updated");
     if ("refused" in target) return target.refused;
     const { handle } = target;
     return writing(c, async () => {
@@ -93,7 +82,7 @@ export const itemRoutes = (app: Hono, items: ItemWrites | undefined, notConfigur
     if (!items) return notConfigured(c);
     const { catalog, writer } = items;
     const { version } = readQuery(c, ROUTES.deleteItem.query);
-    const target = await handleOf(c, catalog, c.req.param("ref"));
+    const target = await handleOf(c, catalog, c.req.param("ref"), "deleted");
     if ("refused" in target) return target.refused;
     const { handle } = target;
     return writing(c, async () => {

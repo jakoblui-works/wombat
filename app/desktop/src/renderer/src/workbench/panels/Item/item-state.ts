@@ -27,7 +27,7 @@ export type ItemShown =
   | { kind: "error"; what: "item" | "binders" | "binder-items"; message: string; last: Item | undefined };
 
 /** A query as TanStack gives it: `data` may be stale beside an `error`. */
-type Read<T> = { data: T | undefined; error: unknown };
+export type Read<T> = { data: T | undefined; error: unknown };
 
 type Reads = {
   item: Read<Item>;
@@ -46,7 +46,7 @@ const answeredWithError = (read: Read<unknown>): boolean => read.error instanceo
 export const usable = <T>(read: Read<T>): T | undefined => (answeredWithError(read) ? undefined : read.data);
 
 /** The read's error when it leaves no data to show; undefined while it's loading or has data. */
-const unshown = (read: Read<unknown>): string | undefined =>
+export const unshown = (read: Read<unknown>): string | undefined =>
   usable(read) === undefined && read.error !== null && read.error !== undefined ? asError(read.error).message : undefined;
 
 /** A broken binder's settings file, relative to the items root. */
@@ -71,6 +71,20 @@ const shownBinder = (itemId: string, binderId: string, binders: readonly BinderS
   return item === undefined ? named : binderHolding(binders.filter(isListed), item.path);
 };
 
+/** Why a binder isn't listed by id: some binders are broken (one of them may be it), or none is. */
+export type NoBinder = { kind: "binder-missing"; broken: BrokenBinder[] } | { kind: "binder-gone" };
+
+const withoutBinder = (binders: readonly BinderSummary[]): NoBinder => {
+  const broken = binders.filter(isBroken);
+  return broken.length > 0 ? { kind: "binder-missing", broken } : { kind: "binder-gone" };
+};
+
+/** The binder listed with `binderId`, else why it isn't (`NoBinder`). */
+export const binderOf = (binderId: string, binders: readonly BinderSummary[]): { kind: "binder"; binder: Binder } | NoBinder => {
+  const binder = binders.find((each): each is Binder => each.id === binderId);
+  return binder === undefined ? withoutBinder(binders) : { kind: "binder", binder };
+};
+
 /**
  * The binders decide first, then the read by id, then the binder's list. An item the service reads is shown in the
  * binder `shownBinder` picks.
@@ -86,10 +100,9 @@ export const itemShown = (itemId: string, binderId: string, { item, binders, lis
   }
   const binder = shownBinder(itemId, binderId, binderList, shownItem, listed);
   if (binder === undefined) {
-    const broken = binderList.filter(isBroken);
-    const holding = last === undefined ? undefined : binderHolding(broken, last.path);
+    const holding = last === undefined ? undefined : binderHolding(binderList.filter(isBroken), last.path);
     if (holding !== undefined && last !== undefined) return { kind: "binder-broken", binder: holding, last };
-    return broken.length > 0 ? { kind: "binder-missing", broken, last } : { kind: "binder-gone", last };
+    return { ...withoutBinder(binderList), last };
   }
 
   if (shownItem !== undefined) return { kind: "item", item: shownItem, binder };
@@ -139,10 +152,8 @@ export const draftShown = (binderId: string, binders: Read<readonly BinderSummar
     const failed = unshown(binders);
     return failed === undefined ? { kind: "loading" } : { kind: "error", what: "binders", message: failed, last: undefined };
   }
-  const binder = binderList.find((each): each is Binder => each.id === binderId);
-  if (binder !== undefined) return { kind: "item", item: NO_FILE, binder };
-  const broken = binderList.filter(isBroken);
-  return broken.length > 0 ? { kind: "binder-missing", broken, last: undefined } : { kind: "binder-gone", last: undefined };
+  const found = binderOf(binderId, binderList);
+  return found.kind === "binder" ? { kind: "item", item: NO_FILE, binder: found.binder } : { ...found, last: undefined };
 };
 
 /** What an item tab's form edits: the item as last read (a draft's `NO_FILE`) in the binder last listed. */
