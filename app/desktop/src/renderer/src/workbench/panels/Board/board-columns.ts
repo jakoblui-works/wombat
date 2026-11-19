@@ -20,8 +20,8 @@ const optionsOf = (property: LenientProperty | undefined): readonly string[] => 
 
 /**
  * The view's visible rows, sorted, in one column per option of its column property in option order (empty ones too),
- * after a first column for the rows without a value (`valueRank`) when there are any. A proposed create the view's
- * filter would hide goes first in its column.
+ * after a first column for the rows without a value (`valueRank`) when there are any. A row holding an open
+ * proposal the view's filter would hide goes first in its column.
  */
 export const boardColumns = (rows: readonly Row[], view: BoardView, properties: Properties): Column[] => {
   const property = properties[view.column];

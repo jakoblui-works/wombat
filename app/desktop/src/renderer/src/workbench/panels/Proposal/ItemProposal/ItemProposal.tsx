@@ -14,6 +14,7 @@ import { ProblemList } from "../../Desk/ProblemList/ProblemList.tsx";
 import { problemsByField } from "../../Desk/view-model/problems.ts";
 import { useLinkLists } from "../../Desk/use-link-lists.ts";
 import { clearable, MISSING_ITEM } from "../../Desk/view-model/values.ts";
+import { linkOptions, shownNumber } from "../../Item/fields/field-input.ts";
 import { inputText, typedValue, valueText, withField, withoutField } from "./field-values.ts";
 
 type Fields = Readonly<Record<string, unknown>>;
@@ -25,7 +26,7 @@ type Option = { value: string; label: string };
 
 const controlClass = "focus-ring h-7 min-w-0 max-w-96 flex-1 rounded-md border border-line-strong bg-surface-1 px-2 text-sm text-fg-primary";
 
-/** A property's new value as a control: a select for options and links, a plain text box otherwise (a date too). */
+/** A property's new value as a control: a select for options and links, a number box, a plain text box otherwise (a date too). */
 const PropertyControl = ({ name, value, property, links, onChange }: { name: string; value: unknown; property: LenientProperty | undefined; links: readonly Option[]; onChange: (value: unknown) => void }) => {
   const label = `New ${name}`;
   if (property?.type === "select" || property?.type === "link") {
@@ -46,7 +47,39 @@ const PropertyControl = ({ name, value, property, links, onChange }: { name: str
       </select>
     );
   }
+  if (property?.type === "number") return <NumberBox label={label} value={value} property={property} onChange={onChange} className={controlClass} />;
   return <input type="text" aria-label={label} value={inputText(value)} onChange={(event) => onChange(typedValue(event.target.value, property))} className={controlClass} />;
+};
+
+/** A number field's box: it keeps the text as typed while that is its value ("1.0" stays, not "1"), as the item tab's does. */
+const NumberBox = ({
+  label,
+  value,
+  property,
+  onChange,
+  className,
+}: {
+  label: string;
+  value: unknown;
+  property: LenientProperty;
+  onChange: (value: unknown) => void;
+  className: string;
+}) => {
+  const [draft, setDraft] = useState(() => inputText(value));
+  const held = typeof value === "number" || typeof value === "string" ? value : null;
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      aria-label={label}
+      value={shownNumber(draft, held)}
+      onChange={(event) => {
+        setDraft(event.target.value);
+        onChange(typedValue(event.target.value, property));
+      }}
+      className={className}
+    />
+  );
 };
 
 const Value = ({ text, className = "" }: { text: string; className?: string }) =>
@@ -171,7 +204,7 @@ export const ItemProposal = ({
   const links = useLinkLists(properties);
   const { itemsOf } = links;
   const linksTo = (to: string): Option[] =>
-    itemsOf(to).flatMap((item) => (item.id === null || item.handle === null ? [] : [{ value: item.id, label: `${item.handle} · ${item.title ?? ""}` }]));
+    linkOptions(itemsOf(to)).map(({ id, handle, title }) => ({ value: id, label: [handle, title].filter((part) => part !== null).join(" · ") }));
   const rows = fieldRows(current, fields, mine, kind);
   const names = rows.map(({ name }) => name);
   const [chosen, setChosen] = useState<string>();

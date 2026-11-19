@@ -20,16 +20,23 @@ export type LinkTarget = (to: string, id: string) => LinkValue;
 
 /** The items a link to binder `binderId` may name. */
 export type ItemsOf = (binderId: string) => readonly ItemSummary[];
-export type Row = ItemRow | PendingRow;
+/** The open updates and deletes proposed on handle `missing`, which names no item (its file deleted or renamed by hand), oldest first. */
+export type MissingRow = { missing: string; proposals: readonly ItemProposal[] };
+export type Row = ItemRow | PendingRow | MissingRow;
 
+export const isItemRow = (row: Row): row is ItemRow => "item" in row;
 export const isPending = (row: Row): row is PendingRow => "pending" in row;
 
-/** What a row is keyed by: its item's path, or its proposal's id (`proposal:` before it, apart from every path). */
-export const rowKey = (row: Row): string => (isPending(row) ? `proposal:${row.pending.id}` : row.item.path);
+/** What a row is keyed by: its item's path, its create's id or its missing handle, each kind apart from the others. */
+export const rowKey = (row: Row): string => (isItemRow(row) ? row.item.path : isPending(row) ? `proposal:${row.pending.id}` : `missing:${row.missing}`);
 
-/** The value a row holds for property or field `name`. */
+/** The open proposals a row shows: its create, or the updates and deletes on its item, oldest first. */
+export const rowProposals = (row: Row): readonly ItemProposal[] => (isPending(row) ? [row.pending] : (row.proposals ?? []));
+
+/** The value a row holds for property or field `name`; a missing item's row holds none. */
 export const rowValue = (row: Row, name: string, properties: Properties): unknown => {
-  if (!isPending(row)) return row.item.properties[name];
+  if (isItemRow(row)) return row.item.properties[name];
+  if (!isPending(row)) return undefined;
   const value = row.fields[name];
   const property = properties[name];
   return property?.type === "link" && typeof value === "string" ? row.link(property.to, value) : value;
@@ -44,7 +51,7 @@ export const paneView = (view: LenientView | undefined): Extract<LenientView, { 
 
 /**
  * `value`: the group's value as items hold it; `none`: the items without a value; `all`: a view without `group`;
- * `outside`: the proposed creates the view's filter would hide, before every other group.
+ * `outside`: the rows holding an open proposal the view's filter would hide, before every other group.
  */
 export type Group = { key: string; rows: Row[] } & ({ kind: "value"; value: unknown } | { kind: "none" } | { kind: "all" } | { kind: "outside" });
 
@@ -61,16 +68,16 @@ const passes = (row: Row, view: LenientView, properties: Properties): boolean =>
 /** The rows whose every property in the view's filter matches its value (`matchesFilter`). */
 export const visibleItems = <R extends Row>(rows: readonly R[], view: LenientView, properties: Properties = {}): R[] => rows.filter((row) => passes(row, view, properties));
 
-/** Whether `row` is a proposed create the view's filter would hide: it shows anyway, before every other row. */
-export const isOutsideFilter = (row: Row, view: LenientView, properties: Properties): boolean => isPending(row) && !passes(row, view, properties);
+/** Whether `row` holds an open proposal and the view's filter would hide it: it shows anyway, before every other row. */
+export const isOutsideFilter = (row: Row, view: LenientView, properties: Properties): boolean => rowProposals(row).length > 0 && !passes(row, view, properties);
 
-/** The proposed creates the view's filter would hide (`isOutsideFilter`). */
+/** The rows holding an open proposal the view's filter would hide (`isOutsideFilter`). */
 export const outsideFilter = <R extends Row>(rows: readonly R[], view: LenientView, properties: Properties): R[] => rows.filter((row) => isOutsideFilter(row, view, properties));
 
-/** The rows by each of the view's sort properties in order, then by handle number (a proposed create after every handle). */
+/** The rows by each of the view's sort properties in order, then by handle number (a row without an item after every handle). */
 export const sorted = <R extends Row>(rows: readonly R[], view: LenientView, properties: Properties): R[] => {
   const sortBy = view.sort ?? [];
-  const handleOf = (row: Row): string | null => (isPending(row) ? null : row.item.handle);
+  const handleOf = (row: Row): string | null => (isItemRow(row) ? row.item.handle : null);
   return [...rows].sort((a, b) => {
     for (const name of sortBy) {
       const by = compareValues(properties[name], rowValue(a, name, properties), rowValue(b, name, properties));
@@ -80,17 +87,20 @@ export const sorted = <R extends Row>(rows: readonly R[], view: LenientView, pro
   });
 };
 
-/** The rows a view shows, in order: the proposed creates outside its filter, then the visible rows. */
-export const shownRows = (rows: readonly Row[], view: LenientView, properties: Properties): { outside: Row[]; shown: Row[] } => ({
-  outside: sorted(outsideFilter(rows, view, properties), view, properties),
-  shown: sorted(visibleItems(rows, view, properties), view, properties),
-});
+/** The rows a view shows, in order: those outside its filter (`outsideFilter`; proposed creates first), then the visible rows. */
+export const shownRows = (rows: readonly Row[], view: LenientView, properties: Properties): { outside: Row[]; shown: Row[] } => {
+  const outside = outsideFilter(rows, view, properties);
+  return {
+    outside: [...sorted(outside.filter(isPending), view, properties), ...sorted(outside.filter((row) => !isPending(row)), view, properties)],
+    shown: sorted(visibleItems(rows, view, properties), view, properties),
+  };
+};
 
 /**
  * The view's visible rows, sorted, in groups by its `group` property: one per select option in option order (empty
  * ones too), or one per distinct value in ascending order, then one for the rows without a value (only when it has
- * any). Without `group`, one group of every visible row. The proposed creates its filter hides come first, in a group
- * of their own (`outside`).
+ * any). Without `group`, one group of every visible row. The rows holding an open proposal its filter hides come
+ * first, in a group of their own (`outside`).
  */
 export const listGroups = (rows: readonly Row[], view: LenientView, properties: Properties): Group[] => {
   const { outside, shown } = shownRows(rows, view, properties);
@@ -133,14 +143,14 @@ export const groupHeading = (group: Group, view: LenientView, properties: Proper
 /**
  * The view's visible rows, sorted, each under the item its `parent` link names. A row whose parent is missing,
  * filtered out or itself sits at the top; a cycle is cut where a walk up its links first repeats an item, which then
- * sits at the top. Top rows and siblings keep the sort order. The proposed creates its filter hides come first, at the
- * top.
+ * sits at the top. Top rows and siblings keep the sort order. The rows holding an open proposal its filter hides come
+ * first, at the top.
  */
 export const treeRows = (rows: readonly Row[], view: LenientView, properties: Properties = {}): TreeRow[] => {
   const { outside, shown } = shownRows(rows, view, properties);
   const link = view.kind === "tree" ? view.parent : undefined;
   const byId = new Map<string, Row>();
-  for (const row of shown) if (!isPending(row) && row.item.id !== null) byId.set(row.item.id, row);
+  for (const row of shown) if (isItemRow(row) && row.item.id !== null) byId.set(row.item.id, row);
   const parentOf = new Map<Row, Row>();
   if (link !== undefined) {
     for (const row of shown) {

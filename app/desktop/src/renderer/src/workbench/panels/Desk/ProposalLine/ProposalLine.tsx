@@ -1,14 +1,16 @@
+import type { ItemProposal } from "@wombat/shared/proposals";
 import type { CSSProperties } from "react";
 
 import { cn } from "../../../../lib/utils";
 import { DecideButtons } from "../../../proposals/DecideButtons/DecideButtons.tsx";
 import { markLabel } from "../../../proposals/proposal-label.ts";
 import { useWorkbench } from "../../../workbench-context.ts";
-import { isPending, type Row } from "../view-model/view-model.ts";
-import { OUTSIDE_FILTER } from "../view-model/with-proposals.ts";
+import { isItemRow, isPending, type Row } from "../view-model/view-model.ts";
+import { OUTSIDE_FILTER, proposalLines } from "../view-model/with-proposals.ts";
 
 type Props = {
   row: Row;
+  /** The view's filter would hide the row: its first line says so (a missing item's row says what it is instead). */
   outside?: boolean;
   className?: string;
   style?: CSSProperties;
@@ -18,18 +20,15 @@ type Props = {
   swallowed?: () => boolean;
 };
 
-/**
- * Under a row or card holding a proposal: its mark (for an update or delete, a button that opens the proposal's tab),
- * whether the view's filter would hide it, and Approve and Reject. Nothing for a row without one.
- */
-export const ProposalLine = ({ row, outside = false, className, style, tabIndex, swallowed = () => false }: Props) => {
+type LineProps = Omit<Props, "row" | "outside"> & { proposal: ItemProposal; note: string | undefined };
+
+/** One proposal: its mark (for an update or delete, a button that opens the proposal's tab), `note`, and Approve and Reject. */
+const ProposalLine = ({ proposal, note, className, style, tabIndex, swallowed = () => false }: LineProps) => {
   const { openProposal } = useWorkbench();
-  const proposal = isPending(row) ? row.pending : row.proposal;
-  if (proposal === undefined) return null;
   return (
     <div className={cn("flex flex-wrap items-center gap-x-2 gap-y-1", className)} style={style}>
-      {isPending(row) ? (
-        <span className="text-xs font-medium text-primary">{markLabel("create")}</span>
+      {proposal.kind === "create" ? (
+        <span className="text-xs font-medium text-primary">{markLabel(proposal.kind)}</span>
       ) : (
         <button
           type="button"
@@ -40,8 +39,14 @@ export const ProposalLine = ({ row, outside = false, className, style, tabIndex,
           {markLabel(proposal.kind)}
         </button>
       )}
-      {outside ? <span className="text-xs text-fg-tertiary">{OUTSIDE_FILTER}</span> : null}
+      {note === undefined ? null : <span className="text-xs text-fg-tertiary">{note}</span>}
       <DecideButtons proposal={proposal} className="ml-auto" tabIndex={tabIndex} swallowed={swallowed} />
     </div>
   );
 };
+
+/** Under a row or card: a line per open proposal it shows (`proposalLines`), oldest first. Nothing for a row without one. */
+export const ProposalLines = ({ row, outside = false, ...line }: Props) =>
+  proposalLines(row).map((proposal, at) => (
+    <ProposalLine key={proposal.id} proposal={proposal} note={at === 0 && outside && (isItemRow(row) || isPending(row)) ? OUTSIDE_FILTER : undefined} {...line} />
+  ));

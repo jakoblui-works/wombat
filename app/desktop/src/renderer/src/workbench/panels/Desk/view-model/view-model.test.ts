@@ -9,7 +9,7 @@ import type { ItemSummary, LenientProperty, LenientView } from "@wombat/shared/i
 
 import { draftStart, type FieldValue } from "../../Item/item-edit.ts";
 import { matchesFilter } from "./values.ts";
-import { isPending, listGroups, type NewItemPlace, type Row, shownGroups, treeRows, type TreeRow, viewContext } from "./view-model.ts";
+import { isItemRow, listGroups, type NewItemPlace, type Row, shownGroups, treeRows, type TreeRow, viewContext } from "./view-model.ts";
 
 type Properties = Record<string, LenientProperty>;
 
@@ -32,7 +32,7 @@ const item = (n: number, properties: Record<string, unknown> = {}): ItemSummary 
 /** The items as the rows the view functions take, none of them pending. */
 const rowsOf = (items: readonly ItemSummary[]): Row[] => items.map((item) => ({ item }));
 const itemOf = (row: Row): ItemSummary => {
-  if (isPending(row)) throw new Error(`a pending row where only items were given: ${JSON.stringify(row)}`);
+  if (!isItemRow(row)) throw new Error(`a row without an item where only items were given: ${JSON.stringify(row)}`);
   return row.item;
 };
 

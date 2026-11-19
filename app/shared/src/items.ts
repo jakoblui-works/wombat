@@ -72,8 +72,11 @@ export const slugOf = (title: string) => {
   return slug;
 };
 
+/** The longest a handle prefix may be. */
+export const HANDLE_PREFIX_MAX = 10;
+
 /** The pattern of a handle prefix (`BUG` in `BUG-14`), as regex source to build the prefix's and a handle's regex from. */
-export const HANDLE_PREFIX_PATTERN = "[A-Z][A-Z0-9]{0,9}";
+export const HANDLE_PREFIX_PATTERN = `[A-Z][A-Z0-9]{0,${String(HANDLE_PREFIX_MAX - 1)}}`;
 
 /**
  * A glob relative to the binder's folder. Refuses the obvious escapes (absolute paths, `..`, backslashes)

@@ -1,4 +1,5 @@
 // Where a binder opens and what the Desk's sidebar shows, pure.
+import { ItemsErrorCode } from "@wombat/shared/api";
 import type { BinderSummary, LenientView } from "@wombat/shared/items";
 
 import { ServiceError } from "../../../data/client.ts";
@@ -49,7 +50,7 @@ export type DeskContent =
 export const deskContent = (binders: readonly BinderSummary[] | undefined, error: Error | null, desk: DeskLayout): DeskContent => {
   if (binders === undefined) {
     if (error === null) return { kind: "loading" };
-    return error instanceof ServiceError && error.code === "items_not_configured" ? { kind: "no-root" } : { kind: "error", message: error.message };
+    return error instanceof ServiceError && error.code === ItemsErrorCode.enum.items_not_configured ? { kind: "no-root" } : { kind: "error", message: error.message };
   }
   if (binders.length === 0) return { kind: "empty" };
   const shown = desk.binderId === undefined ? undefined : binders.find((binder): binder is OpenableBinder => binder.id === desk.binderId);

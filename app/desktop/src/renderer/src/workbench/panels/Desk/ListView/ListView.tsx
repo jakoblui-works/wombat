@@ -4,13 +4,12 @@ import { useRef } from "react";
 
 import { Button } from "../../../../components/ui/button";
 import type { Reveal } from "../../../registry.ts";
-import { proposedTitle } from "../../../proposals/proposal-label.ts";
 import { useWorkbench } from "../../../workbench-context.ts";
-import { ItemRow, PendingItemRow } from "../ItemRow/ItemRow.tsx";
-import { ProposalLine } from "../ProposalLine/ProposalLine.tsx";
+import { RowTitle } from "../ItemRow/ItemRow.tsx";
+import { ProposalLines } from "../ProposalLine/ProposalLine.tsx";
 import { proposalProps, REVEALABLE, useReveal } from "../use-reveal.ts";
-import { groupHeading, isOutsideFilter, isPending, listGroups, type NewItem, newItemLabel, offersNew, type Row, rowKey, shownGroups, viewContext } from "../view-model/view-model.ts";
-import { OUTSIDE_FILTER, struck } from "../view-model/with-proposals.ts";
+import { groupHeading, isItemRow, isOutsideFilter, listGroups, type NewItem, newItemLabel, offersNew, type Row, rowKey, shownGroups, viewContext } from "../view-model/view-model.ts";
+import { OUTSIDE_FILTER, opensProposal } from "../view-model/with-proposals.ts";
 
 type Props = {
   rows: readonly Row[];
@@ -26,26 +25,18 @@ const ROW = "focus-ring flex w-full items-center gap-2 rounded-md px-2.5 py-1 te
 
 const ListRow = ({ row, view, properties, onOpenItem }: { row: Row; view: Props["view"]; properties: Props["properties"]; onOpenItem: Props["onOpenItem"] }) => {
   const { openProposal } = useWorkbench();
+  const open = () => {
+    if (isItemRow(row)) {
+      if (row.item.id !== null) onOpenItem?.(row.item.id);
+      return;
+    }
+    const id = opensProposal(row);
+    if (id !== undefined) openProposal(id);
+  };
   return (
     <div {...proposalProps(row)} className={REVEALABLE}>
-      {isPending(row) ? (
-        <PendingItemRow title={proposedTitle(row.fields)} render={<button type="button" onClick={() => openProposal(row.pending.id)} className={ROW} />} />
-      ) : (
-        <ItemRow
-          item={row.item}
-          struck={struck(row)}
-          render={
-            <button
-              type="button"
-              onClick={() => {
-                if (row.item.id !== null) onOpenItem?.(row.item.id);
-              }}
-              className={ROW}
-            />
-          }
-        />
-      )}
-      <ProposalLine row={row} outside={isOutsideFilter(row, view, properties)} className="pr-2 pb-1 pl-2.5" />
+      <RowTitle row={row} render={<button type="button" onClick={open} className={ROW} />} />
+      <ProposalLines row={row} outside={isOutsideFilter(row, view, properties)} className="pr-2 pb-1 pl-2.5" />
     </div>
   );
 };

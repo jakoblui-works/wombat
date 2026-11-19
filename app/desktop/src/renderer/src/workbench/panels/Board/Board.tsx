@@ -12,12 +12,12 @@ import { ProblemList } from "../Desk/ProblemList/ProblemList.tsx";
 import { useItemProposals } from "../Desk/use-item-proposals.ts";
 import { useItemsOf } from "../Desk/use-link-lists.ts";
 import { useReveal } from "../Desk/use-reveal.ts";
-import { isOutsideFilter, isPending, offersNew, rowKey, viewContext } from "../Desk/view-model/view-model.ts";
-import { type ItemProposalRead, withProposals } from "../Desk/view-model/with-proposals.ts";
+import { isItemRow, isOutsideFilter, offersNew, rowKey, viewContext } from "../Desk/view-model/view-model.ts";
+import { type ItemProposalRead, opensProposal, withProposals } from "../Desk/view-model/with-proposals.ts";
 import { BinderNotice, READ_FAILED } from "../Item/ItemNotice/ItemNotice.tsx";
 import { itemName } from "../Item/item-params.ts";
 import type { Binder } from "../Item/item-state.ts";
-import { BoardCard, PendingCard } from "./BoardCard/BoardCard.tsx";
+import { BoardCard, ProposalCard } from "./BoardCard/BoardCard.tsx";
 import { BoardColumn, COLUMN_SELECTOR } from "./BoardColumn/BoardColumn.tsx";
 import { BoardParams } from "./board-params.ts";
 import { boardColumns, type BoardView, columnLabel, columnValue, dropOutcome, liveMoves, type Move, NO_VALUE, versionToSend, withMoves } from "./board-columns.ts";
@@ -258,18 +258,20 @@ const BoardContent = ({
             >
               {cards.map(({ row, mode }) => (
                 <div key={rowKey(row)} hidden={mode === "hidden"}>
-                  {isPending(row) ? (
-                    <PendingCard
+                  {!isItemRow(row) ? (
+                    <ProposalCard
                       row={row}
                       outside={isOutsideFilter(row, view, properties)}
                       onOpen={() => {
-                        if (!swallowed() && heldRef.current === undefined) openProposal(row.pending.id);
+                        const id = opensProposal(row);
+                        if (!swallowed() && heldRef.current === undefined && id !== undefined) openProposal(id);
                       }}
                       swallowed={swallowed}
                     />
                   ) : (
                     <BoardCard
                       row={row}
+                      outside={isOutsideFilter(row, view, properties)}
                       mode={mode}
                       movable={canMove(row)}
                       focus={takesFocus(row.item.path, mode, held, endedOn)}

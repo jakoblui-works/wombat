@@ -140,6 +140,7 @@ A refused write changes nothing on disk and answers one of:
 
 - `409 stale_version`: the file changed since `version`. Read the item again and redo the change.
 - `400 invalid_fields`: the values don't fit the binder. `problems` lists each one as `{ field, message }`.
+- `400 field_not_writable`: the change names a field the service sets itself, `id` or `handle`. Leave it out; a handle changes only by hand, with the old one kept in `aliases`.
 - `404 item_not_found` or `binder_not_found`: no item has that id, handle or alias, or no binder that id.
 - `409 items_not_writable`: the item or its binder needs a fix by hand first: its handle is shared with another file, its file has problems on disk (or no handle yet), or the binder's `_binder.yaml` has problems. `problems` lists what to fix, as above. It's also the answer, without `problems`, when the items folder can't take the write.
 

@@ -2,7 +2,7 @@
 // that follow: nothing is updated optimistically.
 import { mutationOptions, type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 
-import type { AgentSummary, AnswerPermissionRequest, ContextBreakdown, CreateItemRequest, NewBinderRequest, SetConfigRequest, StartAgentRequest, UpdateItemRequest } from "@wombat/shared/api";
+import type { AgentSummary, AnswerPermissionRequest, ContextBreakdown, CreateItemRequest, DeleteItemQuery, NewBinderRequest, SetConfigRequest, StartAgentRequest, UpdateItemRequest } from "@wombat/shared/api";
 import type { BinderSummary, Item } from "@wombat/shared/items";
 import { isOpen, type Proposal, ProposalErrorCode } from "@wombat/shared/proposals";
 import { ROUTES } from "@wombat/shared/routes";
@@ -150,11 +150,11 @@ export const createItemFn = ({ binderId, ...body }: CreateItemVars): Promise<Ite
 /** Writes a new binder's starter settings; answers the binder as GET /binders lists it. */
 export const createBinderFn = (body: NewBinderRequest): Promise<BinderSummary> => callRoute(ROUTES.createBinder, { body });
 
-export type DeleteItemVars = { ref: string; version: string };
+export type DeleteItemVars = DeleteItemQuery & { ref: string };
 
 /** Deletes item `ref`'s file if it is still at `version`. */
-export const deleteItemFn = async ({ ref, version }: DeleteItemVars): Promise<void> => {
-  await callRoute(ROUTES.deleteItem, { params: { ref }, query: { version } });
+export const deleteItemFn = async ({ ref, ...query }: DeleteItemVars): Promise<void> => {
+  await callRoute(ROUTES.deleteItem, { params: { ref }, query });
 };
 
 const refreshProposal = (queryClient: QueryClient, proposalId: string): Promise<void> =>

@@ -1,5 +1,6 @@
-// What a typed property value proposes. A number box's text becomes a number only when it reads back exactly as that
-// number; any other text stays as typed, so the box keeps it (`0.` on the way to `0.5`) and the service checks it.
+// What a typed property value proposes. A number box's text becomes a number only when it is a plain decimal (an
+// optional minus, digits, optionally a point and digits); any other text, exponents too, stays as typed, never
+// stripped, so the box keeps it (`0.` on the way to `0.5`) and the service checks it.
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
@@ -17,11 +18,15 @@ test.each<[string, unknown]>([
   expect(typedValue(text, NUMBER)).toEqual(proposed);
 });
 
-test("any finite number, typed as it reads, is proposed as that number", () => {
+/** A plain decimal, written by hand apart from the code: an optional minus, digits, optionally a point and digits. */
+const PLAIN_DECIMAL = /^-?\d+(\.\d+)?$/;
+
+test("any finite number, typed as it reads, is proposed as that number when it reads as a plain decimal, else as typed", () => {
   const typed = fc.double({ noNaN: true, noDefaultInfinity: true }).filter((n) => !Object.is(n, -0));
   fc.assert(
     fc.property(typed, (n) => {
-      expect(typedValue(String(n), NUMBER)).toBe(n);
+      const text = String(n);
+      expect(typedValue(text, NUMBER), `"${text}"`).toBe(PLAIN_DECIMAL.test(text) ? n : text);
     }),
   );
 });

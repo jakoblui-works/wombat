@@ -10,7 +10,7 @@ import type { ItemProposalKind, ProposalStatus } from "@wombat/shared/proposals"
 
 import { boardColumns } from "../../Board/board-columns.ts";
 import { PROPOSAL_ATTRIBUTE, proposalProps } from "../use-reveal.ts";
-import { isPending, type ItemRow, type ItemsOf, listGroups, type Row, sorted, visibleItems } from "./view-model.ts";
+import { isItemRow, isPending, type ItemRow, type ItemsOf, listGroups, type Row, sorted, visibleItems } from "./view-model.ts";
 import { type ItemProposalRead, struck, withProposals } from "./with-proposals.ts";
 
 type Properties = Record<string, LenientProperty>;
@@ -64,7 +64,7 @@ const proposal = ({ id, at, binder, kind, handle, status, fields }: Spec): ItemP
 });
 
 const pendingOf = (row: Row) => (isPending(row) ? row : undefined);
-const itemRowOf = (row: Row): ItemRow | undefined => (isPending(row) ? undefined : row);
+const itemRowOf = (row: Row): ItemRow | undefined => (isItemRow(row) ? row : undefined);
 const counts = (names: readonly string[]): Record<string, number> => {
   const out: Record<string, number> = {};
   for (const name of names) out[name] = (out[name] ?? 0) + 1;
@@ -116,7 +116,7 @@ describe("withProposals", () => {
     fc.assert(
       fc.property(scenarioArb, (scenario) => {
         const { items } = scenario;
-        const rows = withProposals(items, scenario.proposals, CHORES);
+        const rows = withProposals(items, scenario.proposals, CHORES, itemsOfScenario(items));
         const itemRows = rows.flatMap((row) => itemRowOf(row) ?? []);
         const pendingRows = rows.flatMap((row) => pendingOf(row) ?? []);
 
@@ -147,7 +147,7 @@ describe("revealing a proposal", () => {
   test("every open proposal of the binder is on exactly one row's reveal attribute, its item's or its own; no other proposal is", () => {
     fc.assert(
       fc.property(scenarioArb, (scenario) => {
-        const rows = withProposals(scenario.items, scenario.proposals, CHORES);
+        const rows = withProposals(scenario.items, scenario.proposals, CHORES, itemsOfScenario(scenario.items));
         const holding = (id: string): Row[] => rows.filter((row) => (proposalProps(row)[PROPOSAL_ATTRIBUTE] ?? "").split(" ").includes(id));
         const open = ownOpen(scenario);
         for (const p of open) {

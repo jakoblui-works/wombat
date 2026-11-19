@@ -113,6 +113,15 @@ export const linkedBinders = (properties: Readonly<Record<string, LenientPropert
   ...new Set(Object.values(properties).flatMap((property) => (property.type === "link" ? [property.to] : []))),
 ];
 
+/**
+ * Typed text as a number: a plain decimal (an optional minus, digits, optionally a point and digits) is that number;
+ * empty text is null (the value is cleared); anything else is undefined, never a number made by dropping characters.
+ */
+export const numberOfText = (text: string): number | null | undefined => (text === "" ? null : /^-?\d+(\.\d+)?$/.test(text) ? Number(text) : undefined);
+
+/** Whether text typed into a number field is made only of what a number is written with; a box takes no other keystroke. */
+export const typesNumber = (typed: string): boolean => /^[0-9.-]*$/.test(typed);
+
 /** A property may be emptied unless the binder requires it. */
 export const clearable = (property: LenientProperty): boolean => !("required" in property && property.required === true);
 

@@ -31,12 +31,15 @@ import { ItemNotice } from "./ItemNotice/ItemNotice.tsx";
 import { ProposalBanner } from "./ProposalBanner/ProposalBanner.tsx";
 import { propertyRows } from "./fields/property-rows.ts";
 import {
+  acceptsEdits,
   canSave,
   changedFields,
   conflicts,
   createRequest,
   draftStart,
   edited,
+  editEvent,
+  type FieldEdit,
   type FieldValue,
   fileChanged,
   initialEdit,
@@ -217,7 +220,10 @@ const EditItem = ({
       },
     );
   };
-  const edit = (field: string, value: FieldValue) => dispatch({ type: "edit", field, value });
+  const takesEdits = acceptsEdits(state, editing.kind === "draft");
+  const edit = (field: string, value: FieldEdit) => {
+    if (takesEdits) dispatch(editEvent(field, value));
+  };
 
   const changed = edited(state);
   const [asking, setAsking] = useState(false);
@@ -257,6 +263,7 @@ const EditItem = ({
                 {...control}
                 className="focus-ring -mx-1.5 w-[calc(100%+0.75rem)] rounded-md border border-transparent bg-transparent px-1.5 py-0.5 hover:border-line-strong focus:border-line-strong"
                 value={valueOf(state, "title") ?? ""}
+                readOnly={!takesEdits}
                 onChange={(event) => edit("title", event.target.value)}
               />
             </h1>
@@ -268,7 +275,9 @@ const EditItem = ({
           This item's file changed since you asked to delete it, so nothing was deleted. Look at the item again, then delete it if you still want to.
         </div>
       ) : null}
-      {asksFile ? <FileName value={fileName} onChange={setFileName} problems={refused.at.get(FILE_FIELD) ?? []} /> : null}
+      {asksFile ? <FileName value={fileName} onChange={(name) => {
+            if (takesEdits) setFileName(name);
+          }} problems={refused.at.get(FILE_FIELD) ?? []} /> : null}
       {fileChanged(state) ? (
         <div role="status" className="rounded-md border border-state-waiting/40 bg-surface-2 px-3 py-2.5 text-sm text-fg-secondary">
           This item's file changed since you started editing. Your changes are kept here; Save shows where they differ from the file.

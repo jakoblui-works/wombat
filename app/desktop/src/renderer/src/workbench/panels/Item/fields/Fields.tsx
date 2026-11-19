@@ -7,8 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { cn } from "../../../../lib/utils";
 import { Field as FieldFrame, FIELD_INPUT, type FieldControl } from "../../Desk/Field/Field.tsx";
 import type { Listed } from "../../Desk/use-link-lists.ts";
-import { clearable, displayValue, MISSING_ITEM } from "../../Desk/view-model/values.ts";
-import type { FieldValue } from "../item-edit.ts";
+import { clearable, displayValue, MISSING_ITEM, typesNumber } from "../../Desk/view-model/values.ts";
+import type { FieldEdit, FieldValue } from "../item-edit.ts";
 import { inputValue, type LinkOption, linkOptions, linkTarget, numberDraft, pickedByUser, shownNumber } from "./field-input.ts";
 import type { PropertyRow } from "./property-rows.ts";
 
@@ -20,7 +20,7 @@ const INPUT = cn(FIELD_INPUT, "text-base");
 /** The types whose control is an input the label points at; the others are named through aria-labelledby. */
 const INPUT_TYPES: ReadonlySet<string> = new Set(["text", "number", "date"]);
 
-type Edit = (field: string, value: FieldValue) => void;
+type Edit = (field: string, value: FieldEdit) => void;
 
 type ControlProps = { name: string; control: FieldControl; labelId: string; property: LenientProperty; value: FieldValue; onEdit: Edit };
 
@@ -34,10 +34,13 @@ const NumberInput = ({ name, control, value, onEdit, required }: Omit<ControlPro
       className={INPUT}
       value={shownNumber(draft, value)}
       required={required}
+      onBeforeInput={(event) => {
+        if (!typesNumber(event.data)) event.preventDefault();
+      }}
       onChange={(event) => {
         const { text, value: next } = numberDraft(event.target.value);
         setDraft(text);
-        if (next !== undefined) onEdit(name, next);
+        onEdit(name, next === undefined ? { unreadable: text } : next);
       }}
     />
   );

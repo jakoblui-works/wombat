@@ -5,8 +5,12 @@ import { cloneElement, type ReactElement, type ReactNode, useId } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../../../components/ui/tooltip";
 import { lastPathPart } from "../../../../lib/path.ts";
 import { cn } from "../../../../lib/utils";
+import { proposedTitle } from "../../../proposals/proposal-label.ts";
 import { itemName } from "../../Item/item-params.ts";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
+import { MISSING_ITEM } from "../view-model/values.ts";
+import { isItemRow, isPending, type Row } from "../view-model/view-model.ts";
+import { struck } from "../view-model/with-proposals.ts";
 
 type Props = {
   item: ItemSummary;
@@ -62,4 +66,25 @@ export const PendingItemRow = ({ title, render, lead, wrap = false }: Omit<Props
       {lead}
       <span className={cn(HANDLE, "italic")}>new</span> <span className={titleClass(wrap)}>{title ?? UNTITLED}</span>
     </>,
+  );
+
+/** An item that open proposals name but that is gone (its file deleted or renamed by hand): its handle, and `MISSING_ITEM`. */
+export const MissingItemRow = ({ handle, render, lead }: Omit<Props, "item" | "struck" | "wrap"> & { handle: string }) =>
+  cloneElement(
+    render,
+    {},
+    <>
+      {lead}
+      <span className={HANDLE}>{handle}</span> <span className={cn(titleClass(false), "text-fg-tertiary italic")}>{MISSING_ITEM}</span>
+    </>,
+  );
+
+/** A row in a view by its kind: an item (`ItemRow`, struck when `struck` says so), a proposed create, or a missing item. */
+export const RowTitle = ({ row, render, lead, wrap = false }: Omit<Props, "item" | "struck"> & { row: Row }) =>
+  isItemRow(row) ? (
+    <ItemRow item={row.item} struck={struck(row)} render={render} lead={lead} wrap={wrap} />
+  ) : isPending(row) ? (
+    <PendingItemRow title={proposedTitle(row.fields)} render={render} lead={lead} wrap={wrap} />
+  ) : (
+    <MissingItemRow handle={row.missing} render={render} lead={lead} />
   );

@@ -1,6 +1,6 @@
 import type { ItemSummary, LenientProperty } from "@wombat/shared/items";
 
-import { displayValue, proposedLink } from "../../Desk/view-model/values.ts";
+import { displayValue, numberOfText, proposedLink } from "../../Desk/view-model/values.ts";
 
 type Fields = Readonly<Record<string, unknown>>;
 
@@ -16,13 +16,11 @@ export const inputText = (value: unknown): string => displayValue(undefined, val
 
 /**
  * What a property's typed text proposes: nothing (null) for an empty box, a number for a number property's text that
- * reads back the same as that number, else the text as typed (`0.`, `05`, ` 5`), so the box keeps what was typed and
- * the service checks it.
+ * is one (`numberOfText`), else the text as typed (`0.`, ` 5`), which the service then refuses at the field.
  */
 export const typedValue = (text: string, property: LenientProperty | undefined): unknown => {
   if (text === "") return null;
-  if (property?.type === "number" && Number.isFinite(Number(text)) && String(Number(text)) === text) return Number(text);
-  return text;
+  return property?.type === "number" ? (numberOfText(text) ?? text) : text;
 };
 
 export const withField = (fields: Fields, name: string, value: unknown): Record<string, unknown> => ({ ...fields, [name]: value });

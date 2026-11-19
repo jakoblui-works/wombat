@@ -7,7 +7,7 @@ import { describe, expect, test } from "vitest";
 
 import type { ItemSummary, LenientProperty } from "@wombat/shared/items";
 
-import { isPending, type Row, sorted, visibleItems } from "../Desk/view-model/view-model.ts";
+import { isItemRow, type Row, sorted, visibleItems } from "../Desk/view-model/view-model.ts";
 import { boardColumns, type BoardView, liveMoves, type Move, versionToSend } from "./board-columns.ts";
 
 type Properties = Record<string, LenientProperty>;
@@ -19,7 +19,7 @@ const idOf = (n: number): string => `0196f3c2-6e00-7000-8000-${n.toString(16).pa
 /** The items as the rows the board takes, none of them pending. */
 const rowsOf = (items: readonly ItemSummary[]): Row[] => items.map((one) => ({ item: one }));
 const itemOf = (row: Row): ItemSummary => {
-  if (isPending(row)) throw new Error(`a pending row where only items were given: ${JSON.stringify(row)}`);
+  if (!isItemRow(row)) throw new Error(`a row without an item where only items were given: ${JSON.stringify(row)}`);
   return row.item;
 };
 

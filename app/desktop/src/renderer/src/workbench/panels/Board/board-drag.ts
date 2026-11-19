@@ -1,11 +1,9 @@
 // A card held on the board, by mouse or keyboard, and what each column shows meanwhile, pure.
-import type { ItemSummary } from "@wombat/shared/items";
-
-import { isPending, type Row, rowKey } from "../Desk/view-model/view-model.ts";
+import { isItemRow, type ItemRow, type Row, rowKey } from "../Desk/view-model/view-model.ts";
 import type { Column } from "./board-columns.ts";
 
-/** A card can be picked up only when it is an item with an id to write it by (its file parses); a proposed create can't. */
-export const canMove = (row: Row): row is Row & { item: ItemSummary } => !isPending(row) && row.item.id !== null;
+/** A card can be picked up only when it is an item with an id to write it by (its file parses); a card without an item can't. */
+export const canMove = (row: Row): row is ItemRow => isItemRow(row) && row.item.id !== null;
 
 /** The card at path `id`, picked up in column `from` and now over column `over` (column keys). */
 export type Held = { id: string; from: string; over: string; byMouse: boolean; dropped: boolean };

@@ -9,8 +9,17 @@ import { heldValue, linkValue } from "../Desk/view-model/values.ts";
 /** A field as the form edits it: title, body or a property's value (a link as its target's id); null clears a property. */
 export type FieldValue = string | number | null;
 
+/** What a control gives: a field's value, or text it can't read as one (typed into a number field), kept as typed. */
+export type FieldEdit = FieldValue | { unreadable: string };
+
+/** A control's edit of `field` as the event it is. */
+export const editEvent = (field: string, value: FieldEdit): ItemEditEvent =>
+  typeof value === "object" && value !== null ? { type: "unreadable", field, text: value.unreadable } : { type: "edit", field, value };
+
 export type ItemEditEvent =
   | { type: "edit"; field: string; value: FieldValue }
+  /** Text typed into `field` that can't be its value (a number field's), kept as typed. */
+  | { type: "unreadable"; field: string; text: string }
   | { type: "refreshed"; item: Item }
   | { type: "saving" }
   | { type: "saved"; item: Item }
@@ -35,6 +44,8 @@ export type ItemEditState = {
   readonly conflict: boolean;
   readonly saving: boolean;
   readonly problems: readonly Problem[];
+  /** Text typed into a field that can't be its value, by field: shown as the field's problem, and Save waits for a fix. */
+  readonly unreadable?: Readonly<Record<string, string>> | undefined;
 };
 
 /** A property's value as the form edits it: a link as its target's id, any other non-field value as its JSON text. */
@@ -93,13 +104,20 @@ export const initialEdit = (item: Item, start: Readonly<Record<string, FieldValu
 const unsent = (mine: Readonly<Record<string, FieldValue>>, sent: Readonly<Record<string, FieldValue>>): Record<string, FieldValue> =>
   Object.fromEntries(Object.entries(mine).filter(([field, value]) => !Object.hasOwn(sent, field) || sent[field] !== value));
 
-const without = (mine: Readonly<Record<string, FieldValue>>, field: string): Record<string, FieldValue> =>
-  Object.fromEntries(Object.entries(mine).filter(([name]) => name !== field));
+const without = <V>(values: Readonly<Record<string, V>>, field: string): Record<string, V> => Object.fromEntries(Object.entries(values).filter(([name]) => name !== field));
+
+/** `state` with `field`'s unreadable text set (`text`) or gone; undefined while no field has any. */
+const withUnreadable = (state: ItemEditState, field: string, text?: string): ItemEditState => {
+  const next = { ...without(state.unreadable ?? {}, field), ...(text === undefined ? {} : { [field]: text }) };
+  return { ...state, unreadable: Object.keys(next).length === 0 ? undefined : next };
+};
 
 export const itemEdit = (state: ItemEditState, event: ItemEditEvent): ItemEditState => {
   switch (event.type) {
     case "edit":
-      return settled({ ...state, mine: { ...state.mine, [event.field]: event.value } });
+      return settled({ ...withUnreadable(state, event.field), mine: { ...state.mine, [event.field]: event.value } });
+    case "unreadable":
+      return withUnreadable(state, event.field, event.text);
     case "refreshed":
       return settled({ ...state, latest: event.item });
     case "saving":
@@ -113,9 +131,9 @@ export const itemEdit = (state: ItemEditState, event: ItemEditEvent): ItemEditSt
     case "keepMine":
       return settled({ ...state, base: state.latest, conflict: false });
     case "takeTheirs":
-      return settled({ ...state, mine: without(state.mine, event.field) });
+      return settled({ ...withUnreadable(state, event.field), mine: without(state.mine, event.field) });
     case "discard":
-      return settled({ ...state, mine: state.start, problems: [], conflict: false });
+      return settled({ ...state, mine: state.start, problems: [], conflict: false, unreadable: undefined });
   }
 };
 
@@ -149,9 +167,17 @@ export const fileChanged = (state: ItemEditState): boolean => state.latest.versi
 export const conflicts = (state: ItemEditState): { field: string; mine: FieldValue; theirs: FieldValue }[] =>
   state.conflict ? Object.entries(state.mine).map(([field, mine]) => ({ field, mine, theirs: fileValue(state.latest, field) })) : [];
 
-export const saveProblems = (state: ItemEditState): Problem[] => [...state.problems];
+/** A refused save's problems, and each field's text that can't be its value. */
+export const saveProblems = (state: ItemEditState): Problem[] => [
+  ...state.problems,
+  ...Object.entries(state.unreadable ?? {}).map(([field, text]) => ({ field, message: `"${text}" isn't a number: type digits, with a point before any decimals, or clear the field.` })),
+];
 
 export const isSaving = (state: ItemEditState): boolean => state.saving;
 
-/** Save is offered with changes, none under way and no conflict open (Keep mine saves then). */
-export const canSave = (state: ItemEditState): boolean => Object.keys(state.mine).length > 0 && !state.saving && !state.conflict;
+/** Whether the form takes edits: not a draft whose create is under way (its tab becomes the item's, and an edit meanwhile would be lost). */
+export const acceptsEdits = (state: ItemEditState, draft: boolean): boolean => !(draft && state.saving);
+
+/** Save is offered with changes, none under way, no conflict open (Keep mine saves then) and no unreadable text. */
+export const canSave = (state: ItemEditState): boolean =>
+  Object.keys(state.mine).length > 0 && !state.saving && !state.conflict && Object.keys(state.unreadable ?? {}).length === 0;

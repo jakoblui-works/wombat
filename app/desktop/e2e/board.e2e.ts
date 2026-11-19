@@ -9,6 +9,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ElectronApplication, Locator, Page } from "@playwright/test";
+import { SETTINGS_FILE } from "@wombat/shared/items";
 
 import { CHANNELS } from "../src/shared/bridge.ts";
 import { click, expect, type Sandbox, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
@@ -89,7 +90,7 @@ const card = (col: Locator, c: Card): Locator => col.getByRole("button", { name:
 const openBoard = async (sandbox: Sandbox) => {
   const root = path.join(sandbox.base, "items");
   mkdirSync(path.join(root, "ops"), { recursive: true });
-  writeFileSync(path.join(root, "ops", "_binder.yaml"), SETTINGS);
+  writeFileSync(path.join(root, "ops", SETTINGS_FILE), SETTINGS);
   for (const c of CARDS) writeFileSync(fileOf(root, c), cardText(c));
   await sandbox.startService(sandbox.workspace, { WOMBAT_ITEMS: root });
 

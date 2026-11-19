@@ -1,6 +1,6 @@
 // The New binder dialog's form, pure: the suggestions that follow the name until edited, and the request it sends.
 import type { NewBinderRequest } from "@wombat/shared/api";
-import { slugOf } from "@wombat/shared/items";
+import { HANDLE_PREFIX_MAX, slugOf } from "@wombat/shared/items";
 
 export type NewBinderForm = { name: string; prefix: string; folder: string; prefixEdited: boolean; folderEdited: boolean };
 
@@ -8,14 +8,13 @@ export type NewBinderField = "name" | "prefix" | "folder";
 
 export const EMPTY_FORM: NewBinderForm = { name: "", prefix: "", folder: "", prefixEdited: false, folderEdited: false };
 
-const PREFIX_LENGTH = 10;
 const ONE_WORD_PREFIX = 4;
 
 /** A handle prefix from the name: the words' initials, or a single word's first letters; uppercase, starting with a letter. */
 export const prefixSuggestion = (name: string): string => {
   const words = (name.normalize("NFKD").toUpperCase().match(/[A-Z0-9]+/g) ?? []).map((word, index) => (index === 0 ? word.replace(/^[0-9]+/, "") : word)).filter(Boolean);
   const prefix = words.length === 1 ? (words[0] ?? "").slice(0, ONE_WORD_PREFIX) : words.map((word) => word[0]).join("");
-  return prefix.slice(0, PREFIX_LENGTH);
+  return prefix.slice(0, HANDLE_PREFIX_MAX);
 };
 
 /** The form after one field changes; a prefix or folder not edited by hand follows the name. */
