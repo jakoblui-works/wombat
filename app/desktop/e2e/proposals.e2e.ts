@@ -6,7 +6,7 @@
 // - one row per open proposal holding its file's path, with an open `button` holding the path and the buttons
 //   "Approve" and "Reject"; a click on the open button opens the proposal in an editor tab (dockview's
 //   `.dv-content-container`), which has "Reject", and then a `textbox` named with "reason", sent with Enter.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Locator, Page } from "@playwright/test";
 
@@ -184,4 +184,61 @@ test("dropping a field of an agent's item update and approving writes only the f
   const after = await item();
   expect(after.properties["status"], "the dropped status stays").toBe("open");
   expect(after.body?.trim(), "the kept body is written").toBe(newBody.trim());
+});
+
+// Item proposals decided where they show in the Desk's list (the binder's plain list: no views): a proposed create is a
+// row (`listitem`) holding its proposed title, a proposed update marks its item's row with a button "Update proposed";
+// each row holds "Approve" and "Reject", and Reject there sends no reason.
+test("in the Desk's list, Approve on a proposed create writes its item's file, and Reject on an update's marked row leaves the file and drops the mark", async ({ sandbox }) => {
+  const items = path.join(sandbox.base, "items");
+  const folder = path.join(items, "chores");
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(
+    path.join(folder, SETTINGS_FILE),
+    "version: 1\nid: chores\nname: Chores\nprefix: CH\naccess: propose\nproperties:\n  stage: { type: select, options: [todo, doing, done], required: true }\n",
+  );
+  const water = { title: "Water the tomatoes", file: path.join(folder, "CH-1.md") };
+  const waterBytes = "---\nid: 0196f3c2-1b00-7000-8000-00000000c001\nhandle: CH-1\nstage: todo\n---\n# Water the tomatoes\n\nEvery other evening.\n";
+  writeFileSync(water.file, waterBytes);
+  await sandbox.startService(sandbox.workspace, { WOMBAT_ITEMS: items });
+
+  const agentId = await startAgent(sandbox, "fake-call-tool");
+  const proposeItem = async (tool: string, args: Record<string, unknown>): Promise<string> => {
+    const before = new Set((await listed(sandbox)).map(({ id }) => id));
+    await waitUntil(`agent ${agentId} between turns`, WAIT_MS, async () => ((await agentSummary(sandbox, agentId))?.state === "working" ? undefined : true));
+    expect((await sandbox.api("POST", `/agents/${agentId}/messages`, { text: JSON.stringify({ tool, arguments: args }) })).status).toBe(202);
+    return waitUntil(`the ${tool} proposal listed`, WAIT_MS, async () => (await listed(sandbox)).find(({ id }) => !before.has(id))?.id);
+  };
+  const mulch = "Mulch the raspberry bed";
+  const createId = await proposeItem("propose_create", { binder: "chores", title: mulch, reason: "The raspberries dried out.", properties: { stage: "doing" } });
+  const version = ((await sandbox.api("GET", "/items/CH-1")).json as { version: string }).version;
+  const updateId = await proposeItem("propose_update", { handle: "CH-1", fields: { stage: "done" }, version, reason: "Watered this morning." });
+  const statusOf = async (id: string): Promise<string | undefined> => (await listed(sandbox)).find((p) => p.id === id)?.status;
+
+  const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
+  await waitForConnection(page, "connected");
+  await recordViolations(page);
+  const desk = page.getByRole("navigation", { name: "Activities" }).getByRole("button", { name: "Desk", exact: true });
+  if ((await desk.getAttribute("aria-pressed")) !== "true") await click(desk);
+  const side = page.getByRole("complementary", { name: "Desk", exact: true });
+  await click(side.getByRole("treeitem", { name: /^Chores/ }));
+  const rowOfTitle = (title: string): Locator => side.getByRole("listitem").filter({ hasText: title });
+
+  const before = new Set(readdirSync(folder));
+  await click(rowOfTitle(mulch).getByRole("button", { name: "Approve", exact: true }));
+  await waitUntil("the create approved", WAIT_MS, async () => ((await statusOf(createId)) === "approved" ? true : undefined));
+  const created = readdirSync(folder).filter((name) => !before.has(name));
+  expect(created, "one new file").toHaveLength(1);
+  const text = readFileSync(path.join(folder, created[0] ?? ""), "utf8");
+  expect(text, "the new file holds the proposed title").toContain(`# ${mulch}`);
+  expect(text, "the new file holds the proposed stage").toMatch(/^stage: doing$/m);
+
+  const waterRow = rowOfTitle(water.title);
+  await expect(waterRow.getByRole("button", { name: "Update proposed", exact: true }), "the update's mark").toBeVisible({ timeout: WAIT_MS });
+  await click(waterRow.getByRole("button", { name: "Reject", exact: true }));
+  await waitUntil("the update rejected", WAIT_MS, async () => ((await statusOf(updateId)) === "rejected" ? true : undefined));
+  await expect(waterRow.getByRole("button", { name: "Update proposed", exact: true }), "the mark gone").toHaveCount(0, { timeout: WAIT_MS });
+  await expect(waterRow, "the row still shows").toBeVisible();
+  expect(readFileSync(water.file, "utf8"), "the file byte for byte").toBe(waterBytes);
+  expect(await violations(page), "CSP violations in the Desk").toEqual([]);
 });
