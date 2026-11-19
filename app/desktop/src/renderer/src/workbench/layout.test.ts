@@ -45,7 +45,7 @@ const chatA2 = panel("chat", { agentId: "a2" });
 const chatGone = panel("chat", { agentId: "a-gone" });
 const oldPanel = panel("old-panel-from-a-newer-app", { id: 7 });
 
-/** Two groups side by side: [chatA1, oldPanel (active)] and [chatGone] (active group), with a nested split [chatA2]. */
+/** Two groups side by side: [chatA1, oldPanel (active)] and [chatGone] (active group), with a nested split [chatA2]; the Desk showing a binder's view with two drawers open. */
 const savedSplit = (): SavedLayout => ({
   version: 2,
   dockview: dockview(
@@ -59,6 +59,7 @@ const savedSplit = (): SavedLayout => ({
   ),
   sidebars: { left: 280, right: 320, rightCollapsed: true },
   activity: otherActivity(),
+  desk: { binderId: "backlog", view: "By owner", openDrawers: ["work", "work/archive"] },
 });
 
 /** What a restore asks: the registry, with the agents that exist now (a1, a2). */
@@ -178,7 +179,7 @@ describe("restoreLayout", () => {
     return lines;
   };
 
-  test("a saved layout read back from settings restores to the same panes, tabs, sidebars and activity", () => {
+  test("a saved layout read back from settings restores to the same panes, tabs, sidebars, activity and Desk", () => {
     const saved = savedSplit();
     const applied: SerializedDockview[] = [];
     let restored: SavedLayout | undefined;

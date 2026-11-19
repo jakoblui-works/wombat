@@ -4,7 +4,7 @@
 import { describe, expect, test } from "vitest";
 
 import { extraProblemKeys } from "../../test/access-fixtures.ts";
-import { FIXTURE_FILES, writeRoot } from "../../test/items-fixtures.ts";
+import { FIXTURE_FILES, IDS, VALID_FILES, writeRoot } from "../../test/items-fixtures.ts";
 import { TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
 import { serve } from "../../test/server-fixtures.ts";
 import { SETTINGS_FILE } from "../items/binders.ts";
@@ -17,6 +17,25 @@ access: hidden
 `;
 
 describe("items routes", () => {
+  test(
+    "GET /items/:ref answers the same item for its id, its handle and its alias",
+    async () => {
+      // BL-1 is also known by its old handle BL-3.
+      const s = await serve({ itemsRoot: writeRoot(VALID_FILES) });
+      const get = async (ref: string) => {
+        const response = await s.api("GET", `/items/${encodeURIComponent(ref)}`);
+        expect(response.status, `GET /items/${ref}: ${response.text}`).toBe(200);
+        return response.json as { id: string };
+      };
+      const byHandle = await get("BL-1");
+      expect(byHandle.id).toBe(IDS.bl1);
+      expect(await get(IDS.bl1), "by id").toStrictEqual(byHandle);
+      expect(await get("BL-3"), "by alias").toStrictEqual(byHandle);
+      // Another item's id names that item, not the first one found.
+      expect((await get(IDS.bl2)).id).toBe(IDS.bl2);
+    },
+    TEST_TIMEOUT_MS,
+  );
 
   test(
     "binders and items are sent with problems that carry only the shared Problem's keys",

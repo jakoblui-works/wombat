@@ -49,11 +49,13 @@ test.each<[string, (service: FakeService) => void]>([
       service.connection("connected");
     },
   ],
-])("%s reads the binders and every cached binder's items again", async (_name, trigger) => {
+  ["an items alert", (service) => service.alert("agent_changed", A, { type: "items" })],
+])("%s reads the binders, every cached binder's items and every cached item again", async (_name, trigger) => {
   const { service, client } = setup();
   client.setQueryData(keys.binders, { binders: [] });
   client.setQueryData(keys.binderItems("bugs"), { items: [] });
+  client.setQueryData(keys.item("BUG-1"), { id: "bug-1" });
   trigger(service);
   await vi.waitFor(() => expect(service.requests()).not.toEqual([]));
-  expect(await reads(service)).toEqual(expect.arrayContaining(["GET /binders", "GET /binders/bugs/items"]));
+  expect(await reads(service)).toEqual(expect.arrayContaining(["GET /binders", "GET /binders/bugs/items", "GET /items/BUG-1"]));
 });
