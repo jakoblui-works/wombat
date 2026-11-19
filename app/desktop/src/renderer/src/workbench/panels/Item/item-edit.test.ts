@@ -2,12 +2,27 @@
 // values never change on a refresh; a change is dropped only when the file as last read holds it (so a change back to
 // the value I read, after the file moved on, is kept); a save's answer clears what it sent unless I changed it again
 // meanwhile; a stale answer drops what the file now holds; Keep mine saves on the file's new version, never nothing.
-// Each expectation is stated against the items fed in, never a value by name.
+// Each expectation is stated against the items fed in, never a value by name. And text typed into a number field
+// that isn't a number is never saved: it holds Save back as that field's problem until it's cleared or a number.
 import type { Item } from "@wombat/shared/items";
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
-import { changedFields, conflicts, type FieldValue, initialEdit, itemEdit, type ItemEditState, saveRequest, valueOf } from "./item-edit.ts";
+import { numberDraft } from "./fields/field-input.ts";
+import {
+  canSave,
+  changedFields,
+  conflicts,
+  editEvent,
+  type FieldEdit,
+  type FieldValue,
+  initialEdit,
+  itemEdit,
+  type ItemEditState,
+  saveProblems,
+  saveRequest,
+  valueOf,
+} from "./item-edit.ts";
 
 // ---- Invented items ----
 
@@ -164,4 +179,32 @@ test("over edits, refreshes and saves, the tab keeps exactly my unsaved changes 
     }),
     { numRuns: 300 },
   );
+});
+
+/** What the number input hands the tab for typed text: its value, or the text when it isn't one (as `Fields.tsx` wires it). */
+const typedNumber = (raw: string): FieldEdit => {
+  const { text, value } = numberDraft(raw);
+  return value === undefined ? { unreadable: text } : value;
+};
+
+test.each(["1,5", "1e3", "12abc", "-"])("%j typed into a number field is never saved; clearing it or typing a number lifts the hold", (typed) => {
+  const item = withValues(FIRST, [["estimate", 3]]);
+  const typedOver = (state: ItemEditState, text: string): ItemEditState => itemEdit(state, editEvent("estimate", typedNumber(text)));
+  const withTitle = itemEdit(initialEdit(item), { type: "edit", field: "title", value: "Renew the preview certificate" });
+
+  const held = typedOver(withTitle, typed);
+  expect(saveProblems(held).map(({ field }) => field), "a problem at the field").toContain("estimate");
+  expect(canSave(held), "Save waits").toBe(false);
+  expect(Object.hasOwn(changedFields(held), "estimate"), "no value made from the text is a change").toBe(false);
+  expect(Object.hasOwn(saveRequest(held).fields, "estimate"), "nor sent").toBe(false);
+
+  for (const [fix, sends] of [
+    ["", null],
+    ["7", 7],
+  ] as const) {
+    const fixed = typedOver(held, fix);
+    expect(saveProblems(fixed), `after ${JSON.stringify(fix)}: no problem`).toEqual([]);
+    expect(canSave(fixed), `after ${JSON.stringify(fix)}: Save is offered`).toBe(true);
+    expect(saveRequest(fixed).fields["estimate"], `after ${JSON.stringify(fix)}: sent`).toBe(sends);
+  }
 });

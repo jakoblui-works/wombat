@@ -1,5 +1,6 @@
-// An agent's open item proposals among a binder's items: each shows exactly once (a create as its own row, an update
-// or delete on its item's row, the oldest as the mark), decided ones and other binders' never; a proposed create is
+// An agent's open item proposals among a binder's items: each shows exactly once in every view (a create as its own
+// row, an update or delete on its item's row, the oldest as the mark, or on a row of its own when no item has its
+// handle; a filter never hides one), with a line each; decided ones and other binders' never; a proposed create is
 // placed by every view exactly as an item holding the same fields, its links named only by their own binder's items;
 // and a reveal finds a row by any open proposal it holds. The expected rows come from these rules, by hand.
 import fc from "fast-check";
@@ -10,8 +11,8 @@ import type { ItemProposalKind, ProposalStatus } from "@wombat/shared/proposals"
 
 import { boardColumns } from "../../Board/board-columns.ts";
 import { PROPOSAL_ATTRIBUTE, proposalProps } from "../use-reveal.ts";
-import { isItemRow, isPending, type ItemRow, type ItemsOf, listGroups, type Row, sorted, visibleItems } from "./view-model.ts";
-import { type ItemProposalRead, struck, withProposals } from "./with-proposals.ts";
+import { isItemRow, isPending, type ItemRow, type ItemsOf, listGroups, type Row, sorted, treeRows, type TreeRow, visibleItems } from "./view-model.ts";
+import { type ItemProposalRead, proposalLines, rowProposalIds, struck, withProposals } from "./with-proposals.ts";
 
 type Properties = Record<string, LenientProperty>;
 
@@ -65,21 +66,40 @@ const proposal = ({ id, at, binder, kind, handle, status, fields }: Spec): ItemP
 
 const pendingOf = (row: Row) => (isPending(row) ? row : undefined);
 const itemRowOf = (row: Row): ItemRow | undefined => (isItemRow(row) ? row : undefined);
-const counts = (names: readonly string[]): Record<string, number> => {
-  const out: Record<string, number> = {};
-  for (const name of names) out[name] = (out[name] ?? 0) + 1;
-  return out;
+
+// ---- Generated binders with proposals of every kind and status, in this binder and another, and a view ----
+
+const STAGES = ["todo", "doing", "done"] as const;
+const OWN: Properties = {
+  stage: { type: "select", options: [...STAGES], required: false },
+  effort: { type: "number", required: false },
+  parent: { type: "link", to: CHORES, required: false },
 };
+/** Handles no item has (its file deleted or renamed by hand). */
+const GONE = ["CH-90", "CH-91"];
 
-// ---- Generated binders with proposals of every kind and status, in this binder and another ----
+type Scenario = { items: ItemSummary[]; proposals: ItemProposalRead[]; view: LenientView };
 
-type Scenario = { items: ItemSummary[]; proposals: ItemProposalRead[] };
+const fieldsArb = fc.record({ title: fc.string({ minLength: 1, maxLength: 20 }), stage: fc.constantFrom("todo", "done"), effort: fc.integer({ min: 1, max: 3 }) }, { requiredKeys: ["title"] });
 
-const fieldsArb = fc.record({ title: fc.string({ minLength: 1, maxLength: 20 }), stage: fc.constantFrom("todo", "done"), effort: fc.integer({ min: 1, max: 13 }) }, { requiredKeys: ["title"] });
+const filterArb = fc.record({ stage: fc.constantFrom(...STAGES), effort: fc.integer({ min: 1, max: 3 }) }, { requiredKeys: [] });
+const viewArb: fc.Arbitrary<LenientView> = fc.oneof(
+  fc.record({ name: fc.constant("List"), kind: fc.constant("list" as const), filter: filterArb, group: fc.constantFrom("stage", "effort") }, { requiredKeys: ["name", "kind"] }),
+  fc.record({ name: fc.constant("Board"), kind: fc.constant("board" as const), column: fc.constant("stage"), filter: filterArb }, { requiredKeys: ["name", "kind", "column"] }),
+  fc.record({ name: fc.constant("Tree"), kind: fc.constant("tree" as const), parent: fc.constant("parent"), filter: filterArb }, { requiredKeys: ["name", "kind", "parent"] }),
+);
 
 const scenarioArb: fc.Arbitrary<Scenario> = fc.uniqueArray(fc.integer({ min: 1, max: 40 }), { maxLength: 10 }).chain((numbers) => {
-  const items = numbers.map((n) => chore(n));
+  const values = fc.record({ stage: fc.constantFrom(...STAGES), effort: fc.integer({ min: 1, max: 3 }), parent: fc.nat() }, { requiredKeys: [] });
+  const itemsArb = fc.tuple(...numbers.map(() => values)).map((drawn) =>
+    numbers.map((n, at) => {
+      const { parent, ...rest } = drawn[at] ?? {};
+      const under = parent === undefined ? undefined : numbers[parent % numbers.length];
+      return chore(n, { ...rest, ...(under === undefined ? {} : { parent: { id: idIn("7a00", under), handle: `CH-${String(under)}` } }) });
+    }),
+  );
   // Another binder's proposals name the same handles: only the binder tells them apart.
+  const handles = [...numbers.map((n) => `CH-${String(n)}`), ...GONE];
   const spec = fc.record({
     binder: fc.constantFrom(CHORES, CHORES, ERRANDS),
     kind: fc.constantFrom<ItemProposalKind>("create", "update", "delete"),
@@ -87,35 +107,46 @@ const scenarioArb: fc.Arbitrary<Scenario> = fc.uniqueArray(fc.integer({ min: 1, 
     on: fc.nat(),
     fields: fieldsArb,
   });
-  return fc.array(spec, { maxLength: 16 }).chain((specs) => {
-    const usable = specs.filter(({ kind }) => kind === "create" || items.length > 0);
-    const order = [...usable.keys()];
+  return fc.tuple(itemsArb, fc.array(spec, { maxLength: 16 }), viewArb).chain(([items, specs, view]) => {
+    const order = [...specs.keys()];
     return fc.tuple(fc.shuffledSubarray(order, { minLength: order.length }), fc.shuffledSubarray(order, { minLength: order.length })).map(([ids, listed]) => {
       // The ids are drawn apart from the times, so the oldest isn't the smallest id.
-      const proposals = usable.map((one, at) =>
+      const proposals = specs.map((one, at) =>
         proposal({
           id: proposalId(ids[at] ?? at),
           at: minute(at),
           binder: one.binder,
           kind: one.kind,
-          handle: items[one.on % Math.max(items.length, 1)]?.handle ?? null,
+          handle: handles[one.on % handles.length] ?? null,
           status: one.status,
           fields: one.kind === "delete" ? {} : one.fields,
         }),
       );
-      return { items, proposals: listed.map((at) => proposals[at]).filter((p) => p !== undefined) };
+      return { items, proposals: listed.map((at) => proposals[at]).filter((p) => p !== undefined), view };
     });
   });
 });
+
+/** The rows a view shows, a tree's children included. */
+const shownIn = (rows: readonly Row[], view: LenientView): Row[] => {
+  const flat = (row: TreeRow): Row[] => [row, ...row.children.flatMap(flat)];
+  if (view.kind === "board") return boardColumns(rows, view, OWN).flatMap((column) => column.rows);
+  if (view.kind === "tree") return treeRows(rows, view, OWN).flatMap(flat);
+  return listGroups(rows, view, OWN).flatMap((group) => group.rows);
+};
+
+/** Which row a proposal belongs on: its create's, or its handle's (an item's or a missing one's). */
+const homeOf = (p: ItemProposalRead): string => (p.kind === "create" ? `create:${p.id}` : `handle:${String(p.handle)}`);
+const rowHome = (row: Row): string => (isPending(row) ? `create:${row.pending.id}` : isItemRow(row) ? `handle:${String(row.item.handle)}` : `handle:${row.missing}`);
 
 const ownOpen = ({ proposals }: Scenario): ItemProposalRead[] => proposals.filter((p) => p.binder === CHORES && OPEN.has(p.status));
 const byAge = (a: ItemProposalRead, b: ItemProposalRead): number => Date.parse(a.at) - Date.parse(b.at);
 
 describe("withProposals", () => {
-  test("every open proposal of the binder shows exactly once, a create as its own row and an update or delete on its item's row; decided ones and other binders' never; every item once", () => {
+  test("every open proposal of the binder shows exactly once in every view, filtered out or its item gone, with a line of its own; decided ones and other binders' never; every item once", () => {
     fc.assert(
       fc.property(scenarioArb, (scenario) => {
-        const { items } = scenario;
+        const { items, view } = scenario;
         const rows = withProposals(items, scenario.proposals, CHORES, itemsOfScenario(items));
         const itemRows = rows.flatMap((row) => itemRowOf(row) ?? []);
         const pendingRows = rows.flatMap((row) => pendingOf(row) ?? []);
@@ -126,17 +157,25 @@ describe("withProposals", () => {
         const changes = open.filter((p) => p.kind !== "create");
         const creates = open.filter((p) => p.kind === "create");
 
-        const shownOnItems = itemRows.flatMap((row) => (row.proposals ?? []).map(({ id }) => id));
-        expect(counts(shownOnItems), "on the items: the binder's open updates and deletes, each once").toEqual(counts(changes.map(({ id }) => id)));
         for (const row of itemRows) {
           const on = changes.filter((p) => p.handle === row.item.handle).sort(byAge);
-          expect((row.proposals ?? []).map(({ id }) => id).sort(), `${String(row.item.handle)} holds the updates and deletes proposed on it`).toEqual(on.map(({ id }) => id).sort());
           expect(row.proposal?.id, `${String(row.item.handle)} is marked with the oldest`).toBe(on[0]?.id);
           expect(struck(row), `${String(row.item.handle)} is struck exactly when its mark is a delete`).toBe(on[0]?.kind === "delete");
         }
-
-        expect(counts(pendingRows.map((row) => row.pending.id)), "one pending row per open create of the binder").toEqual(counts(creates.map(({ id }) => id)));
         for (const p of creates) expect(pendingRows.find((row) => row.pending.id === p.id)?.fields, `${p.id} carries its fields`).toEqual(p.fields);
+
+        const said = `view ${JSON.stringify(view)}`;
+        const shown = shownIn(rows, view);
+        for (const p of open) {
+          const on = shown.filter((row) => rowProposalIds(row).includes(p.id));
+          expect(on.map(rowHome), `${p.kind} ${p.id} shows on exactly its own row (${said})`).toEqual([homeOf(p)]);
+        }
+        const others = new Set(scenario.proposals.filter((p) => !open.includes(p)).map(({ id }) => id));
+        for (const row of shown) {
+          expect(rowProposalIds(row).filter((id) => others.has(id)), `${rowHome(row)} holds no decided or other binder's proposal`).toEqual([]);
+          const lines = proposalLines(row).map(({ id }) => id);
+          expect(lines, `${rowHome(row)} has a line for each proposal on it, oldest first`).toEqual(open.filter((p) => homeOf(p) === rowHome(row)).sort(byAge).map(({ id }) => id));
+        }
       }),
       { numRuns: 300 },
     );
@@ -156,7 +195,7 @@ describe("revealing a proposal", () => {
           const [row] = found;
           if (row === undefined) continue;
           if (p.kind === "create") expect(pendingOf(row)?.pending.id, `${p.id} is found on its own row`).toBe(p.id);
-          else expect(itemRowOf(row)?.item.handle, `${p.id} is found on its item's row`).toBe(p.handle);
+          else expect(rowHome(row), `${p.id} is found on its item's row, or its missing item's`).toBe(`handle:${String(p.handle)}`);
         }
         for (const p of scenario.proposals.filter((one) => !open.includes(one))) expect(holding(p.id), `${p.id} (${p.binder}, ${p.status}) is on no row`).toEqual([]);
       }),
@@ -167,7 +206,6 @@ describe("revealing a proposal", () => {
 
 // ---- A proposed create beside an item holding the same fields ----
 
-const STAGES = ["todo", "doing", "done"] as const;
 const LINKS = { parent: CHORES, area: PLACES, shed: SHEDS } as const;
 type LinkName = keyof typeof LINKS;
 const LINKED: Properties = {
