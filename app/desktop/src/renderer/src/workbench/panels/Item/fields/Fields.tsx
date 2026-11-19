@@ -1,37 +1,230 @@
+import type { ItemSummary, LenientProperty, LinkValue, Problem } from "@wombat/shared/items";
+import { ArrowUpRight } from "lucide-react";
+import { type ReactNode, useId, useState } from "react";
+
+import { Button } from "../../../../components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../../components/ui/select";
 import { ProblemList } from "../../Desk/ProblemList/ProblemList.tsx";
-import type { LinkTarget, PropertyRow } from "./property-rows.ts";
+import { displayValue, MISSING_ITEM } from "../../Desk/view-model/values.ts";
+import type { FieldValue } from "../item-edit.ts";
+import { clearable, inputValue, type LinkOption, linkOptions, linkTarget, numberDraft, pickedByUser, shownNumber } from "./field-input.ts";
+import type { PropertyRow } from "./property-rows.ts";
 
-const Link = ({ link, text, onOpenItem }: { link: LinkTarget; text: string; onOpenItem: (binderId: string, itemId: string) => void }) =>
-  link.found ? (
-    <button
-      type="button"
-      onClick={() => onOpenItem(link.binderId, link.itemId)}
-      className="focus-ring inline-flex max-w-full items-baseline gap-1.5 rounded-xs text-left text-fg-primary underline decoration-line-strong underline-offset-2 hover:decoration-fg-secondary"
-    >
-      <span className="shrink-0 font-mono text-xs text-fg-secondary">{link.handle}</span>
-      {link.title === undefined ? null : <span className="min-w-0 break-words">{link.title}</span>}
-    </button>
-  ) : (
-    <span className="text-fg-tertiary">{text}</span>
+/** The clear entry of an optional select or link. */
+const CLEAR = "None";
+
+const INPUT = "focus-ring h-8 w-full min-w-0 rounded-md border border-line-strong bg-surface-1 px-2.5 text-base text-fg-primary";
+
+/** The types whose control is an input the label points at; the others are named through aria-labelledby. */
+const INPUT_TYPES: ReadonlySet<string> = new Set(["text", "number", "date"]);
+
+type Edit = (field: string, value: FieldValue) => void;
+
+type ControlProps = { name: string; labelId: string; inputId: string; property: LenientProperty; value: FieldValue; onEdit: Edit; invalid: boolean };
+
+const NumberInput = ({ name, inputId, value, onEdit, invalid, required }: Omit<ControlProps, "labelId" | "property"> & { required: boolean }) => {
+  const [draft, setDraft] = useState(() => (value === null ? "" : String(value)));
+  return (
+    <input
+      id={inputId}
+      type="text"
+      inputMode="decimal"
+      className={INPUT}
+      value={shownNumber(draft, value)}
+      required={required}
+      aria-invalid={invalid}
+      onChange={(event) => {
+        const { text, value: next } = numberDraft(event.target.value);
+        setDraft(text);
+        if (next !== undefined) onEdit(name, next);
+      }}
+    />
   );
+};
 
-/** The item's properties as a description list, one entry per row, its problems under its value. */
-export const Fields = ({ rows, file, onOpenItem }: { rows: readonly PropertyRow[]; file: string; onOpenItem: (binderId: string, itemId: string) => void }) => (
-  <dl className="grid grid-cols-[minmax(6rem,max-content)_1fr] gap-x-6 gap-y-2 text-sm">
-    {rows.map(({ name, text, link, problems }) => (
-      <div key={name} className="contents">
-        <dt className="py-0.5 text-fg-tertiary">{name}</dt>
-        <dd className="flex min-w-0 flex-col gap-1 py-0.5">
-          {link !== undefined ? (
-            <Link link={link} text={text} onOpenItem={onOpenItem} />
-          ) : text === "" ? (
-            <span className="text-fg-tertiary">none</span>
-          ) : (
-            <span className="whitespace-pre-wrap break-words text-fg-primary">{text}</span>
+const LinkLabel = ({ option }: { option: LinkOption }) => (
+  <span className="flex min-w-0 items-baseline gap-1.5">
+    {option.handle === null ? null : <span className="shrink-0 font-mono text-xs text-fg-secondary">{option.handle}</span>}{" "}
+    <span className="min-w-0 truncate">{option.title ?? option.id}</span>
+  </span>
+);
+
+const Choice = ({
+  labelId,
+  value,
+  onChange,
+  optional,
+  items,
+  shown,
+}: {
+  labelId: string;
+  value: FieldValue;
+  onChange: (value: string | null) => void;
+  optional: boolean;
+  items: { value: string; label: ReactNode }[];
+  shown: (value: FieldValue) => ReactNode;
+}) => (
+  <Select value={value === null ? null : String(value)} onValueChange={(next: string | null, details) => {
+      if (pickedByUser(details.reason)) onChange(next);
+    }}>
+    <SelectTrigger aria-labelledby={labelId} className="min-w-0 flex-1">
+      <SelectValue className="min-w-0 truncate">{(current: string | null) => (current === null ? <span className="text-fg-tertiary">none</span> : shown(current))}</SelectValue>
+    </SelectTrigger>
+    <SelectContent>
+      {optional ? <SelectItem value={null}>{CLEAR}</SelectItem> : null}
+      {items.map((item) => (
+        <SelectItem key={item.value} value={item.value}>
+          {item.label}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+);
+
+const Control = ({
+  name,
+  labelId,
+  inputId,
+  property,
+  value,
+  onEdit,
+  invalid,
+  listed,
+  onOpenItem,
+  fileLink,
+}: ControlProps & { listed: Listed; onOpenItem: OpenItem; fileLink: LinkValue | undefined }) => {
+  const optional = clearable(property);
+  switch (property.type) {
+    case "select":
+      return (
+        <Choice
+          labelId={labelId}
+          value={value}
+          optional={optional}
+          onChange={(next) => onEdit(name, next)}
+          items={property.options.map((option) => ({ value: option, label: option }))}
+          shown={(current) => String(current)}
+        />
+      );
+    case "link": {
+      const options = linkOptions(listed(property.to));
+      const target = linkTarget(value, listed(property.to), fileLink);
+      return (
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Choice
+            labelId={labelId}
+            value={value}
+            optional={optional}
+            onChange={(next) => onEdit(name, next)}
+            items={options.map((option) => ({ value: option.id, label: <LinkLabel option={option} /> }))}
+            shown={() => (target === undefined ? <span className="text-fg-tertiary">{MISSING_ITEM}</span> : <LinkLabel option={target} />)}
+          />
+          {target === undefined ? null : (
+            <Button type="button" variant="ghost" size="icon-sm" aria-label={`Open ${target.handle ?? target.title ?? target.id}`} onClick={() => onOpenItem(property.to, target.id)}>
+              <ArrowUpRight />
+            </Button>
           )}
-          <ProblemList problems={problems} file={file} className="text-sm text-danger" />
-        </dd>
-      </div>
-    ))}
+        </div>
+      );
+    }
+    case "number":
+      return <NumberInput name={name} inputId={inputId} value={value} onEdit={onEdit} invalid={invalid} required={!optional} />;
+    case "text":
+    case "date":
+      return (
+        <input
+          id={inputId}
+          type={property.type}
+          className={INPUT}
+          value={value === null ? "" : String(value)}
+          required={!optional}
+          aria-invalid={invalid}
+          onChange={(event) => onEdit(name, inputValue(event.target.value))}
+        />
+      );
+    default:
+      return <span className="whitespace-pre-wrap wrap-break-word text-fg-primary">{displayValue(property, value) || "none"}</span>;
+  }
+};
+
+type Listed = (binderId: string) => readonly ItemSummary[] | undefined;
+type OpenItem = (binderId: string, itemId: string) => void;
+
+const Field = ({
+  row,
+  property,
+  value,
+  onEdit,
+  saveProblems,
+  file,
+  listed,
+  onOpenItem,
+  fileLink,
+}: {
+  row: PropertyRow;
+  property: LenientProperty;
+  value: FieldValue;
+  onEdit: Edit;
+  saveProblems: readonly Problem[];
+  file: string;
+  listed: Listed;
+  onOpenItem: OpenItem;
+  fileLink: LinkValue | undefined;
+}) => {
+  const id = useId();
+  const labelId = `${id}-label`;
+  const inputId = `${id}-input`;
+  const problems = [...row.problems, ...saveProblems];
+  return (
+    <div className="contents">
+      <dt className="flex h-8 items-center text-fg-tertiary">
+        <label id={labelId} htmlFor={INPUT_TYPES.has(property.type) ? inputId : undefined}>
+          {row.name}
+        </label>
+      </dt>
+      <dd className="flex min-w-0 flex-col gap-1">
+        <Control name={row.name} labelId={labelId} inputId={inputId} property={property} value={value} onEdit={onEdit} invalid={problems.length > 0} listed={listed} onOpenItem={onOpenItem} fileLink={fileLink} />
+        <ProblemList problems={problems} file={file} className="text-sm text-danger" />
+      </dd>
+    </div>
+  );
+};
+
+type Props = {
+  rows: readonly PropertyRow[];
+  properties: Readonly<Record<string, LenientProperty>>;
+  valueOf: (field: string) => FieldValue;
+  onEdit: Edit;
+  /** A refused save's problems, by property. */
+  saveProblems: ReadonlyMap<string, Problem[]>;
+  file: string;
+  listed: Listed;
+  onOpenItem: OpenItem;
+  /** A link property's value as the item's file was read. */
+  fileLink: (field: string) => LinkValue | undefined;
+};
+
+/** The item's properties as a description list, one control per property by its type, its problems under it. */
+export const Fields = ({ rows, properties, valueOf, onEdit, saveProblems, file, listed, onOpenItem, fileLink }: Props) => (
+  <dl className="grid grid-cols-[minmax(6rem,max-content)_1fr] gap-x-6 gap-y-2 text-sm">
+    {rows.flatMap((row) => {
+      const property = properties[row.name];
+      return property === undefined
+        ? []
+        : [
+            <Field
+              key={row.name}
+              row={row}
+              property={property}
+              value={valueOf(row.name)}
+              onEdit={onEdit}
+              saveProblems={saveProblems.get(row.name) ?? []}
+              file={file}
+              listed={listed}
+              onOpenItem={onOpenItem}
+              fileLink={fileLink(row.name)}
+            />,
+          ];
+    })}
   </dl>
 );

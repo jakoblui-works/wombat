@@ -1,5 +1,5 @@
 // The workbench's own commands: the actions its buttons and keys take, registered while the workbench is mounted.
-import type { DockviewApi } from "dockview-react";
+import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
 import { AGENTS_ACTIVITY } from "../activity-ids.ts";
 import type { ActivityDescriptor } from "../registry.ts";
@@ -17,6 +17,8 @@ export type WorkbenchCommandDeps = {
   rightSidebarTitle?: string;
   /** Whether the connection banner has made the panels inert: no key may change them then. */
   blocked: () => boolean;
+  /** Closes a tab the user asked to close; a tab with unsaved work asks first (default: closes it). */
+  closePanel?: (panel: IDockviewPanel) => void;
   /** What Restart Service does (default: the bridge's restart); the page passes the one that tracks the attempt. */
   restartService?: () => void;
 };
@@ -39,7 +41,7 @@ export const splitCommandId = (direction: SplitDirection): string => `view.split
 export const commandTitle = (id: string): string => commands().find((command) => command.id === id)?.title ?? id;
 
 /** Registers the workbench's commands; returns their unregistration. */
-export const registerWorkbenchCommands = ({ api, activities, showActivity, toggleRightSidebar, rightSidebarTitle = "Right Sidebar", blocked, restartService }: WorkbenchCommandDeps): (() => void) => {
+export const registerWorkbenchCommands = ({ api, activities, showActivity, toggleRightSidebar, rightSidebarTitle = "Right Sidebar", blocked, restartService, closePanel }: WorkbenchCommandDeps): (() => void) => {
   const unblocked = () => !blocked();
   const unregister = [
     registerCommand({
@@ -60,14 +62,15 @@ export const registerWorkbenchCommands = ({ api, activities, showActivity, toggl
       run: ({ groupId, panelId }) => {
         const dockview = api();
         if (dockview === undefined) return;
+        const close = closePanel ?? ((panel: IDockviewPanel) => dockview.removePanel(panel));
         if (panelId !== undefined) {
           const panel = dockview.getPanel(panelId);
-          if (panel !== undefined) dockview.removePanel(panel);
+          if (panel !== undefined) close(panel);
           return;
         }
         const group = groupId === undefined ? dockview.activeGroup : dockview.getGroup(groupId);
         const panel = group?.activePanel;
-        if (panel !== undefined) dockview.removePanel(panel);
+        if (panel !== undefined) close(panel);
         else if (group !== undefined) closeEmptyGroup(dockview, group.id);
       },
     }),

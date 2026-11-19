@@ -1,5 +1,5 @@
 import { type QueryState, useQueryClient } from "@tanstack/react-query";
-import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewPanelProps } from "dockview-react";
+import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewPanel, type IDockviewPanelProps } from "dockview-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 
 import type { ListAgentsResponse, ListBindersResponse } from "@wombat/shared/api";
@@ -28,6 +28,7 @@ import { Tab } from "../TabBar/Tab.tsx";
 import { TabBarMenu } from "../TabBar/TabBarMenu.tsx";
 import { ResizeHandle } from "../ResizeHandle/ResizeHandle.tsx";
 import {
+  closeGuards,
   pruneTabs,
   type Reveals,
   retitleTabs,
@@ -40,7 +41,7 @@ import {
 } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { showBinder } from "../panels/Desk/desk-place.ts";
-import { type ActiveTab, ActiveTabContext, DeskContext, type DeskState, type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
+import { type ActiveTab, ActiveTabContext, CloseGuardsContext, DeskContext, type DeskState, type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
 import { ZoomToast } from "../ZoomToast/ZoomToast.tsx";
 
 type Chrome = Pick<SavedLayout, "sidebars" | "activity"> & { desk: DeskLayout };
@@ -230,6 +231,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   }, [api]);
 
   const reveals = useMemo(revealStore, []);
+  const guards = useMemo(closeGuards, []);
   const showActivity = useCallback((id: string) => {
     setChrome((current) => ({ ...current, activity: id }));
     saver.current?.schedule("user");
@@ -279,8 +281,9 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         ...(rightPanel === undefined ? {} : { rightSidebarTitle: rightPanel.title }),
         blocked: () => blockedRef.current,
         restartService: () => restartRef.current(),
+        ...(api === undefined ? {} : { closePanel: (panel: IDockviewPanel) => guards.close(api, panel) }),
       }),
-    [api, showActivity, rightPanel?.title],
+    [api, showActivity, rightPanel?.title, guards],
   );
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -338,6 +341,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         <ActiveTabContext value={activeTab}>
           <RevealsContext value={reveals}>
             <TitlesContext value={titles}>
+              <CloseGuardsContext value={guards}>
               <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
                 <TitleBar
                   right={rightPanel}
@@ -396,6 +400,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
                 </span>
               </div>
+              </CloseGuardsContext>
             </TitlesContext>
           </RevealsContext>
         </ActiveTabContext>

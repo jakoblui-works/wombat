@@ -26,14 +26,13 @@ describe("propertyRows", () => {
       properties: { estimate: 5, parent: { id: "0196f3c2-0000-7000-8000-000000000002", handle: "TSK-2" }, status: "later" },
       problems: [UNDECLARED, STATUS, FILE, TITLE],
     };
-    const { rows, rest } = propertyRows(DECLARED, item, () => undefined);
+    const { rows, rest } = propertyRows(DECLARED, item);
     expect(rows.map(({ name, problems }) => ({ name, problems }))).toEqual([
       { name: "status", problems: [STATUS] },
       { name: "owner", problems: [] },
       { name: "due", problems: [] },
       { name: "parent", problems: [] },
     ]);
-    expect(rows.filter(({ text }) => text === "").map(({ name }) => name), "the empty ones").toEqual(["owner", "due"]);
     expect(rest.toSorted((a, b) => a.message.localeCompare(b.message))).toEqual([UNDECLARED, TITLE, FILE].toSorted((a, b) => a.message.localeCompare(b.message)));
   });
 });

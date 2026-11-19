@@ -2,14 +2,15 @@
 // that follow: nothing is updated optimistically.
 import { mutationOptions, type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 
-import type { AgentSummary, AnswerPermissionRequest, ContextBreakdown, SetConfigRequest, StartAgentRequest } from "@wombat/shared/api";
+import type { AgentSummary, AnswerPermissionRequest, ContextBreakdown, SetConfigRequest, StartAgentRequest, UpdateItemRequest } from "@wombat/shared/api";
+import type { Item } from "@wombat/shared/items";
 import { isOpen, type Proposal, ProposalErrorCode } from "@wombat/shared/proposals";
 import { ROUTES } from "@wombat/shared/routes";
 import { asError } from "../lib/errors.ts";
 import { callRoute, ServiceError } from "./client.ts";
 import { keys } from "./keys.ts";
 import { forgetAgent } from "./query-client.ts";
-import { refresh } from "./refresh.ts";
+import { refresh, refreshItems } from "./refresh.ts";
 
 /** A new id for one user action; a retry of that action sends the same one, so the service runs it once. */
 export const newCommandId = (): string => {
@@ -136,6 +137,11 @@ const draftFn = async (vars: DraftVars): Promise<Proposal | "changed"> => {
   }
 };
 
+export type SaveItemVars = UpdateItemRequest & { ref: string };
+
+/** Writes my changed fields of item `ref` on the version they're based on; answers the item as written. */
+export const saveItemFn = ({ ref, version, fields }: SaveItemVars): Promise<Item> => callRoute(ROUTES.updateItem, { params: { ref }, body: { version, fields } });
+
 const refreshProposal = (queryClient: QueryClient, proposalId: string): Promise<void> =>
   Promise.all([refresh(queryClient, keys.proposals), refresh(queryClient, keys.proposal(proposalId))]).then(() => undefined);
 
@@ -175,6 +181,10 @@ export const deleteAgentMutation = (queryClient: QueryClient) =>
     },
   });
 
+/** The one item write of the item tab and the board; a refused or stale save rejects with the ServiceError. */
+export const saveItemMutation = (queryClient: QueryClient) =>
+  mutationOptions({ mutationFn: saveItemFn, onSettled: () => refreshItems(queryClient) });
+
 const decideMutation = (queryClient: QueryClient) =>
   mutationOptions({
     mutationFn: decideFn,
@@ -193,4 +203,5 @@ export const useCancelTurn = () => useMutation(cancelTurnMutation(useQueryClient
 export const useStopAgent = () => useMutation(stopAgentMutation(useQueryClient()));
 export const useDecide = () => useMutation(decideMutation(useQueryClient()));
 export const useDraft = () => useMutation(draftMutation(useQueryClient()));
+export const useSaveItem = () => useMutation(saveItemMutation(useQueryClient()));
 export const useDeleteAgent = () => useMutation(deleteAgentMutation(useQueryClient()));

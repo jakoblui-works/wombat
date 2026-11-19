@@ -103,6 +103,31 @@ const tabOf = (panel: IDockviewPanel): TabParams | undefined => {
   return typeof params?.panelId === "string" ? { panelId: params.panelId, params: params.params } : undefined;
 };
 
+/**
+ * How tabs with unsaved work ask before they close: a panel registers its question by tab key while it holds such
+ * work, and a close the user asks for runs the question instead of closing.
+ */
+export const closeGuards = () => {
+  const asks = new Map<string, () => void>();
+  return {
+    /** Registers `ask` for the tab `key`; returns its unregistration. */
+    guard: (key: string, ask: () => void): (() => void) => {
+      asks.set(key, ask);
+      return () => {
+        if (asks.get(key) === ask) asks.delete(key);
+      };
+    },
+    /** A close the user asked for: the tab's question when it has one, else the close. */
+    close: (host: Pick<TabHost, "removePanel">, panel: IDockviewPanel): void => {
+      const ask = asks.get(panel.id);
+      if (ask === undefined) host.removePanel(panel);
+      else ask();
+    },
+  };
+};
+
+export type CloseGuards = ReturnType<typeof closeGuards>;
+
 /** Closes every tab that no longer applies (`isKnown`, the same rule as the restore's). */
 export const pruneTabs = (host: TabHost, isKnown: IsKnown): void => {
   for (const panel of host.panels) {

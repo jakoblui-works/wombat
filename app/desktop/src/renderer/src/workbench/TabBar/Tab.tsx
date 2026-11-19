@@ -12,7 +12,7 @@ export const Tab = (props: IDockviewPanelHeaderProps) => {
     <ContextMenu>
       {/* `contents`: the trigger adds no box of its own, so the tab keeps dockview's layout. */}
       <ContextMenuTrigger className="contents">
-        <DockviewDefaultTab {...props} />
+        <DockviewDefaultTab {...props} closeActionOverride={() => runLogged(WORKBENCH_COMMAND.closeTab, target())} />
       </ContextMenuTrigger>
       <ContextMenuContent>
         {SPLIT_DIRECTIONS.map((direction) => (

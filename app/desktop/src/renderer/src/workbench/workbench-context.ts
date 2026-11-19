@@ -1,7 +1,8 @@
 // What panels may ask of the workbench they're shown in.
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect } from "react";
 
 import type { DeskLayout } from "./layout.ts";
+import { type CloseGuards, closeGuards, tabKey } from "./tabs.ts";
 
 /** A tab: the panel it shows and its params (its identity, with `tabKey`). */
 export type TabRef = { panelId: string; params: unknown };
@@ -62,4 +63,13 @@ export const useDesk = (): DeskState => {
   const state = useContext(DeskContext);
   if (state === undefined) throw new Error("useDesk is used outside the Workbench; render the panel inside it.");
   return state;
+};
+
+export const CloseGuardsContext = createContext<CloseGuards>(closeGuards());
+
+/** While `ask` is given, a close of the tab (its X, Close, Ctrl+W) runs `ask` instead; the panel closes it itself. */
+export const useCloseGuard = (tab: TabRef, ask: (() => void) | undefined): void => {
+  const guards = useContext(CloseGuardsContext);
+  const key = tabKey(tab.panelId, tab.params);
+  useEffect(() => (ask === undefined ? undefined : guards.guard(key, ask)), [guards, key, ask]);
 };
