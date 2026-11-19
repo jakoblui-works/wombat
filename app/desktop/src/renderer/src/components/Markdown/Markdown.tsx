@@ -1,20 +1,23 @@
-// What user and agent text may render as: the one place that decides. Agent text is
-// untrusted, so nothing in it may run, load or navigate in the page:
+// What user, agent and item text may render as: the one place that decides. Agent text and item files are
+// untrusted, so nothing in them may run, load or navigate in the page:
 // - raw HTML shows as its own text (no rehype-raw; react-markdown turns raw nodes into text);
 // - a link is an <a> only for an https: URL, opened in a new window without a referrer; any other URL shows as text;
 // - an image never loads: it shows as its alt text;
 // - code blocks go through `Code` (lib/highlight.tsx), which never writes raw HTML or style strings.
-// A text longer than MAX_SHOWN_CHARS is clipped before it's parsed, with a line saying how much was left out and
-// Show all (`useClipped`).
-import { memo, useId } from "react";
+import { memo, type ReactNode, type Ref, useId } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { Code } from "../../../../lib/highlight.tsx";
-import { cn } from "../../../../lib/utils.ts";
-import { Omitted, useClipped } from "../Omitted/Omitted.tsx";
+import { Code } from "../../lib/highlight.tsx";
+import { cn } from "../../lib/utils.ts";
 
-export type MarkdownProps = { text: string; className?: string };
+export type MarkdownProps = {
+  text: string;
+  className?: string | undefined;
+  ref?: Ref<HTMLDivElement>;
+  /** Shown under the text, inside the same element (the chat's line about a clipped text). */
+  children?: ReactNode;
+};
 
 type Element = NonNullable<ExtraProps["node"]>;
 type ElementContent = Element["children"][number];
@@ -92,26 +95,27 @@ const COMPONENTS: Components = {
   td: ({ children }) => <td className="border border-line px-2 py-1">{children}</td>,
 };
 
-/**
- * User or agent text as Markdown, inert: see the rules at the top of this file. Parsed again only when the text
- * changes; footnote ids are prefixed per instance, so two messages' footnotes never share an id.
- */
-export const Markdown = memo(({ text, className }: MarkdownProps) => {
+const Rendered = memo(({ text }: { text: string }) => {
   const id = useId();
-  const { shown, omitted, showAll, textRef } = useClipped<HTMLDivElement>(text);
   return (
-    <div ref={textRef} tabIndex={-1} className={cn("flex min-w-0 flex-col gap-2 break-words outline-none", className)}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        remarkRehypeOptions={{ clobberPrefix: `md${id.replace(/[^\w-]/g, "")}-` }}
-        components={COMPONENTS}
-        skipHtml={false}
-        urlTransform={(url) => httpsUrl(url) ?? ""}
-      >
-        {shown}
-      </ReactMarkdown>
-      <Omitted count={omitted} onShowAll={showAll} />
-    </div>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      remarkRehypeOptions={{ clobberPrefix: `md${id.replace(/[^\w-]/g, "")}-` }}
+      components={COMPONENTS}
+      skipHtml={false}
+      urlTransform={(url) => httpsUrl(url) ?? ""}
+    >
+      {text}
+    </ReactMarkdown>
   );
 });
+Rendered.displayName = "Rendered";
+
+/** User, agent or item text as Markdown, inert: see the rules at the top of this file. */
+export const Markdown = memo(({ text, className, ref, children }: MarkdownProps) => (
+  <div ref={ref} tabIndex={-1} className={cn("flex min-w-0 flex-col gap-2 break-words outline-none", className)}>
+    <Rendered text={text} />
+    {children}
+  </div>
+));
 Markdown.displayName = "Markdown";

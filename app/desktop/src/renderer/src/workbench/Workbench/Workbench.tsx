@@ -78,6 +78,7 @@ const NO_ACTIONS: WorkbenchActions = {
   openAgentChat: () => undefined,
   openProposal: () => undefined,
   openBinder: () => undefined,
+  openItem: () => undefined,
 };
 
 const NO_REVEALS: Reveals = { get: () => undefined, subscribe: () => () => undefined };

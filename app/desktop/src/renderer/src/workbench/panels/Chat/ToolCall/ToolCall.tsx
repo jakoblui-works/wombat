@@ -23,7 +23,7 @@ import { Collapse } from "../../../../components/ui/collapse";
 import type { ChatItem, ToolCallContent, ToolCallStatus, ToolKind } from "../../../../data/chat-model.ts";
 import { cn } from "../../../../lib/utils";
 import { EditDiff } from "../../approvals/EditDiff/EditDiff.tsx";
-import { Markdown } from "../Markdown/Markdown.tsx";
+import { ClippedMarkdown } from "../ClippedMarkdown/ClippedMarkdown.tsx";
 import { Omitted, useClipped } from "../Omitted/Omitted.tsx";
 
 export type ToolItem = Extract<ChatItem, { kind: "tool" }>;
@@ -64,11 +64,11 @@ const Detail = ({ label, text }: { label: string; text: string }) => {
   );
 };
 
-/** One piece of the tool call's content: text as Markdown (which clips it), a diff inline; a terminal by name only. */
+/** One piece of the tool call's content: text as Markdown (clipped), a diff inline; a terminal by name only. */
 const Content = ({ content }: { content: ToolCallContent }) => {
   if (content.type === "content") {
     if (content.content.type !== "text") return <p className="text-xs text-fg-tertiary">({content.content.type} content isn't shown)</p>;
-    return <Markdown text={content.content.text} className="text-sm text-fg-secondary" />;
+    return <ClippedMarkdown text={content.content.text} className="text-sm text-fg-secondary" />;
   }
   if (content.type === "diff") return <EditDiff path={content.path} oldText={content.oldText} newText={content.newText} />;
   return <p className="text-xs text-fg-tertiary">Terminal output isn't shown yet.</p>;

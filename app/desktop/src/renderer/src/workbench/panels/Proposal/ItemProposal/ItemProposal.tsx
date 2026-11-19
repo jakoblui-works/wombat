@@ -9,7 +9,8 @@ import { useBinderItems, useBinders } from "../../../../data/hooks.ts";
 import { LazyMonacoDiff } from "../../Diff/MonacoDiff/LazyMonacoDiff.tsx";
 import { Note } from "../../approvals/Note/Note.tsx";
 import { type FieldRow, fieldRows } from "./field-rows.ts";
-import { inputText, problemsByField, typedValue, UNKNOWN_ITEM, valueText, withField, withoutField } from "./field-values.ts";
+import { problemsByField } from "../../Desk/view-model/problems.ts";
+import { inputText, typedValue, UNKNOWN_ITEM, valueText, withField, withoutField } from "./field-values.ts";
 
 type Fields = Readonly<Record<string, unknown>>;
 

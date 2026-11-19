@@ -1,4 +1,4 @@
-import type { LenientProperty } from "@wombat/shared/items";
+import type { LenientProperty, LinkValue } from "@wombat/shared/items";
 
 type Rank = number | string;
 
@@ -21,11 +21,14 @@ export const compareHandles = (a: string | null, b: string | null): number => {
   return x.number - y.number;
 };
 
-const linkHandle = (value: unknown): string | undefined => {
+/** A link's value as the API sends it; undefined for anything else (an invalid item's raw value). */
+export const linkValue = (value: unknown): LinkValue | undefined => {
   if (typeof value !== "object" || value === null) return undefined;
-  const handle: unknown = (value as Record<string, unknown>)["handle"];
-  return typeof handle === "string" ? handle : undefined;
+  const { id, handle } = value as Record<string, unknown>;
+  return typeof id === "string" && (typeof handle === "string" || handle === null) ? { id, handle } : undefined;
 };
+
+const linkHandle = (value: unknown): string | undefined => linkValue(value)?.handle ?? undefined;
 
 /**
  * What a value sorts by: a select's option index, a number, a date or text string, a link's handle. Undefined when the

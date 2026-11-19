@@ -7,7 +7,7 @@ import type { FoldEntry } from "@wombat/shared/log-fold";
 import { ROUTES } from "@wombat/shared/routes";
 import { bySeq } from "./by-seq.ts";
 import { callRoute, callRouteWith } from "./client.ts";
-import { keys, logAgentId, proposalIdOf, binderIdOf } from "./keys.ts";
+import { keys, logAgentId, proposalIdOf, binderIdOf, itemRefOf } from "./keys.ts";
 
 /** A parsed entry, or an unreadable one kept in its place (the log fold's entry). */
 export type AgentLogEntry = FoldEntry;
@@ -31,6 +31,7 @@ const readRepos = () => callRoute(ROUTES.listRepos);
 const readProposals = () => callRoute(ROUTES.listProposals);
 const readBinders = () => callRoute(ROUTES.listBinders);
 const readBinderItems = (binderId: string) => () => callRoute(ROUTES.binderItems, { params: { id: binderId } });
+const readItem = (ref: string) => () => callRoute(ROUTES.getItem, { params: { ref } });
 
 const readProposal = (proposalId: string, version?: number) => () =>
   callRoute(ROUTES.getProposal, { params: { id: proposalId }, query: version === undefined ? {} : { version } });
@@ -44,6 +45,8 @@ export const proposalQuery = (proposalId: string) => queryOptions({ queryKey: ke
 export const bindersQuery = () => queryOptions({ queryKey: keys.binders, queryFn: readBinders });
 /** One binder's items, without their bodies. */
 export const binderItemsQuery = (binderId: string) => queryOptions({ queryKey: keys.binderItems(binderId), queryFn: readBinderItems(binderId) });
+/** One item with its body, by id, handle or old handle. */
+export const itemQuery = (ref: string) => queryOptions({ queryKey: keys.item(ref), queryFn: readItem(ref) });
 /** One version of a proposal (`?version=`); its `current` is the target as it was at the read. */
 export const proposalVersionQuery = (proposalId: string, version: number) =>
   queryOptions({ queryKey: keys.proposalVersion(proposalId, version), queryFn: readProposal(proposalId, version) });
@@ -115,6 +118,8 @@ export const queryFor = (queryClient: QueryClient, key: QueryKey): (() => Promis
   if (proposalId !== undefined) return again(proposalQuery(proposalId)).read;
   const binderId = binderIdOf(key);
   if (binderId !== undefined) return again(binderItemsQuery(binderId)).read;
+  const itemRef = itemRefOf(key);
+  if (itemRef !== undefined) return again(itemQuery(itemRef)).read;
   const lists = [again(agentsQuery()), again(harnessesQuery()), again(reposQuery()), again(proposalsQuery()), again(bindersQuery())];
   return lists.find((list) => hashKey(list.queryKey) === hashKey(key))?.read;
 };

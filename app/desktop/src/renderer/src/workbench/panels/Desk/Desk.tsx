@@ -14,12 +14,20 @@ import { DeskTree } from "./DeskTree/DeskTree.tsx";
 export const Desk = () => {
   const binders = useBinders();
   const { desk, changeDesk } = useDesk();
-  const { openBinder } = useWorkbench();
+  const { openBinder, openItem } = useWorkbench();
   const content = deskContent(binders.data?.binders, binders.error, desk);
 
   if (content.kind === "binder") {
     const { binder, view } = content;
-    return <BinderView binder={binder} view={view} onBack={() => changeDesk(showTree)} onView={(name) => openBinder(binder.id, undefined, name)} />;
+    return (
+      <BinderView
+        binder={binder}
+        view={view}
+        onBack={() => changeDesk(showTree)}
+        onView={(name) => openBinder(binder.id, undefined, name)}
+        onOpenItem={(itemId) => openItem(binder.id, itemId)}
+      />
+    );
   }
   return (
     <div className="flex h-full min-h-0 flex-col">

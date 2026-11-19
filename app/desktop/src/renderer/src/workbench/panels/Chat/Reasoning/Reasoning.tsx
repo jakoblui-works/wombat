@@ -2,7 +2,7 @@ import { Brain, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 import { Collapse } from "../../../../components/ui/collapse";
-import { Markdown } from "../Markdown/Markdown.tsx";
+import { ClippedMarkdown } from "../ClippedMarkdown/ClippedMarkdown.tsx";
 
 /** The agent's reasoning: collapsed to one line; expanded, its text (agent text, as Markdown). */
 export const Reasoning = ({ text }: { text: string }) => {
@@ -21,7 +21,7 @@ export const Reasoning = ({ text }: { text: string }) => {
         Reasoning
       </button>
       <Collapse open={expanded}>
-        <Markdown text={text} className="ml-1.5 border-l border-line pl-3 text-sm text-fg-secondary" />
+        <ClippedMarkdown text={text} className="ml-1.5 border-l border-line pl-3 text-sm text-fg-secondary" />
       </Collapse>
     </div>
   );

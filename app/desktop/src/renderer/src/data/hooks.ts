@@ -3,7 +3,7 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { ConnectionState } from "../../../shared/bridge.ts";
-import { agentLogQuery, agentsQuery, harnessesQuery, proposalQuery, proposalsQuery, proposalVersionQuery, reposQuery, binderItemsQuery, bindersQuery } from "./query-client.ts";
+import { agentLogQuery, agentsQuery, harnessesQuery, proposalQuery, proposalsQuery, proposalVersionQuery, reposQuery, binderItemsQuery, bindersQuery, itemQuery } from "./query-client.ts";
 
 export const useAgents = () => useQuery(agentsQuery());
 
@@ -25,6 +25,12 @@ export const useBinders = () => useQuery(bindersQuery());
 
 /** The items of each binder in `binderIds`, in that order. */
 export const useBinderItems = (binderIds: readonly string[]) => useQueries({ queries: binderIds.map((binderId) => binderItemsQuery(binderId)) });
+
+/**
+ * One item by id, read again by every items alert and after a reconnect. A failed read keeps the item from the last
+ * read that succeeded as `data`, beside the error.
+ */
+export const useItem = (itemId: string) => useQuery(itemQuery(itemId));
 
 export const useAgentLog = (agentId: string) => useQuery(agentLogQuery(useQueryClient(), agentId));
 

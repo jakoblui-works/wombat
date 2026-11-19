@@ -25,8 +25,8 @@ import { ContextDialogHost } from "./ContextDialogHost/ContextDialogHost.tsx";
 import { Composer } from "./Composer/Composer.tsx";
 import { ComposerFooter } from "./Composer/ComposerFooter/ComposerFooter.tsx";
 import { LogError } from "../approvals/LogError/LogError.tsx";
-import { Markdown } from "./Markdown/Markdown.tsx";
-import { safePrefix } from "./Markdown/safe-prefix.ts";
+import { ClippedMarkdown } from "./ClippedMarkdown/ClippedMarkdown.tsx";
+import { safePrefix } from "./safe-prefix.ts";
 import { Permission } from "./Permission/Permission.tsx";
 import { Plan } from "./Plan/Plan.tsx";
 import { ProposalNote } from "./ProposalNote/ProposalNote.tsx";
@@ -76,7 +76,7 @@ const SubAgent = ({ children }: { children: ReactNode }) => (
 
 type StaticItem = Extract<ChatBlock, { kind: "item" }>["item"];
 
-const AgentText = ({ text }: { text: string }) => <Markdown text={text} className="text-base text-fg-primary" />;
+const AgentText = ({ text }: { text: string }) => <ClippedMarkdown text={text} className="text-base text-fg-primary" />;
 
 /**
  * An agent message revealed at an even pace (`stillReveals`); only it renders again on each frame. Once it is no
@@ -97,7 +97,7 @@ const StaticItemView = ({ item }: { item: StaticItem }): ReactNode => {
     case "user":
       return (
         <div className="flex justify-end">
-          <Markdown text={item.text} className="max-w-3/4 rounded-lg border border-line bg-surface-2 px-3.5 py-2 text-base text-fg-primary" />
+          <ClippedMarkdown text={item.text} className="max-w-3/4 rounded-lg border border-line bg-surface-2 px-3.5 py-2 text-base text-fg-primary" />
         </div>
       );
     case "proposal_note":

@@ -1,5 +1,5 @@
 // Importing this module registers the activities and their panels, in the activity bar's order (Agents first).
-import { Bot, Columns2, FilePen, Files, Inbox, GitBranch, Kanban, LayoutDashboard, LibraryBig, List, MessageSquare, type LucideIcon } from "lucide-react";
+import { Bot, Columns2, FilePen, Files, FileText, Inbox, GitBranch, Kanban, LayoutDashboard, LibraryBig, List, MessageSquare, type LucideIcon } from "lucide-react";
 import { createElement } from "react";
 
 import "../harnesses/claude/claude-ui.ts";
@@ -17,6 +17,8 @@ import { EmptyActivity } from "./panels/EmptyActivity/EmptyActivity.tsx";
 import { BOARD_PANEL, BOARD_TITLE, BoardParams } from "./panels/Desk/board-params.ts";
 import { BoardPlaceholder } from "./panels/Desk/BoardPlaceholder/BoardPlaceholder.tsx";
 import { Desk } from "./panels/Desk/Desk.tsx";
+import { Item } from "./panels/Item/Item.tsx";
+import { ITEM_PANEL, ITEM_TITLE, ItemParams } from "./panels/Item/item-params.ts";
 
 /** An activity that isn't built yet: its sidebar panel shows its empty state. */
 const unbuilt = (id: string, title: string, icon: LucideIcon, emptyState: NonNullable<ActivityDescriptor["emptyState"]>): void => {
@@ -77,6 +79,16 @@ const register = (): void => {
     activity: DESK_ACTIVITY,
     component: BoardPlaceholder,
     paramsSchema: BoardParams,
+  });
+  registerPanel({
+    id: ITEM_PANEL,
+    // The panel reports the item's handle and title once it has read the item.
+    title: ITEM_TITLE,
+    icon: FileText,
+    locations: ["editor"],
+    activity: DESK_ACTIVITY,
+    component: Item,
+    paramsSchema: ItemParams,
   });
 
   unbuilt("files", "Files", Files, { title: "Files arrive in step 9", body: "Browse and edit the workspace's files here." });

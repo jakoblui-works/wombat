@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 
 import { MAX_SHOWN_CHARS } from "../clip-text.ts";
-import { Markdown } from "../Markdown/Markdown.tsx";
+import { ClippedMarkdown as Markdown } from "../ClippedMarkdown/ClippedMarkdown.tsx";
 
 const long = `${"a".repeat(MAX_SHOWN_CHARS)}TAIL`;
 

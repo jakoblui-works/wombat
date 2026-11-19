@@ -33,6 +33,8 @@ export type WorkbenchActions = {
    * `reveal` prop; otherwise `reveal` is ignored for now.
    */
   openBinder: (binderId: string, reveal?: string, view?: string) => void;
+  /** Opens or focuses the item's tab. */
+  openItem: (binderId: string, itemId: string) => void;
 };
 
 export const WorkbenchContext = createContext<WorkbenchActions | undefined>(undefined);

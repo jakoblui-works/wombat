@@ -33,5 +33,8 @@ export const proposalIdOf = (key: QueryKey): string | undefined => (key[0] === P
 /** The binder a `keys.binderItems(binderId)` key names; undefined for any other key. */
 export const binderIdOf = (key: QueryKey): string | undefined => (key[0] === BINDER_ITEMS && typeof key[1] === "string" ? key[1] : undefined);
 
+/** The item a `keys.item(ref)` key names; undefined for any other key. */
+export const itemRefOf = (key: QueryKey): string | undefined => (key[0] === ITEM && typeof key[1] === "string" ? key[1] : undefined);
+
 /** The agent a `keys.log(agentId)` key names; undefined for any other key. */
 export const logAgentId = (key: QueryKey): string | undefined => (key[0] === LOG && typeof key[1] === "string" ? key[1] : undefined);
