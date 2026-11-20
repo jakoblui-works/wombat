@@ -83,6 +83,12 @@
   --size-tab-strip: 36px;
   --size-chat: 760px;
   --size-empty-state: 280px;
+  --size-board-lane: 288px;
+
+  /* Shadows: a board's card raised from its lane, hovered, and held (picked up). */
+  --card-shadow: 0 1px 2px oklch(0 0 0 / 45%), 0 1px 1px oklch(0 0 0 / 25%);
+  --card-shadow-hover: 0 4px 10px oklch(0 0 0 / 50%), 0 1px 2px oklch(0 0 0 / 40%);
+  --card-shadow-held: 0 12px 28px oklch(0 0 0 / 60%), 0 4px 8px oklch(0 0 0 / 45%);
 
   /*
    * Motion: only where something changes, quiet, and off under prefers-reduced-motion (globals.css). Instant is for
@@ -190,6 +196,11 @@
   --spacing-tab-strip: var(--size-tab-strip);
   --container-chat: var(--size-chat);
   --container-empty-state: var(--size-empty-state);
+  --spacing-board-lane: var(--size-board-lane);
+
+  --shadow-card: var(--card-shadow);
+  --shadow-card-hover: var(--card-shadow-hover);
+  --shadow-card-held: var(--card-shadow-held);
 
   --default-transition-duration: var(--duration-instant);
   --default-transition-timing-function: var(--ease-out);

@@ -29,12 +29,16 @@ type Props = Shown & {
   outside: boolean;
 };
 
-const FRAME = "rounded-md border border-line bg-surface-0 text-sm";
-const CARD = cn(FRAME, "w-full px-2.5 py-2 text-left");
+const FRAME = "rounded-md border border-line bg-surface-1 text-sm shadow-card";
+/** The card's padding at its sides and foot; a proposal's line below the card's button shares it. */
+const INSET = "px-3 pb-3";
+const MOTION = "transition-[background-color,border-color,box-shadow]";
+const BUTTON = cn("w-full rounded-md pt-3 text-left focus-ring select-none", INSET, MOTION);
+const CARD = cn(FRAME, BUTTON);
 /** A card's button inside the frame of a card holding a proposal, the proposal's line below it. */
-const FRAMED = "w-full rounded-md px-2.5 py-2 text-left";
-const HELD = "border-primary bg-primary/10 ring-2 ring-primary/40";
-const LINE = "px-2.5 pb-2";
+const FRAMED = cn(BUTTON, "hover:bg-surface-2");
+const HOVER = "hover:border-line-strong hover:bg-surface-2 hover:shadow-card-hover";
+const HELD = "border-primary ring-2 ring-primary/40 shadow-card-held";
 
 /** One item on a board: a button that opens it, and a native drag source; a proposal on it below, in the same frame. */
 export const BoardCard = ({ row, view, properties, mode, movable, focus, onOpen, onDragStart, onDragEnd, onBlur, onKeyDown, swallowed, outside }: Props) => {
@@ -65,16 +69,16 @@ export const BoardCard = ({ row, view, properties, mode, movable, focus, onOpen,
             if (event.key === " ") event.preventDefault();
           }}
           onClick={onOpen}
-          className={cn(proposal === undefined ? CARD : FRAMED, "focus-ring transition-colors select-none hover:bg-surface-2", held && proposal === undefined && HELD)}
+          className={cn(proposal !== undefined ? FRAMED : cn(CARD, held ? HELD : HOVER), movable && (held ? "cursor-grabbing" : "cursor-grab"))}
         />
       }
     />
   );
   if (proposal === undefined) return card;
   return (
-    <div {...proposalProps(row)} className={cn(FRAME, REVEALABLE, held && HELD)}>
+    <div {...proposalProps(row)} className={cn(FRAME, REVEALABLE, MOTION, held && HELD)}>
       {card}
-      <ProposalLines row={row} outside={outside} className={LINE} swallowed={swallowed} />
+      <ProposalLines row={row} outside={outside} className={INSET} swallowed={swallowed} />
     </div>
   );
 };
@@ -93,8 +97,8 @@ export const ProposalCard = ({
       row={row}
       view={view}
       properties={properties}
-      render={<button type="button" onClick={onOpen} className={cn(FRAMED, "focus-ring transition-colors select-none hover:bg-surface-2")} />}
+      render={<button type="button" onClick={onOpen} className={FRAMED} />}
     />
-    <ProposalLines row={row} outside={outside} className={LINE} swallowed={swallowed} />
+    <ProposalLines row={row} outside={outside} className={INSET} swallowed={swallowed} />
   </div>
 );

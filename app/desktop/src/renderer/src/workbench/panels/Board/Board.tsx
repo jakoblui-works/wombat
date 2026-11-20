@@ -12,7 +12,7 @@ import { ProblemList } from "../Desk/ProblemList/ProblemList.tsx";
 import { useItemProposals } from "../Desk/use-item-proposals.ts";
 import { useItemsOf } from "../Desk/use-link-lists.ts";
 import { useReveal } from "../Desk/use-reveal.ts";
-import { isItemRow, isOutsideFilter, offersNew, rowKey, viewContext } from "../Desk/view-model/view-model.ts";
+import { isItemRow, isOutsideFilter, itemCount, offersNew, rowKey, viewContext } from "../Desk/view-model/view-model.ts";
 import { type ItemProposalRead, opensProposal, withProposals } from "../Desk/view-model/with-proposals.ts";
 import { BinderNotice, READ_FAILED } from "../Item/ItemNotice/ItemNotice.tsx";
 import { itemName } from "../Item/item-params.ts";
@@ -239,7 +239,7 @@ const BoardContent = ({
       {refusal === undefined ? null : <RefusalNote refusal={refusal} />}
       <div
         ref={boardRef}
-        className="flex min-h-0 flex-1 gap-3 overflow-x-auto p-3"
+        className="flex min-h-0 flex-1 gap-4 overflow-x-auto p-4"
         onPointerDownCapture={() => {
           swallowClick.current = pressOnlyEndsHold(heldRef.current);
         }}
@@ -247,11 +247,13 @@ const BoardContent = ({
         {base.map((column) => {
           const label = columnLabel(column, view, properties);
           const cards = shownCards(column.key, base, preview, held);
+          const shown = cards.filter(({ mode }) => mode !== "hidden").map(({ row }) => row);
           return (
             <BoardColumn
               key={column.key}
               label={label}
-              count={cards.filter(({ mode }) => mode !== "hidden").length}
+              count={itemCount(shown)}
+              empty={shown.length === 0}
               over={highlighted(column.key, held)}
               onNewItem={offersNew(view, column) ? () => openNewItem(binder.id, viewContext(view, column)) : undefined}
               {...columnDrag(column.key)}

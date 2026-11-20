@@ -101,7 +101,7 @@ export const TreeView = ({ rows: given, view, properties, onOpenItem, onNewItem,
             return (
               <div key={row.key} {...proposalProps(node)} className={REVEALABLE}>
                 <div className="group/row relative">
-                  <ItemCard row={node} view={view} properties={properties} compact lead={lead} render={render} />
+                  <ItemCard row={node} view={view} properties={properties} lead={lead} render={render} />
                   {!isItemRow(node) || node.item.id === null ? null : (
                     <Button
                       variant="ghost"

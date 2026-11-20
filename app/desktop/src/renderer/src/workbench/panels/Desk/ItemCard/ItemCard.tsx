@@ -18,8 +18,6 @@ type Props = {
   row: Row;
   view: LenientView;
   properties: Properties;
-  /** Without the excerpt (a tree's rows). */
-  compact?: boolean;
   /** The card's root element, without children: a button, or a treeitem with its own props. */
   render: ReactElement<{ className?: string } & Pick<AriaAttributes, "aria-labelledby" | "aria-describedby">>;
   /** Shown before the card's text (a tree row's chevron). */
@@ -78,11 +76,11 @@ const Body = ({ ids, title, excerpt, mark, markClass, chips = [], lead }: BodyPr
 );
 
 /** One item in a view, as a card: its title, the start of its body, its handle and chips; an invalid one's mark, its problems on hover or focus. */
-const ItemRowCard = ({ row, view, properties, compact = false, render, lead, ids }: Props & { row: Extract<Row, { item: unknown }>; ids: CardIds }) => {
+const ItemRowCard = ({ row, view, properties, render, lead, ids }: Props & { row: Extract<Row, { item: unknown }>; ids: CardIds }) => {
   const { item } = row;
   const invalid = item.problems.length > 0;
   const content = cardContent(item, view, properties);
-  const excerpt = compact ? undefined : content.excerpt;
+  const { excerpt } = content;
   const titleClass = cn(TITLE, "flex-1", struck(row) && "text-fg-secondary line-through");
   const title = (
     <span className="flex min-w-0 items-start gap-1.5">

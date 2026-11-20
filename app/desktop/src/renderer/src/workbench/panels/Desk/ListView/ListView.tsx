@@ -9,7 +9,7 @@ import { useWorkbench } from "../../../workbench-context.ts";
 import { ItemCard } from "../ItemCard/ItemCard.tsx";
 import { ProposalLines } from "../ProposalLine/ProposalLine.tsx";
 import { proposalProps, REVEALABLE, useReveal } from "../use-reveal.ts";
-import { groupHeading, isItemRow, isOutsideFilter, listGroups, type NewItem, newItemLabel, offersNew, type Row, rowKey, shownGroups, viewContext } from "../view-model/view-model.ts";
+import { groupHeading, isItemRow, isOutsideFilter, itemCount, listGroups, type NewItem, newItemLabel, offersNew, type Row, rowKey, shownGroups, viewContext } from "../view-model/view-model.ts";
 import { OUTSIDE_FILTER, opensProposal } from "../view-model/with-proposals.ts";
 
 type Props = {
@@ -23,7 +23,9 @@ type Props = {
 };
 
 const FRAME = "rounded-md border border-line-subtle bg-surface-1";
-const CARD = "focus-ring w-full rounded-md px-2.5 py-2 text-left transition-colors select-none hover:bg-surface-2";
+/** The card's padding at its sides and foot; a proposal's line below the card's button shares it. */
+const INSET = "px-2.5 pb-2";
+const CARD = cn("focus-ring w-full rounded-md pt-2 text-left transition-colors select-none hover:bg-surface-2", INSET);
 
 const ListRow = ({ row, view, properties, onOpenItem }: { row: Row; view: Props["view"]; properties: Props["properties"]; onOpenItem: Props["onOpenItem"] }) => {
   const { openProposal } = useWorkbench();
@@ -38,7 +40,7 @@ const ListRow = ({ row, view, properties, onOpenItem }: { row: Row; view: Props[
   return (
     <div {...proposalProps(row)} className={cn(FRAME, REVEALABLE)}>
       <ItemCard row={row} view={view} properties={properties} render={<button type="button" onClick={open} className={CARD} />} />
-      <ProposalLines row={row} outside={isOutsideFilter(row, view, properties)} className="px-2.5 pb-2" />
+      <ProposalLines row={row} outside={isOutsideFilter(row, view, properties)} className={INSET} />
     </div>
   );
 };
@@ -69,7 +71,7 @@ export const ListView = ({ rows, view, properties, onOpenItem, onNewItem, reveal
             <div className="flex items-center gap-1 pt-1 pr-1">
               <h3 className="flex min-w-0 flex-1 items-center gap-1.5 px-2.5 pt-1 pb-1 text-xs font-medium text-fg-tertiary">
                 <span className="truncate">{name}</span>
-                <span className="tabular-nums">{group.rows.length}</span>
+                <span className="tabular-nums">{itemCount(group.rows)}</span>
               </h3>
               {offersNew(view, group) ? (
                 <Button

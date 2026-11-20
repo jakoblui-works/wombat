@@ -7,10 +7,13 @@ import { newItemLabel } from "../../Desk/view-model/view-model.ts";
 
 type Props = {
   label: string;
+  /** The items it holds (`itemCount`). */
   count: number;
+  /** It shows no card: a drop area instead. */
+  empty: boolean;
   /** A card is held over this column. */
   over: boolean;
-  /** Undefined: no "+ New" at its foot. */
+  /** Undefined: no "+" in its header. */
   onNewItem: (() => void) | undefined;
   onDragOver: (event: DragEvent<HTMLElement>) => void;
   onDrop: (event: DragEvent<HTMLElement>) => void;
@@ -20,27 +23,29 @@ type Props = {
 /** Matches a column's element, so a drag over anything else counts as outside every column. */
 export const COLUMN_SELECTOR = "[data-board-column]";
 
-/** One column of a board: its heading, its cards scrolling on their own, and "+ New" at its foot. */
-export const BoardColumn = ({ label, count, over, onNewItem, onDragOver, onDrop, children }: Props) => (
+/** One column of a board, a fixed-width lane: its name, count and "+" in its header, its cards scrolling on their own. */
+export const BoardColumn = ({ label, count, empty, over, onNewItem, onDragOver, onDrop, children }: Props) => (
   <section
     data-board-column=""
     aria-label={label}
     onDragOver={onDragOver}
     onDrop={onDrop}
-    className={cn("flex min-h-0 max-w-80 min-w-48 flex-1 basis-0 flex-col rounded-lg border border-line-subtle bg-surface-1 transition-colors", over && "border-line-strong bg-surface-2")}
+    className={cn("flex min-h-0 w-board-lane shrink-0 flex-col rounded-lg bg-surface-0 transition-shadow", over && "ring-2 ring-primary/40")}
   >
-    <h3 className="flex shrink-0 items-center gap-1.5 px-3 pt-2.5 pb-1.5 text-xs font-medium text-fg-tertiary">
-      <span className="min-w-0 truncate">{label}</span>
-      <span className="tabular-nums">{count}</span>
-    </h3>
-    <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2 pt-0.5 pb-2">{children}</div>
-    {onNewItem === undefined ? null : (
-      <div className="shrink-0 border-t border-line-subtle px-2 py-1.5">
-        <Button variant="ghost" size="xs" className="text-fg-secondary" aria-label={newItemLabel(label)} title={newItemLabel(label)} onClick={onNewItem}>
+    <div className="flex h-10 shrink-0 items-center gap-2 pr-2 pl-5">
+      <h3 className="flex min-w-0 flex-1 items-center gap-2 text-base font-semibold text-fg-primary">
+        <span className="min-w-0 truncate">{label}</span>
+        <span className="rounded-sm bg-surface-2 px-1.5 text-xs font-medium text-fg-secondary tabular-nums">{count}</span>
+      </h3>
+      {onNewItem === undefined ? null : (
+        <Button variant="ghost" size="icon-xs" className="text-fg-tertiary" aria-label={newItemLabel(label)} title={newItemLabel(label)} onClick={onNewItem}>
           <Plus />
-          New
         </Button>
-      </div>
-    )}
+      )}
+    </div>
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pt-0.5 pb-2">
+      {empty ? <div aria-hidden className="h-20 shrink-0 rounded-md border border-dashed border-line-strong" /> : null}
+      {children}
+    </div>
   </section>
 );

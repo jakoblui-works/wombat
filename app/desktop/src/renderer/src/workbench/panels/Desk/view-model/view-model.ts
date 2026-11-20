@@ -130,6 +130,9 @@ export const listGroups = (rows: readonly Row[], view: LenientView, properties: 
   return [...first, ...groups.values(), ...(none.length > 0 ? [{ key: "none", kind: "none" as const, rows: none }] : [])];
 };
 
+/** What a board's lane or a list's group counts: its items, not a proposed create nor a missing item. */
+export const itemCount = (rows: readonly Row[]): number => rows.filter(isItemRow).length;
+
 /** The groups a list shows: those holding items. */
 export const shownGroups = (groups: readonly Group[]): Group[] => groups.filter(({ rows }) => rows.length > 0);
 
@@ -186,6 +189,20 @@ export const treeRows = (rows: readonly Row[], view: LenientView, properties: Pr
   return [...outside.map((row) => ({ ...row, children: [] })), ...shown.flatMap((row) => top.get(row) ?? [])];
 };
 
+/** The property a view lays its items out by: a list's group, a board's column, a tree's parent link. */
+export const laidOutBy = (view: LenientView): string | undefined => {
+  switch (view.kind) {
+    case "list":
+      return view.group;
+    case "board":
+      return view.column;
+    case "tree":
+      return view.parent;
+    default:
+      return view satisfies never;
+  }
+};
+
 /** Where "+ New" was asked: a group or a board's column (by its value), or a row (its item becomes the new one's parent). */
 export type NewItemPlace = { kind: "value"; value: unknown } | { kind: "none" } | { kind: "all" } | { kind: "outside" } | ItemRow;
 
@@ -210,7 +227,7 @@ export const viewContext = (view: LenientView, place?: NewItemPlace): Record<str
     if (view.kind === "tree" && place.item.id !== null) context[view.parent] = { id: place.item.id, handle: place.item.handle };
     return context;
   }
-  const property = view.kind === "list" ? view.group : view.kind === "board" ? view.column : undefined;
-  if (place.kind === "value" && property !== undefined) context[property] = place.value;
+  const property = laidOutBy(view);
+  if (place.kind === "value" && view.kind !== "tree" && property !== undefined) context[property] = place.value;
   return context;
 };
