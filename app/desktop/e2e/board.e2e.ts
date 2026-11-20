@@ -12,7 +12,7 @@ import type { ElectronApplication, Locator, Page } from "@playwright/test";
 import { SETTINGS_FILE } from "@wombat/shared/items";
 
 import { CHANNELS } from "../src/shared/bridge.ts";
-import { click, expect, type Sandbox, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import { click, expect, type Sandbox, SWITCH, test, waitForConnection, waitUntil, WAIT_MS, wheelPastEnd } from "./app-fixtures.ts";
 
 // ---- The items root (invented) ----
 
@@ -87,11 +87,11 @@ const violations = (page: Page): Promise<string[]> =>
 const column = (board: Locator, label: string): Locator => board.getByRole("region", { name: label, exact: true });
 const card = (col: Locator, c: Card): Locator => col.getByRole("button", { name: new RegExp(c.title) });
 
-const openBoard = async (sandbox: Sandbox) => {
+const openBoard = async (sandbox: Sandbox, cards: Card[] = CARDS) => {
   const root = path.join(sandbox.base, "items");
   mkdirSync(path.join(root, "ops"), { recursive: true });
   writeFileSync(path.join(root, "ops", SETTINGS_FILE), SETTINGS);
-  for (const c of CARDS) writeFileSync(fileOf(root, c), cardText(c));
+  for (const c of cards) writeFileSync(fileOf(root, c), cardText(c));
   await sandbox.startService(sandbox.workspace, { WOMBAT_ITEMS: root });
 
   const launched = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
@@ -173,6 +173,18 @@ test.describe("the board", () => {
     expect(readFileSync(file, "utf8"), "the hand edit kept, byte for byte").toBe(handEdited);
 
     expect(await violations(page), "CSP violations").toEqual([]);
+    expect(problems, "page errors").toEqual([]);
+  });
+
+  test("a wheel past the end of a lane scrolls nothing around it", async ({ sandbox }) => {
+    test.setTimeout(90_000);
+    const rota: Card[] = Array.from({ length: 24 }, (_, i) => ({ n: 10 + i, title: `Review the alert rules of shard ${String(10 + i)}`, stage: "queued" }));
+    const last = rota.at(-1) as Card;
+    const { board, problems } = await openBoard(sandbox, [...CARDS, ...rota]);
+    const queued = column(board, "queued");
+    await expect(card(queued, last), "the whole lane loaded").toHaveCount(1, { timeout: WAIT_MS });
+
+    expect(await wheelPastEnd(card(queued, ROTATE), "down"), "scrolled or overflowing around the lane").toEqual([]);
     expect(problems, "page errors").toEqual([]);
   });
 });
