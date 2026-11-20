@@ -13,7 +13,7 @@ import { expect, test } from "vitest";
 
 import type { ReplayStep } from "../../test/fake-agent.ts";
 import { REPO, setup, TEST_TIMEOUT_MS, WAIT_MS, waitFor, type Setup } from "../../test/manager-fixtures.ts";
-import { excerpt } from "./excerpt.ts";
+import { excerpt } from "../excerpt.ts";
 
 /**
  * Where the test checks a turn, in order: each batch of requests (its size), and each pause (the file that releases

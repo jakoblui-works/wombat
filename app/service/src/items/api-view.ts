@@ -8,17 +8,16 @@ export const handlesById = (items: LoadedItem[]) =>
 
 /** An item as the API sends it: link values become `{ id, handle }`; the catalog holds the target's raw id. */
 export const withLinks = (item: LoadedItem, binders: LoadedBinder[], handles: Map<string, string | null>) => {
-  const { binder: binderId, ...rest } = item;
-  const settings = binders.find((binder) => binder.id === binderId)?.settings;
-  if (!settings) return rest;
-  const properties = { ...rest.properties };
+  const settings = binders.find((binder) => binder.id === item.binder)?.settings;
+  if (!settings) return item;
+  const properties = { ...item.properties };
   for (const [name, property] of Object.entries(settings.properties)) {
     const value = properties[name];
     if (property.type === "link" && typeof value === "string") {
       setOwn(properties, name, { id: value, handle: handles.get(value) ?? null });
     }
   }
-  return { ...rest, properties };
+  return { ...item, properties };
 };
 
 export const summarize = (binder: LoadedBinder, items: LoadedItem[]) => {

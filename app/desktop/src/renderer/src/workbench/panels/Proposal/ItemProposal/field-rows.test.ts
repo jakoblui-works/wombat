@@ -19,6 +19,8 @@ const TOOLTIP: Item = {
   path: "bugs/tooltip.md",
   version: "b".repeat(64),
   problems: [],
+  excerpt: "The tooltip stays open after the pointer leaves the icon.",
+  binder: "bugs",
 };
 
 const TOUCH_BODY = "\nThe tooltip stays open after the pointer leaves the icon, on touch screens only.\n";

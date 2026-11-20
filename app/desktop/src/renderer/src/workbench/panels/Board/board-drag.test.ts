@@ -20,6 +20,8 @@ const card = (n: number): ItemSummary => ({
   path: `ops/OPS-${String(n)}-card.md`,
   version: "0".repeat(64),
   problems: [],
+  excerpt: null,
+  binder: "ops",
 });
 
 const MOVED = card(1);

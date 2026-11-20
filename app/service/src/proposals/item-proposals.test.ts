@@ -20,6 +20,7 @@ const item = (id: string, version: string): LoadedItem => ({
   version,
   problems: [],
   body: "",
+  excerpt: null,
   binder: "bugs",
 });
 

@@ -32,6 +32,8 @@ const item = (n: number, properties: Record<string, unknown> = {}, version = "0"
   path: `ops/OPS-${String(n)}-card.md`,
   version,
   problems: [],
+  excerpt: null,
+  binder: "ops",
 });
 
 const handles = (items: readonly ItemSummary[]): (string | null)[] => items.map((one) => one.handle);

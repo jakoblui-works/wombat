@@ -94,6 +94,8 @@ test("API shapes stay lenient: unknown fields stripped, unknown view kinds dropp
     properties: { repo: "api", blocks: { id: "0196f3c2-2b00-7000-8000-000000000001", handle: "BL-1" } },
     path: "bugs/BUG-1-login-times-out.md",
     version: "9f2c",
+    excerpt: "Steps: sign in.",
+    binder: "bugs",
     problems: [],
     body: "\nSteps: sign in.\n",
   };

@@ -34,6 +34,8 @@ const itemOf = (prefix: string, folder: string, block: string) => (n: number, pr
   path: `${folder}/${prefix}-${String(n)}.md`,
   version: n.toString(16).padStart(64, "0"),
   problems: [],
+  excerpt: null,
+  binder: folder,
 });
 const chore = itemOf("CH", CHORES, "7a00");
 const placeItem = itemOf("PL", PLACES, "7b00");

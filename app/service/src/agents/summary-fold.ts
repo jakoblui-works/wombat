@@ -1,7 +1,7 @@
 import type { AgentSummary } from "@wombat/shared/api";
 import { activityOf, emptyFold, foldEntry, lastMainMessage, type FoldState } from "@wombat/shared/log-fold";
 
-import { excerpt, keepForExcerpt } from "./excerpt.ts";
+import { excerpt, keepForExcerpt } from "../excerpt.ts";
 
 type StoredEntry = Parameters<typeof foldEntry>[1];
 

@@ -12,7 +12,7 @@ import fc from "fast-check";
 import { expect, test } from "vitest";
 
 import { type Body, chunk, entries, inSession, permissionRequested, plan, thought, toolCall, toolUpdate, turnEnded, user } from "../../../shared/test/log-entries.ts";
-import { excerpt } from "./excerpt.ts";
+import { excerpt } from "../excerpt.ts";
 import { foldTurn, summaryFromFold } from "./summary-fold.ts";
 
 const MAIN = "session-main";

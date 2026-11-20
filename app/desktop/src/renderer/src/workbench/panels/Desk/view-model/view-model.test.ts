@@ -27,6 +27,8 @@ const item = (n: number, properties: Record<string, unknown> = {}): ItemSummary 
   path: `backlog/${handleOf(n)}-invented.md`,
   version: "0".repeat(64),
   problems: [],
+  excerpt: null,
+  binder: "backlog",
 });
 
 /** The items as the rows the view functions take, none of them pending. */
