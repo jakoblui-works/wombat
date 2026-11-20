@@ -42,12 +42,22 @@ export const rowValue = (row: Row, name: string, properties: Properties): unknow
   return property?.type === "link" && typeof value === "string" ? row.link(property.to, value) : value;
 };
 
-/** The list a binder without a list or tree view shows: every item, by handle number. */
+/** A view as the sidebar shows it: a list or a tree. */
+export type SidebarView = Extract<LenientView, { kind: "list" | "tree" }>;
+
+/** The list a binder without views shows: every item, by handle number. */
 export const PLAIN_LIST: Extract<LenientView, { kind: "list" }> = { name: "Items", kind: "list" };
 
-/** The view the sidebar shows a binder in: `view` when it's a list or a tree, else `PLAIN_LIST`. */
-export const paneView = (view: LenientView | undefined): Extract<LenientView, { kind: "list" | "tree" }> =>
-  view?.kind === "list" || view?.kind === "tree" ? view : PLAIN_LIST;
+/**
+ * The view the sidebar shows a binder in: a list or a tree as it is; a board as a list with the same name, filter,
+ * sort, show and excerpt, grouped by its column; no view as `PLAIN_LIST`.
+ */
+export const sidebarView = (view: LenientView | undefined): SidebarView => {
+  if (view === undefined) return PLAIN_LIST;
+  if (view.kind !== "board") return view;
+  const { column, ...rest } = view;
+  return { ...rest, kind: "list", group: column };
+};
 
 /**
  * `value`: the group's value as items hold it; `none`: the items without a value; `all`: a view without `group`;
@@ -130,7 +140,7 @@ export const listGroups = (rows: readonly Row[], view: LenientView, properties: 
   return [...first, ...groups.values(), ...(none.length > 0 ? [{ key: "none", kind: "none" as const, rows: none }] : [])];
 };
 
-/** What a board's lane or a list's group counts: its items, not a proposed create nor a missing item. */
+/** What a list's group counts: its items, not a proposed create nor a missing item. */
 export const itemCount = (rows: readonly Row[]): number => rows.filter(isItemRow).length;
 
 /** The groups a list shows: those holding items. */
@@ -189,13 +199,11 @@ export const treeRows = (rows: readonly Row[], view: LenientView, properties: Pr
   return [...outside.map((row) => ({ ...row, children: [] })), ...shown.flatMap((row) => top.get(row) ?? [])];
 };
 
-/** The property a view lays its items out by: a list's group, a board's column, a tree's parent link. */
-export const laidOutBy = (view: LenientView): string | undefined => {
+/** The property a view lays its items out by: a list's group, a tree's parent link. */
+export const laidOutBy = (view: SidebarView): string | undefined => {
   switch (view.kind) {
     case "list":
       return view.group;
-    case "board":
-      return view.column;
     case "tree":
       return view.parent;
     default:
@@ -203,24 +211,23 @@ export const laidOutBy = (view: LenientView): string | undefined => {
   }
 };
 
-/** Where "+ New" was asked: a group or a board's column (by its value), or a row (its item becomes the new one's parent). */
+/** Where "+ New" was asked: a group (by its value), or a row (its item becomes the new one's parent). */
 export type NewItemPlace = { kind: "value"; value: unknown } | { kind: "none" } | { kind: "all" } | { kind: "outside" } | ItemRow;
 
-/** Whether a group or column offers "+ New": every group of a list but `outside`, a board's columns but its No value. */
-export const offersNew = (view: LenientView, place: Pick<Group, "kind">): boolean => (view.kind !== "board" || place.kind === "value") && place.kind !== "outside";
+/** Whether a group offers "+ New": every group but `outside`. */
+export const offersNew = (place: Pick<Group, "kind">): boolean => place.kind !== "outside";
 
-/** The name of a group's or column's "+ New", by its heading. */
+/** The name of a group's "+ New", by its heading. */
 export const newItemLabel = (heading: string): string => `New item in ${heading}`;
 
 /** Opens a new item starting with `context` (`viewContext`). */
 export type NewItem = (context: Record<string, unknown>) => void;
 
 /**
- * The values a new item asked for in `view` starts with: the view's filter values, then the place's: a group's or
- * column's value for the view's group or column property (nothing for the items without one), or the row's item as the
- * tree's parent link.
+ * The values a new item asked for in `view` starts with: the view's filter values, then the place's: a group's value
+ * for the view's group property (nothing for the items without one), or the row's item as the tree's parent link.
  */
-export const viewContext = (view: LenientView, place?: NewItemPlace): Record<string, unknown> => {
+export const viewContext = (view: SidebarView, place?: NewItemPlace): Record<string, unknown> => {
   const context: Record<string, unknown> = { ...view.filter };
   if (place === undefined) return context;
   if ("item" in place) {

@@ -6,7 +6,7 @@ import { ScrollArea } from "../../../../components/ui/scroll-area";
 import { cn } from "../../../../lib/utils";
 import type { Reveal } from "../../../registry.ts";
 import { BinderItems } from "../BinderItems/BinderItems.tsx";
-import { type NewItem, paneView, viewContext } from "../view-model/view-model.ts";
+import { type NewItem, sidebarView, viewContext } from "../view-model/view-model.ts";
 
 type Props = {
   binder: Extract<BinderSummary, { id: string }>;
@@ -30,7 +30,7 @@ export const BinderPane = ({ binder, view, onBack, onView, onOpenItem, onNewItem
       </Button>
       <h2 className="min-w-0 truncate text-sm font-semibold text-fg-primary">{binder.name}</h2>
       <span className="text-sm text-fg-tertiary tabular-nums">{binder.itemCount}</span>
-      <Button variant="ghost" size="xs" className="ml-auto shrink-0 text-fg-secondary" aria-label="New item" title="New item" onClick={() => onNewItem(viewContext(paneView(view)))}>
+      <Button variant="ghost" size="xs" className="ml-auto shrink-0 text-fg-secondary" aria-label="New item" title="New item" onClick={() => onNewItem(viewContext(sidebarView(view)))}>
         <Plus />
         New
       </Button>

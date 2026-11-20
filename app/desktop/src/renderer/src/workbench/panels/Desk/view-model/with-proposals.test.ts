@@ -9,7 +9,6 @@ import { describe, expect, test } from "vitest";
 import type { ItemSummary, LenientProperty, LenientView, LinkValue } from "@wombat/shared/items";
 import type { ItemProposalKind, ProposalStatus } from "@wombat/shared/proposals";
 
-import { boardColumns } from "../../Board/board-columns.ts";
 import { PROPOSAL_ATTRIBUTE, proposalProps } from "../use-reveal.ts";
 import { isItemRow, isPending, type ItemRow, type ItemsOf, listGroups, type Row, sorted, treeRows, type TreeRow, visibleItems } from "./view-model.ts";
 import { type ItemProposalRead, proposalLines, rowProposalIds, struck, withProposals } from "./with-proposals.ts";
@@ -87,7 +86,6 @@ const fieldsArb = fc.record({ title: fc.string({ minLength: 1, maxLength: 20 }),
 const filterArb = fc.record({ stage: fc.constantFrom(...STAGES), effort: fc.integer({ min: 1, max: 3 }) }, { requiredKeys: [] });
 const viewArb: fc.Arbitrary<LenientView> = fc.oneof(
   fc.record({ name: fc.constant("List"), kind: fc.constant("list" as const), filter: filterArb, group: fc.constantFrom("stage", "effort") }, { requiredKeys: ["name", "kind"] }),
-  fc.record({ name: fc.constant("Board"), kind: fc.constant("board" as const), column: fc.constant("stage"), filter: filterArb }, { requiredKeys: ["name", "kind", "column"] }),
   fc.record({ name: fc.constant("Tree"), kind: fc.constant("tree" as const), parent: fc.constant("parent"), filter: filterArb }, { requiredKeys: ["name", "kind", "parent"] }),
 );
 
@@ -132,7 +130,6 @@ const scenarioArb: fc.Arbitrary<Scenario> = fc.uniqueArray(fc.integer({ min: 1, 
 /** The rows a view shows, a tree's children included. */
 const shownIn = (rows: readonly Row[], view: LenientView): Row[] => {
   const flat = (row: TreeRow): Row[] => [row, ...row.children.flatMap(flat)];
-  if (view.kind === "board") return boardColumns(rows, view, OWN).flatMap((column) => column.rows);
   if (view.kind === "tree") return treeRows(rows, view, OWN).flatMap(flat);
   return listGroups(rows, view, OWN).flatMap((group) => group.rows);
 };
@@ -244,7 +241,6 @@ const linkScenarioArb: fc.Arbitrary<LinkScenario> = fc.uniqueArray(fc.integer({ 
     { requiredKeys: [] },
   );
   const viewArb = fc.record({
-    kind: fc.constantFrom("list", "board"),
     group: fc.constantFrom(undefined, "parent", "area", "shed", "stage"),
     sort: fc.shuffledSubarray(["parent", "area", "shed", "effort"]),
     filterOn: fc.constantFrom<LinkName | undefined>(undefined, "parent", "area", "shed"),
@@ -266,7 +262,7 @@ const linkScenarioArb: fc.Arbitrary<LinkScenario> = fc.uniqueArray(fc.integer({ 
       filter = { [v.filterOn]: v.filterBy === "handle" && target.handle !== null ? target.handle : target.id };
     }
     const base = { name: "Generated", sort: v.sort, ...(filter === undefined ? {} : { filter }) };
-    const view: LenientView = v.kind === "board" ? { ...base, kind: "board", column: "stage" } : { ...base, kind: "list", ...(v.group === undefined ? {} : { group: v.group }) };
+    const view: LenientView = { ...base, kind: "list", ...(v.group === undefined ? {} : { group: v.group }) };
     return { items, fields, twin, view };
   });
 });
@@ -283,7 +279,7 @@ const where = (lists: readonly (readonly Row[])[], find: (row: Row) => boolean):
 };
 
 describe("a proposed create in a binder's views", () => {
-  test("is filtered (a link by handle or id), grouped, sorted and placed on a board exactly as an item holding the same fields, each link named only by its own binder's items", () => {
+  test("is filtered (a link by handle or id), grouped and sorted exactly as an item holding the same fields, each link named only by its own binder's items", () => {
     fc.assert(
       fc.property(linkScenarioArb, ({ items, fields, twin, view }) => {
         const create = proposal({ id: LINK_CREATE, at: minute(0), binder: CHORES, kind: "create", handle: null, status: "pending", fields });
@@ -296,15 +292,12 @@ describe("a proposed create in a binder's views", () => {
         const order = sorted(rows, view, LINKED);
         expect(order.findIndex(isCreate), `sorts right after the item (${said})`).toBe(order.findIndex(isTwin) + 1);
 
-        const lists = view.kind === "board" ? boardColumns(rows, view, LINKED) : listGroups(rows, view, LINKED);
+        const lists = listGroups(rows, view, LINKED);
         const [twinAt, twinIndex] = where(lists.map((list) => list.rows), isTwin);
         const [createAt, createIndex] = where(lists.map((list) => list.rows), isCreate);
         if (twinShown) {
-          expect(lists[createAt]?.key, `in the item's group or column (${said})`).toBe(lists[twinAt]?.key);
+          expect(lists[createAt]?.key, `in the item's group (${said})`).toBe(lists[twinAt]?.key);
           expect(createIndex, `right after the item there (${said})`).toBe(twinIndex + 1);
-        } else if (view.kind === "board") {
-          const stage = fields["stage"];
-          expect(lists[createAt]?.key, `still on the board, in its stage's column (${said})`).toBe(typeof stage === "string" ? `value:${stage}` : "none");
         } else {
           expect(lists[createAt]?.key, `outside the filter, as the item is filtered out (${said})`).toBe("outside");
         }

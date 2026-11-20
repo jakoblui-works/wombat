@@ -1,10 +1,11 @@
 // What an item's card shows: the chips a view's `show` names, or else every property with a value but the one the
-// view is laid out by; and the body's excerpt on list and board cards, unless the view hides it or it repeats the title.
+// view is laid out by; and the body's excerpt on a list's cards, unless the view hides it or it repeats the title.
 import { expect, test } from "vitest";
 
-import type { ItemSummary, LenientProperty, LenientView } from "@wombat/shared/items";
+import type { ItemSummary, LenientProperty } from "@wombat/shared/items";
 
 import { cardContent } from "./card-content.ts";
+import type { SidebarView } from "./view-model.ts";
 
 const PROPERTIES: Record<string, LenientProperty> = {
   repo: { type: "select", options: ["api", "site-web"], required: false },
@@ -40,25 +41,23 @@ const item = (fields: Partial<ItemSummary> = {}): ItemSummary => ({
 });
 
 /** The view key naming the property each kind lays its items out by. */
-const LAYOUT_KEY = { list: "group", board: "column", tree: "parent" } as const;
-const layoutProperty = (view: LenientView): unknown => (view as Record<string, unknown>)[LAYOUT_KEY[view.kind]];
+const LAYOUT_KEY = { list: "group", tree: "parent" } as const;
+const layoutProperty = (view: SidebarView): unknown => (view as Record<string, unknown>)[LAYOUT_KEY[view.kind]];
 
-const list: LenientView = { name: "Open", kind: "list", group: "repo" };
-const board: LenientView = { name: "Board", kind: "board", column: "stage" };
-const tree: LenientView = { name: "Tree", kind: "tree", parent: "parent" };
+const list: SidebarView = { name: "Open", kind: "list", group: "repo" };
+const tree: SidebarView = { name: "Tree", kind: "tree", parent: "parent" };
 
 // [case, view, item, the chips' names (undefined: every property with a value but the layout one), the excerpt shown]
-const cases: [string, LenientView, ItemSummary, string[] | undefined, string | undefined][] = [
+const cases: [string, SidebarView, ItemSummary, string[] | undefined, string | undefined][] = [
   ["a list grouped by a property", list, item(), undefined, EXCERPT],
   ["a list without a group", { name: "All", kind: "list" }, item(), undefined, EXCERPT],
-  ["a board", board, item(), undefined, EXCERPT],
   ["a tree", tree, item(), undefined, undefined],
-  ["show names chips in its order, empty ones dropped", { ...board, show: ["effort", "note", "stage", "repo"] }, item(), ["effort", "stage", "repo"], EXCERPT],
+  ["show names chips in its order, empty ones dropped", { ...list, show: ["effort", "note", "stage", "repo"] }, item(), ["effort", "stage", "repo"], EXCERPT],
   ["show of no properties", { ...list, show: [] }, item(), [], EXCERPT],
   ["excerpt: false", { ...list, excerpt: false }, item(), undefined, undefined],
-  ["no excerpt", board, item({ excerpt: null }), undefined, undefined],
+  ["no excerpt", list, item({ excerpt: null }), undefined, undefined],
   ["an excerpt repeating the title", list, item({ title: "Fix  the login\npage", excerpt: "Fix the login page when the session ends." }), undefined, undefined],
-  ["an excerpt repeating a cut title", board, item({ title: "Fix the login…", excerpt: "Fix the login page when the session ends." }), undefined, undefined],
+  ["an excerpt repeating a cut title", list, item({ title: "Fix the login…", excerpt: "Fix the login page when the session ends." }), undefined, undefined],
   ["an excerpt only sharing words with the title", list, item({ title: "Login page", excerpt: "The login page fails." }), undefined, "The login page fails."],
 ];
 

@@ -9,7 +9,6 @@ import { AGENTS_ACTIVITY, DESK_ACTIVITY, DESK_PANEL } from "./activity-ids.ts";
 import type { IsKnown } from "./layout.ts";
 import { getPanel, paramsFit, type ResolveContext, type Reveal, panelTitle } from "./registry.ts";
 import { CHAT_PANEL } from "./panels/Chat/chat-params.ts";
-import { BOARD_PANEL, type BoardParams } from "./panels/Board/board-params.ts";
 import { binderPlace } from "./panels/Desk/desk-place.ts";
 import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE } from "./panels/Item/item-params.ts";
 import { PROPOSAL_PANEL, type ProposalParams } from "./panels/Proposal/proposal-params.ts";
@@ -278,8 +277,7 @@ export const workbenchActions = (
     openBinder: (binderId, reveal, view) => {
       void desk.binders().then((binders) => {
         const place = binderPlace(binders?.find(({ id }) => id === binderId), view);
-        if (place.board !== undefined) actions.openTab(BOARD_PANEL, { binderId, view: place.board } satisfies BoardParams, reveal);
-        reveals.set(sidebarRevealKey(DESK_PANEL), place.board === undefined && reveal !== undefined ? { target: reveal } : undefined);
+        reveals.set(sidebarRevealKey(DESK_PANEL), reveal === undefined ? undefined : { target: reveal });
         desk.showBinder(binderId, place.sidebarView);
         showActivity(DESK_ACTIVITY);
       });

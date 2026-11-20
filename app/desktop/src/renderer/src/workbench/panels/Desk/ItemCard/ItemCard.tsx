@@ -1,4 +1,3 @@
-import type { LenientView } from "@wombat/shared/items";
 import { TriangleAlert } from "lucide-react";
 import { type AriaAttributes, cloneElement, Fragment, type ReactElement, type ReactNode, useId } from "react";
 
@@ -11,12 +10,12 @@ import { itemName } from "../../Item/item-params.ts";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
 import { type CardContent, cardContent } from "../view-model/card-content.ts";
 import { MISSING_ITEM } from "../view-model/values.ts";
-import { isItemRow, isPending, type Properties, type Row } from "../view-model/view-model.ts";
+import { isItemRow, isPending, type Properties, type Row, type SidebarView } from "../view-model/view-model.ts";
 import { struck } from "../view-model/with-proposals.ts";
 
 type Props = {
   row: Row;
-  view: LenientView;
+  view: SidebarView;
   properties: Properties;
   /** The card's root element, without children: a button, or a treeitem with its own props. */
   render: ReactElement<{ className?: string } & Pick<AriaAttributes, "aria-labelledby" | "aria-describedby">>;
@@ -30,7 +29,7 @@ const UNTITLED = "Untitled item";
 const ROOT = "flex items-start gap-1.5";
 const TITLE = "line-clamp-3 text-base text-fg-primary";
 /** The title's weight: a tree's compact rows keep it regular, a card's title is the one thing that stands out. */
-const titleWeight = (view: LenientView): string => (view.kind === "tree" ? "font-normal" : "font-semibold");
+const titleWeight = (view: SidebarView): string => (view.kind === "tree" ? "font-normal" : "font-semibold");
 
 /** The ids of a card's parts: its name is the title and the handle (or mark), its description the rest. */
 type CardIds = { title: string; mark: string; excerpt: string; chips: string; problems: string };

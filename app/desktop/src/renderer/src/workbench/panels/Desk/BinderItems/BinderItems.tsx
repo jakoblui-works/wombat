@@ -7,7 +7,7 @@ import { ListView } from "../ListView/ListView.tsx";
 import { TreeView } from "../TreeView/TreeView.tsx";
 import { useItemProposals } from "../use-item-proposals.ts";
 import { useItemsOf } from "../use-link-lists.ts";
-import { type NewItem, paneView } from "../view-model/view-model.ts";
+import { type NewItem, sidebarView } from "../view-model/view-model.ts";
 import { withProposals } from "../view-model/with-proposals.ts";
 
 type Props = {
@@ -19,7 +19,7 @@ type Props = {
   onRevealed?: (() => void) | undefined;
 };
 
-/** A binder's items and its open item proposals in its list or tree view; without one, as a plain list. */
+/** A binder's items and its open item proposals in its view as the sidebar shows it (`sidebarView`). */
 export const BinderItems = ({ binder, view, onOpenItem, onNewItem, reveal, onRevealed }: Props) => {
   const [read] = useBinderItems([binder.id]);
   const proposals = useItemProposals(binder.id);
@@ -36,7 +36,7 @@ export const BinderItems = ({ binder, view, onOpenItem, onNewItem, reveal, onRev
   }
   const rows = withProposals(items, proposals, binder.id, itemsOf);
   if (rows.length === 0) return <EmptyState title="No items yet" body="Items are the Markdown files in the binder's folder." />;
-  const shown = paneView(view);
+  const shown = sidebarView(view);
   if (shown.kind === "tree")
     return <TreeView key={shown.name} rows={rows} view={shown} properties={binder.properties} onOpenItem={onOpenItem} onNewItem={onNewItem} reveal={reveal} onRevealed={onRevealed} />;
   return <ListView rows={rows} view={shown} properties={binder.properties} onOpenItem={onOpenItem} onNewItem={onNewItem} reveal={reveal} onRevealed={onRevealed} />;

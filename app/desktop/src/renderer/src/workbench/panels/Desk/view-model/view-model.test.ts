@@ -10,7 +10,7 @@ import type { ItemProposal } from "@wombat/shared/proposals";
 
 import { draftStart, type FieldValue } from "../../Item/item-edit.ts";
 import { matchesFilter } from "./values.ts";
-import { isItemRow, itemCount, listGroups, type NewItemPlace, type Row, shownGroups, treeRows, type TreeRow, viewContext } from "./view-model.ts";
+import { isItemRow, itemCount, listGroups, type NewItemPlace, type Row, shownGroups, type SidebarView, treeRows, type TreeRow, viewContext } from "./view-model.ts";
 
 type Properties = Record<string, LenientProperty>;
 
@@ -274,7 +274,7 @@ describe("a new item's start values", () => {
    * What "+ New" in `view` at `place` starts with, as the draft's form holds it, and checks that each filtered value, as
    * the new item would hold it, passes the view's filter; a link filter starts as its target's id.
    */
-  const startIn = (view: LenientView, place: NewItemPlace | undefined, items: readonly ItemSummary[], properties: Properties): Record<string, FieldValue> => {
+  const startIn = (view: SidebarView, place: NewItemPlace | undefined, items: readonly ItemSummary[], properties: Properties): Record<string, FieldValue> => {
     const start = draftStart(viewContext(view, place), properties, (binderId) => (binderId === "backlog" ? items : undefined));
     for (const [name, want] of Object.entries(view.filter ?? {})) {
       if (properties[name]?.type === "link") {
@@ -312,7 +312,7 @@ describe("a new item's start values", () => {
         ([{ items, properties }, filter]) => {
           // A filter on the tree's own parent link can't hold for a child of a row.
           const others = Object.fromEntries(Object.entries(filter).filter(([name]) => name !== "parent"));
-          const view: LenientView = { name: "Tree", kind: "tree", parent: "parent", filter: others };
+          const view: SidebarView = { name: "Tree", kind: "tree", parent: "parent", filter: others };
           const rows = (nodes: readonly TreeRow[]): TreeRow[] => nodes.flatMap((row) => [row, ...rows(row.children)]);
           for (const row of rows(treeRows(rowsOf(items), view, properties))) {
             const item = itemOf(row);

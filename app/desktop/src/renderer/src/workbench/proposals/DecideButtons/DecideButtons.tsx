@@ -12,21 +12,18 @@ import { proposalActions, proposalShows } from "../proposal-actions.ts";
 /**
  * A proposal's Approve and Reject where it shows in place (a row, a card, the item tab's banner), and its state in
  * place of Approve while it can't be approved. Approve names the version this place last read; one that meets a newer
- * version opens the proposal's tab instead, so it's seen first. Reject sends no reason. A press for which `swallowed`
- * answers true does nothing (it only ended a board's keyboard hold). Without `mark`, the state isn't named here (the
- * place names it itself).
+ * version opens the proposal's tab instead, so it's seen first. Reject sends no reason. Without `mark`, the state isn't
+ * named here (the place names it itself).
  */
 export const DecideButtons = ({
   proposal,
   className,
   tabIndex,
-  swallowed = () => false,
   mark = true,
 }: {
   proposal: Proposal;
   className?: string;
   tabIndex?: number | undefined;
-  swallowed?: () => boolean;
   mark?: boolean;
 }) => {
   const agents = useAgents();
@@ -38,7 +35,6 @@ export const DecideButtons = ({
   const shows = proposalShows(proposal.status);
   const busy = decide.isPending;
   const approve = () =>
-    swallowed() ||
     decide.mutate({ proposalId: proposal.id, decision: "approve", version: proposal.version }, { onSuccess: (result) => result === "changed" && openProposal(proposal.id) });
   return (
     <>
@@ -56,7 +52,7 @@ export const DecideButtons = ({
             size="xs"
             tabIndex={tabIndex}
             disabled={!actions.reject || busy}
-            onClick={() => swallowed() || decide.mutate({ proposalId: proposal.id, decision: "reject" })}
+            onClick={() => decide.mutate({ proposalId: proposal.id, decision: "reject" })}
           >
             Reject
           </Button>

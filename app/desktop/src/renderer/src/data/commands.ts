@@ -196,7 +196,7 @@ export const deleteAgentMutation = (queryClient: QueryClient) =>
     },
   });
 
-/** The one item write of the item tab and the board; a refused or stale save rejects with the ServiceError. */
+/** The one item write of the item tab; a refused or stale save rejects with the ServiceError. */
 export const saveItemMutation = (queryClient: QueryClient) =>
   mutationOptions({ mutationFn: saveItemFn, onSettled: () => refreshItems(queryClient) });
 

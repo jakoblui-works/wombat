@@ -73,7 +73,7 @@ export const ListView = ({ rows, view, properties, onOpenItem, onNewItem, reveal
                 <span className="truncate">{name}</span>
                 <span className="tabular-nums">{itemCount(group.rows)}</span>
               </h3>
-              {offersNew(view, group) ? (
+              {offersNew(group) ? (
                 <Button
                   variant="ghost"
                   size="icon-xs"

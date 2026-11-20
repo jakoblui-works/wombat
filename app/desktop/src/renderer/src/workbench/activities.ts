@@ -1,5 +1,5 @@
 // Importing this module registers the activities and their panels, in the activity bar's order (Agents first).
-import { Bot, Columns2, FilePen, Files, FileText, Inbox, GitBranch, Kanban, LayoutDashboard, LibraryBig, List, MessageSquare, type LucideIcon } from "lucide-react";
+import { Bot, Columns2, FilePen, Files, FileText, Inbox, GitBranch, LayoutDashboard, LibraryBig, List, MessageSquare, type LucideIcon } from "lucide-react";
 import { createElement } from "react";
 
 import "../harnesses/claude/claude-ui.ts";
@@ -14,8 +14,6 @@ import { NeedsMe } from "./panels/NeedsMe/NeedsMe.tsx";
 import { Proposal } from "./panels/Proposal/Proposal.tsx";
 import { PROPOSAL_TITLE, PROPOSAL_PANEL, ProposalParams, proposalResolves, proposalRestores } from "./panels/Proposal/proposal-params.ts";
 import { EmptyActivity } from "./panels/EmptyActivity/EmptyActivity.tsx";
-import { BOARD_PANEL, BOARD_TITLE, BoardParams } from "./panels/Board/board-params.ts";
-import { Board } from "./panels/Board/Board.tsx";
 import { Desk } from "./panels/Desk/Desk.tsx";
 import { Item } from "./panels/Item/Item.tsx";
 import { ITEM_PANEL, ITEM_TITLE, ItemParams, itemTabSaved } from "./panels/Item/item-params.ts";
@@ -70,16 +68,6 @@ const register = (): void => {
 
   registerActivity({ id: DESK_ACTIVITY, title: "Desk", icon: LibraryBig, sidebarPanel: DESK_PANEL });
   registerPanel({ id: DESK_PANEL, title: "Desk", icon: LibraryBig, locations: ["left"], activity: DESK_ACTIVITY, component: Desk });
-  registerPanel({
-    id: BOARD_PANEL,
-    // The panel reports "<binder> · <view>" once it has read the binders.
-    title: BOARD_TITLE,
-    icon: Kanban,
-    locations: ["editor"],
-    activity: DESK_ACTIVITY,
-    component: Board,
-    paramsSchema: BoardParams,
-  });
   registerPanel({
     id: ITEM_PANEL,
     // The panel reports the item's handle and title once it has read the item.

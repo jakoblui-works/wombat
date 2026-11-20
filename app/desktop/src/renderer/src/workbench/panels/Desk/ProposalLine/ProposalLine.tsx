@@ -16,14 +16,12 @@ type Props = {
   style?: CSSProperties;
   /** Its buttons' tab stop, as the row's own (a tree's roving one). */
   tabIndex?: number | undefined;
-  /** Answers true for a press that only ended a board's keyboard hold: the button then does nothing. */
-  swallowed?: () => boolean;
 };
 
 type LineProps = Omit<Props, "row" | "outside"> & { proposal: ItemProposal; note: string | undefined };
 
 /** One proposal: its mark (for an update or delete, a button that opens the proposal's tab), `note`, and Approve and Reject. */
-const ProposalLine = ({ proposal, note, className, style, tabIndex, swallowed = () => false }: LineProps) => {
+const ProposalLine = ({ proposal, note, className, style, tabIndex }: LineProps) => {
   const { openProposal } = useWorkbench();
   return (
     <div className={cn("flex flex-wrap items-center gap-x-2 gap-y-1", className)} style={style}>
@@ -33,14 +31,14 @@ const ProposalLine = ({ proposal, note, className, style, tabIndex, swallowed = 
         <button
           type="button"
           tabIndex={tabIndex}
-          onClick={() => swallowed() || openProposal(proposal.id)}
+          onClick={() => openProposal(proposal.id)}
           className="focus-ring rounded-sm text-xs font-medium text-primary hover:underline"
         >
           {markLabel(proposal.kind)}
         </button>
       )}
       {note === undefined ? null : <span className="text-xs text-fg-tertiary">{note}</span>}
-      <DecideButtons proposal={proposal} className="ml-auto" tabIndex={tabIndex} swallowed={swallowed} />
+      <DecideButtons proposal={proposal} className="ml-auto" tabIndex={tabIndex} />
     </div>
   );
 };

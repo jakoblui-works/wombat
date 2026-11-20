@@ -94,7 +94,7 @@ Each view has a `name`, a `kind`, and optionally a `filter` (a map of property t
 | Kind | Extra key |
 |---|---|
 | `list` | `group`: a property to group by (optional) |
-| `board` | `column`: a `select` property. Each item's card sits in the column of its value |
+| `board` | `column`: a `select` property. The app shows a board view as a list grouped by its column: one group per option that has items, in option order, then one for the items without a value |
 | `tree` | `parent`: a `link` property to this same binder. Each item nests under the item it links to |
 
 Two more optional keys, on every kind, say what an item's card shows:

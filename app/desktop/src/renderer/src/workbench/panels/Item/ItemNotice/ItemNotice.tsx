@@ -38,21 +38,18 @@ const BrokenBinders = ({ binders }: { binders: readonly BrokenBinder[] }) => (
   </ul>
 );
 
-/** What a tab showing an item or a board says when its binder isn't listed. */
-export const BinderNotice = ({ shown, tab }: { shown: NoBinder; tab: "item" | "board" }) =>
+/** What an item's tab says when its binder isn't listed. */
+export const BinderNotice = ({ shown }: { shown: NoBinder }) =>
   shown.kind === "binder-missing" ? (
     <Notice>
       <p>
-        This {tab}'s binder can't be found: its folder was deleted or its {SETTINGS_FILE} can't be read. These binders can't be read; if one of them is this {tab}'s, fix it by
-        hand:
+        This item's binder can't be found: its folder was deleted or its {SETTINGS_FILE} can't be read. These binders can't be read; if one of them is this item's, fix it by hand:
       </p>
       <BrokenBinders binders={shown.broken} />
     </Notice>
   ) : (
     <Notice>
-      <p>
-        This {tab}'s binder no longer exists, so the {tab} can't be shown. Close this tab.
-      </p>
+      <p>This item's binder no longer exists, so the item can't be shown. Close this tab.</p>
     </Notice>
   );
 
@@ -101,7 +98,7 @@ export const ItemNotice = ({ shown }: { shown: Exclude<ItemShown, { kind: "loadi
       );
     case "binder-missing":
     case "binder-gone":
-      return <BinderNotice shown={shown} tab="item" />;
+      return <BinderNotice shown={shown} />;
     case "error":
       return (
         <p role="alert" className="text-sm text-danger">

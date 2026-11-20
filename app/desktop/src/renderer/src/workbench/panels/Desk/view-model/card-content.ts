@@ -1,7 +1,7 @@
-import type { ItemSummary, LenientView } from "@wombat/shared/items";
+import type { ItemSummary } from "@wombat/shared/items";
 
 import { displayValue } from "./values.ts";
-import { laidOutBy, type Properties } from "./view-model.ts";
+import { laidOutBy, type Properties, type SidebarView } from "./view-model.ts";
 
 export type CardContent = { chips: { name: string; text: string }[]; excerpt: string | undefined };
 
@@ -17,7 +17,7 @@ export const repeatsTitle = (title: string, excerpt: string): boolean => {
  * What an item's card shows: a chip per property in the view's `show`, in order, or else per property with a value but
  * the one the view is laid out by; and the item's excerpt unless the view hides it, is a tree, or it repeats the title.
  */
-export const cardContent = (item: ItemSummary, view: LenientView, properties: Properties): CardContent => {
+export const cardContent = (item: ItemSummary, view: SidebarView, properties: Properties): CardContent => {
   const by = laidOutBy(view);
   const names = view.show ?? Object.keys(properties).filter((name) => name !== by);
   const chips = names.flatMap((name) => {

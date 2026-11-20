@@ -10,29 +10,19 @@ type OpenableBinder = Extract<BinderSummary, { id: string }>;
 
 const viewsOf = (binder: BinderSummary | undefined): readonly LenientView[] => (binder === undefined || binder.id === null ? [] : binder.views);
 
-/** A board view to open as a tab, and the view to show in the sidebar (none: what it shows for the binder stays). */
-export type BinderPlace = { board?: string; sidebarView?: string };
+/** The view to show in the sidebar (none: what it shows for the binder stays). */
+export type BinderPlace = { sidebarView?: string };
 
-/**
- * Where a binder opens: its view `viewName` (else its first) in the sidebar when that is a list or a tree; a board
- * as a tab, with the binder in the sidebar on its first view that isn't a board (a board picked in the sidebar leaves
- * the sidebar's view as it is); a binder without such views in the sidebar as a list of its items.
- */
+/** Where a binder opens: in the sidebar, on its view `viewName` (else its first); a binder without views as a list of its items. */
 export const binderPlace = (binder: BinderSummary | undefined, viewName?: string): BinderPlace => {
-  const views = viewsOf(binder);
-  const named = viewName === undefined ? undefined : views.find(({ name }) => name === viewName);
-  if (named?.kind === "board") return { board: named.name };
-  const view = named ?? views[0];
-  if (view === undefined) return {};
-  if (view.kind !== "board") return { sidebarView: view.name };
-  const inSidebar = views.find(({ kind }) => kind !== "board");
-  return { board: view.name, ...(inSidebar === undefined ? {} : { sidebarView: inSidebar.name }) };
+  const view = shownView(binder, viewName);
+  return view === undefined ? {} : { sidebarView: view.name };
 };
 
-/** The view the sidebar shows for a binder: the saved one, else its first that isn't a board; undefined for none. */
-const sidebarView = (binder: OpenableBinder, viewName: string | undefined): LenientView | undefined => {
-  const inSidebar = binder.views.filter(({ kind }) => kind !== "board");
-  return inSidebar.find(({ name }) => name === viewName) ?? inSidebar[0];
+/** The view the sidebar shows for a binder: view `viewName`, else its first; undefined for none. */
+const shownView = (binder: BinderSummary | undefined, viewName: string | undefined): LenientView | undefined => {
+  const views = viewsOf(binder);
+  return views.find(({ name }) => name === viewName) ?? views[0];
 };
 
 export type DeskContent =
@@ -54,7 +44,7 @@ export const deskContent = (binders: readonly BinderSummary[] | undefined, error
   }
   if (binders.length === 0) return { kind: "empty" };
   const shown = desk.binderId === undefined ? undefined : binders.find((binder): binder is OpenableBinder => binder.id === desk.binderId);
-  if (shown !== undefined) return { kind: "binder", binder: shown, view: sidebarView(shown, desk.view) };
+  if (shown !== undefined) return { kind: "binder", binder: shown, view: shownView(shown, desk.view) };
   return { kind: "tree", nodes: deskTree(binders) };
 };
 

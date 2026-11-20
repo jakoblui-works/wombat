@@ -10,7 +10,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Locator, Page } from "@playwright/test";
 
-import { agentSummary, click, expect, REPO, type Sandbox, startAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import { agentSummary, click, expect, REPO, type Sandbox, startAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS, wheelPastEnd } from "./app-fixtures.ts";
 import { SETTINGS_FILE } from "../../service/src/items/binders.ts";
 
 type Listed = { id: string; status: string; path?: string; rejectReason?: string };
@@ -241,4 +241,34 @@ test("in the Desk's list, Approve on a proposed create writes its item's file, a
   await expect(waterRow, "the row still shows").toBeVisible();
   expect(readFileSync(water.file, "utf8"), "the file byte for byte").toBe(waterBytes);
   expect(await violations(page), "CSP violations in the Desk").toEqual([]);
+});
+
+// The Desk's list owns its scroll (the sidebar's `complementary` "Desk", each row showing its item's title): a wheel past
+// its end scrolls nothing around it.
+test("a wheel past the end of the Desk's list scrolls nothing around it", async ({ sandbox }) => {
+  test.setTimeout(90_000);
+  const items = path.join(sandbox.base, "items");
+  const folder = path.join(items, "rota");
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(path.join(folder, SETTINGS_FILE), "version: 1\nid: rota\nname: Rota\nprefix: RO\naccess: propose\n");
+  const titles = Array.from({ length: 30 }, (_, i) => `Review the alert rules of shard ${String(i + 1)}`);
+  for (const [i, title] of titles.entries()) {
+    const n = i + 1;
+    writeFileSync(path.join(folder, `RO-${String(n)}.md`), `---\nid: 0196f3c2-1c00-7000-8000-${n.toString(16).padStart(12, "0")}\nhandle: RO-${String(n)}\n---\n# ${title}\n\nCheck the runbook first.\n`);
+  }
+  await sandbox.startService(sandbox.workspace, { WOMBAT_ITEMS: items });
+
+  const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
+  const problems: string[] = [];
+  page.on("pageerror", (error) => problems.push(`page error: ${error.message}`));
+  await waitForConnection(page, "connected");
+  const desk = page.getByRole("navigation", { name: "Activities" }).getByRole("button", { name: "Desk", exact: true });
+  if ((await desk.getAttribute("aria-pressed")) !== "true") await click(desk);
+  const side = page.getByRole("complementary", { name: "Desk", exact: true });
+  await click(side.getByRole("treeitem", { name: /^Rota/ }));
+  const titled = (title: string): Locator => side.getByText(title, { exact: true });
+  await expect(titled(titles.at(-1) ?? ""), "the whole list loaded").toHaveCount(1, { timeout: WAIT_MS });
+
+  expect(await wheelPastEnd(titled(titles[0] ?? ""), "down"), "scrolled or overflowing around the list").toEqual([]);
+  expect(problems, "page errors").toEqual([]);
 });
