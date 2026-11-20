@@ -140,7 +140,9 @@ test("text typed on a proposal's right side is saved as my draft, and Approve wr
 
 // An item proposal in its tab, on an items root (WOMBAT_ITEMS) with one `bugs` binder open to proposals: each
 // field the proposal changes is a `group` named by the field, with a "Drop" button; Approve writes only the fields I kept.
-test("dropping a field of an agent's item update and approving writes only the fields I kept", async ({ sandbox }) => {
+// Its row in Needs me reveals the item's row in the Desk sidebar (`complementary` "Desk", the row a `treeitem` named by
+// the item's title inside the row's element): that element is highlighted (`data-revealed`) and holds the focus.
+test("a Needs me click on an item update highlights its row in the Desk; dropping a field and approving writes only the fields I kept", async ({ sandbox }) => {
   const bug = { id: "0196f3c2-1a00-7000-8000-00000000c001", handle: "BUG-1", title: "Basket total ignores the coupon" };
   const items = path.join(sandbox.base, "items");
   mkdirSync(path.join(items, "bugs"), { recursive: true });
@@ -167,6 +169,9 @@ test("dropping a field of an agent's item update and approving writes only the f
   if ((await toggle.getAttribute("aria-pressed")) !== "true") await click(toggle);
   // An item proposal's row in Needs me opens the Desk on its binder; its mark there opens the proposal's tab.
   await click(needsMe(page).getByRole("button").filter({ hasText: `bugs/${bug.handle}` }));
+  const revealed = page.getByRole("complementary", { name: "Desk" }).getByRole("treeitem", { name: bug.title, exact: true }).locator("..");
+  await expect(revealed, "the item's row highlighted").toHaveAttribute("data-revealed", "", { timeout: WAIT_MS });
+  await expect(revealed.locator(":focus"), "the focus in the item's row").toHaveCount(1);
   await click(page.getByRole("complementary", { name: "Desk" }).getByRole("button", { name: "Update proposed", exact: true }));
   const tab = page.locator(".dv-groupview .dv-content-container").filter({ hasText: `bugs/${bug.handle}` });
   await click(tab.getByRole("group", { name: "status", exact: true }).getByRole("button", { name: "Drop", exact: true }));

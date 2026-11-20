@@ -10,7 +10,7 @@ import type { ItemProposal } from "@wombat/shared/proposals";
 
 import { draftStart, type FieldValue } from "../../Item/item-edit.ts";
 import { matchesFilter } from "./values.ts";
-import { hasHeading, isItemRow, itemCount, listGroups, type NewItemPlace, offersNewChild, type Row, shownGroups, type SidebarView, treeRows, type TreeRow, viewContext } from "./view-model.ts";
+import { hasHeading, isItemRow, itemCount, listGroups, type NewItemPlace, offersNewChild, type Row, shownGroups, sidebarView, type SidebarView, treeRows, type TreeRow, viewContext } from "./view-model.ts";
 
 type Properties = Record<string, LenientProperty>;
 
@@ -176,6 +176,29 @@ describe("listGroups", () => {
         },
       ),
       { numRuns: 300 },
+    );
+  });
+});
+
+describe("sidebarView", () => {
+  test("a board shows as the list with its name, filter and sort, grouped by its column; a list or a tree as it is", () => {
+    fc.assert(
+      fc.property(
+        binderArb.chain((binder) => fc.tuple(fc.constant(binder), viewArb(binder.numbers), fc.constantFrom("project", "note", "size"))),
+        ([{ items, properties }, generated, column]) => {
+          const list = { ...generated, group: column };
+          const rest = { name: list.name, ...(list.filter === undefined ? {} : { filter: list.filter }), ...(list.sort === undefined ? {} : { sort: list.sort }) };
+          const board: LenientView = { ...rest, kind: "board", column };
+          const shown = sidebarView(board);
+          expect(shown.name, "the board's name").toBe(board.name);
+          expect(listGroups(rowsOf(items), shown, properties), "the rows and groups of the list it stands for").toEqual(listGroups(rowsOf(items), list, properties));
+
+          const tree: LenientView = { ...rest, kind: "tree", parent: "parent" };
+          expect(sidebarView(list)).toEqual(list);
+          expect(sidebarView(tree)).toEqual(tree);
+        },
+      ),
+      { numRuns: 200 },
     );
   });
 });
