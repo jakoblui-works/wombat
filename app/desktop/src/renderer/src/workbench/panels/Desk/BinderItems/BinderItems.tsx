@@ -38,6 +38,6 @@ export const BinderItems = ({ binder, view, onOpenItem, onNewItem, reveal, onRev
   if (rows.length === 0) return <EmptyState title="No items yet" body="Items are the Markdown files in the binder's folder." />;
   const shown = sidebarView(view);
   if (shown.kind === "tree")
-    return <TreeView key={shown.name} rows={rows} view={shown} properties={binder.properties} onOpenItem={onOpenItem} onNewItem={onNewItem} reveal={reveal} onRevealed={onRevealed} />;
-  return <ListView rows={rows} view={shown} properties={binder.properties} onOpenItem={onOpenItem} onNewItem={onNewItem} reveal={reveal} onRevealed={onRevealed} />;
+    return <TreeView key={`${binder.id}/${shown.name}`} rows={rows} view={shown} properties={binder.properties} onOpenItem={onOpenItem} onNewItem={onNewItem} reveal={reveal} onRevealed={onRevealed} />;
+  return <ListView key={`${binder.id}/${shown.name}`} rows={rows} view={shown} properties={binder.properties} onOpenItem={onOpenItem} onNewItem={onNewItem} reveal={reveal} onRevealed={onRevealed} />;
 };

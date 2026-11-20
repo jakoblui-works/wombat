@@ -10,7 +10,7 @@ import { useWorkbench } from "../../workbench-context.ts";
 import { proposalActions, proposalShows } from "../proposal-actions.ts";
 
 /**
- * A proposal's Approve and Reject where it shows in place (a row, a card, the item tab's banner), and its state in
+ * A proposal's Approve and Reject where it shows in place (a row, the item tab's banner), and its state in
  * place of Approve while it can't be approved. Approve names the version this place last read; one that meets a newer
  * version opens the proposal's tab instead, so it's seen first. Reject sends no reason. Without `mark`, the state isn't
  * named here (the place names it itself).

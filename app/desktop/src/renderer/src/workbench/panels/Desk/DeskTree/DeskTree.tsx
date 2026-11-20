@@ -6,7 +6,7 @@ import { Button } from "../../../../components/ui/button";
 import { cn } from "../../../../lib/utils";
 import { type DeskNode, type DeskRow, deskKey, deskRows, nodeName, rowLabel } from "../desk-tree.ts";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
-import { rowIndent } from "../tree-keys.ts";
+import { rowIndent, TREE_ROW } from "../tree-keys.ts";
 import { useTreeFocus } from "../use-tree-focus.ts";
 
 type Props = {
@@ -106,7 +106,8 @@ export const DeskTree = ({ nodes, openDrawers, onToggleDrawer, onOpenBinder, onN
               onClick={() => act(index, "Enter")}
               onKeyDown={(event) => act(index, event.key, event)}
               className={cn(
-                "focus-ring flex cursor-default rounded-md py-1 pr-2 text-left text-base select-none transition-colors hover:bg-surface-2 focus:bg-surface-2",
+                TREE_ROW,
+                "flex py-1",
                 node.kind === "binder" && node.binder.id === null && "cursor-auto",
               )}
               style={{ paddingLeft: rowIndent(row.level) }}

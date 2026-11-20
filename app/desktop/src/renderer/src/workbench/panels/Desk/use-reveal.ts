@@ -4,7 +4,7 @@ import type { Reveal } from "../../registry.ts";
 import type { Row } from "./view-model/view-model.ts";
 import { rowProposalIds } from "./view-model/with-proposals.ts";
 
-/** The attribute a row or card holding proposals carries: their ids (`rowProposalIds`), space-separated. */
+/** The attribute a row holding proposals carries: their ids (`rowProposalIds`), space-separated. */
 export const PROPOSAL_ATTRIBUTE = "data-proposal";
 
 /** The `PROPOSAL_ATTRIBUTE` of a row, as props for its element. */
@@ -13,7 +13,7 @@ export const proposalProps = (row: Row): Record<string, string | undefined> => {
   return { [PROPOSAL_ATTRIBUTE]: ids.length === 0 ? undefined : ids.join(" ") };
 };
 
-/** The classes of a row or card that can be revealed: highlighted while it carries `data-revealed`. */
+/** The classes of a row that can be revealed: highlighted while it carries `data-revealed`. */
 export const REVEALABLE = "rounded-md transition-colors data-revealed:bg-primary/10 data-revealed:ring-2 data-revealed:ring-primary/40";
 
 const REVEALED_ATTRIBUTE = "data-revealed";
@@ -35,7 +35,7 @@ const unhighlight = (highlight: Highlight | undefined): void => {
 };
 
 /**
- * At each reveal request, the row or card under `ref` holding the proposal (`PROPOSAL_ATTRIBUTE`) is scrolled into
+ * At each reveal request, the row under `ref` holding the proposal (`PROPOSAL_ATTRIBUTE`) is scrolled into
  * view, takes the focus, and is highlighted briefly (`data-revealed`), and `onShown` is called. A row that doesn't show
  * yet is waited for a while; a tree opens the row's ancestors itself. The highlight outlasts the request.
  */

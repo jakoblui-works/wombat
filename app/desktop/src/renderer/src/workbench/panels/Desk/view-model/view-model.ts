@@ -61,9 +61,15 @@ export const sidebarView = (view: LenientView | undefined): SidebarView => {
 
 /**
  * `value`: the group's value as items hold it; `none`: the items without a value; `all`: a view without `group`;
- * `outside`: the rows holding an open proposal the view's filter would hide, before every other group.
+ * `outside`: the rows holding an open proposal the view's filter would hide, before every other group. `heading`: the
+ * value as text, or "No <property>".
  */
-export type Group = { key: string; rows: Row[] } & ({ kind: "value"; value: unknown } | { kind: "none" } | { kind: "all" } | { kind: "outside" });
+export type Group = { key: string; rows: Row[] } & ({ kind: "value"; value: unknown; heading: string } | { kind: "none"; heading: string } | { kind: "all" } | { kind: "outside" });
+
+/** A group shown under a heading of its own. */
+export type HeadedGroup = Extract<Group, { heading: string }>;
+
+export const hasHeading = (group: Group): group is HeadedGroup => "heading" in group;
 
 export type TreeRow = Row & { children: TreeRow[] };
 
@@ -121,7 +127,7 @@ export const listGroups = (rows: readonly Row[], view: LenientView, properties: 
 
   const groups = new Map<string, Extract<Group, { kind: "value" }>>();
   if (property?.type === "select") {
-    for (const option of property.options) groups.set(String(property.options.indexOf(option)), { key: `value:${option}`, kind: "value", value: option, rows: [] });
+    for (const option of property.options) groups.set(String(property.options.indexOf(option)), { key: `value:${option}`, kind: "value", value: option, heading: displayValue(property, option), rows: [] });
   }
   const none: Row[] = [];
   const withValue: Row[] = [];
@@ -133,11 +139,11 @@ export const listGroups = (rows: readonly Row[], view: LenientView, properties: 
   for (const row of byValue) {
     const value = rowValue(row, name, properties);
     const rank = String(valueRank(property, value));
-    const group = groups.get(rank) ?? { key: `value:${rank}`, kind: "value" as const, value, rows: [] };
+    const group = groups.get(rank) ?? { key: `value:${rank}`, kind: "value" as const, value, heading: displayValue(property, value), rows: [] };
     groups.set(rank, group);
   }
   for (const row of withValue) groups.get(String(valueRank(property, rowValue(row, name, properties))))?.rows.push(row);
-  return [...first, ...groups.values(), ...(none.length > 0 ? [{ key: "none", kind: "none" as const, rows: none }] : [])];
+  return [...first, ...groups.values(), ...(none.length > 0 ? [{ key: "none", kind: "none" as const, heading: `No ${name}`, rows: none }] : [])];
 };
 
 /** What a list's group counts: its items, not a proposed create nor a missing item. */
@@ -145,13 +151,6 @@ export const itemCount = (rows: readonly Row[]): number => rows.filter(isItemRow
 
 /** The groups a list shows: those holding items. */
 export const shownGroups = (groups: readonly Group[]): Group[] => groups.filter(({ rows }) => rows.length > 0);
-
-/** A group's heading: its value as text, "No <property>" for the items without one; none without `group`, nor for `outside`. */
-export const groupHeading = (group: Group, view: LenientView, properties: Properties): string | undefined => {
-  const name = view.kind === "list" ? view.group : undefined;
-  if (group.kind === "all" || group.kind === "outside" || name === undefined) return undefined;
-  return group.kind === "none" ? `No ${name}` : displayValue(properties[name], group.value);
-};
 
 /**
  * The view's visible rows, sorted, each under the item its `parent` link names. A row whose parent is missing,

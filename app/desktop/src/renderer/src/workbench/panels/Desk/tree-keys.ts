@@ -35,6 +35,9 @@ const INDENT_PX = 12;
 /** A row's left padding in pixels at its `level` (1 at the top). */
 export const rowIndent = (level: number): number => ROW_START_PX + (level - 1) * INDENT_PX;
 
+/** A tree row's look: its text, hover and focus; its height and indent are the tree's own. */
+export const TREE_ROW = "focus-ring cursor-default rounded-md pr-2 text-left text-base select-none transition-colors hover:bg-surface-2 focus:bg-surface-2";
+
 export type TreeKeyAction = { type: "focus"; index: number } | { type: "toggle"; open: boolean } | { type: "activate" };
 
 /**

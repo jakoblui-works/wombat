@@ -187,8 +187,9 @@ test("dropping a field of an agent's item update and approving writes only the f
 });
 
 // Item proposals decided where they show in the Desk's list (the binder's plain list: no views): a proposed create is a
-// row (`listitem`) holding its proposed title, a proposed update marks its item's row with a button "Update proposed";
-// each row holds "Approve" and "Reject", and Reject there sends no reason.
+// row (a `treeitem` named by its proposed title, its proposal lines beside it in the same parent), a proposed update
+// marks its item's row with a button "Update proposed"; each row holds "Approve" and "Reject", and Reject there sends
+// no reason.
 test("in the Desk's list, Approve on a proposed create writes its item's file, and Reject on an update's marked row leaves the file and drops the mark", async ({ sandbox }) => {
   const items = path.join(sandbox.base, "items");
   const folder = path.join(items, "chores");
@@ -222,7 +223,7 @@ test("in the Desk's list, Approve on a proposed create writes its item's file, a
   if ((await desk.getAttribute("aria-pressed")) !== "true") await click(desk);
   const side = page.getByRole("complementary", { name: "Desk", exact: true });
   await click(side.getByRole("treeitem", { name: /^Chores/ }));
-  const rowOfTitle = (title: string): Locator => side.getByRole("listitem").filter({ hasText: title });
+  const rowOfTitle = (title: string): Locator => side.getByRole("treeitem", { name: title, exact: true }).locator("..");
 
   const before = new Set(readdirSync(folder));
   await click(rowOfTitle(mulch).getByRole("button", { name: "Approve", exact: true }));

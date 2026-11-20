@@ -43,7 +43,7 @@ const ProposalLine = ({ proposal, note, className, style, tabIndex }: LineProps)
   );
 };
 
-/** Under a row or card: a line per open proposal it shows (`proposalLines`), oldest first. Nothing for a row without one. */
+/** Under a row: a line per open proposal it shows (`proposalLines`), oldest first. Nothing for a row without one. */
 export const ProposalLines = ({ row, outside = false, ...line }: Props) =>
   proposalLines(row).map((proposal, at) => (
     <ProposalLine key={proposal.id} proposal={proposal} note={at === 0 && outside && (isItemRow(row) || isPending(row)) ? OUTSIDE_FILTER : undefined} {...line} />
