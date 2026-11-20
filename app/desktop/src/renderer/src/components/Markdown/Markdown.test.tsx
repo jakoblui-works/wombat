@@ -6,7 +6,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 
-import { Markdown } from "./Markdown.tsx";
+import { InlineMarkdown, Markdown } from "./Markdown.tsx";
 
 type Element = { tag: string; attrs: Map<string, string> };
 
@@ -22,8 +22,8 @@ const decode = (text: string): string =>
     .replace(/&#39;/g, "'")
     .replace(/&amp;/g, "&");
 
-const render = (text: string): { html: string; elements: Element[]; visible: string } => {
-  const html = renderToStaticMarkup(<Markdown text={text} />);
+const render = (text: string, inline = false): { html: string; elements: Element[]; visible: string } => {
+  const html = renderToStaticMarkup(inline ? <InlineMarkdown text={text} /> : <Markdown text={text} />);
   const elements = [...html.matchAll(TAG)].map(([, tag = "", attrs = ""]) => ({
     tag: tag.toLowerCase(),
     attrs: new Map([...attrs.matchAll(ATTR)].map(([, name = "", value = ""]) => [name.toLowerCase(), decode(value)])),
@@ -36,8 +36,8 @@ const ACTIVE_TAGS = ["script", "iframe", "frame", "object", "embed", "img", "ima
 /** Attributes that load or run something; `href` is checked on its own. */
 const LOADING_ATTRS = ["src", "srcset", "srcdoc", "action", "formaction", "poster", "data", "background", "xlink:href"];
 
-const expectInert = (text: string): ReturnType<typeof render> => {
-  const out = render(text);
+const expectInert = (text: string, inline = false): ReturnType<typeof render> => {
+  const out = render(text, inline);
   for (const { tag, attrs } of out.elements) {
     expect(ACTIVE_TAGS, `<${tag}> rendered from ${JSON.stringify(text)}`).not.toContain(tag);
     for (const [name, value] of attrs) {
@@ -124,4 +124,22 @@ test("an https link is a link that opens in a new window without a referrer, in 
     expect(link?.attrs.get("target"), syntax).toBe("_blank");
     expect(link?.attrs.get("rel")?.split(/\s+/), syntax).toContain("noreferrer");
   }
+});
+
+// A title or excerpt on a card is one line of agent-written text: it reads as written, never as a block, a link or an image.
+test("inline text shows as written: block markers stay text, a code span is code, a link is its text, an image is dropped", () => {
+  for (const title of ["1. Ship it", "- draft", "> quote", "# H", "---", "[a]: b"]) {
+    expect(expectInert(title, true).visible, JSON.stringify(title)).toBe(title);
+  }
+
+  const code = expectInert("`code`", true);
+  expect(code.elements.map(({ tag }) => tag)).toContain("code");
+  expect(code.visible).toBe("code");
+
+  const link = expectInert("[docs](https://a.b)", true);
+  expect(link.visible).toBe("docs");
+  expect(link.elements.filter(({ attrs }) => attrs.has("href"))).toEqual([]);
+
+  const image = expectInert("Before ![a loaf of rye bread](https://example.invalid/bread.png) after", true);
+  expect(image.elements.map(({ tag }) => tag)).not.toContain("img");
 });

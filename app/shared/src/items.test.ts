@@ -45,6 +45,8 @@ const cases: [string, object, null | [Path, string]][] = [
   ["an include glob that leaves the folder", free(["{guides,..}/*.md"]), [["include", 0], "include"]],
   ["a property named id", withProperties({ id: { type: "text" } }), [["properties", "id"], '"id"']],
   ["a board column that isn't a select", withView({ name: "B", kind: "board", column: "note" }), [["views", 0, "column"], "column"]],
+  ["a show naming no property", withView({ name: "L", kind: "list", show: ["nope"] }), [["views", 0, "show"], "nope"]],
+  ["a show of no properties", withView({ name: "L", kind: "list", show: [] }), null],
 ];
 
 /** Where an issue is: its path, and for an unknown key the key itself. */

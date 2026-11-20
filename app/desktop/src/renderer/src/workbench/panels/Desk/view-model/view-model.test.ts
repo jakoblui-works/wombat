@@ -6,10 +6,11 @@ import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
 import type { ItemSummary, LenientProperty, LenientView } from "@wombat/shared/items";
+import type { ItemProposal } from "@wombat/shared/proposals";
 
 import { draftStart, type FieldValue } from "../../Item/item-edit.ts";
 import { matchesFilter } from "./values.ts";
-import { isItemRow, listGroups, type NewItemPlace, type Row, shownGroups, treeRows, type TreeRow, viewContext } from "./view-model.ts";
+import { isItemRow, itemCount, listGroups, type NewItemPlace, type Row, shownGroups, treeRows, type TreeRow, viewContext } from "./view-model.ts";
 
 type Properties = Record<string, LenientProperty>;
 
@@ -178,6 +179,31 @@ describe("listGroups", () => {
       { numRuns: 300 },
     );
   });
+});
+
+test("a group counts its items, not a proposed create nor a missing item", () => {
+  const proposed = (kind: ItemProposal["kind"], handle: string | null): ItemProposal => ({
+    target: "item",
+    id: idOf(90 + (handle === null ? 0 : 1)),
+    status: "pending",
+    agentId: idOf(99),
+    reason: "Invented reason.",
+    version: 1,
+    editedByMe: false,
+    at: new Date(Date.UTC(2026, 10, 2, 9)).toISOString(),
+    binder: "backlog",
+    kind,
+    handle,
+    file: null,
+  });
+  const rows: Row[] = [
+    { item: item(1) },
+    { pending: proposed("create", null), fields: {}, link: (_to, id) => ({ id, handle: null }) },
+    { missing: handleOf(7), proposals: [proposed("update", handleOf(7))] },
+  ];
+  const [group] = listGroups(rows, { name: "Open", kind: "list" }, {});
+  expect(group?.rows).toHaveLength(rows.length);
+  expect(itemCount(group?.rows ?? [])).toBe(1);
 });
 
 describe("treeRows", () => {
