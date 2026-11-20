@@ -39,7 +39,6 @@ const item = (path = "work/tasks/TSK-1-rotate-cert.md"): Item => ({
   path,
   version: "0".repeat(64),
   problems: [],
-  excerpt: "Renew it through the pipeline.",
   binder: "tasks",
   body: "Renew it through the pipeline.\n",
 });

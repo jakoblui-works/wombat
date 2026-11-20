@@ -49,8 +49,8 @@ export type SidebarView = Extract<LenientView, { kind: "list" | "tree" }>;
 export const PLAIN_LIST: Extract<LenientView, { kind: "list" }> = { name: "Items", kind: "list" };
 
 /**
- * The view the sidebar shows a binder in: a list or a tree as it is; a board as a list with the same name, filter,
- * sort, show and excerpt, grouped by its column; no view as `PLAIN_LIST`.
+ * The view the sidebar shows a binder in: a list or a tree as it is; a board as a list with the same name, filter
+ * and sort, grouped by its column; no view as `PLAIN_LIST`.
  */
 export const sidebarView = (view: LenientView | undefined): SidebarView => {
   if (view === undefined) return PLAIN_LIST;

@@ -63,7 +63,7 @@ export const fileValue = (item: Item, field: string): FieldValue => {
 };
 
 /** What a draft edits: an item with no file, no handle and no values. */
-export const NO_FILE: Item = { id: null, handle: null, aliases: [], title: "", body: "", properties: {}, path: "", version: "", excerpt: null, binder: "", problems: [] };
+export const NO_FILE: Item = { id: null, handle: null, aliases: [], title: "", body: "", properties: {}, path: "", version: "", binder: "", problems: [] };
 
 /**
  * A draft's starting changes from its context (`viewContext`): each value as its property holds it (`heldValue`; a

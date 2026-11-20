@@ -97,11 +97,6 @@ Each view has a `name`, a `kind`, and optionally a `filter` (a map of property t
 | `board` | `column`: a `select` property. The app shows a board view as a list grouped by its column: one group per option that has items, in option order, then one for the items without a value |
 | `tree` | `parent`: a `link` property to this same binder. Each item nests under the item it links to |
 
-Two more optional keys, on every kind, say what an item's card shows:
-
-- `show`: the properties a card shows, in this order, like `show: [repo, noted]`. Without it, a card shows every property that has a value, except the one the view groups, columns or nests by. `show: []` shows none. Each name must be a property of the binder.
-- `excerpt`: `false` hides the excerpt of the item's body on its cards. Without it, cards show the excerpt.
-
 ## Item files
 
 ```markdown
@@ -129,7 +124,7 @@ Wombat doesn't drop a broken binder or item. The app lists it with its problems.
 
 `GET /items/:ref` answers one item with its body. `ref` is the item's id, its handle or one of its aliases, tried in that order.
 
-Every item the API sends (`GET /binders/:id/items`, `GET /items/:ref` and the answers to the writes below) carries `binder`, the id of its binder, and `excerpt`: the body's first paragraph (its first block of non-blank lines), with a leading list, quote or heading marker (`- `, `* `, `+ `, `1. `, `> `, `# ` to `###### `) removed, whitespace folded to single spaces and cut to at most 200 characters (UTF-16 code units). Markdown inside it is kept as written. `excerpt` is `null` when the body has no text or the file can't be parsed. Agents' tools don't carry either.
+Every item the API sends (`GET /binders/:id/items`, `GET /items/:ref` and the answers to the writes below) carries `binder`, the id of its binder. Agents' tools don't carry it.
 
 The app writes items through three routes. They check the values as an agent's writes are checked, but access levels and locked fields don't apply: you can change anything an agent may only propose.
 

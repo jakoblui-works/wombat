@@ -12,7 +12,6 @@ import type { Item, Problem, BinderSettings } from "@wombat/shared/items";
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
 import { queueWrite, readAtVersion, readVersioned, VersionChanged, writeAtomic } from "./files.ts";
-import { bodyExcerpt } from "./body-excerpt.ts";
 import { addKeyEdits, checkedText, parseItemFile, scalarRange, type ParsedItemFile, type TextEdit } from "./item-file.ts";
 import { folderProblem, inFolder, isCatalogFile, oldSettingsProblem, ownerOf, readSettings, SETTINGS_FILE, binderFiles, binderFolders } from "./binders.ts";
 import { formatHandle, isUuid, parseHandle, validateOwnKeys, validateProperties, type LinkLookup } from "./validate.ts";
@@ -211,7 +210,6 @@ export const loadItem = (
       ...namesOf(parsed.data),
       title: parsed.title,
       body: parsed.body,
-      excerpt: bodyExcerpt(parsed.body),
       properties: validated?.properties ?? {},
       path,
       version,
@@ -229,7 +227,6 @@ const emptyItem = (binder: ValidBinder, path: string, version: string, problems:
   aliases: [],
   title: null,
   body: null,
-  excerpt: null,
   properties: {},
   path,
   version,

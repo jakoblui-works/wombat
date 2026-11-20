@@ -148,7 +148,7 @@ export const Markdown = memo(({ text, className, ref, children }: MarkdownProps)
 ));
 Markdown.displayName = "Markdown";
 
-/** One line of item text (a title, an excerpt) as inline Markdown inside a span: no blocks, links or images. */
+/** One line of item text (a title) as inline Markdown inside a span: no blocks, links or images. */
 export const InlineMarkdown = memo(({ text, className, id }: { text: string; className?: string | undefined; id?: string | undefined }) => (
   <span id={id} className={cn("min-w-0 break-words", className)}>
     <Rendered text={text} inline />

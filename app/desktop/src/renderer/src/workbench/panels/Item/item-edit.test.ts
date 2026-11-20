@@ -67,7 +67,6 @@ const FIRST: Item = {
   path: "tasks/TSK-1-rotate-staging-cert.md",
   version: "",
   problems: [],
-  excerpt: "The current one expires on the 9th.",
   binder: "tasks",
 };
 

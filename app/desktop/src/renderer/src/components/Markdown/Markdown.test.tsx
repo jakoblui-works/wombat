@@ -126,7 +126,7 @@ test("an https link is a link that opens in a new window without a referrer, in 
   }
 });
 
-// A title or excerpt on a card is one line of agent-written text: it reads as written, never as a block, a link or an image.
+// A title on a row is one line of agent-written text: it reads as written, never as a block, a link or an image.
 test("inline text shows as written: block markers stay text, a code span is code, a link is its text, an image is dropped", () => {
   for (const title of ["1. Ship it", "- draft", "> quote", "# H", "---", "[a]: b"]) {
     expect(expectInert(title, true).visible, JSON.stringify(title)).toBe(title);

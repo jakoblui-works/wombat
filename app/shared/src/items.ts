@@ -169,26 +169,20 @@ const viewFields = {
   sort: z
     .array(z.string(takes("sort", "a list of property names", "sort: [noted]")), takes("sort", "a list of property names", "sort: [noted]"))
     .exactOptional(),
-  /** Property names a card shows, in this order; without it, every property with a value but the one the view is laid out by. */
-  show: z
-    .array(z.string(takes("show", "a list of property names", "show: [repo, noted]")), takes("show", "a list of property names", "show: [repo, noted]"))
-    .exactOptional(),
-  /** `false` hides the excerpt of the item's body on its card. */
-  excerpt: z.boolean(takes("excerpt", "true or false", "excerpt: false")).exactOptional(),
 };
 const ListView = z.strictObject(
   { ...viewFields, kind: z.literal("list"), group: z.string(takes("group", "a property name", "group: repo")).exactOptional() },
-  keysOf("a list view", "name, kind, filter, sort, group, show and excerpt", viewExample),
+  keysOf("a list view", "name, kind, filter, sort and group", viewExample),
 );
-/** `column`: a select property; a card's column is its value. */
+/** `column`: a select property; the app groups a list by its value. */
 const BoardView = z.strictObject(
   { ...viewFields, kind: z.literal("board"), column: z.string(takes("column", "a select property's name", "column: repo")) },
-  keysOf("a board view", "name, kind, filter, sort, column, show and excerpt", viewExample),
+  keysOf("a board view", "name, kind, filter, sort and column", viewExample),
 );
 /** `parent`: a link property to the same binder; an item nests under the item it links to. */
 const TreeView = z.strictObject(
   { ...viewFields, kind: z.literal("tree"), parent: z.string(takes("parent", "a link property's name", "parent: parent")) },
-  keysOf("a tree view", "name, kind, filter, sort, parent, show and excerpt", viewExample),
+  keysOf("a tree view", "name, kind, filter, sort and parent", viewExample),
 );
 
 const View = z.discriminatedUnion("kind", [ListView, BoardView, TreeView], {
@@ -294,15 +288,14 @@ export const BinderSettings = z
     settings.views.forEach((view, index) => {
       const at = (key: string) => ["views", index, key];
       const named = `view "${view.name}"`;
-      const known = (key: string, property: string, fix = "") => {
+      const known = (key: string, property: string) => {
         if (Object.hasOwn(properties, property)) return true;
-        refuse(at(key), `${key}: ${named} names "${property}", which is not a property of this binder${fix}`);
+        refuse(at(key), `${key}: ${named} names "${property}", which is not a property of this binder`);
         return false;
       };
 
       for (const property of Object.keys(view.filter ?? {})) known("filter", property);
       for (const property of view.sort ?? []) known("sort", property);
-      for (const property of view.show ?? []) known("show", property, "; list the properties its cards show, like show: [repo, noted]");
       if (view.kind === "list" && view.group !== undefined) known("group", view.group);
       if (view.kind === "board" && known("column", view.column) && properties[view.column]?.type !== "select") {
         refuse(at("column"), `column: ${named} needs a select property for its columns, and "${view.column}" isn't one`);
@@ -379,8 +372,6 @@ const itemFields = {
   path: z.string(),
   /** sha256 (hex) of the file's bytes; a write names the version it's based on. */
   version: z.string(),
-  /** Null when the file can't be parsed or the body has no text. */
-  excerpt: z.string().nullable(),
   /** The id of the binder the item belongs to. */
   binder: z.string(),
   problems: z.array(Problem),
