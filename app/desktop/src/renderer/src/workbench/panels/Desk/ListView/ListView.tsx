@@ -3,9 +3,10 @@ import { Plus } from "lucide-react";
 import { useRef } from "react";
 
 import { Button } from "../../../../components/ui/button";
+import { cn } from "../../../../lib/utils";
 import type { Reveal } from "../../../registry.ts";
 import { useWorkbench } from "../../../workbench-context.ts";
-import { RowTitle } from "../ItemRow/ItemRow.tsx";
+import { ItemCard } from "../ItemCard/ItemCard.tsx";
 import { ProposalLines } from "../ProposalLine/ProposalLine.tsx";
 import { proposalProps, REVEALABLE, useReveal } from "../use-reveal.ts";
 import { groupHeading, isItemRow, isOutsideFilter, listGroups, type NewItem, newItemLabel, offersNew, type Row, rowKey, shownGroups, viewContext } from "../view-model/view-model.ts";
@@ -21,7 +22,8 @@ type Props = {
   onRevealed?: (() => void) | undefined;
 };
 
-const ROW = "focus-ring flex w-full items-center gap-2 rounded-md px-2.5 py-1 text-left text-base transition-colors select-none hover:bg-surface-2";
+const FRAME = "rounded-md border border-line-subtle bg-surface-1";
+const CARD = "focus-ring w-full rounded-md px-2.5 py-2 text-left transition-colors select-none hover:bg-surface-2";
 
 const ListRow = ({ row, view, properties, onOpenItem }: { row: Row; view: Props["view"]; properties: Props["properties"]; onOpenItem: Props["onOpenItem"] }) => {
   const { openProposal } = useWorkbench();
@@ -34,15 +36,15 @@ const ListRow = ({ row, view, properties, onOpenItem }: { row: Row; view: Props[
     if (id !== undefined) openProposal(id);
   };
   return (
-    <div {...proposalProps(row)} className={REVEALABLE}>
-      <RowTitle row={row} render={<button type="button" onClick={open} className={ROW} />} />
-      <ProposalLines row={row} outside={isOutsideFilter(row, view, properties)} className="pr-2 pb-1 pl-2.5" />
+    <div {...proposalProps(row)} className={cn(FRAME, REVEALABLE)}>
+      <ItemCard row={row} view={view} properties={properties} render={<button type="button" onClick={open} className={CARD} />} />
+      <ProposalLines row={row} outside={isOutsideFilter(row, view, properties)} className="px-2.5 pb-2" />
     </div>
   );
 };
 
 const Rows = ({ rows, label, view, properties, onOpenItem }: { rows: readonly Row[]; label: string; view: Props["view"]; properties: Props["properties"]; onOpenItem: Props["onOpenItem"] }) => (
-  <ul aria-label={label} className="flex flex-col gap-px">
+  <ul aria-label={label} className="flex flex-col gap-1.5">
     {rows.map((row) => (
       <li key={rowKey(row)}>
         <ListRow row={row} view={view} properties={properties} onOpenItem={onOpenItem} />

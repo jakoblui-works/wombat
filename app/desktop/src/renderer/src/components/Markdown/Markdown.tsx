@@ -4,6 +4,7 @@
 // - a link is an <a> only for an https: URL, opened in a new window without a referrer; any other URL shows as text;
 // - an image never loads: it shows as its alt text;
 // - code blocks go through `Code` (lib/highlight.tsx), which never writes raw HTML or style strings.
+// The inline form keeps only code spans, emphasis and strikethrough: links show as their text, images are dropped.
 import { memo, type ReactNode, type Ref, useId } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -52,6 +53,8 @@ const CodeBlock = memo(({ code, lang }: { code: string; lang: string | undefined
 ));
 CodeBlock.displayName = "CodeBlock";
 
+const InlineCode = ({ children }: { children?: ReactNode }) => <code className="rounded-xs bg-surface-3 px-1 py-px font-mono text-sm text-fg-primary">{children}</code>;
+
 const COMPONENTS: Components = {
   a: ({ href, children }) => {
     const url = httpsUrl(href);
@@ -70,7 +73,7 @@ const COMPONENTS: Components = {
     const text = (code === undefined ? "" : textOf(code)).replace(/\n$/, "");
     return <CodeBlock code={text} lang={fenceLang(code)} />;
   },
-  code: ({ children }) => <code className="rounded-xs bg-surface-3 px-1 py-px font-mono text-sm text-fg-primary">{children}</code>,
+  code: ({ children }) => <InlineCode>{children}</InlineCode>,
   p: ({ children }) => <p>{children}</p>,
   ul: ({ children, className }) => <ul className={cn("flex list-disc flex-col pl-5 marker:text-fg-tertiary", className === "contains-task-list" && "list-none pl-1")}>{children}</ul>,
   ol: ({ children, start }) => (
@@ -95,13 +98,38 @@ const COMPONENTS: Components = {
   td: ({ children }) => <td className="border border-line px-2 py-1">{children}</td>,
 };
 
-const Rendered = memo(({ text }: { text: string }) => {
+const INLINE_ELEMENTS = ["code", "em", "strong", "del"];
+/** The micromark constructs that start a block; the inline form reads them as text, so a title keeps its "1." or "#". */
+const BLOCK_CONSTRUCTS = [
+  "blockQuote",
+  "codeFenced",
+  "codeIndented",
+  "definition",
+  "gfmFootnoteDefinition",
+  "headingAtx",
+  "htmlFlow",
+  "list",
+  "setextUnderline",
+  "table",
+  "thematicBreak",
+];
+type ParserData = { micromarkExtensions?: { disable?: { null?: string[] } }[] };
+// The parser reads its micromark extensions from the processor's data, which unified's own types don't declare.
+const inlineOnly = function (this: { data: () => object }) {
+  const data: ParserData = this.data();
+  (data.micromarkExtensions ??= []).push({ disable: { null: BLOCK_CONSTRUCTS } });
+};
+const INLINE_COMPONENTS: Components = { code: ({ children }) => <InlineCode>{children}</InlineCode> };
+
+const Rendered = memo(({ text, inline = false }: { text: string; inline?: boolean }) => {
   const id = useId();
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={inline ? [remarkGfm, inlineOnly] : [remarkGfm]}
       remarkRehypeOptions={{ clobberPrefix: `md${id.replace(/[^\w-]/g, "")}-` }}
-      components={COMPONENTS}
+      components={inline ? INLINE_COMPONENTS : COMPONENTS}
+      allowedElements={inline ? INLINE_ELEMENTS : undefined}
+      unwrapDisallowed={inline}
       skipHtml={false}
       urlTransform={(url) => httpsUrl(url) ?? ""}
     >
@@ -119,3 +147,11 @@ export const Markdown = memo(({ text, className, ref, children }: MarkdownProps)
   </div>
 ));
 Markdown.displayName = "Markdown";
+
+/** One line of item text (a title, an excerpt) as inline Markdown inside a span: no blocks, links or images. */
+export const InlineMarkdown = memo(({ text, className, id }: { text: string; className?: string | undefined; id?: string | undefined }) => (
+  <span id={id} className={cn("min-w-0 break-words", className)}>
+    <Rendered text={text} inline />
+  </span>
+));
+InlineMarkdown.displayName = "InlineMarkdown";

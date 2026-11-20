@@ -4,7 +4,7 @@ import type { ItemProposal } from "@wombat/shared/proposals";
 
 import { compareHandles, compareValues, displayValue, linkValue, matchesFilter, valueRank } from "./values.ts";
 
-type Properties = Readonly<Record<string, LenientProperty>>;
+export type Properties = Readonly<Record<string, LenientProperty>>;
 
 export type ItemRow = {
   item: ItemSummary;

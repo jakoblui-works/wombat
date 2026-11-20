@@ -7,7 +7,7 @@ import { cn } from "../../../../lib/utils";
 import type { Reveal } from "../../../registry.ts";
 import { useWorkbench } from "../../../workbench-context.ts";
 import { itemName } from "../../Item/item-params.ts";
-import { RowTitle } from "../ItemRow/ItemRow.tsx";
+import { ItemCard } from "../ItemCard/ItemCard.tsx";
 import { ProposalLines } from "../ProposalLine/ProposalLine.tsx";
 import { rowIndent, treeKey } from "../tree-keys.ts";
 import { proposalProps, REVEALABLE, useReveal } from "../use-reveal.ts";
@@ -72,7 +72,7 @@ export const TreeView = ({ rows: given, view, properties, onOpenItem, onNewItem,
             const lead = (
               <span
                 aria-hidden
-                className="flex size-3.5 shrink-0 items-center justify-center"
+                className="flex h-5 w-3.5 shrink-0 items-center justify-center"
                 onClick={(event) => {
                   if (row.expanded === undefined) return;
                   event.stopPropagation();
@@ -94,14 +94,14 @@ export const TreeView = ({ rows: given, view, properties, onOpenItem, onNewItem,
                 onFocus={() => focus.onFocus(row.key)}
                 onClick={() => act(index, "Enter")}
                 onKeyDown={(event) => act(index, event.key, event)}
-                className="focus-ring flex cursor-default items-center gap-1.5 rounded-md py-1 pr-2 text-left text-base transition-colors select-none hover:bg-surface-2"
+                className="focus-ring cursor-default rounded-md py-1.5 pr-2 text-left transition-colors select-none hover:bg-surface-2"
                 style={{ paddingLeft: rowIndent(row.level) }}
               />
             );
             return (
               <div key={row.key} {...proposalProps(node)} className={REVEALABLE}>
                 <div className="group/row relative">
-                  <RowTitle row={node} lead={lead} render={render} />
+                  <ItemCard row={node} view={view} properties={properties} compact lead={lead} render={render} />
                   {!isItemRow(node) || node.item.id === null ? null : (
                     <Button
                       variant="ghost"

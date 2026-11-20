@@ -261,6 +261,8 @@ const BoardContent = ({
                   {!isItemRow(row) ? (
                     <ProposalCard
                       row={row}
+                      view={view}
+                      properties={properties}
                       outside={isOutsideFilter(row, view, properties)}
                       onOpen={() => {
                         const id = opensProposal(row);
@@ -271,6 +273,8 @@ const BoardContent = ({
                   ) : (
                     <BoardCard
                       row={row}
+                      view={view}
+                      properties={properties}
                       outside={isOutsideFilter(row, view, properties)}
                       mode={mode}
                       movable={canMove(row)}

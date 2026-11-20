@@ -1,15 +1,18 @@
+import type { LenientView } from "@wombat/shared/items";
 import { type DragEvent, type FocusEvent, type KeyboardEvent, useEffect, useRef } from "react";
 
 import { cn } from "../../../../lib/utils";
-import { ItemRow, RowTitle } from "../../Desk/ItemRow/ItemRow.tsx";
+import { ItemCard } from "../../Desk/ItemCard/ItemCard.tsx";
 import { ProposalLines } from "../../Desk/ProposalLine/ProposalLine.tsx";
 import { proposalProps, REVEALABLE } from "../../Desk/use-reveal.ts";
-import type { ItemRow as ItemRowData, MissingRow, PendingRow } from "../../Desk/view-model/view-model.ts";
-import { struck } from "../../Desk/view-model/with-proposals.ts";
+import type { ItemRow, MissingRow, PendingRow, Properties } from "../../Desk/view-model/view-model.ts";
 import type { CardMode } from "../board-drag.ts";
 
-type Props = {
-  row: ItemRowData;
+/** The view the card is in and its binder's properties, which choose what the card shows. */
+type Shown = { view: LenientView; properties: Properties };
+
+type Props = Shown & {
+  row: ItemRow;
   mode: CardMode;
   /** Whether it can be dragged (`canMove`). */
   movable: boolean;
@@ -27,28 +30,27 @@ type Props = {
 };
 
 const FRAME = "rounded-md border border-line bg-surface-0 text-sm";
-const CARD = cn(FRAME, "flex w-full items-start gap-2 px-2.5 py-2 text-left");
+const CARD = cn(FRAME, "w-full px-2.5 py-2 text-left");
 /** A card's button inside the frame of a card holding a proposal, the proposal's line below it. */
-const FRAMED = "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left";
+const FRAMED = "w-full rounded-md px-2.5 py-2 text-left";
 const HELD = "border-primary bg-primary/10 ring-2 ring-primary/40";
 const LINE = "px-2.5 pb-2";
 
 /** One item on a board: a button that opens it, and a native drag source; a proposal on it below, in the same frame. */
-export const BoardCard = ({ row, mode, movable, focus, onOpen, onDragStart, onDragEnd, onBlur, onKeyDown, swallowed, outside }: Props) => {
+export const BoardCard = ({ row, view, properties, mode, movable, focus, onOpen, onDragStart, onDragEnd, onBlur, onKeyDown, swallowed, outside }: Props) => {
   const ref = useRef<HTMLButtonElement>(null);
   const held = mode === "held";
   useEffect(() => {
     if (focus) ref.current?.focus();
   }, [focus]);
-  const { item, proposal } = row;
-  const isStruck = struck(row);
+  const { proposal } = row;
 
-  if (mode === "preview") return <ItemRow item={item} wrap struck={isStruck} render={<div className={cn(CARD, HELD)} />} />;
+  if (mode === "preview") return <ItemCard row={row} view={view} properties={properties} render={<div className={cn(CARD, HELD)} />} />;
   const card = (
-    <ItemRow
-      item={item}
-      wrap
-      struck={isStruck}
+    <ItemCard
+      row={row}
+      view={view}
+      properties={properties}
       render={
         <button
           ref={ref}
@@ -78,9 +80,21 @@ export const BoardCard = ({ row, mode, movable, focus, onOpen, onDragStart, onDr
 };
 
 /** A proposed create or a missing item on a board: a button that opens the proposal, never dragged, and its proposals' lines. */
-export const ProposalCard = ({ row, outside, onOpen, swallowed }: { row: PendingRow | MissingRow; outside: boolean; onOpen: () => void; swallowed: () => boolean }) => (
+export const ProposalCard = ({
+  row,
+  view,
+  properties,
+  outside,
+  onOpen,
+  swallowed,
+}: Shown & { row: PendingRow | MissingRow; outside: boolean; onOpen: () => void; swallowed: () => boolean }) => (
   <div {...proposalProps(row)} className={cn(FRAME, REVEALABLE)}>
-    <RowTitle row={row} wrap render={<button type="button" onClick={onOpen} className={cn(FRAMED, "focus-ring transition-colors select-none hover:bg-surface-2")} />} />
+    <ItemCard
+      row={row}
+      view={view}
+      properties={properties}
+      render={<button type="button" onClick={onOpen} className={cn(FRAMED, "focus-ring transition-colors select-none hover:bg-surface-2")} />}
+    />
     <ProposalLines row={row} outside={outside} className={LINE} swallowed={swallowed} />
   </div>
 );
