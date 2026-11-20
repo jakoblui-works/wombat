@@ -136,9 +136,9 @@ export const ItemCard = (props: Props) => {
     return rooted(render, aria, <Body ids={ids} title={title} mark="new" markClass="italic" lead={lead} />);
   }
   const title = (
-    <span id={ids.title} className={cn(TITLE, titleWeight(view), "text-fg-tertiary italic")}>
-      {MISSING_ITEM}
+    <span id={ids.title} className={cn(TITLE, titleWeight(view))}>
+      {row.missing}
     </span>
   );
-  return rooted(render, aria, <Body ids={ids} title={title} mark={row.missing} lead={lead} />);
+  return rooted(render, aria, <Body ids={ids} title={title} mark={MISSING_ITEM} markClass="italic" lead={lead} />);
 };
