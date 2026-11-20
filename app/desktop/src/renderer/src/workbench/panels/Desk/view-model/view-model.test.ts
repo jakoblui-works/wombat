@@ -10,7 +10,7 @@ import type { ItemProposal } from "@wombat/shared/proposals";
 
 import { draftStart, type FieldValue } from "../../Item/item-edit.ts";
 import { matchesFilter } from "./values.ts";
-import { isItemRow, itemCount, listGroups, type NewItemPlace, type Row, shownGroups, type SidebarView, treeRows, type TreeRow, viewContext } from "./view-model.ts";
+import { hasHeading, isItemRow, itemCount, listGroups, type NewItemPlace, offersNewChild, type Row, shownGroups, type SidebarView, treeRows, type TreeRow, viewContext } from "./view-model.ts";
 
 type Properties = Record<string, LenientProperty>;
 
@@ -294,7 +294,7 @@ describe("a new item's start values", () => {
         ([{ items, properties }, generated]) => {
           const view = { ...generated, filter: satisfiable(generated.filter, items) };
           startIn(view, undefined, items, properties);
-          for (const group of shownGroups(listGroups(rowsOf(items), view, properties))) {
+          for (const group of shownGroups(listGroups(rowsOf(items), view, properties)).filter(hasHeading)) {
             const start = startIn(view, group, items, properties);
             if (group.kind === "value" && view.group !== undefined) expect(start[view.group], `the group ${JSON.stringify(group.value)}'s value`).toEqual(group.value);
           }
@@ -315,7 +315,9 @@ describe("a new item's start values", () => {
           const rows = (nodes: readonly TreeRow[]): TreeRow[] => nodes.flatMap((row) => [row, ...rows(row.children)]);
           for (const row of rows(treeRows(rowsOf(items), view, properties))) {
             const item = itemOf(row);
-            expect(startIn(view, { item }, items, properties).parent, `a child of ${String(item.handle)}`).toBe(item.id);
+            expect(offersNewChild(row), `${String(item.handle)} offers New child`).toBe(true);
+            if (!offersNewChild(row)) continue;
+            expect(startIn(view, row, items, properties).parent, `a child of ${String(item.handle)}`).toBe(item.id);
           }
         },
       ),

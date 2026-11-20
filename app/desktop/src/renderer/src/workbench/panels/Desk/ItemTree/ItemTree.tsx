@@ -1,31 +1,42 @@
-import { ChevronRight } from "lucide-react";
-import { Fragment, type KeyboardEvent, type ReactElement, type ReactNode } from "react";
+import { ChevronRight, Plus } from "lucide-react";
+import { type AriaAttributes, Fragment, type KeyboardEvent, type ReactElement, type ReactNode, useRef } from "react";
 
+import { Button } from "../../../../components/ui/button";
 import { cn } from "../../../../lib/utils";
+import type { Reveal } from "../../../registry.ts";
 import { ItemRow } from "../ItemRow/ItemRow.tsx";
 import { ProposalLines } from "../ProposalLine/ProposalLine.tsx";
-import { type FlatRow, rowIndent, TREE_ROW, treeKey } from "../tree-keys.ts";
-import { proposalProps, REVEALABLE } from "../use-reveal.ts";
+import { type FlatRow, rowIndent, TREE_ROW, treeChevron, treeKey } from "../tree-keys.ts";
+import { proposalProps, REVEALABLE, useReveal } from "../use-reveal.ts";
 import { useTreeFocus } from "../use-tree-focus.ts";
 import type { Row } from "../view-model/view-model.ts";
 
 /** What a view draws one visible row from: its treeitem element (no children yet), the chevron or its room, and its tab stop. */
-export type RowParts<N> = { row: FlatRow<N>; treeitem: ReactElement<{ className?: string }>; lead: ReactNode; tabIndex: number; titleStart: number };
+export type RowParts<N> = { row: FlatRow<N>; treeitem: ReactElement<AriaAttributes>; lead: ReactNode; tabIndex: number; titleStart: number };
 
 type Props<N> = {
   label: string;
   rows: readonly FlatRow<N>[];
   onToggle: (key: string, open: boolean) => void;
   onActivate: (row: FlatRow<N>) => void;
+  reveal?: Reveal | undefined;
+  onRevealed?: (() => void) | undefined;
   children: (parts: RowParts<N>) => ReactNode;
 };
 
-/** The chevron's width and the gap after it, in pixels. */
+// LEAD_PX must match the chevron's room (w-3.5) and the row's gap (gap-1.5): the proposal lines line up with the title by it.
+const LEAD_ROOM = "flex h-5 w-3.5 shrink-0 items-center justify-center";
+const ROW_LINE = "flex h-7 min-w-0 items-center gap-1.5";
 const LEAD_PX = 14 + 6;
 
-/** A view's visible rows as one tree (the WAI-ARIA tree pattern): one line each, the tree's keys, one tab stop. */
-export const ItemTree = <N,>({ label, rows, onToggle, onActivate, children }: Props<N>) => {
+/**
+ * A view's visible rows as one tree (the WAI-ARIA tree pattern): one line each, the tree's keys, one tab stop; the row
+ * holding proposal `reveal` is shown (`useReveal`).
+ */
+export const ItemTree = <N,>({ label, rows, onToggle, onActivate, reveal, onRevealed, children }: Props<N>) => {
   const focus = useTreeFocus(rows.map(({ key }) => key));
+  const ref = useRef<HTMLDivElement>(null);
+  useReveal(reveal, ref, onRevealed);
   const folds = rows.some(({ expanded }) => expanded !== undefined);
 
   const act = (index: number, key: string, event?: KeyboardEvent) => {
@@ -41,39 +52,46 @@ export const ItemTree = <N,>({ label, rows, onToggle, onActivate, children }: Pr
   };
 
   return (
-    <div role="tree" aria-label={label} className="flex flex-col gap-px px-1.5 pt-1 pb-3">
-      {rows.map((row, index) => {
-        const lead = !folds ? null : (
-          <span
-            aria-hidden
-            className="flex h-5 w-3.5 shrink-0 items-center justify-center"
-            onClick={(event) => {
-              if (row.expanded === undefined) return;
-              event.stopPropagation();
-              onToggle(row.key, !row.expanded);
-            }}
-          >
-            {row.expanded === undefined ? null : <ChevronRight className={cn("size-3.5 text-fg-tertiary transition-transform", row.expanded && "rotate-90")} />}
-          </span>
-        );
-        const treeitem = (
-          <div
-            ref={focus.register(row.key)}
-            role="treeitem"
-            aria-level={row.level}
-            aria-setsize={row.setSize}
-            aria-posinset={row.posInSet}
-            aria-expanded={row.expanded}
-            tabIndex={focus.tabIndex(index)}
-            onFocus={() => focus.onFocus(row.key)}
-            onClick={() => act(index, "Enter")}
-            onKeyDown={(event) => act(index, event.key, event)}
-            className={cn(TREE_ROW, "h-7")}
-            style={{ paddingLeft: rowIndent(row.level) }}
-          />
-        );
-        return <Fragment key={row.key}>{children({ row, treeitem, lead, tabIndex: focus.tabIndex(index), titleStart: rowIndent(row.level) + (folds ? LEAD_PX : 0) })}</Fragment>;
-      })}
+    <div ref={ref}>
+      {rows.length === 0 ? (
+        <p className="p-3 text-sm text-fg-tertiary">No items in this view.</p>
+      ) : (
+        <div role="tree" aria-label={label} className="flex flex-col gap-px px-1.5 pt-1 pb-3">
+          {rows.map((row, index) => {
+            const lead = !folds ? null : (
+              <span
+                aria-hidden
+                className={LEAD_ROOM}
+                onClick={(event) => {
+                  if (row.expanded === undefined) return;
+                  event.stopPropagation();
+                  onToggle(row.key, !row.expanded);
+                }}
+              >
+                {row.expanded === undefined ? null : <ChevronRight className={treeChevron(row.expanded)} />}
+              </span>
+            );
+            const treeitem = (
+              <div
+                ref={focus.register(row.key)}
+                role="treeitem"
+                aria-level={row.level}
+                aria-setsize={row.setSize}
+                aria-posinset={row.posInSet}
+                aria-expanded={row.expanded}
+                tabIndex={focus.tabIndex(index)}
+                onFocus={() => focus.onFocus(row.key)}
+                onClick={() => act(index, "Enter")}
+                onKeyDown={(event) => act(index, event.key, event)}
+                className={cn(TREE_ROW, ROW_LINE)}
+                style={{ paddingLeft: rowIndent(row.level) }}
+              />
+            );
+            const titleStart = rowIndent(row.level) + (folds ? LEAD_PX : 0);
+            return <Fragment key={row.key}>{children({ row, treeitem, lead, tabIndex: focus.tabIndex(index), titleStart })}</Fragment>;
+          })}
+        </div>
+      )}
     </div>
   );
 };
@@ -96,5 +114,11 @@ export const ItemTreeRow = ({ parts: { treeitem, lead, tabIndex, titleStart }, n
   </div>
 );
 
-/** The classes of an action at a row's end, shown on hover or focus within the row. */
-export const ROW_ACTION = "absolute top-0.5 right-1 bg-surface-1 text-fg-tertiary opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100";
+const ROW_ACTION = "absolute top-0.5 right-1 bg-surface-1 text-fg-tertiary opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100";
+
+/** A "+" at a row's end, shown on hover or focus within the row (`group/row`); `label` names it and is its tooltip. */
+export const RowAction = ({ label, tabIndex, onClick }: { label: string; tabIndex: number; onClick: () => void }) => (
+  <Button variant="ghost" size="icon-xs" tabIndex={tabIndex} className={ROW_ACTION} aria-label={label} title={label} onClick={onClick}>
+    <Plus />
+  </Button>
+);

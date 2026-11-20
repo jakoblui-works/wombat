@@ -13,7 +13,7 @@ const nodeKey = (node: ListNode): string => (node.kind === "group" ? headerKey(n
 
 const rowNode = (row: Row): ListNode => ({ kind: "row", row });
 
-/** `folded` without the header of the group holding proposal `reveal`'s row: a reveal never leaves its row folded away. */
+/** `folded` without the header of the group holding proposal `reveal`'s row (the same set when there is none to open): a reveal never leaves its row folded away. */
 export const unfoldedFor = (groups: readonly Group[], folded: ReadonlySet<string>, reveal: string | undefined): ReadonlySet<string> => {
   if (reveal === undefined) return folded;
   const holder = groups.find((group) => hasHeading(group) && group.rows.some((row) => showsProposal(row, reveal)));
@@ -23,15 +23,14 @@ export const unfoldedFor = (groups: readonly Group[], folded: ReadonlySet<string
 
 /**
  * The rows a list shows, in order, in the shape a tree's visible rows take: each group's header at level 1 with its
- * rows at level 2 unless its key is in `folded` (or it holds proposal `reveal`'s row); the groups without a header
- * (a list without `group`, the rows outside the filter) as level-1 rows.
+ * rows at level 2 unless its key is in `folded`; the groups without a header (a list without `group`, the rows outside
+ * the filter) as level-1 rows.
  */
-export const listTree = (groups: Group[], folded: ReadonlySet<string>, reveal?: string): VisibleRow[] => {
-  const closed = unfoldedFor(groups, folded, reveal);
+export const listTree = (groups: Group[], folded: ReadonlySet<string>): VisibleRow[] => {
   const nodes = groups.flatMap((group): ListNode[] => (hasHeading(group) ? [{ kind: "group", group }] : group.rows.map(rowNode)));
   return flatTree(nodes, {
     key: nodeKey,
     children: (node) => (node.kind === "group" ? node.group.rows.map(rowNode) : []),
-    expanded: (_node, key) => !closed.has(key),
+    expanded: (_node, key) => !folded.has(key),
   });
 };

@@ -210,11 +210,14 @@ export const laidOutBy = (view: SidebarView): string | undefined => {
   }
 };
 
-/** Where "+ New" was asked: a group (by its value), or a row (its item becomes the new one's parent). */
-export type NewItemPlace = { kind: "value"; value: unknown } | { kind: "none" } | { kind: "all" } | { kind: "outside" } | ItemRow;
+/** An item row whose item can be a new item's parent: it has an id. */
+export type ParentRow = ItemRow & { item: { id: string } };
 
-/** Whether a group offers "+ New": every group but `outside`. */
-export const offersNew = (place: Pick<Group, "kind">): boolean => place.kind !== "outside";
+/** Whether a tree row offers "New child". */
+export const offersNewChild = (row: Row): row is ParentRow => isItemRow(row) && row.item.id !== null;
+
+/** Where "+ New" was asked: a group's header (by its value), or a row (its item becomes the new one's parent). */
+export type NewItemPlace = HeadedGroup | ParentRow;
 
 /** The name of a group's "+ New", by its heading. */
 export const newItemLabel = (heading: string): string => `New item in ${heading}`;
@@ -230,7 +233,7 @@ export const viewContext = (view: SidebarView, place?: NewItemPlace): Record<str
   const context: Record<string, unknown> = { ...view.filter };
   if (place === undefined) return context;
   if ("item" in place) {
-    if (view.kind === "tree" && place.item.id !== null) context[view.parent] = { id: place.item.id, handle: place.item.handle };
+    if (view.kind === "tree") context[view.parent] = { id: place.item.id, handle: place.item.handle };
     return context;
   }
   const property = laidOutBy(view);

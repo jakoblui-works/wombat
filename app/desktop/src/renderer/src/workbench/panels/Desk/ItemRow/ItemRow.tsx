@@ -12,11 +12,11 @@ import { MISSING_ITEM } from "../view-model/values.ts";
 import { isItemRow, isPending, type Row } from "../view-model/view-model.ts";
 import { struck } from "../view-model/with-proposals.ts";
 
-type Render = ReactElement<{ className?: string } & Pick<AriaAttributes, "aria-labelledby" | "aria-describedby">>;
+type Render = ReactElement<Pick<AriaAttributes, "aria-labelledby" | "aria-describedby">>;
 
 type Props = {
   row: Row;
-  /** The row's root element, without children (a treeitem with its own props). */
+  /** The row's root element, without children: a treeitem laid out as one line (`ItemTree`). */
   render: Render;
   /** Shown before the title (a chevron). */
   lead?: ReactNode;
@@ -25,14 +25,13 @@ type Props = {
 /** A proposed create's title when its fields hold none. */
 const UNTITLED = "Untitled item";
 
-const ROOT = "flex min-w-0 items-center gap-1.5";
 const TITLE = "block min-w-0 flex-1 truncate text-fg-primary";
 const MARK = "text-xs text-fg-tertiary italic";
 
 type Ids = { title: string; mark: string; problems: string };
 
 // Children are spread, not passed as one argument: an explicit undefined child would empty a tooltip trigger's element.
-const rooted = (render: Render, aria: AriaAttributes, ...children: ReactNode[]) => cloneElement(render, { ...aria, className: cn(ROOT, render.props.className) }, ...children);
+const rooted = (render: Render, aria: AriaAttributes, ...children: ReactNode[]) => cloneElement(render, aria, ...children);
 
 const ItemLine = ({ row, render, lead, ids }: Props & { row: Extract<Row, { item: unknown }>; ids: Ids }) => {
   const { item } = row;

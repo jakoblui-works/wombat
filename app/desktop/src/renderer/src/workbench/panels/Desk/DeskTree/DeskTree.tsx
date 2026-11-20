@@ -6,7 +6,7 @@ import { Button } from "../../../../components/ui/button";
 import { cn } from "../../../../lib/utils";
 import { type DeskNode, type DeskRow, deskKey, deskRows, nodeName, rowLabel } from "../desk-tree.ts";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
-import { rowIndent, TREE_ROW } from "../tree-keys.ts";
+import { rowIndent, TREE_ROW, treeChevron } from "../tree-keys.ts";
 import { useTreeFocus } from "../use-tree-focus.ts";
 
 type Props = {
@@ -27,7 +27,7 @@ const RowContent = ({ row }: { row: DeskRow }) => {
     const FolderIcon = row.expanded === true ? FolderOpen : Folder;
     return (
       <span className="flex w-full items-center gap-1.5">
-        <ChevronRight aria-hidden className={cn("size-3.5 shrink-0 text-fg-tertiary transition-transform", row.expanded === true && "rotate-90")} />
+        <ChevronRight aria-hidden className={treeChevron(row.expanded === true)} />
         <FolderIcon aria-hidden className="size-4 shrink-0 text-fg-tertiary" />
         <span className="min-w-0 flex-1 truncate text-fg-secondary">{node.name}</span>
       </span>

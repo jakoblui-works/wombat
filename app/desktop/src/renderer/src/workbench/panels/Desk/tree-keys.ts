@@ -38,6 +38,9 @@ export const rowIndent = (level: number): number => ROW_START_PX + (level - 1) *
 /** A tree row's look: its text, hover and focus; its height and indent are the tree's own. */
 export const TREE_ROW = "focus-ring cursor-default rounded-md pr-2 text-left text-base select-none transition-colors hover:bg-surface-2 focus:bg-surface-2";
 
+/** A tree row's chevron, turned down while the row is open. */
+export const treeChevron = (open: boolean): string => `size-3.5 shrink-0 text-fg-tertiary transition-transform${open ? " rotate-90" : ""}`;
+
 export type TreeKeyAction = { type: "focus"; index: number } | { type: "toggle"; open: boolean } | { type: "activate" };
 
 /**
