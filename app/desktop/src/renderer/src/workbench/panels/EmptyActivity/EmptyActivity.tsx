@@ -5,8 +5,10 @@ import { EmptyState } from "../EmptyState/EmptyState.tsx";
 export const EmptyActivity = ({ title, body, heading }: { title: string; body: string; heading: string }) => (
   <div className="flex h-full min-h-0 flex-col">
     <SidebarHeader title={heading} />
-    <div className="min-h-0 flex-1">
-      <EmptyState symbol title={title} body={body} />
+    <div className="flex min-h-0 flex-1 flex-col justify-center-safe overflow-y-auto overscroll-y-contain">
+      <div>
+        <EmptyState symbol title={title} body={body} />
+      </div>
     </div>
   </div>
 );

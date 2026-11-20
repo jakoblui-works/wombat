@@ -66,14 +66,14 @@ export const Desk = ({ reveal, onRevealed }: PanelProps) => {
           Couldn't read the binders: {content.message}
         </p>
       ) : content.kind === "no-root" ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center pb-4">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center-safe overflow-y-auto overscroll-y-contain pb-4">
           <div>
             <EmptyState symbol title="No items folder" body="The items folder is the folder that holds your binders. Choose it to see them here." />
           </div>
           <Button onClick={() => runLogged("items.chooseFolder")}>Choose items folder…</Button>
         </div>
       ) : content.kind === "empty" ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center pb-4">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center-safe overflow-y-auto overscroll-y-contain pb-4">
           <div>
             <EmptyState symbol title="No binders yet" body={`A binder is a folder with a ${SETTINGS_FILE} file. Add one to the items folder to see it here.`} />
           </div>

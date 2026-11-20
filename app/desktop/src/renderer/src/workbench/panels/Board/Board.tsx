@@ -239,7 +239,7 @@ const BoardContent = ({
       {refusal === undefined ? null : <RefusalNote refusal={refusal} />}
       <div
         ref={boardRef}
-        className="flex min-h-0 flex-1 gap-4 overflow-x-auto p-4"
+        className="relative flex min-h-0 flex-1 justify-center-safe gap-6 overflow-x-auto overscroll-x-contain p-4"
         onPointerDownCapture={() => {
           swallowClick.current = pressOnlyEndsHold(heldRef.current);
         }}

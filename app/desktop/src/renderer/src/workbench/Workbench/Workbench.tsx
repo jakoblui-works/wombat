@@ -112,6 +112,10 @@ const TabContent = ({ params, api }: IDockviewPanelProps<TabParams>) => {
 };
 const COMPONENTS = { [TAB_COMPONENT]: TabContent };
 
+// Clipped, not hidden: a hidden overflow can still be scrolled by focus or scrollIntoView, which would take the
+// sidebar's header out of view. Its panel owns the scroll.
+const SIDEBAR = "flex shrink-0 flex-col overflow-clip bg-surface-0";
+
 /** The settings' saved layout once read; `readable: false` when they couldn't be read (nothing is saved then). */
 type SavedRead = { raw: unknown; readable: boolean };
 
@@ -375,7 +379,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   />
                   {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
                   <div inert={blocked} className="relative flex min-w-0 flex-1">
-                    <aside aria-label={activity?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.left }}>
+                    <aside aria-label={activity?.title} className={SIDEBAR} style={{ width: chrome.sidebars.left }}>
                       {activity === undefined ? null : <SidebarContent panelId={activity.sidebarPanel} />}
                     </aside>
                     <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
@@ -394,7 +398,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                     {!chrome.sidebars.rightCollapsed && (
                       <>
                         <ResizeHandle label="Resize the right sidebar" onDrag={(dx) => resize("right", -dx)} />
-                        <aside aria-label={rightPanel?.title} className="flex shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-surface-0" style={{ width: chrome.sidebars.right }}>
+                        <aside aria-label={rightPanel?.title} className={SIDEBAR} style={{ width: chrome.sidebars.right }}>
                           {rightPanels.map(({ id, component: Panel }) => (
                             <Panel key={id} params={{}} />
                           ))}

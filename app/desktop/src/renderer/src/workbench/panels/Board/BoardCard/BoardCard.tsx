@@ -31,9 +31,9 @@ type Props = Shown & {
 
 const FRAME = "rounded-md border border-line bg-surface-1 text-sm shadow-card";
 /** The card's padding at its sides and foot; a proposal's line below the card's button shares it. */
-const INSET = "px-3 pb-3";
+const INSET = "px-4 pb-4";
 const MOTION = "transition-[background-color,border-color,box-shadow]";
-const BUTTON = cn("w-full rounded-md pt-3 text-left focus-ring select-none", INSET, MOTION);
+const BUTTON = cn("w-full rounded-md pt-4 text-left focus-ring select-none", INSET, MOTION);
 const CARD = cn(FRAME, BUTTON);
 /** A card's button inside the frame of a card holding a proposal, the proposal's line below it. */
 const FRAMED = cn(BUTTON, "hover:bg-surface-2");

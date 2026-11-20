@@ -24,8 +24,8 @@ type Props = {
 
 const FRAME = "rounded-md border border-line-subtle bg-surface-1";
 /** The card's padding at its sides and foot; a proposal's line below the card's button shares it. */
-const INSET = "px-2.5 pb-2";
-const CARD = cn("focus-ring w-full rounded-md pt-2 text-left transition-colors select-none hover:bg-surface-2", INSET);
+const INSET = "px-4 pb-4";
+const CARD = cn("focus-ring w-full rounded-md pt-4 text-left transition-colors select-none hover:bg-surface-2", INSET);
 
 const ListRow = ({ row, view, properties, onOpenItem }: { row: Row; view: Props["view"]; properties: Props["properties"]; onOpenItem: Props["onOpenItem"] }) => {
   const { openProposal } = useWorkbench();
@@ -46,7 +46,7 @@ const ListRow = ({ row, view, properties, onOpenItem }: { row: Row; view: Props[
 };
 
 const Rows = ({ rows, label, view, properties, onOpenItem }: { rows: readonly Row[]; label: string; view: Props["view"]; properties: Props["properties"]; onOpenItem: Props["onOpenItem"] }) => (
-  <ul aria-label={label} className="flex flex-col gap-1.5">
+  <ul aria-label={label} className="flex flex-col gap-3">
     {rows.map((row) => (
       <li key={rowKey(row)}>
         <ListRow row={row} view={view} properties={properties} onOpenItem={onOpenItem} />
@@ -61,7 +61,7 @@ export const ListView = ({ rows, view, properties, onOpenItem, onNewItem, reveal
   useReveal(reveal, ref, onRevealed);
   const groups = shownGroups(listGroups(rows, view, properties));
   return (
-    <div ref={ref} className="flex flex-col gap-1 px-1.5 pt-1 pb-3">
+    <div ref={ref} className="flex flex-col gap-3 px-2 pt-2 pb-4">
       {groups.length === 0 ? <p className="p-1.5 text-sm text-fg-tertiary">No items in this view.</p> : null}
       {groups.map((group) => {
         const name = groupHeading(group, view, properties);

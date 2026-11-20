@@ -1,6 +1,6 @@
 import type { LenientView } from "@wombat/shared/items";
 import { TriangleAlert } from "lucide-react";
-import { type AriaAttributes, cloneElement, type ReactElement, type ReactNode, useId } from "react";
+import { type AriaAttributes, cloneElement, Fragment, type ReactElement, type ReactNode, useId } from "react";
 
 import { InlineMarkdown } from "../../../../components/Markdown/Markdown.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../../../components/ui/tooltip";
@@ -29,7 +29,8 @@ const UNTITLED = "Untitled item";
 
 const ROOT = "flex items-start gap-1.5";
 const TITLE = "line-clamp-3 text-base text-fg-primary";
-const HANDLE = "shrink-0 font-mono text-xs text-fg-tertiary";
+/** The title's weight: a tree's compact rows keep it regular, a card's title is the one thing that stands out. */
+const titleWeight = (view: LenientView): string => (view.kind === "tree" ? "font-normal" : "font-semibold");
 
 /** The ids of a card's parts: its name is the title and the handle (or mark), its description the rest. */
 type CardIds = { title: string; mark: string; excerpt: string; chips: string; problems: string };
@@ -45,32 +46,42 @@ const cardAria = (ids: CardIds, shows: { excerpt: boolean; chips: boolean; probl
 // Children are spread, not passed as one argument: an explicit undefined child would empty a tooltip trigger's element.
 const rooted = (render: Props["render"], aria: AriaAttributes, ...children: ReactNode[]) => cloneElement(render, { ...aria, className: cn(ROOT, render.props.className) }, ...children);
 
-const Chips = ({ chips, id }: { chips: CardContent["chips"]; id: string }) => (
-  <span id={id} className="contents">
-    {chips.map(({ name, text }) => (
-      <span key={name} title={`${name}: ${text}`} className="inline-flex h-4.5 max-w-full min-w-0 items-center rounded-sm border border-line bg-surface-1 px-1.5 text-xs text-fg-secondary">
-        <span className="sr-only">{name}: </span>
-        <span className="truncate">{text}</span>
-      </span>
-    ))}
+/** Values longer than this give way first on a full meta line; shorter ones end in an ellipsis only once those are gone. */
+const SHORT_VALUE = 12;
+const givesWay = (text: string): boolean => text.length > SHORT_VALUE;
+
+/** The quiet line under a card's text: the handle (or another mark), then the chips' values, joined by " · ". */
+const MetaLine = ({ ids, mark, markClass, chips }: { ids: CardIds; mark: ReactNode; markClass: string | undefined; chips: CardContent["chips"] }) => (
+  <span className="flex min-w-0 items-baseline overflow-hidden text-xs text-fg-tertiary">
+    <span id={ids.mark} className={cn("shrink-0 font-mono", markClass)}>
+      {mark}
+    </span>
+    <span id={ids.chips} className="contents">
+      {chips.map(({ name, text }) => (
+        <Fragment key={name}>
+          <span aria-hidden className="shrink-0 px-1.5">
+            ·
+          </span>
+          <span title={`${name}: ${text}`} className={cn("min-w-0 truncate", givesWay(text) && "shrink-[10000]")}>
+            <span className="sr-only">{name}: </span>
+            {text}
+          </span>
+        </Fragment>
+      ))}
+    </span>
   </span>
 );
 
 type BodyProps = { ids: CardIds; title: ReactNode; excerpt?: string | undefined; mark: ReactNode; markClass?: string; chips?: CardContent["chips"]; lead: ReactNode };
 
-/** A card's text: the title, the excerpt, then the handle (or another mark) with the chips. */
+/** A card's text: the title, the excerpt, then the meta line. */
 const Body = ({ ids, title, excerpt, mark, markClass, chips = [], lead }: BodyProps) => (
   <>
     {lead}
     <span className="flex min-w-0 flex-1 flex-col gap-1">
       {title}
-      {excerpt === undefined ? null : <InlineMarkdown id={ids.excerpt} text={excerpt} className="line-clamp-3 text-sm text-fg-secondary" />}
-      <span className="flex min-w-0 flex-wrap items-center gap-1">
-        <span id={ids.mark} className={cn(HANDLE, markClass)}>
-          {mark}
-        </span>
-        <Chips id={ids.chips} chips={chips} />
-      </span>
+      {excerpt === undefined ? null : <InlineMarkdown id={ids.excerpt} text={excerpt} className="line-clamp-2 text-sm text-fg-secondary" />}
+      <MetaLine ids={ids} mark={mark} markClass={markClass} chips={chips} />
     </span>
   </>
 );
@@ -81,7 +92,7 @@ const ItemRowCard = ({ row, view, properties, render, lead, ids }: Props & { row
   const invalid = item.problems.length > 0;
   const content = cardContent(item, view, properties);
   const { excerpt } = content;
-  const titleClass = cn(TITLE, "flex-1", struck(row) && "text-fg-secondary line-through");
+  const titleClass = cn(TITLE, titleWeight(view), "flex-1", struck(row) && "text-fg-secondary line-through");
   const title = (
     <span className="flex min-w-0 items-start gap-1.5">
       {item.title === null ? (
@@ -116,16 +127,16 @@ const ItemRowCard = ({ row, view, properties, render, lead, ids }: Props & { row
 
 /** A row of a view by its kind, as a card: an item, a proposed create (its title, marked new) or a missing item (its handle, `MISSING_ITEM`). */
 export const ItemCard = (props: Props) => {
-  const { row, render, lead } = props;
+  const { row, view, render, lead } = props;
   const ids = cardIds(useId());
   if (isItemRow(row)) return <ItemRowCard {...props} row={row} ids={ids} />;
   const aria = cardAria(ids, { excerpt: false, chips: false, problems: false });
   if (isPending(row)) {
-    const title = <InlineMarkdown id={ids.title} text={proposedTitle(row.fields) ?? UNTITLED} className={TITLE} />;
+    const title = <InlineMarkdown id={ids.title} text={proposedTitle(row.fields) ?? UNTITLED} className={cn(TITLE, titleWeight(view))} />;
     return rooted(render, aria, <Body ids={ids} title={title} mark="new" markClass="italic" lead={lead} />);
   }
   const title = (
-    <span id={ids.title} className={cn(TITLE, "text-fg-tertiary italic")}>
+    <span id={ids.title} className={cn(TITLE, titleWeight(view), "text-fg-tertiary italic")}>
       {MISSING_ITEM}
     </span>
   );

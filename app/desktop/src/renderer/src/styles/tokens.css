@@ -83,7 +83,7 @@
   --size-tab-strip: 36px;
   --size-chat: 760px;
   --size-empty-state: 280px;
-  --size-board-lane: 288px;
+  --size-board-lane: 320px;
 
   /* Shadows: a board's card raised from its lane, hovered, and held (picked up). */
   --card-shadow: 0 1px 2px oklch(0 0 0 / 45%), 0 1px 1px oklch(0 0 0 / 25%);
