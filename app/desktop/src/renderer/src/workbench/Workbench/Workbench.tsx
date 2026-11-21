@@ -305,10 +305,10 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   );
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      const command = commandForKey(event);
-      if (command === undefined) return;
+      const found = commandForKey(event);
+      if (found === undefined) return;
       event.preventDefault();
-      runLogged(command.id);
+      runLogged(found.command.id, found.element === undefined ? {} : { element: found.element });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

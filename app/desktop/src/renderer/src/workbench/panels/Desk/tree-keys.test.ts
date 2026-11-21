@@ -1,6 +1,6 @@
 // The Desk tree and a binder's tree view move, open and close by the same keys (the WAI-ARIA tree pattern): the
 // arrows move, ArrowRight opens a closed row and then moves to its first child, ArrowLeft closes an open row and then
-// moves to its parent, Home and End jump, and Enter opens the row's target rather than toggling it.
+// moves to its parent, and Home and End jump; Enter and Space are left to the tree, neither moving nor toggling.
 import { describe, expect, test } from "vitest";
 
 import { flatTree, type TreeKeyAction, treeKey } from "./tree-keys.ts";
@@ -36,9 +36,10 @@ describe("treeKey", () => {
     { what: "ArrowLeft on a top row without children stays", on: "Beacon", key: "ArrowLeft", does: undefined },
     { what: "Home moves to the first row", on: "Beacon", key: "Home", does: { type: "focus", index: index("Atlas") } },
     { what: "End moves to the last row", on: "Atlas notes", key: "End", does: { type: "focus", index: index("Cove") } },
-    { what: "Enter on an open row opens its target", on: "Atlas", key: "Enter", does: { type: "activate" } },
-    { what: "Enter on a closed row opens its target", on: "Cove", key: "Enter", does: { type: "activate" } },
-    { what: "Enter on a row without children opens its target", on: "Beacon", key: "Enter", does: { type: "activate" } },
+    { what: "Enter on an open row is left to the tree", on: "Atlas", key: "Enter", does: undefined },
+    { what: "Enter on a closed row is left to the tree", on: "Cove", key: "Enter", does: undefined },
+    { what: "Space on a row without children is left to the tree", on: "Beacon", key: " ", does: undefined },
+    { what: "Space on a closed row is left to the tree", on: "Cove", key: " ", does: undefined },
     { what: "ArrowRight on a row that always shows its children moves to the first one", on: "Atlas", key: "ArrowRight", does: { type: "focus", index: index("Atlas notes") }, toggles: false },
     { what: "ArrowLeft on a row that always shows its children doesn't close it", on: "Atlas", key: "ArrowLeft", does: undefined, toggles: false },
   ])("$what", ({ on, key, does, toggles }) => {

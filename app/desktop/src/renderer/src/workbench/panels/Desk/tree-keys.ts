@@ -47,11 +47,12 @@ export const TREE_ROW = `focus-ring cursor-default rounded-md pr-2 text-left tex
 /** A tree row's chevron, turned down while the row is open. */
 export const treeChevron = (open: boolean): string => `size-3.5 shrink-0 text-fg-tertiary transition-transform${open ? " rotate-90" : ""}`;
 
-export type TreeKeyAction = { type: "focus"; index: number } | { type: "toggle"; open: boolean } | { type: "activate" };
+export type TreeKeyAction = { type: "focus"; index: number } | { type: "toggle"; open: boolean };
 
 /**
- * What a key does on row `index`; undefined when it does nothing there. `toggles` says whether the row opens and
- * closes by the arrows (a row that always shows its children doesn't).
+ * Where an arrow, Home or End key on row `index` moves the focus, or whether it folds the row; undefined for any other
+ * key (Enter and Space too) and where the key does nothing. `toggles` says whether the row opens and closes by the
+ * arrows (a row that always shows its children doesn't).
  */
 export const treeKey = (rows: readonly KeyRow[], index: number, key: string, toggles = true): TreeKeyAction | undefined => {
   const row = rows[index];
@@ -72,9 +73,6 @@ export const treeKey = (rows: readonly KeyRow[], index: number, key: string, tog
     case "ArrowLeft":
       if (row.expanded === true && toggles) return { type: "toggle", open: false };
       return focus(row.parent);
-    case "Enter":
-    case " ":
-      return { type: "activate" };
     default:
       return undefined;
   }

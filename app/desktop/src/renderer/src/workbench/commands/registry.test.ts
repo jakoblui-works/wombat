@@ -1,4 +1,4 @@
-// Typing in an editable element reaches a command only through ctrl+ and alt+ chords: a plain key bound to a command
+// Typing in an editable element reaches a command only through ctrl+, alt+ and meta+ chords: a plain key bound to a command
 // must never fire while the user types. The commands here are the test's own (ids "test.*").
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -34,7 +34,7 @@ const keydown = (key: string, code: string, { ctrl = false, alt = false, shift =
     stopPropagation: () => undefined,
   }) as unknown as KeyboardEvent;
 
-const idFor = (event: KeyboardEvent): string | undefined => commandForKey(event)?.id;
+const idFor = (event: KeyboardEvent): string | undefined => commandForKey(event)?.command.id;
 
 const noop = (): undefined => undefined;
 
@@ -42,11 +42,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("in an input, textarea, select, contenteditable or Monaco a plain key reaches no command, while ctrl+ and alt+ chords still do", () => {
+test("in an input, textarea, select, contenteditable or Monaco a plain key reaches no command, while ctrl+, alt+ and meta+ chords still do", () => {
   registerCommand({ id: "test.editable.plain", title: "Plain key", keys: ["f7"], run: noop });
   registerCommand({ id: "test.editable.shift", title: "Shift key", keys: ["shift+f7"], run: noop });
   registerCommand({ id: "test.editable.ctrl", title: "Ctrl chord", keys: ["ctrl+f6"], run: noop });
   registerCommand({ id: "test.editable.alt", title: "Alt chord", keys: ["alt+f6"], run: noop });
+  registerCommand({ id: "test.editable.meta", title: "Meta chord", keys: ["meta+f6"], run: noop });
 
   // Control: outside an editable element the plain keys run.
   expect(idFor(keydown("F7", "F7"))).toBe("test.editable.plain");
@@ -64,5 +65,6 @@ test("in an input, textarea, select, contenteditable or Monaco a plain key reach
     expect(idFor(keydown("F7", "F7", { shift: true, target })), `shift+key in ${what}`).toBeUndefined();
     expect(idFor(keydown("F6", "F6", { ctrl: true, target })), `a ctrl chord in ${what}`).toBe("test.editable.ctrl");
     expect(idFor(keydown("F6", "F6", { alt: true, target })), `an alt chord in ${what}`).toBe("test.editable.alt");
+    expect(idFor(keydown("F6", "F6", { meta: true, target })), `a meta chord in ${what}`).toBe("test.editable.meta");
   }
 });

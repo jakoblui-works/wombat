@@ -103,11 +103,13 @@ export const deskKey = (rows: readonly DeskRow[], index: number, key: string): D
   const row = rows[index];
   if (row === undefined) return undefined;
   const { node } = row;
+  if (key === "Enter" || key === " ") {
+    if (node.kind === "drawer") return { type: "toggle", path: node.path, open: row.expanded !== true };
+    return node.binder.id === null ? undefined : { type: "open", binderId: node.binder.id };
+  }
   const action = treeKey(rows, index, key, node.kind === "drawer");
   if (action === undefined || action.type === "focus") return action;
-  if (node.kind === "drawer") return { type: "toggle", path: node.path, open: action.type === "toggle" ? action.open : row.expanded !== true };
-  if (action.type === "toggle") return undefined;
-  return node.binder.id === null ? undefined : { type: "open", binderId: node.binder.id };
+  return node.kind === "drawer" ? { type: "toggle", path: node.path, open: action.open } : undefined;
 };
 
 const items = (count: number): string => `${String(count)} ${count === 1 ? "item" : "items"}`;

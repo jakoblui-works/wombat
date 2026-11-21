@@ -42,6 +42,9 @@ export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem,
       rows={rows}
       onToggle={toggle}
       onActivate={({ node, key, expanded }) => (node.kind === "group" ? toggle(key, expanded !== true) : openRow(node.row))}
+      onOpen={({ node }) => {
+        if (node.kind === "row") openRow(node.row);
+      }}
       reveal={reveal}
       onRevealed={onRevealed}
       wraps

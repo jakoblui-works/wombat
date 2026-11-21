@@ -3,7 +3,9 @@ import { type AriaAttributes, Fragment, type KeyboardEvent, type ReactElement, t
 
 import { Button } from "../../../../components/ui/button";
 import { cn } from "../../../../lib/utils";
+import { useCommandScope } from "../../../commands/registry.ts";
 import type { Reveal } from "../../../registry.ts";
+import { DESK_COMMAND, DESK_ROW_SCOPE } from "../desk-commands.ts";
 import { ItemRow } from "../ItemRow/ItemRow.tsx";
 import { ProposalLines } from "../ProposalLine/ProposalLine.tsx";
 import { FIRST_LINE_BOX, type FlatRow, rowIndent, TREE_ROW, treeChevron, treeKey } from "../tree-keys.ts";
@@ -22,7 +24,10 @@ type Props<N> = {
   label: string;
   rows: readonly FlatRow<N>[];
   onToggle: (key: string, open: boolean) => void;
+  /** A click on the row. */
   onActivate: (row: FlatRow<N>) => void;
+  /** The open command on the focused row (Enter). */
+  onOpen: (row: FlatRow<N>) => void;
   reveal?: Reveal | undefined;
   onRevealed?: (() => void) | undefined;
   /** Rows grow to hold their whole title (a list's); else each is one line (a tree's). */
@@ -38,26 +43,34 @@ const ROW_GROWS = cn(ROW_BASE, "min-h-7 items-start py-1");
 // LEAD_PX must match LEAD_ROOM's width (w-3.5) and ROW_BASE's gap (gap-1.5): the proposal lines line up with the title by it.
 const LEAD_PX = 14 + 6;
 
+const ROW_KEY_ATTRIBUTE = "data-row-key";
+
 /**
  * A view's visible rows as one tree (the WAI-ARIA tree pattern): one line each or growing (`wraps`), the tree's keys,
- * one tab stop; the row holding proposal `reveal` is shown (`useReveal`).
+ * one tab stop; the row holding proposal `reveal` is shown (`useReveal`). The tree is a `desk.row` command scope.
  */
-export const ItemTree = <N,>({ label, rows, onToggle, onActivate, reveal, onRevealed, wraps = false, children }: Props<N>) => {
+export const ItemTree = <N,>({ label, rows, onToggle, onActivate, onOpen, reveal, onRevealed, wraps = false, children }: Props<N>) => {
   const focus = useTreeFocus(rows.map(({ key }) => key));
   const ref = useRef<HTMLDivElement>(null);
   useReveal(reveal, ref, onRevealed);
   const folds = rows.some(({ expanded }) => expanded !== undefined);
+  const scope = useCommandScope(DESK_ROW_SCOPE, {
+    [DESK_COMMAND.open]: (element) => {
+      const key = element.closest(`[${ROW_KEY_ATTRIBUTE}]`)?.getAttribute(ROW_KEY_ATTRIBUTE);
+      const row = rows.find((each) => each.key === key);
+      if (row !== undefined) onOpen(row);
+    },
+  });
 
-  const act = (index: number, key: string, event?: KeyboardEvent) => {
+  const act = (index: number, key: string, event: KeyboardEvent) => {
     const row = rows[index];
     const action = treeKey(rows, index, key);
     if (row === undefined || action === undefined) return;
-    event?.preventDefault();
+    event.preventDefault();
     if (action.type === "focus") {
       const target = rows[action.index];
       if (target !== undefined) focus.focus(target.key);
-    } else if (action.type === "toggle") onToggle(row.key, action.open);
-    else onActivate(row);
+    } else onToggle(row.key, action.open);
   };
 
   return (
@@ -65,7 +78,7 @@ export const ItemTree = <N,>({ label, rows, onToggle, onActivate, reveal, onReve
       {rows.length === 0 ? (
         <p className="p-3 text-sm text-fg-tertiary">No items in this view.</p>
       ) : (
-        <div role="tree" aria-label={label} className="flex flex-col gap-px px-1.5 pt-1 pb-3">
+        <div {...scope} role="tree" aria-label={label} className="flex flex-col gap-px px-1.5 pt-1 pb-3">
           {rows.map((row, index) => {
             const lead = !folds ? null : (
               <span
@@ -84,13 +97,14 @@ export const ItemTree = <N,>({ label, rows, onToggle, onActivate, reveal, onReve
               <div
                 ref={focus.register(row.key)}
                 role="treeitem"
+                {...{ [ROW_KEY_ATTRIBUTE]: row.key }}
                 aria-level={row.level}
                 aria-setsize={row.setSize}
                 aria-posinset={row.posInSet}
                 aria-expanded={row.expanded}
                 tabIndex={focus.tabIndex(index)}
                 onFocus={() => focus.onFocus(row.key)}
-                onClick={() => act(index, "Enter")}
+                onClick={() => onActivate(row)}
                 onKeyDown={(event) => act(index, event.key, event)}
                 className={cn(TREE_ROW, wraps ? ROW_GROWS : ROW_LINE)}
                 style={{ paddingLeft: rowIndent(row.level) }}
