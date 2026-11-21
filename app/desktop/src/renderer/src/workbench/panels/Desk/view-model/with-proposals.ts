@@ -58,5 +58,3 @@ export const rowProposalIds = (row: Row): string[] => rowProposals(row).map(({ i
 
 /** Whether an item's row is struck through: its mark is a proposed delete. */
 export const struck = (row: ItemRow): boolean => row.proposal?.kind === "delete";
-
-export const showsProposal = (row: Row, target: string): boolean => rowProposalIds(row).includes(target);

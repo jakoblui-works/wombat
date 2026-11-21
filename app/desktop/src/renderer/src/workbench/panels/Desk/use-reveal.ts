@@ -1,16 +1,32 @@
-import { type RefObject, useEffect, useRef } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 
 import type { Reveal } from "../../registry.ts";
-import type { Row } from "./view-model/view-model.ts";
+import { type Row, rowItemId } from "./view-model/view-model.ts";
 import { rowProposalIds } from "./view-model/with-proposals.ts";
 
 /** The attribute a row holding proposals carries: their ids (`rowProposalIds`), space-separated. */
 export const PROPOSAL_ATTRIBUTE = "data-proposal";
 
+/** The attribute an item's row carries: the item's id. */
+export const ITEM_ATTRIBUTE = "data-item";
+
 /** The `PROPOSAL_ATTRIBUTE` of a row, as props for its element. */
 export const proposalProps = (row: Row): Record<string, string | undefined> => {
   const ids = rowProposalIds(row);
   return { [PROPOSAL_ATTRIBUTE]: ids.length === 0 ? undefined : ids.join(" ") };
+};
+
+/** What a row carries to be revealed by: its proposals' ids (`PROPOSAL_ATTRIBUTE`) and its item's id (`ITEM_ATTRIBUTE`), as props for its element. */
+export const revealProps = (row: Row): Record<string, string | undefined> => ({ ...proposalProps(row), [ITEM_ATTRIBUTE]: rowItemId(row) });
+
+/**
+ * The target of the view's last reveal request, also after the request ends: its row keeps showing where the view's
+ * filter would hide it (`isOutsideFilter`) for as long as the view shows.
+ */
+export const useLastRevealTarget = (reveal: Reveal | undefined): string | undefined => {
+  const [last, setLast] = useState<string>();
+  if (reveal !== undefined && reveal.target !== last) setLast(reveal.target);
+  return reveal?.target ?? last;
 };
 
 /** The classes of a row that can be revealed: highlighted while it carries `data-revealed`. */
@@ -23,8 +39,11 @@ const WAIT_MS = 10_000;
 
 const FOCUSABLE = 'button, [role="treeitem"], [tabindex]';
 
-/** The element under `root` holding proposal `target`, if it shows. */
-const holderOf = (root: HTMLElement, target: string): HTMLElement | null => root.querySelector<HTMLElement>(`[${PROPOSAL_ATTRIBUTE}~="${CSS.escape(target)}"]`);
+/** The element under `root` of the row `target` (a proposal id or an item id) lands on (`revealsRow`), if it shows. */
+const holderOf = (root: HTMLElement, target: string): HTMLElement | null => {
+  const value = CSS.escape(target);
+  return root.querySelector<HTMLElement>(`[${PROPOSAL_ATTRIBUTE}~="${value}"], [${ITEM_ATTRIBUTE}="${value}"]`);
+};
 
 type Highlight = { element: HTMLElement; timer: number };
 
@@ -35,7 +54,7 @@ const unhighlight = (highlight: Highlight | undefined): void => {
 };
 
 /**
- * At each reveal request, the row under `ref` holding the proposal (`PROPOSAL_ATTRIBUTE`) is scrolled into
+ * At each reveal request, the row under `ref` holding the proposal or the item (`revealProps`) is scrolled into
  * view, takes the focus, and is highlighted briefly (`data-revealed`), and `onShown` is called. A row that doesn't show
  * yet is waited for a while; a tree opens the row's ancestors itself. The highlight outlasts the request.
  */

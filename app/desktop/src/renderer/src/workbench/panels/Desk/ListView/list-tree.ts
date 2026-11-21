@@ -1,6 +1,5 @@
 import { type FlatRow, flatTree } from "../tree-keys.ts";
-import { type Group, hasHeading, type HeadedGroup, type Row, rowKey } from "../view-model/view-model.ts";
-import { showsProposal } from "../view-model/with-proposals.ts";
+import { type Group, hasHeading, type HeadedGroup, revealsRow, type Row, rowKey } from "../view-model/view-model.ts";
 
 /** A list's row: a group's header, or one of its rows. */
 export type ListNode = { kind: "group"; group: HeadedGroup } | { kind: "row"; row: Row };
@@ -13,10 +12,10 @@ const nodeKey = (node: ListNode): string => (node.kind === "group" ? headerKey(n
 
 const rowNode = (row: Row): ListNode => ({ kind: "row", row });
 
-/** `folded` without the header of the group holding proposal `reveal`'s row (the same set when there is none to open): a reveal never leaves its row folded away. */
+/** `folded` without the header of the group holding `reveal`'s row (`revealsRow`) (the same set when there is none to open): a reveal never leaves its row folded away. */
 export const unfoldedFor = (groups: readonly Group[], folded: ReadonlySet<string>, reveal: string | undefined): ReadonlySet<string> => {
   if (reveal === undefined) return folded;
-  const holder = groups.find((group) => hasHeading(group) && group.rows.some((row) => showsProposal(row, reveal)));
+  const holder = groups.find((group) => hasHeading(group) && group.rows.some((row) => revealsRow(row, reveal)));
   const key = holder === undefined ? undefined : headerKey(holder);
   return key === undefined || !folded.has(key) ? folded : new Set([...folded].filter((each) => each !== key));
 };

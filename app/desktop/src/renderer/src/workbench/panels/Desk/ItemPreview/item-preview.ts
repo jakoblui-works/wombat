@@ -1,9 +1,8 @@
 // What the preview box shows and which row it's on, pure.
-import { ItemsErrorCode } from "@wombat/shared/api";
 import type { BinderSummary, Item, ItemSummary } from "@wombat/shared/items";
 
-import { ServiceError } from "../../../../data/client.ts";
 import { asError } from "../../../../lib/errors.ts";
+import { isItemNotFound } from "../../Item/item-state.ts";
 import { displayValue } from "../view-model/values.ts";
 import { isItemRow, type Row } from "../view-model/view-model.ts";
 
@@ -21,7 +20,7 @@ export type PreviewShown =
  */
 export const previewShown = ({ data, error }: { data: Item | undefined; error: unknown }, listed?: ItemSummary): PreviewShown => {
   if (listed?.id === null) return { kind: "unparseable", item: listed };
-  if (error instanceof ServiceError && error.code === ItemsErrorCode.enum.item_not_found) return { kind: "not-found" };
+  if (isItemNotFound(error)) return { kind: "not-found" };
   if (data !== undefined) return { kind: "item", item: data };
   if (error !== null && error !== undefined) return { kind: "error", message: asError(error).message };
   return { kind: "loading" };

@@ -95,9 +95,9 @@ const Control = ({
   value,
   onEdit,
   listed,
-  onOpenItem,
+  onFollowItem,
   fileLink,
-}: ControlProps & { listed: Listed; onOpenItem: OpenItem; fileLink: LinkValue | undefined }) => {
+}: ControlProps & { listed: Listed; onFollowItem: FollowItem; fileLink: LinkValue | undefined }) => {
   const optional = clearable(property);
   switch (property.type) {
     case "select":
@@ -127,7 +127,7 @@ const Control = ({
             shown={() => (target === undefined ? <span className="text-fg-tertiary">{MISSING_ITEM}</span> : <LinkLabel option={target} />)}
           />
           {target === undefined ? null : (
-            <Button type="button" variant="ghost" size="icon-sm" aria-label={`Open ${target.handle ?? target.title ?? target.id}`} onClick={() => onOpenItem(property.to, target.id)}>
+            <Button type="button" variant="ghost" size="icon-sm" aria-label={`Open ${target.handle ?? target.title ?? target.id}`} onClick={() => onFollowItem(target.id)}>
               <ArrowUpRight />
             </Button>
           )}
@@ -153,7 +153,7 @@ const Control = ({
   }
 };
 
-type OpenItem = (binderId: string, itemId: string) => void;
+type FollowItem = (ref: string) => void;
 
 const Field = ({
   row,
@@ -163,7 +163,7 @@ const Field = ({
   saveProblems,
   file,
   listed,
-  onOpenItem,
+  onFollowItem,
   fileLink,
 }: {
   row: PropertyRow;
@@ -173,14 +173,14 @@ const Field = ({
   saveProblems: readonly Problem[];
   file: string;
   listed: Listed;
-  onOpenItem: OpenItem;
+  onFollowItem: FollowItem;
   fileLink: LinkValue | undefined;
 }) => {
   const problems = [...row.problems, ...saveProblems];
   return (
     <FieldFrame label={row.name} labelsInput={INPUT_TYPES.has(property.type)} problems={problems} file={file} layout="row">
       {(control, labelId) => (
-        <Control name={row.name} control={control} labelId={labelId} property={property} value={value} onEdit={onEdit} listed={listed} onOpenItem={onOpenItem} fileLink={fileLink} />
+        <Control name={row.name} control={control} labelId={labelId} property={property} value={value} onEdit={onEdit} listed={listed} onFollowItem={onFollowItem} fileLink={fileLink} />
       )}
     </FieldFrame>
   );
@@ -195,13 +195,13 @@ type Props = {
   saveProblems: ReadonlyMap<string, Problem[]>;
   file: string;
   listed: Listed;
-  onOpenItem: OpenItem;
+  onFollowItem: FollowItem;
   /** A link property's value as the item's file was read. */
   fileLink: (field: string) => LinkValue | undefined;
 };
 
 /** The item's properties as a description list, one control per property by its type, its problems under it. */
-export const Fields = ({ rows, properties, valueOf, onEdit, saveProblems, file, listed, onOpenItem, fileLink }: Props) => (
+export const Fields = ({ rows, properties, valueOf, onEdit, saveProblems, file, listed, onFollowItem, fileLink }: Props) => (
   <dl className="grid grid-cols-[minmax(6rem,max-content)_1fr] gap-x-6 gap-y-2 text-sm">
     {rows.flatMap((row) => {
       const property = properties[row.name];
@@ -217,7 +217,7 @@ export const Fields = ({ rows, properties, valueOf, onEdit, saveProblems, file, 
               saveProblems={saveProblems.get(row.name) ?? []}
               file={file}
               listed={listed}
-              onOpenItem={onOpenItem}
+              onFollowItem={onFollowItem}
               fileLink={fileLink(row.name)}
             />,
           ];

@@ -1,6 +1,6 @@
 // Where a binder opens and what the Desk's sidebar shows, pure.
 import { ItemsErrorCode } from "@wombat/shared/api";
-import type { BinderSummary, LenientView } from "@wombat/shared/items";
+import type { BinderSummary, ItemSummary, LenientView } from "@wombat/shared/items";
 
 import { ServiceError } from "../../../data/client.ts";
 import type { DeskLayout } from "../../layout.ts";
@@ -18,6 +18,13 @@ export const binderPlace = (binder: BinderSummary | undefined, viewName?: string
   const view = shownView(binder, viewName);
   return view === undefined ? {} : { sidebarView: view.name };
 };
+
+/** Where following an item lands: its binder (on its first view, `binderPlace`) with the item's row revealed, and the item's tab. */
+export type FollowPlace = { binderId: string; itemId: string };
+
+/** Where following `item` lands; undefined for no item or one without an id. */
+export const followPlace = (item: Pick<ItemSummary, "id" | "binder"> | undefined): FollowPlace | undefined =>
+  item === undefined || item.id === null ? undefined : { binderId: item.binder, itemId: item.id };
 
 /** The view the sidebar shows for a binder: view `viewName`, else its first; undefined for none. */
 const shownView = (binder: BinderSummary | undefined, viewName: string | undefined): LenientView | undefined => {

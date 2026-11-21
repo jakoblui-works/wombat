@@ -7,6 +7,7 @@ import { rowPreview } from "../ItemPreview/item-preview.ts";
 import { ItemTree, ItemTreeRow, RowAction } from "../ItemTree/ItemTree.tsx";
 import { FIRST_LINE } from "../tree-keys.ts";
 import { setClosed } from "../TreeView/tree-view.ts";
+import { useLastRevealTarget } from "../use-reveal.ts";
 import { type OpenRowItem, useOpenRow } from "../use-open-row.ts";
 import { richRows, rowContent } from "../view-model/row-content.ts";
 import { isItemRow, isOutsideFilter, itemCount, listGroups, type NewItem, newItemLabel, type Row, shownGroups, viewContext } from "../view-model/view-model.ts";
@@ -29,7 +30,8 @@ type Props = {
 export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem, reveal, onRevealed }: Props) => {
   const openRow = useOpenRow(onOpenItem);
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
-  const groups = useMemo(() => shownGroups(listGroups(given, view, properties)), [given, view, properties]);
+  const revealed = useLastRevealTarget(reveal);
+  const groups = useMemo(() => shownGroups(listGroups(given, view, properties, revealed)), [given, view, properties, revealed]);
   // Kept in the state, not only applied while the reveal lasts: the reveal ends once its row shows, and the group would fold again.
   const unfolded = unfoldedFor(groups, folded, reveal?.target);
   if (unfolded !== folded) setFolded(unfolded);
@@ -57,7 +59,7 @@ export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem,
         if (node.kind === "row") {
           const { row } = node;
           const content = isItemRow(row) ? rowContent(row.item, view) : undefined;
-          return <ItemTreeRow parts={parts} node={row} outside={isOutsideFilter(row, view, properties)} rich={rich} content={content} />;
+          return <ItemTreeRow parts={parts} node={row} outside={isOutsideFilter(row, view, properties, revealed)} rich={rich} content={content} />;
         }
         const { group } = node;
         return (

@@ -2,14 +2,15 @@
 import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
 import type { AgentSummary } from "@wombat/shared/api";
-import type { BinderSummary } from "@wombat/shared/items";
+import type { BinderSummary, Item } from "@wombat/shared/items";
 
 import { newCommandId } from "../data/commands.ts";
+import { asError, asSentence } from "../lib/errors.ts";
 import { AGENTS_ACTIVITY, DESK_ACTIVITY, DESK_PANEL } from "./activity-ids.ts";
 import type { IsKnown } from "./layout.ts";
 import { getPanel, paramsFit, type ResolveContext, type Reveal, panelTitle } from "./registry.ts";
 import { CHAT_PANEL } from "./panels/Chat/chat-params.ts";
-import { binderPlace } from "./panels/Desk/desk-place.ts";
+import { binderPlace, followPlace } from "./panels/Desk/desk-place.ts";
 import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE } from "./panels/Item/item-params.ts";
 import { PROPOSAL_PANEL, type ProposalParams } from "./panels/Proposal/proposal-params.ts";
 import type { TabRef, WorkbenchActions } from "./workbench-context.ts";
@@ -301,8 +302,21 @@ const oldestPending = (agent: AgentSummary | undefined): string | undefined => {
   return oldest?.requestId;
 };
 
-/** What openBinder needs of the page: the binders (read when the page has none yet; undefined when they can't be), and the Desk's sidebar showing a binder. */
-export type DeskHost = { binders: () => Promise<readonly BinderSummary[] | undefined>; showBinder: (binderId: string, view: string | undefined) => void };
+/**
+ * What openBinder and followItem need of the page: the binders (read when the page has none yet; undefined when they
+ * can't be), an item read afresh by id or handle (undefined when the service finds none; rejects on any other failure),
+ * the Desk's sidebar showing a binder, and a message for the user.
+ */
+export type DeskHost = {
+  binders: () => Promise<readonly BinderSummary[] | undefined>;
+  item: (ref: string) => Promise<Item | undefined>;
+  showBinder: (binderId: string, view: string | undefined) => void;
+  tell: (message: string) => void;
+};
+
+export const ITEM_NOT_FOUND = "This item can't be found; it may have been deleted. Check the link or reference that named it.";
+
+const itemUnread = (error: unknown): string => `The item couldn't be read: ${asSentence(asError(error).message)} Try again once the service answers.`;
 
 /**
  * The workbench's actions on `host`; `ctx` gives the agents as the page knows them now (for titles and the oldest
@@ -323,6 +337,8 @@ export const workbenchActions = (
     if (reveal !== undefined) reveals.set(key, { target: reveal });
     else if (!wasOpen) reveals.set(key, undefined);
   };
+  // Only the latest follow lands: one whose read comes back after a later follow's does nothing.
+  let follows = 0;
   const actions: WorkbenchActions = {
     openTab: (panelId, params, reveal) => show(panelId, params, reveal, false),
     openBeside: (panelId, params, beside) => {
@@ -347,6 +363,25 @@ export const workbenchActions = (
         desk.showBinder(binderId, place.sidebarView);
         showActivity(DESK_ACTIVITY);
       });
+    },
+    followItem: (ref) => {
+      follows += 1;
+      const follow = follows;
+      void desk.item(ref).then(
+        (item) => {
+          if (follow !== follows) return;
+          const place = followPlace(item);
+          if (place === undefined) {
+            desk.tell(ITEM_NOT_FOUND);
+            return;
+          }
+          actions.openBinder(place.binderId, place.itemId);
+          actions.openItem(place.binderId, place.itemId, { temporary: true });
+        },
+        (error: unknown) => {
+          if (follow === follows) desk.tell(itemUnread(error));
+        },
+      );
     },
     openItem: (binderId, itemId, options) => {
       show(ITEM_PANEL, { binderId, itemId } satisfies ItemParams, undefined, options?.temporary === true);

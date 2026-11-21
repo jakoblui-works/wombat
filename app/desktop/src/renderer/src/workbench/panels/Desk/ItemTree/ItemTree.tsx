@@ -12,7 +12,7 @@ import { useRowPreview } from "../ItemPreview/use-row-preview.tsx";
 import { ItemRow } from "../ItemRow/ItemRow.tsx";
 import { ProposalLines } from "../ProposalLine/ProposalLine.tsx";
 import { FIRST_LINE_BOX, type FlatRow, rowIndent, TREE_ROW, treeChevron, treeKey } from "../tree-keys.ts";
-import { proposalProps, REVEALABLE, useReveal } from "../use-reveal.ts";
+import { revealProps, REVEALABLE, useReveal } from "../use-reveal.ts";
 import { useTreeFocus } from "../use-tree-focus.ts";
 import type { RowContent } from "../view-model/row-content.ts";
 import type { Row } from "../view-model/view-model.ts";
@@ -50,7 +50,7 @@ const ROW_KEY_ATTRIBUTE = "data-row-key";
 
 /**
  * A view's visible rows as one tree (the WAI-ARIA tree pattern): one line each or growing (`wraps`), the tree's keys,
- * one tab stop; the row holding proposal `reveal` is shown (`useReveal`); one preview box for its rows (`useRowPreview`).
+ * one tab stop; the row `reveal` lands on is shown (`useReveal`); one preview box for its rows (`useRowPreview`).
  * The tree is a `desk.row` command scope.
  */
 export const ItemTree = <N,>({ label, rows, onToggle, onOpen, previewOf, reveal, onRevealed, wraps = false, children }: Props<N>) => {
@@ -153,7 +153,7 @@ type ItemTreeRowProps = {
 
 /** One row of a view's items: its line (`ItemRow`), an action on hover or focus, and its proposals' lines under it. */
 export const ItemTreeRow = ({ parts: { treeitem, lead, tabIndex, titleStart, wraps }, node, outside, action, rich = false, content }: ItemTreeRowProps) => (
-  <div {...proposalProps(node)} className={cn(REVEALABLE, "group/row relative", rich && "border-b border-line-subtle")}>
+  <div {...revealProps(node)} className={cn(REVEALABLE, "group/row relative", rich && "border-b border-line-subtle")}>
     <ItemRow row={node} render={treeitem} lead={lead} wraps={wraps} content={content} />
     {action}
     <ProposalLines row={node} outside={outside} tabIndex={tabIndex} className="pr-2 pb-1" style={{ paddingLeft: titleStart }} />

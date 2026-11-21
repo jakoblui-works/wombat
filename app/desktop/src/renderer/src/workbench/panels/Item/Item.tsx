@@ -73,7 +73,7 @@ type Editing = { kind: "saved"; tab: SavedItemParams } | { kind: "draft"; tab: D
  * the tab closes, so my edits and the close guard outlive an item or binder that can't be shown for a while.
  */
 const ItemTabBody = ({ shown, editing, proposals = [] }: { shown: ItemShown; editing: Editing; proposals?: readonly ItemChange<ItemProposal>[] }) => {
-  const { openItem } = useWorkbench();
+  const { followItem } = useWorkbench();
   const form = itemForm(shown, useLastListed(listedBinder(shown)), editing.kind === "draft");
   const properties = form?.binder?.properties ?? NO_PROPERTIES;
   const links = useLinkLists(properties);
@@ -97,7 +97,7 @@ const ItemTabBody = ({ shown, editing, proposals = [] }: { shown: ItemShown; edi
             start={start}
             properties={properties}
             listed={links.listed}
-            onOpenItem={openItem}
+            onFollowItem={followItem}
           />
         ) : null}
       </article>
@@ -118,7 +118,7 @@ const ItemTab = ({ binderId, itemId, setTitle }: SavedItemParams & { setTitle: P
   const known = lastKnown(shown);
   const title = known === undefined ? undefined : itemTitle(known);
   const listedProposals = useProposals();
-  const proposals = proposalsOnItem(listedProposals.data?.proposals ?? [], binderId, known?.handle ?? null);
+  const proposals = proposalsOnItem(listedProposals.data?.proposals ?? [], known?.binder ?? binderId, known?.handle ?? null);
   useEffect(() => {
     if (title !== undefined) setTitle?.(title);
   }, [title, setTitle]);
@@ -155,7 +155,7 @@ const EditItem = ({
   start,
   properties,
   listed,
-  onOpenItem,
+  onFollowItem,
 }: {
   editing: Editing;
   form: ItemForm;
@@ -165,7 +165,7 @@ const EditItem = ({
   start: Readonly<Record<string, FieldValue>> | undefined;
   properties: Readonly<Record<string, LenientProperty>>;
   listed: Listed;
-  onOpenItem: (binderId: string, itemId: string) => void;
+  onFollowItem: (ref: string) => void;
 }) => {
   const { tab } = editing;
   const [state, dispatch] = useReducer(itemEdit, undefined, () => initialEdit(item, start));
@@ -309,7 +309,7 @@ const EditItem = ({
           saveProblems={refused.at}
           file={file}
           listed={listed}
-          onOpenItem={onOpenItem}
+          onFollowItem={onFollowItem}
           fileLink={fileLink}
         />
       )}

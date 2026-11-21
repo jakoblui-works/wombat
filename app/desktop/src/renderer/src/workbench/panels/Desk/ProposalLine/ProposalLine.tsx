@@ -43,8 +43,20 @@ const ProposalLine = ({ proposal, note, className, style, tabIndex }: LineProps)
   );
 };
 
-/** Under a row: a line per open proposal it shows (`proposalLines`), oldest first. Nothing for a row without one. */
-export const ProposalLines = ({ row, outside = false, ...line }: Props) =>
-  proposalLines(row).map((proposal, at) => (
+/**
+ * Under a row: a line per open proposal it shows (`proposalLines`), oldest first. An item's row without one shows only
+ * that it is outside the filter, when it is (a revealed item); any other row without one, nothing.
+ */
+export const ProposalLines = ({ row, outside = false, ...line }: Props) => {
+  const proposals = proposalLines(row);
+  if (proposals.length === 0) {
+    return outside && isItemRow(row) ? (
+      <p className={cn("text-xs text-fg-tertiary", line.className)} style={line.style}>
+        {OUTSIDE_FILTER}
+      </p>
+    ) : null;
+  }
+  return proposals.map((proposal, at) => (
     <ProposalLine key={proposal.id} proposal={proposal} note={at === 0 && outside && (isItemRow(row) || isPending(row)) ? OUTSIDE_FILTER : undefined} {...line} />
   ));
+};

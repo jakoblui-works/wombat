@@ -9,7 +9,7 @@ import { isSettled, NO_RESTART, restartAttempt, showsBanner } from "@/lib/connec
 import { cn } from "@/lib/utils";
 import { useAgents, useConnection, useProposals } from "../../data/hooks.ts";
 import { keys } from "../../data/keys.ts";
-import { bindersQuery } from "../../data/query-client.ts";
+import { bindersQuery, itemQuery } from "../../data/query-client.ts";
 // Registers the activities and their panels, which the workbench reads from the registry.
 import "../activities.ts";
 import { needsMeCount } from "../../data/needs-me.ts";
@@ -45,8 +45,9 @@ import {
 } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { showBinder } from "../panels/Desk/desk-place.ts";
+import { isItemNotFound } from "../panels/Item/item-state.ts";
 import { type ActiveTab, ActiveTabContext, DeskContext, type DeskState, type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
-import { ZoomToast } from "../ZoomToast/ZoomToast.tsx";
+import { tell, Toast } from "../Toast/Toast.tsx";
 
 type Chrome = Pick<SavedLayout, "sidebars" | "activity"> & { desk: DeskLayout };
 
@@ -83,6 +84,7 @@ const NO_ACTIONS: WorkbenchActions = {
   openAgentChat: () => undefined,
   openProposal: () => undefined,
   openBinder: () => undefined,
+  followItem: () => undefined,
   openItem: () => undefined,
   openNewItem: () => undefined,
   replaceTab: () => undefined,
@@ -275,7 +277,12 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         ? NO_ACTIONS
         : workbenchActions(api, reveals, () => ({ agents: agentsRef.current, proposals: proposalsRef.current }), showActivity, {
             binders: () => queryClient.ensureQueryData(bindersQuery()).then(({ binders }) => binders, () => undefined),
+            item: (ref) => queryClient.fetchQuery({ ...itemQuery(ref), staleTime: 0 }).catch((error: unknown) => {
+                if (isItemNotFound(error)) return undefined;
+                throw error;
+              }),
             showBinder: (binderId, view) => changeDesk((desk) => showBinder(desk, binderId, view)),
+            tell,
           }),
     [api, reveals, showActivity, queryClient, changeDesk],
   );
@@ -421,7 +428,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   </div>
                 </div>
                 <LiveStatusBar connection={connectionState} agents={agentList} />
-                <ZoomToast />
+                <Toast />
                 <span className="sr-only">
                   Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
                 </span>

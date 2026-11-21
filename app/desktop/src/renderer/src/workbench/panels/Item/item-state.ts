@@ -36,6 +36,9 @@ type Reads = {
   listed: Read<readonly ItemSummary[]>;
 };
 
+/** Whether the service answered that no item has the ref read. */
+export const isItemNotFound = (error: unknown): boolean => error instanceof ServiceError && error.code === ItemsErrorCode.enum.item_not_found;
+
 /** Whether the service answered the read with an error (a read the bridge refused, while disconnected, didn't reach it). */
 const answeredWithError = (read: Read<unknown>): boolean => read.error instanceof ServiceError;
 
@@ -59,16 +62,11 @@ const binderHolding = <B extends BinderSummary>(binders: readonly B[], path: str
   binders.filter((binder) => inFolder(path, binder.path)).sort((a, b) => b.path.length - a.path.length)[0];
 
 const isBroken = (binder: BinderSummary): binder is BrokenBinder => binder.id === null;
-const isListed = (binder: BinderSummary): binder is Binder => binder.id !== null;
 
-/**
- * The binder an item tab shows: the tab's binder while its list holds the item by id, else the binder whose folder
- * holds the item's file as read (a file moved by hand into another binder), else the tab's binder.
- */
-const shownBinder = (itemId: string, binderId: string, binders: readonly BinderSummary[], item: Item | undefined, listed: Read<readonly ItemSummary[]>): Binder | undefined => {
-  const named = binders.find((each): each is Binder => each.id === binderId);
-  if (named !== undefined && usable(listed)?.some(({ id }) => id === itemId) === true) return named;
-  return item === undefined ? named : binderHolding(binders.filter(isListed), item.path);
+/** The binder an item tab shows: the item's binder as read (a file moved by hand into another binder names that one), else the tab's binder. */
+const shownBinder = (binderId: string, binders: readonly BinderSummary[], item: Item | undefined): Binder | undefined => {
+  const id = item?.binder ?? binderId;
+  return binders.find((each): each is Binder => each.id === id);
 };
 
 /** Why a binder isn't listed by id: some binders are broken (one of them may be it), or none is. */
@@ -98,7 +96,7 @@ export const itemShown = (itemId: string, binderId: string, { item, binders, lis
     const failed = unshown(binders);
     return failed === undefined ? { kind: "loading" } : { kind: "error", what: "binders", message: failed, last };
   }
-  const binder = shownBinder(itemId, binderId, binderList, shownItem, listed);
+  const binder = shownBinder(binderId, binderList, shownItem);
   if (binder === undefined) {
     const holding = last === undefined ? undefined : binderHolding(binderList.filter(isBroken), last.path);
     if (holding !== undefined && last !== undefined) return { kind: "binder-broken", binder: holding, last };
@@ -110,7 +108,7 @@ export const itemShown = (itemId: string, binderId: string, { item, binders, lis
     const failed = unshown(item);
     return failed === undefined ? { kind: "loading" } : { kind: "error", what: "item", message: failed, last };
   }
-  if (item.error.code !== ItemsErrorCode.enum.item_not_found) return { kind: "error", what: "item", message: item.error.message, last };
+  if (!isItemNotFound(item.error)) return { kind: "error", what: "item", message: item.error.message, last };
 
   const entries = usable(listed);
   if (entries === undefined) {

@@ -32,7 +32,7 @@ export type WorkbenchActions = {
   openProposal: (proposalId: string) => void;
   /**
    * Switches to the Desk and shows the binder in its sidebar on its view `view` (else its first), else as a list of its
-   * items. `reveal` (a proposal id) reaches the Desk's sidebar.
+   * items. `reveal` (a proposal id or an item id) reaches the Desk's sidebar.
    */
   openBinder: (binderId: string, reveal?: string, view?: string) => void;
   /**
@@ -40,6 +40,11 @@ export type WorkbenchActions = {
    * the next one, until it's kept (`keepTab`); a tab opened again without it is kept.
    */
   openItem: (binderId: string, itemId: string, options?: OpenOptions) => void;
+  /**
+   * Shows the item (`ref`: its id or a handle) where it sits: the Desk's sidebar on its binder's first view, the item's
+   * row revealed, and the item in a temporary tab. For a ref that names no item, opens nothing and tells the user.
+   */
+  followItem: (ref: string) => void;
   /** Opens a new tab on an item not written yet in the binder, starting with `context`'s values (`viewContext`). */
   openNewItem: (binderId: string, context: Record<string, unknown>) => void;
   /**

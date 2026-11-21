@@ -104,7 +104,7 @@ describe("itemShown", () => {
     },
     {
       what: "a file moved by hand into another binder shows under the binder whose folder holds it",
-      reads: { item: ok(item("work/archive/TSK-1-rotate-cert.md")), binders: ok([TASKS, ARCHIVE]), listed: ok([OTHER]) },
+      reads: { item: ok({ ...item("work/archive/TSK-1-rotate-cert.md"), binder: "archive" }), binders: ok([TASKS, ARCHIVE]), listed: ok([OTHER]) },
       shows: { kind: "item", binder: { id: "archive" } },
     },
   ])("$what", ({ reads, shows }) => {
@@ -138,7 +138,7 @@ describe("itemForm", () => {
   });
 
   test("the binder shown now comes before the one last listed", () => {
-    const moved = item("work/archive/TSK-1-rotate-cert.md");
+    const moved = { ...item("work/archive/TSK-1-rotate-cert.md"), binder: "archive" };
     const shown = itemShown(ITEM_ID, "tasks", { item: ok(moved), binders: ok([TASKS, ARCHIVE]), listed: ok([OTHER]) });
     expect(itemForm(shown, tasks, false)?.binder).toEqual(archive);
   });

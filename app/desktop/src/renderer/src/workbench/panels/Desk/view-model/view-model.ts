@@ -33,6 +33,12 @@ export const rowKey = (row: Row): string => (isItemRow(row) ? row.item.path : is
 /** The open proposals a row shows: its create, or the updates and deletes on its item, oldest first. */
 export const rowProposals = (row: Row): readonly ItemProposal[] => (isPending(row) ? [row.pending] : (row.proposals ?? []));
 
+/** The id of the item a row shows; undefined for a row without one or an item that can't be parsed. */
+export const rowItemId = (row: Row): string | undefined => (isItemRow(row) ? (row.item.id ?? undefined) : undefined);
+
+/** Whether reveal target `target` (a proposal id or an item id) lands on `row`. */
+export const revealsRow = (row: Row, target: string): boolean => rowItemId(row) === target || rowProposals(row).some(({ id }) => id === target);
+
 /** The value a row holds for property or field `name`; a missing item's row holds none. */
 export const rowValue = (row: Row, name: string, properties: Properties): unknown => {
   if (isItemRow(row)) return row.item.properties[name];
@@ -98,11 +104,16 @@ const passes = (row: Row, view: LenientView, properties: Properties): boolean =>
 /** The rows whose every property in the view's filter matches its value (`matchesFilter`). */
 export const visibleItems = <R extends Row>(rows: readonly R[], view: LenientView, properties: Properties = {}): R[] => rows.filter((row) => passes(row, view, properties));
 
-/** Whether `row` holds an open proposal and the view's filter would hide it: it shows anyway, before every other row. */
-export const isOutsideFilter = (row: Row, view: LenientView, properties: Properties): boolean => rowProposals(row).length > 0 && !passes(row, view, properties);
+/**
+ * Whether the view's filter would hide `row` and it shows anyway, before every other row: it holds an open proposal, or
+ * reveal target `revealed` lands on it (`revealsRow`).
+ */
+export const isOutsideFilter = (row: Row, view: LenientView, properties: Properties, revealed?: string): boolean =>
+  (rowProposals(row).length > 0 || (revealed !== undefined && revealsRow(row, revealed))) && !passes(row, view, properties);
 
-/** The rows holding an open proposal the view's filter would hide (`isOutsideFilter`). */
-export const outsideFilter = <R extends Row>(rows: readonly R[], view: LenientView, properties: Properties): R[] => rows.filter((row) => isOutsideFilter(row, view, properties));
+/** The rows the view's filter would hide that show anyway (`isOutsideFilter`). */
+export const outsideFilter = <R extends Row>(rows: readonly R[], view: LenientView, properties: Properties, revealed?: string): R[] =>
+  rows.filter((row) => isOutsideFilter(row, view, properties, revealed));
 
 /** The rows by each of the view's sort properties in order, then by handle number (a row without an item after every handle). */
 export const sorted = <R extends Row>(rows: readonly R[], view: LenientView, properties: Properties): R[] => {
@@ -118,8 +129,8 @@ export const sorted = <R extends Row>(rows: readonly R[], view: LenientView, pro
 };
 
 /** The rows a view shows, in order: those outside its filter (`outsideFilter`; proposed creates first), then the visible rows. */
-export const shownRows = (rows: readonly Row[], view: LenientView, properties: Properties): { outside: Row[]; shown: Row[] } => {
-  const outside = outsideFilter(rows, view, properties);
+export const shownRows = (rows: readonly Row[], view: LenientView, properties: Properties, revealed?: string): { outside: Row[]; shown: Row[] } => {
+  const outside = outsideFilter(rows, view, properties, revealed);
   return {
     outside: [...sorted(outside.filter(isPending), view, properties), ...sorted(outside.filter((row) => !isPending(row)), view, properties)],
     shown: sorted(visibleItems(rows, view, properties), view, properties),
@@ -129,11 +140,11 @@ export const shownRows = (rows: readonly Row[], view: LenientView, properties: P
 /**
  * The view's visible rows, sorted, in groups by its `group` property: one per select option in option order (empty
  * ones too), or one per distinct value in ascending order, then one for the rows without a value (only when it has
- * any). Without `group`, one group of every visible row. The rows holding an open proposal its filter hides come
- * first, in a group of their own (`outside`).
+ * any). Without `group`, one group of every visible row. The rows its filter hides that show anyway (`isOutsideFilter`,
+ * with `revealed`) come first, in a group of their own (`outside`).
  */
-export const listGroups = (rows: readonly Row[], view: SidebarList, properties: Properties): Group[] => {
-  const { outside, shown } = shownRows(rows, view, properties);
+export const listGroups = (rows: readonly Row[], view: SidebarList, properties: Properties, revealed?: string): Group[] => {
+  const { outside, shown } = shownRows(rows, view, properties, revealed);
   const first: Group[] = outside.length > 0 ? [{ key: "outside", kind: "outside", rows: outside }] : [];
   const name = laidOutBy(view);
   if (name === undefined) return [...first, { key: "all", kind: "all", rows: shown }];
@@ -169,11 +180,11 @@ export const shownGroups = (groups: readonly Group[]): Group[] => groups.filter(
 /**
  * The view's visible rows, sorted, each under the item its `parent` link names. A row whose parent is missing,
  * filtered out or itself sits at the top; a cycle is cut where a walk up its links first repeats an item, which then
- * sits at the top. Top rows and siblings keep the sort order. The rows holding an open proposal its filter hides come
- * first, at the top.
+ * sits at the top. Top rows and siblings keep the sort order. The rows its filter hides that show anyway
+ * (`isOutsideFilter`, with `revealed`) come first, at the top.
  */
-export const treeRows = (rows: readonly Row[], view: SidebarTree, properties: Properties = {}): TreeRow[] => {
-  const { outside, shown } = shownRows(rows, view, properties);
+export const treeRows = (rows: readonly Row[], view: SidebarTree, properties: Properties = {}, revealed?: string): TreeRow[] => {
+  const { outside, shown } = shownRows(rows, view, properties, revealed);
   const link = laidOutBy(view);
   const byId = new Map<string, Row>();
   for (const row of shown) if (isItemRow(row) && row.item.id !== null) byId.set(row.item.id, row);

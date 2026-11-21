@@ -1,6 +1,5 @@
 import { type FlatRow, flatTree } from "../tree-keys.ts";
-import { rowKey, type TreeRow } from "../view-model/view-model.ts";
-import { showsProposal } from "../view-model/with-proposals.ts";
+import { revealsRow, rowKey, type TreeRow } from "../view-model/view-model.ts";
 
 export type ItemTreeRow = FlatRow<TreeRow>;
 
@@ -15,10 +14,10 @@ export const setClosed = (closed: ReadonlySet<string>, key: string, open: boolea
   return next;
 };
 
-/** The keys of the rows above the one showing proposal `target`, top first; undefined while no row shows it. */
+/** The keys of the rows above the one `target` lands on (`revealsRow`), top first; undefined while no row shows it. */
 export const ancestorsOf = (tree: readonly TreeRow[], target: string): string[] | undefined => {
   for (const node of tree) {
-    if (showsProposal(node, target)) return [];
+    if (revealsRow(node, target)) return [];
     const below = ancestorsOf(node.children, target);
     if (below !== undefined) return [rowKey(node), ...below];
   }
