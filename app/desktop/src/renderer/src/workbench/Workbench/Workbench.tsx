@@ -7,7 +7,8 @@ import type { ListProposalsResponse } from "@wombat/shared/proposals";
 import type { ConnectionState } from "../../../../shared/bridge.ts";
 import { isSettled, NO_RESTART, restartAttempt, showsBanner } from "@/lib/connection-state";
 import { cn } from "@/lib/utils";
-import { useAgents, useConnection, useProposals } from "../../data/hooks.ts";
+import { useAgents, useBinders, useConnection, useProposals } from "../../data/hooks.ts";
+import { ReferenceProvider } from "../../components/Markdown/ReferenceProvider.tsx";
 import { keys } from "../../data/keys.ts";
 import { bindersQuery, itemQuery } from "../../data/query-client.ts";
 // Registers the activities and their panels, which the workbench reads from the registry.
@@ -46,6 +47,7 @@ import {
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { showBinder } from "../panels/Desk/desk-place.ts";
 import { isItemNotFound } from "../panels/Item/item-state.ts";
+import { Reference, referencePrefixes } from "../panels/Desk/Reference/Reference.tsx";
 import { type ActiveTab, ActiveTabContext, DeskContext, type DeskState, type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
 import { tell, Toast } from "../Toast/Toast.tsx";
 
@@ -131,6 +133,8 @@ const readAnswered = (state: QueryState | undefined, connection: ConnectionState
   state?.status === "success" ||
   (state?.status === "error" && state.fetchStatus === "idle" && (connection === "connected" || isSettled(connection)));
 
+const renderReference = (handle: string) => <Reference handle={handle} />;
+
 /**
  * The window: activity bar, left sidebar (the activity's panel), the editor's tabs (dockview) and the right sidebar.
  * The layout is restored once, after the agents and proposals reads were answered (so tabs of deleted agents and
@@ -141,6 +145,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const queryClient = useQueryClient();
   const agents = useAgents();
   const proposals = useProposals();
+  const prefixes = referencePrefixes(useBinders().data?.binders);
   const connectionState = useConnection();
   const { state: connection, message: connectionMessage } = connectionState;
   const [api, setApi] = useState<DockviewApi>();
@@ -375,64 +380,66 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         <ActiveTabContext value={activeTab}>
           <RevealsContext value={reveals}>
             <TitlesContext value={titles}>
-              <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
-                <TitleBar
-                  right={rightPanel}
-                  count={agentList === undefined ? 0 : needsMeCount(agentList, proposals.data?.proposals ?? [])}
-                  rightOpen={!chrome.sidebars.rightCollapsed}
-                  onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
-                />
-                {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
-                {noticeDismissed || blocked ? null : (
-                  <LiveLaunchNotice connection={connectionState} onRestart={restart} onDismiss={dismissNotice} />
-                )}
-                <div className="flex min-h-0 flex-1">
-                  <ActivityBar
-                    activities={activities()}
-                    active={activity?.id}
-                    blocked={blocked}
-                    onSelect={(id) => runLogged(activityCommandId(id))}
+              <ReferenceProvider prefixes={prefixes} render={renderReference}>
+                <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
+                  <TitleBar
+                    right={rightPanel}
+                    count={agentList === undefined ? 0 : needsMeCount(agentList, proposals.data?.proposals ?? [])}
+                    rightOpen={!chrome.sidebars.rightCollapsed}
+                    onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
                   />
-                  {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
-                  <div inert={blocked} className="relative flex min-w-0 flex-1">
-                    <aside aria-label={activity?.title} className={SIDEBAR} style={{ width: chrome.sidebars.left }}>
-                      {activity === undefined ? null : <SidebarContent panelId={activity.sidebarPanel} />}
-                    </aside>
-                    <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
-                    <main className="min-w-0 flex-1">
-                      <TabBarMenu api={api}>
-                        <DockviewReact
-                          className="dockview-theme-wombat"
-                          components={COMPONENTS}
-                          defaultTabComponent={Tab}
-                          rightHeaderActionsComponent={SplitButton}
-                          watermarkComponent={EmptyGroup}
-                          onReady={(event: DockviewReadyEvent) => setApi(event.api)}
-                        />
-                      </TabBarMenu>
-                    </main>
-                    {!chrome.sidebars.rightCollapsed && (
-                      <>
-                        <ResizeHandle label="Resize the right sidebar" onDrag={(dx) => resize("right", -dx)} />
-                        <aside aria-label={rightPanel?.title} className={SIDEBAR} style={{ width: chrome.sidebars.right }}>
-                          {rightPanels.map(({ id, component: Panel }) => (
-                            <Panel key={id} params={{}} />
-                          ))}
-                        </aside>
-                      </>
-                    )}
-                    <div
-                      aria-hidden
-                      className={cn("pointer-events-none absolute inset-0 z-20 bg-scrim transition-opacity", blocked ? "opacity-100" : "opacity-0")}
+                  {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
+                  {noticeDismissed || blocked ? null : (
+                    <LiveLaunchNotice connection={connectionState} onRestart={restart} onDismiss={dismissNotice} />
+                  )}
+                  <div className="flex min-h-0 flex-1">
+                    <ActivityBar
+                      activities={activities()}
+                      active={activity?.id}
+                      blocked={blocked}
+                      onSelect={(id) => runLogged(activityCommandId(id))}
                     />
+                    {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
+                    <div inert={blocked} className="relative flex min-w-0 flex-1">
+                      <aside aria-label={activity?.title} className={SIDEBAR} style={{ width: chrome.sidebars.left }}>
+                        {activity === undefined ? null : <SidebarContent panelId={activity.sidebarPanel} />}
+                      </aside>
+                      <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
+                      <main className="min-w-0 flex-1">
+                        <TabBarMenu api={api}>
+                          <DockviewReact
+                            className="dockview-theme-wombat"
+                            components={COMPONENTS}
+                            defaultTabComponent={Tab}
+                            rightHeaderActionsComponent={SplitButton}
+                            watermarkComponent={EmptyGroup}
+                            onReady={(event: DockviewReadyEvent) => setApi(event.api)}
+                          />
+                        </TabBarMenu>
+                      </main>
+                      {!chrome.sidebars.rightCollapsed && (
+                        <>
+                          <ResizeHandle label="Resize the right sidebar" onDrag={(dx) => resize("right", -dx)} />
+                          <aside aria-label={rightPanel?.title} className={SIDEBAR} style={{ width: chrome.sidebars.right }}>
+                            {rightPanels.map(({ id, component: Panel }) => (
+                              <Panel key={id} params={{}} />
+                            ))}
+                          </aside>
+                        </>
+                      )}
+                      <div
+                        aria-hidden
+                        className={cn("pointer-events-none absolute inset-0 z-20 bg-scrim transition-opacity", blocked ? "opacity-100" : "opacity-0")}
+                      />
+                    </div>
                   </div>
+                  <LiveStatusBar connection={connectionState} agents={agentList} />
+                  <Toast />
+                  <span className="sr-only">
+                    Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
+                  </span>
                 </div>
-                <LiveStatusBar connection={connectionState} agents={agentList} />
-                <Toast />
-                <span className="sr-only">
-                  Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
-                </span>
-              </div>
+              </ReferenceProvider>
             </TitlesContext>
           </RevealsContext>
         </ActiveTabContext>

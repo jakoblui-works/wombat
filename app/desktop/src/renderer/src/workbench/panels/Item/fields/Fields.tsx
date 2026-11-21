@@ -5,6 +5,7 @@ import { type ReactNode, useState } from "react";
 import { Button } from "../../../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../../components/ui/select";
 import { cn } from "../../../../lib/utils";
+import { useHoverPreview } from "../../Desk/ItemPreview/HoverPreview.tsx";
 import { Field as FieldFrame, FIELD_INPUT, type FieldControl } from "../../Desk/Field/Field.tsx";
 import type { Listed } from "../../Desk/use-link-lists.ts";
 import { clearable, displayValue, MISSING_ITEM, typesNumber } from "../../Desk/view-model/values.ts";
@@ -61,6 +62,7 @@ const Choice = ({
   optional,
   items,
   shown,
+  onOpenChange,
 }: {
   control: FieldControl;
   labelId: string;
@@ -69,8 +71,9 @@ const Choice = ({
   optional: boolean;
   items: { value: string; label: ReactNode }[];
   shown: (value: FieldValue) => ReactNode;
+  onOpenChange?: (open: boolean) => void;
 }) => (
-  <Select value={value === null ? null : String(value)} onValueChange={(next: string | null, details) => {
+  <Select value={value === null ? null : String(value)} onOpenChange={onOpenChange} onValueChange={(next: string | null, details) => {
       if (pickedByUser(details.reason)) onChange(next);
     }}>
     <SelectTrigger aria-labelledby={labelId} aria-invalid={control["aria-invalid"]} aria-describedby={control["aria-describedby"]} className="min-w-0 flex-1">
@@ -86,6 +89,56 @@ const Choice = ({
     </SelectContent>
   </Select>
 );
+
+/** A link's choice, its value with the target's preview on hover, and its Open button, which follows the link. */
+const LinkControl = ({
+  name,
+  control,
+  labelId,
+  value,
+  optional,
+  onEdit,
+  options,
+  target,
+  onFollowItem,
+}: Omit<ControlProps, "property"> & { optional: boolean; options: LinkOption[]; target: LinkOption | undefined; onFollowItem: FollowItem }) => {
+  const [choosing, setChoosing] = useState(false);
+  const follow = () => {
+    if (target !== undefined) onFollowItem(target.id);
+  };
+  // Without a target the box isn't rendered, so its empty ref is never read.
+  const preview = useHoverPreview({ itemRef: target?.id ?? "", onOpen: follow, disabled: choosing });
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <Choice
+        control={control}
+        labelId={labelId}
+        value={value}
+        optional={optional}
+        onChange={(next) => onEdit(name, next)}
+        onOpenChange={setChoosing}
+        items={options.map((option) => ({ value: option.id, label: <LinkLabel option={option} /> }))}
+        shown={() =>
+          target === undefined ? (
+            <span className="text-fg-tertiary">{MISSING_ITEM}</span>
+          ) : (
+            preview.trigger(
+              <span className="min-w-0">
+                <LinkLabel option={target} />
+              </span>,
+            )
+          )
+        }
+      />
+      {target === undefined ? null : (
+        <Button type="button" variant="ghost" size="icon-sm" aria-label={`Open ${target.handle ?? target.title ?? target.id}`} onClick={follow}>
+          <ArrowUpRight />
+        </Button>
+      )}
+      {target === undefined ? null : preview.box}
+    </div>
+  );
+};
 
 const Control = ({
   name,
@@ -112,28 +165,20 @@ const Control = ({
           shown={(current) => String(current)}
         />
       );
-    case "link": {
-      const options = linkOptions(listed(property.to));
-      const target = linkTarget(value, listed(property.to), fileLink);
+    case "link":
       return (
-        <div className="flex min-w-0 items-center gap-1.5">
-          <Choice
-            control={control}
-            labelId={labelId}
-            value={value}
-            optional={optional}
-            onChange={(next) => onEdit(name, next)}
-            items={options.map((option) => ({ value: option.id, label: <LinkLabel option={option} /> }))}
-            shown={() => (target === undefined ? <span className="text-fg-tertiary">{MISSING_ITEM}</span> : <LinkLabel option={target} />)}
-          />
-          {target === undefined ? null : (
-            <Button type="button" variant="ghost" size="icon-sm" aria-label={`Open ${target.handle ?? target.title ?? target.id}`} onClick={() => onFollowItem(target.id)}>
-              <ArrowUpRight />
-            </Button>
-          )}
-        </div>
+        <LinkControl
+          name={name}
+          control={control}
+          labelId={labelId}
+          value={value}
+          optional={optional}
+          onEdit={onEdit}
+          options={linkOptions(listed(property.to))}
+          target={linkTarget(value, listed(property.to), fileLink)}
+          onFollowItem={onFollowItem}
+        />
       );
-    }
     case "number":
       return <NumberInput name={name} control={control} value={value} onEdit={onEdit} required={!optional} />;
     case "text":

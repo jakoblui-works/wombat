@@ -5,12 +5,16 @@
 // - an image never loads: it shows as its alt text;
 // - code blocks go through `Code` (lib/highlight.tsx), which never writes raw HTML or style strings.
 // The inline form keeps only code spans, emphasis and strikethrough: links show as their text, images are dropped.
-import { memo, type ReactNode, type Ref, useId } from "react";
+// A reference to an item (references.ts) renders as its `ReferenceProvider` says, never as a link; the inline form,
+// which rows show inside their own button, has none.
+import { memo, type ReactNode, type Ref, useId, useMemo } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Code } from "../../lib/highlight.tsx";
 import { cn } from "../../lib/utils.ts";
+import { referenceOf, rehypeReferences, textOf } from "./references.ts";
+import { useReferences } from "./ReferenceProvider.tsx";
 
 export type MarkdownProps = {
   text: string;
@@ -21,7 +25,6 @@ export type MarkdownProps = {
 };
 
 type Element = NonNullable<ExtraProps["node"]>;
-type ElementContent = Element["children"][number];
 
 /** The URL as a link target when it's an absolute https: URL, else undefined (it shows as text). */
 export const httpsUrl = (url: string | undefined): string | undefined => {
@@ -33,10 +36,6 @@ export const httpsUrl = (url: string | undefined): string | undefined => {
     return undefined;
   }
 };
-
-/** Every text inside a hast node, in order. */
-const textOf = (node: ElementContent | Element): string =>
-  node.type === "text" ? node.value : node.type === "element" ? node.children.map(textOf).join("") : "";
 
 /** The fence's language (`language-ts` → `ts`). */
 const fenceLang = (code: Element | undefined): string | undefined => {
@@ -55,7 +54,14 @@ CodeBlock.displayName = "CodeBlock";
 
 const InlineCode = ({ children }: { children?: ReactNode }) => <code className="rounded-xs bg-surface-3 px-1 py-px font-mono text-sm text-fg-primary">{children}</code>;
 
+const Reference = ({ node, children }: { node?: Element | undefined; children?: ReactNode }) => {
+  const references = useReferences();
+  const handle = referenceOf(node);
+  return handle === undefined || references === undefined ? <span>{children}</span> : references.render(handle);
+};
+
 const COMPONENTS: Components = {
+  span: Reference,
   a: ({ href, children }) => {
     const url = httpsUrl(href);
     return url === undefined ? (
@@ -121,11 +127,13 @@ const inlineOnly = function (this: { data: () => object }) {
 };
 const INLINE_COMPONENTS: Components = { code: ({ children }) => <InlineCode>{children}</InlineCode> };
 
-const Rendered = memo(({ text, inline = false }: { text: string; inline?: boolean }) => {
+const Rendered = memo(({ text, inline = false, prefixes }: { text: string; inline?: boolean; prefixes?: readonly string[] | undefined }) => {
   const id = useId();
+  const rehypePlugins = useMemo(() => (prefixes === undefined ? [] : [() => rehypeReferences(prefixes)]), [prefixes]);
   return (
     <ReactMarkdown
       remarkPlugins={inline ? [remarkGfm, inlineOnly] : [remarkGfm]}
+      rehypePlugins={rehypePlugins}
       remarkRehypeOptions={{ clobberPrefix: `md${id.replace(/[^\w-]/g, "")}-` }}
       components={inline ? INLINE_COMPONENTS : COMPONENTS}
       allowedElements={inline ? INLINE_ELEMENTS : undefined}
@@ -139,10 +147,12 @@ const Rendered = memo(({ text, inline = false }: { text: string; inline?: boolea
 });
 Rendered.displayName = "Rendered";
 
+const WithReferences = ({ text }: { text: string }) => <Rendered text={text} prefixes={useReferences()?.prefixes} />;
+
 /** User, agent or item text as Markdown, inert: see the rules at the top of this file. */
 export const Markdown = memo(({ text, className, ref, children }: MarkdownProps) => (
   <div ref={ref} tabIndex={-1} className={cn("flex min-w-0 flex-col gap-2 break-words outline-none", className)}>
-    <Rendered text={text} />
+    <WithReferences text={text} />
     {children}
   </div>
 ));
