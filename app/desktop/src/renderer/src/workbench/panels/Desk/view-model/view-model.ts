@@ -44,13 +44,27 @@ export const rowValue = (row: Row, name: string, properties: Properties): unknow
 
 /** A view as the sidebar shows it: a list or a tree. */
 export type SidebarView = Extract<LenientView, { kind: "list" | "tree" }>;
+export type SidebarList = Extract<SidebarView, { kind: "list" }>;
+export type SidebarTree = Extract<SidebarView, { kind: "tree" }>;
+
+/** The property a view lays its items out by: a list's group, a tree's parent link. */
+export const laidOutBy = (view: SidebarView): string | undefined => {
+  switch (view.kind) {
+    case "list":
+      return view.group;
+    case "tree":
+      return view.parent;
+    default:
+      return view satisfies never;
+  }
+};
 
 /** The list a binder without views shows: every item, by handle number. */
-export const PLAIN_LIST: Extract<LenientView, { kind: "list" }> = { name: "Items", kind: "list" };
+export const PLAIN_LIST: SidebarList = { name: "Items", kind: "list" };
 
 /**
- * The view the sidebar shows a binder in: a list or a tree as it is; a board as a list with the same name, filter
- * and sort, grouped by its column; no view as `PLAIN_LIST`.
+ * The view the sidebar shows a binder in: a list or a tree as it is; a board as a list with the same name, filter,
+ * sort and excerpt, grouped by its column; no view as `PLAIN_LIST`.
  */
 export const sidebarView = (view: LenientView | undefined): SidebarView => {
   if (view === undefined) return PLAIN_LIST;
@@ -118,10 +132,10 @@ export const shownRows = (rows: readonly Row[], view: LenientView, properties: P
  * any). Without `group`, one group of every visible row. The rows holding an open proposal its filter hides come
  * first, in a group of their own (`outside`).
  */
-export const listGroups = (rows: readonly Row[], view: LenientView, properties: Properties): Group[] => {
+export const listGroups = (rows: readonly Row[], view: SidebarList, properties: Properties): Group[] => {
   const { outside, shown } = shownRows(rows, view, properties);
   const first: Group[] = outside.length > 0 ? [{ key: "outside", kind: "outside", rows: outside }] : [];
-  const name = view.kind === "list" ? view.group : undefined;
+  const name = laidOutBy(view);
   if (name === undefined) return [...first, { key: "all", kind: "all", rows: shown }];
   const property = properties[name];
 
@@ -158,9 +172,9 @@ export const shownGroups = (groups: readonly Group[]): Group[] => groups.filter(
  * sits at the top. Top rows and siblings keep the sort order. The rows holding an open proposal its filter hides come
  * first, at the top.
  */
-export const treeRows = (rows: readonly Row[], view: LenientView, properties: Properties = {}): TreeRow[] => {
+export const treeRows = (rows: readonly Row[], view: SidebarTree, properties: Properties = {}): TreeRow[] => {
   const { outside, shown } = shownRows(rows, view, properties);
-  const link = view.kind === "tree" ? view.parent : undefined;
+  const link = laidOutBy(view);
   const byId = new Map<string, Row>();
   for (const row of shown) if (isItemRow(row) && row.item.id !== null) byId.set(row.item.id, row);
   const parentOf = new Map<Row, Row>();
@@ -198,18 +212,6 @@ export const treeRows = (rows: readonly Row[], view: LenientView, properties: Pr
   return [...outside.map((row) => ({ ...row, children: [] })), ...shown.flatMap((row) => top.get(row) ?? [])];
 };
 
-/** The property a view lays its items out by: a list's group, a tree's parent link. */
-export const laidOutBy = (view: SidebarView): string | undefined => {
-  switch (view.kind) {
-    case "list":
-      return view.group;
-    case "tree":
-      return view.parent;
-    default:
-      return view satisfies never;
-  }
-};
-
 /** An item row whose item can be a new item's parent: it has an id. */
 export type ParentRow = ItemRow & { item: { id: string } };
 
@@ -231,12 +233,10 @@ export type NewItem = (context: Record<string, unknown>) => void;
  */
 export const viewContext = (view: SidebarView, place?: NewItemPlace): Record<string, unknown> => {
   const context: Record<string, unknown> = { ...view.filter };
-  if (place === undefined) return context;
-  if ("item" in place) {
-    if (view.kind === "tree") context[view.parent] = { id: place.item.id, handle: place.item.handle };
-    return context;
-  }
   const property = laidOutBy(view);
-  if (place.kind === "value" && view.kind !== "tree" && property !== undefined) context[property] = place.value;
+  if (place === undefined || property === undefined) return context;
+  if ("item" in place) {
+    if (view.kind === "tree") context[property] = { id: place.item.id, handle: place.item.handle };
+  } else if (place.kind === "value" && view.kind === "list") context[property] = place.value;
   return context;
 };

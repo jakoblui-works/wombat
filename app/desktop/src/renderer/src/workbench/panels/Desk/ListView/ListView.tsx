@@ -1,11 +1,14 @@
 import type { LenientProperty, LenientView } from "@wombat/shared/items";
 import { cloneElement, useMemo, useState } from "react";
 
+import { cn } from "../../../../lib/utils";
 import type { Reveal } from "../../../registry.ts";
 import { ItemTree, ItemTreeRow, RowAction } from "../ItemTree/ItemTree.tsx";
+import { FIRST_LINE } from "../tree-keys.ts";
 import { setClosed } from "../TreeView/tree-view.ts";
 import { useOpenRow } from "../use-open-row.ts";
-import { isOutsideFilter, itemCount, listGroups, type NewItem, newItemLabel, type Row, shownGroups, viewContext } from "../view-model/view-model.ts";
+import { richRows, rowContent } from "../view-model/row-content.ts";
+import { isItemRow, isOutsideFilter, itemCount, listGroups, type NewItem, newItemLabel, type Row, shownGroups, viewContext } from "../view-model/view-model.ts";
 import { listTree, unfoldedFor } from "./list-tree.ts";
 
 type Props = {
@@ -18,7 +21,10 @@ type Props = {
   onRevealed?: (() => void) | undefined;
 };
 
-/** A binder's list view: its rows in the view's groups and order under headers that fold, the proposed creates its filter hides first. */
+/**
+ * A binder's list view: its rows in the view's groups and order under headers that fold, the proposed creates its filter
+ * hides first; each row's title wrapped in full, with its excerpt and values when the rows are rich (`richRows`).
+ */
 export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem, reveal, onRevealed }: Props) => {
   const openRow = useOpenRow(onOpenItem);
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
@@ -28,6 +34,7 @@ export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem,
   if (unfolded !== folded) setFolded(unfolded);
   const rows = useMemo(() => listTree(groups, folded), [groups, folded]);
   const toggle = (key: string, open: boolean) => setFolded((current) => setClosed(current, key, open));
+  const rich = richRows(view);
 
   return (
     <ItemTree
@@ -37,10 +44,15 @@ export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem,
       onActivate={({ node, key, expanded }) => (node.kind === "group" ? toggle(key, expanded !== true) : openRow(node.row))}
       reveal={reveal}
       onRevealed={onRevealed}
+      wraps
     >
       {(parts) => {
         const { node } = parts.row;
-        if (node.kind === "row") return <ItemTreeRow parts={parts} node={node.row} outside={isOutsideFilter(node.row, view, properties)} />;
+        if (node.kind === "row") {
+          const { row } = node;
+          const content = isItemRow(row) ? rowContent(row.item, view, properties) : undefined;
+          return <ItemTreeRow parts={parts} node={row} outside={isOutsideFilter(row, view, properties)} rich={rich} content={content} />;
+        }
         const { group } = node;
         return (
           <div className="group/row relative">
@@ -51,7 +63,7 @@ export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem,
               <span key="name" className="min-w-0 flex-1 truncate font-medium text-fg-secondary">
                 {group.heading}
               </span>,
-              <span key="count" className="shrink-0 text-xs text-fg-tertiary tabular-nums">
+              <span key="count" className={cn("shrink-0 text-xs text-fg-tertiary tabular-nums", FIRST_LINE)}>
                 {itemCount(group.rows)}
               </span>,
             )}

@@ -6,11 +6,11 @@
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
-import type { ItemSummary, LenientProperty, LenientView, LinkValue } from "@wombat/shared/items";
+import type { ItemSummary, LenientProperty, LinkValue } from "@wombat/shared/items";
 import type { ItemProposalKind, ProposalStatus } from "@wombat/shared/proposals";
 
 import { PROPOSAL_ATTRIBUTE, proposalProps } from "../use-reveal.ts";
-import { isItemRow, isPending, type ItemRow, type ItemsOf, listGroups, type Row, sorted, treeRows, type TreeRow, visibleItems } from "./view-model.ts";
+import { isItemRow, isPending, type ItemRow, type ItemsOf, listGroups, type Row, type SidebarList, type SidebarView, sorted, treeRows, type TreeRow, visibleItems } from "./view-model.ts";
 import { type ItemProposalRead, proposalLines, rowProposalIds, struck, withProposals } from "./with-proposals.ts";
 
 type Properties = Record<string, LenientProperty>;
@@ -79,12 +79,12 @@ const OWN: Properties = {
 /** Handles no item has (its file deleted or renamed by hand). */
 const GONE = ["CH-90", "CH-91"];
 
-type Scenario = { items: ItemSummary[]; proposals: ItemProposalRead[]; view: LenientView };
+type Scenario = { items: ItemSummary[]; proposals: ItemProposalRead[]; view: SidebarView };
 
 const fieldsArb = fc.record({ title: fc.string({ minLength: 1, maxLength: 20 }), stage: fc.constantFrom("todo", "done"), effort: fc.integer({ min: 1, max: 3 }) }, { requiredKeys: ["title"] });
 
 const filterArb = fc.record({ stage: fc.constantFrom(...STAGES), effort: fc.integer({ min: 1, max: 3 }) }, { requiredKeys: [] });
-const viewArb: fc.Arbitrary<LenientView> = fc.oneof(
+const viewArb: fc.Arbitrary<SidebarView> = fc.oneof(
   fc.record({ name: fc.constant("List"), kind: fc.constant("list" as const), filter: filterArb, group: fc.constantFrom("stage", "effort") }, { requiredKeys: ["name", "kind"] }),
   fc.record({ name: fc.constant("Tree"), kind: fc.constant("tree" as const), parent: fc.constant("parent"), filter: filterArb }, { requiredKeys: ["name", "kind", "parent"] }),
 );
@@ -128,7 +128,7 @@ const scenarioArb: fc.Arbitrary<Scenario> = fc.uniqueArray(fc.integer({ min: 1, 
 });
 
 /** The rows a view shows, a tree's children included. */
-const shownIn = (rows: readonly Row[], view: LenientView): Row[] => {
+const shownIn = (rows: readonly Row[], view: SidebarView): Row[] => {
   const flat = (row: TreeRow): Row[] => [row, ...row.children.flatMap(flat)];
   if (view.kind === "tree") return treeRows(rows, view, OWN).flatMap(flat);
   return listGroups(rows, view, OWN).flatMap((group) => group.rows);
@@ -222,7 +222,7 @@ const MISSING_ID = idIn("7f00", 0xdead);
 /** The item holding what the create proposes; its handle sorts after every other item's, as a create's row does. */
 const TWIN = 999;
 
-type LinkScenario = { items: ItemSummary[]; fields: Record<string, unknown>; twin: ItemSummary; view: LenientView };
+type LinkScenario = { items: ItemSummary[]; fields: Record<string, unknown>; twin: ItemSummary; view: SidebarList };
 
 const LINK_CREATE = proposalId(0xd001);
 
@@ -262,7 +262,7 @@ const linkScenarioArb: fc.Arbitrary<LinkScenario> = fc.uniqueArray(fc.integer({ 
       filter = { [v.filterOn]: v.filterBy === "handle" && target.handle !== null ? target.handle : target.id };
     }
     const base = { name: "Generated", sort: v.sort, ...(filter === undefined ? {} : { filter }) };
-    const view: LenientView = { ...base, kind: "list", ...(v.group === undefined ? {} : { group: v.group }) };
+    const view: SidebarList = { ...base, kind: "list", ...(v.group === undefined ? {} : { group: v.group }) };
     return { items, fields, twin, view };
   });
 });

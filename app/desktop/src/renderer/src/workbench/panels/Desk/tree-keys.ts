@@ -35,8 +35,14 @@ const INDENT_PX = 12;
 /** A row's left padding in pixels at its `level` (1 at the top). */
 export const rowIndent = (level: number): number => ROW_START_PX + (level - 1) * INDENT_PX;
 
+/** A row's first line: 20 px high, the title's line; the chevron, marks and counts line up with it. */
+export const FIRST_LINE = "leading-5";
+
+/** A box as high as a row's first line (`FIRST_LINE`), centring an icon in it. */
+export const FIRST_LINE_BOX = "flex h-5 shrink-0 items-center";
+
 /** A tree row's look: its text, hover and focus; its height and indent are the tree's own. */
-export const TREE_ROW = "focus-ring cursor-default rounded-md pr-2 text-left text-base select-none transition-colors hover:bg-surface-2 focus:bg-surface-2";
+export const TREE_ROW = `focus-ring cursor-default rounded-md pr-2 text-left text-base ${FIRST_LINE} select-none transition-colors hover:bg-surface-2 focus:bg-surface-2`;
 
 /** A tree row's chevron, turned down while the row is open. */
 export const treeChevron = (open: boolean): string => `size-3.5 shrink-0 text-fg-tertiary transition-transform${open ? " rotate-90" : ""}`;

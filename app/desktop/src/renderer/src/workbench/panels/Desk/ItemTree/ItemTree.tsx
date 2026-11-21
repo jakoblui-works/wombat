@@ -6,13 +6,17 @@ import { cn } from "../../../../lib/utils";
 import type { Reveal } from "../../../registry.ts";
 import { ItemRow } from "../ItemRow/ItemRow.tsx";
 import { ProposalLines } from "../ProposalLine/ProposalLine.tsx";
-import { type FlatRow, rowIndent, TREE_ROW, treeChevron, treeKey } from "../tree-keys.ts";
+import { FIRST_LINE_BOX, type FlatRow, rowIndent, TREE_ROW, treeChevron, treeKey } from "../tree-keys.ts";
 import { proposalProps, REVEALABLE, useReveal } from "../use-reveal.ts";
 import { useTreeFocus } from "../use-tree-focus.ts";
+import type { RowContent } from "../view-model/row-content.ts";
 import type { Row } from "../view-model/view-model.ts";
 
-/** What a view draws one visible row from: its treeitem element (no children yet), the chevron or its room, and its tab stop. */
-export type RowParts<N> = { row: FlatRow<N>; treeitem: ReactElement<AriaAttributes>; lead: ReactNode; tabIndex: number; titleStart: number };
+/**
+ * What a view draws one visible row from: its treeitem element (no children yet), the chevron or its room, its tab
+ * stop, and whether the row grows to hold a wrapped title.
+ */
+export type RowParts<N> = { row: FlatRow<N>; treeitem: ReactElement<AriaAttributes>; lead: ReactNode; tabIndex: number; titleStart: number; wraps: boolean };
 
 type Props<N> = {
   label: string;
@@ -21,19 +25,24 @@ type Props<N> = {
   onActivate: (row: FlatRow<N>) => void;
   reveal?: Reveal | undefined;
   onRevealed?: (() => void) | undefined;
+  /** Rows grow to hold their whole title (a list's); else each is one line (a tree's). */
+  wraps?: boolean;
   children: (parts: RowParts<N>) => ReactNode;
 };
 
-// LEAD_PX must match the chevron's room (w-3.5) and the row's gap (gap-1.5): the proposal lines line up with the title by it.
-const LEAD_ROOM = "flex h-5 w-3.5 shrink-0 items-center justify-center";
-const ROW_LINE = "flex h-7 min-w-0 items-center gap-1.5";
+const LEAD_ROOM = cn(FIRST_LINE_BOX, "w-3.5 justify-center");
+const ROW_BASE = "flex min-w-0 gap-1.5";
+const ROW_LINE = cn(ROW_BASE, "h-7 items-center");
+// Top-aligned: the chevron and marks sit in the first line (`FIRST_LINE_BOX`), py-1 around it makes the line's h-7.
+const ROW_GROWS = cn(ROW_BASE, "min-h-7 items-start py-1");
+// LEAD_PX must match LEAD_ROOM's width (w-3.5) and ROW_BASE's gap (gap-1.5): the proposal lines line up with the title by it.
 const LEAD_PX = 14 + 6;
 
 /**
- * A view's visible rows as one tree (the WAI-ARIA tree pattern): one line each, the tree's keys, one tab stop; the row
- * holding proposal `reveal` is shown (`useReveal`).
+ * A view's visible rows as one tree (the WAI-ARIA tree pattern): one line each or growing (`wraps`), the tree's keys,
+ * one tab stop; the row holding proposal `reveal` is shown (`useReveal`).
  */
-export const ItemTree = <N,>({ label, rows, onToggle, onActivate, reveal, onRevealed, children }: Props<N>) => {
+export const ItemTree = <N,>({ label, rows, onToggle, onActivate, reveal, onRevealed, wraps = false, children }: Props<N>) => {
   const focus = useTreeFocus(rows.map(({ key }) => key));
   const ref = useRef<HTMLDivElement>(null);
   useReveal(reveal, ref, onRevealed);
@@ -83,12 +92,12 @@ export const ItemTree = <N,>({ label, rows, onToggle, onActivate, reveal, onReve
                 onFocus={() => focus.onFocus(row.key)}
                 onClick={() => act(index, "Enter")}
                 onKeyDown={(event) => act(index, event.key, event)}
-                className={cn(TREE_ROW, ROW_LINE)}
+                className={cn(TREE_ROW, wraps ? ROW_GROWS : ROW_LINE)}
                 style={{ paddingLeft: rowIndent(row.level) }}
               />
             );
             const titleStart = rowIndent(row.level) + (folds ? LEAD_PX : 0);
-            return <Fragment key={row.key}>{children({ row, treeitem, lead, tabIndex: focus.tabIndex(index), titleStart })}</Fragment>;
+            return <Fragment key={row.key}>{children({ row, treeitem, lead, tabIndex: focus.tabIndex(index), titleStart, wraps })}</Fragment>;
           })}
         </div>
       )}
@@ -103,12 +112,16 @@ type ItemTreeRowProps = {
   outside: boolean;
   /** Shown on hover or focus at the row's end (a tree row's "New child"). */
   action?: ReactNode;
+  /** The row is one of a rich list's (`richRows`): a hairline under it. */
+  rich?: boolean;
+  /** What an item's rich row shows under its title (`rowContent`). */
+  content?: RowContent | undefined;
 };
 
 /** One row of a view's items: its line (`ItemRow`), an action on hover or focus, and its proposals' lines under it. */
-export const ItemTreeRow = ({ parts: { treeitem, lead, tabIndex, titleStart }, node, outside, action }: ItemTreeRowProps) => (
-  <div {...proposalProps(node)} className={cn(REVEALABLE, "group/row relative")}>
-    <ItemRow row={node} render={treeitem} lead={lead} />
+export const ItemTreeRow = ({ parts: { treeitem, lead, tabIndex, titleStart, wraps }, node, outside, action, rich = false, content }: ItemTreeRowProps) => (
+  <div {...proposalProps(node)} className={cn(REVEALABLE, "group/row relative", rich && "border-b border-line-subtle")}>
+    <ItemRow row={node} render={treeitem} lead={lead} wraps={wraps} content={content} />
     {action}
     <ProposalLines row={node} outside={outside} tabIndex={tabIndex} className="pr-2 pb-1" style={{ paddingLeft: titleStart }} />
   </div>

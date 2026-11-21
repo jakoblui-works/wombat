@@ -10,7 +10,7 @@ import type { ItemProposal } from "@wombat/shared/proposals";
 
 import { draftStart, type FieldValue } from "../../Item/item-edit.ts";
 import { matchesFilter } from "./values.ts";
-import { hasHeading, isItemRow, itemCount, listGroups, type NewItemPlace, offersNewChild, type Row, shownGroups, sidebarView, type SidebarView, treeRows, type TreeRow, viewContext } from "./view-model.ts";
+import { hasHeading, isItemRow, itemCount, listGroups, type NewItemPlace, offersNewChild, type Row, shownGroups, sidebarView, type SidebarTree, type SidebarView, treeRows, type TreeRow, viewContext } from "./view-model.ts";
 
 type Properties = Record<string, LenientProperty>;
 
@@ -191,6 +191,7 @@ describe("sidebarView", () => {
           const rest = { name: list.name, ...(list.filter === undefined ? {} : { filter: list.filter }), ...(list.sort === undefined ? {} : { sort: list.sort }) };
           const board: LenientView = { ...rest, kind: "board", column };
           const shown = sidebarView(board);
+          if (shown.kind !== "list") throw new Error(`a board shown as a ${shown.kind}`);
           expect(shown.name, "the board's name").toBe(board.name);
           expect(listGroups(rowsOf(items), shown, properties), "the rows and groups of the list it stands for").toEqual(listGroups(rowsOf(items), list, properties));
 
@@ -238,7 +239,7 @@ describe("treeRows", () => {
   const treeViewArb = (numbers: readonly number[]) =>
     fc
       .tuple(fc.oneof({ weight: 3, arbitrary: fc.constant(undefined) }, { weight: 1, arbitrary: filterArb(numbers) }), fc.shuffledSubarray(["project", "note", "size"]))
-      .map(([filter, sort]): LenientView => ({ name: "Tree", kind: "tree", parent: "parent", sort, ...(filter === undefined ? {} : { filter }) }));
+      .map(([filter, sort]): SidebarTree => ({ name: "Tree", kind: "tree", parent: "parent", sort, ...(filter === undefined ? {} : { filter }) }));
 
   test("every visible item once, under its parent, or at the top when the parent is missing, filtered out or on a cut cycle", () => {
     fc.assert(
