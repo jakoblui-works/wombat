@@ -39,6 +39,10 @@ type Reads = {
 /** Whether the service answered that no item has the ref read. */
 export const isItemNotFound = (error: unknown): boolean => error instanceof ServiceError && error.code === ItemsErrorCode.enum.item_not_found;
 
+/** What the app says when no item has the ref read; `name` calls the item by its handle, never its id ("This item"). */
+export const itemNotFound = (name: string): string =>
+  `${name} can't be found: it may have been deleted or its handle changed. Check the link or handle that named it, or look for the item in its binder's views.`;
+
 /** Whether the service answered the read with an error (a read the bridge refused, while disconnected, didn't reach it). */
 const answeredWithError = (read: Read<unknown>): boolean => read.error instanceof ServiceError;
 

@@ -14,12 +14,14 @@ type Props = {
   disabled: boolean;
   /** Why the last delete failed, shown in the dialog. */
   problems: readonly Problem[];
+  /** The item's tab holds unsaved edits, which the delete loses. */
+  unsaved: boolean;
   onCancel: () => void;
   onDelete: () => void;
 };
 
 /** Asks once before an item's file is deleted (focus starts on Cancel). */
-export const DeleteItemDialog = ({ name, file, open, disabled, problems, onCancel, onDelete }: Props) => {
+export const DeleteItemDialog = ({ name, file, open, disabled, problems, unsaved, onCancel, onDelete }: Props) => {
   const cancelRef = useRef<HTMLButtonElement>(null);
   return (
     <AlertDialog
@@ -30,7 +32,9 @@ export const DeleteItemDialog = ({ name, file, open, disabled, problems, onCance
     >
       <AlertDialogContent initialFocus={cancelRef}>
         <AlertDialogTitle>Delete {name}?</AlertDialogTitle>
-        <AlertDialogDescription>This deletes the item's file, {file}. This can't be undone.</AlertDialogDescription>
+        <AlertDialogDescription>
+          This deletes the item's file, {file}. This can't be undone.{unsaved ? " Your unsaved changes in its tab will be lost." : null}
+        </AlertDialogDescription>
         <div role="alert">
           <ProblemList problems={problems} file={file} className="text-sm text-danger" />
         </div>

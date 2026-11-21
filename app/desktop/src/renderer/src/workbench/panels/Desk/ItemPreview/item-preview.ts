@@ -1,5 +1,5 @@
 // What the preview box shows and which row it's on, pure.
-import type { BinderSummary, Item, ItemSummary } from "@wombat/shared/items";
+import { type BinderSummary, isItemId, type Item, type ItemSummary } from "@wombat/shared/items";
 
 import { asError } from "../../../../lib/errors.ts";
 import { isItemNotFound } from "../../Item/item-state.ts";
@@ -36,12 +36,10 @@ export const propertyLines = (item: Item, binders: readonly BinderSummary[] | un
   return names.map((name) => ({ name, value: displayValue(defined[name], item.properties[name]) })).filter(({ value }) => value !== "");
 };
 
-const ITEM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /** What the preview calls the item it can't show: the listing's handle, the ref when it's a handle, else "This item". */
 export const previewName = (itemRef: string, listed?: ItemSummary): string => {
   const name = listed === undefined ? itemRef : (listed.handle ?? undefined);
-  return name === undefined || ITEM_ID.test(name) ? "This item" : name;
+  return name === undefined || isItemId(name) ? "This item" : name;
 };
 
 /** What a row's box previews: an item row's item by id (or, without one, its path, which isn't read) and its listing. */

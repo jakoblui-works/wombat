@@ -11,7 +11,9 @@ import type { IsKnown } from "./layout.ts";
 import { getPanel, paramsFit, type ResolveContext, type Reveal, panelTitle } from "./registry.ts";
 import { CHAT_PANEL } from "./panels/Chat/chat-params.ts";
 import { binderPlace, followPlace } from "./panels/Desk/desk-place.ts";
+import { previewName } from "./panels/Desk/ItemPreview/item-preview.ts";
 import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE } from "./panels/Item/item-params.ts";
+import { itemNotFound } from "./panels/Item/item-state.ts";
 import { PROPOSAL_PANEL, type ProposalParams } from "./panels/Proposal/proposal-params.ts";
 import type { TabRef, WorkbenchActions } from "./workbench-context.ts";
 
@@ -132,7 +134,7 @@ export const openTab = (host: TabHost, panelId: string, params: unknown, ctx: Re
   const besideGroup = beside === undefined ? undefined : host.getPanel(beside)?.group;
   const right = besideGroup === undefined ? undefined : host.adjacentGroupInDirection(besideGroup, "right");
   const group = besideGroup === undefined ? (host.activeGroup ?? host.groups[0]) : right;
-  const replaced = !temporary || group === undefined ? undefined : tabToReplace(group.panels.map(({ id }) => ({ key: id, temporary: isTemporaryTab(id), unsaved: closeAsks.has(id) })));
+  const replaced = !temporary || group === undefined ? undefined : tabToReplace(group.panels.map(({ id }) => ({ key: id, temporary: isTemporaryTab(id), unsaved: pageCloseGuards.unsaved(id) })));
   const old = replaced === undefined ? undefined : host.getPanel(replaced);
   if (old !== undefined) {
     addInPlaceOf(host, old, { panelId, params }, ctx, true);
@@ -202,6 +204,8 @@ const pageCloseGuards = {
       if (closeAsks.get(key) === ask) closeAsks.delete(key);
     };
   },
+  /** Whether the tab `key` holds unsaved work: its question is registered. */
+  unsaved: (key: string): boolean => closeAsks.has(key),
   /** A close the user asked for: the tab's question when it has one, else the close. */
   close: (host: Pick<TabHost, "removePanel">, panel: IDockviewPanel): void => {
     const ask = closeAsks.get(panel.id);
@@ -314,8 +318,6 @@ export type DeskHost = {
   tell: (message: string) => void;
 };
 
-export const ITEM_NOT_FOUND = "This item can't be found; it may have been deleted. Check the link or reference that named it.";
-
 const itemUnread = (error: unknown): string => `The item couldn't be read: ${asSentence(asError(error).message)} Try again once the service answers.`;
 
 /**
@@ -372,7 +374,7 @@ export const workbenchActions = (
           if (follow !== follows) return;
           const place = followPlace(item);
           if (place === undefined) {
-            desk.tell(ITEM_NOT_FOUND);
+            desk.tell(itemNotFound(previewName(ref)));
             return;
           }
           actions.openBinder(place.binderId, place.itemId);

@@ -1,6 +1,6 @@
 // An item's frontmatter checked against its binder's settings: only `id`, `handle`, `aliases` and the declared
 // properties, each value of its property's type. Links are checked through `links`, which knows every item.
-import { HANDLE_PREFIX_PATTERN, OWN_KEYS, type Property, type BinderSettings } from "@wombat/shared/items";
+import { HANDLE_PREFIX_PATTERN, isItemId, OWN_KEYS, type Property, type BinderSettings } from "@wombat/shared/items";
 
 import type { NamedProblem, ProblemNames } from "./catalog.ts";
 
@@ -16,9 +16,6 @@ export const setOwn = (record: Record<string, unknown>, key: string, value: unkn
   Object.defineProperty(record, key, { value, writable: true, enumerable: true, configurable: true });
 };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export const isUuid = (value: unknown): value is string => typeof value === "string" && UUID.test(value);
 const HANDLE = new RegExp(`^(${HANDLE_PREFIX_PATTERN})-([1-9][0-9]*)$`);
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -127,7 +124,7 @@ export const validateProperties = (settings: BinderSettings, data: Record<string
 export const validateOwnKeys = (settings: BinderSettings, data: Record<string, unknown>): NamedProblem[] => {
   const problems: NamedProblem[] = [];
   const { id, handle, aliases } = data;
-  if (id !== undefined && !isUuid(id)) {
+  if (id !== undefined && !isItemId(id)) {
     problems.push({ field: "id", message: "id: not a UUID; the service sets it, so remove the line to get a new one" });
   }
   if (handle !== undefined) {

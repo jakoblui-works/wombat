@@ -3,6 +3,7 @@ import { cloneElement, useMemo, useState } from "react";
 
 import { cn } from "../../../../lib/utils";
 import type { Reveal } from "../../../registry.ts";
+import type { DeletableItem } from "../../Item/item-delete.ts";
 import { rowPreview } from "../ItemPreview/item-preview.ts";
 import { ItemTree, ItemTreeRow, RowAction } from "../ItemTree/ItemTree.tsx";
 import { FIRST_LINE } from "../tree-keys.ts";
@@ -18,6 +19,8 @@ type Props = {
   view: Extract<LenientView, { kind: "list" }>;
   properties: Record<string, LenientProperty>;
   onOpenItem?: OpenRowItem | undefined;
+  /** Asks to delete a row's item (`useItemDelete`'s `ask`). */
+  onDeleteItem?: ((item: DeletableItem) => void) | undefined;
   onNewItem: NewItem;
   reveal?: Reveal | undefined;
   onRevealed?: (() => void) | undefined;
@@ -27,7 +30,7 @@ type Props = {
  * A binder's list view: its rows in the view's groups and order under headers that fold, the proposed creates its filter
  * hides first; each row's title wrapped in full, or its paragraph in the title's place when the rows are rich (`richRows`).
  */
-export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem, reveal, onRevealed }: Props) => {
+export const ListView = ({ rows: given, view, properties, onOpenItem, onDeleteItem, onNewItem, reveal, onRevealed }: Props) => {
   const openRow = useOpenRow(onOpenItem);
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
   const revealed = useLastRevealTarget(reveal);
@@ -51,6 +54,7 @@ export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem,
       }}
       previewOf={({ node }) => (node.kind === "row" ? rowPreview(node.row) : undefined)}
       itemOf={({ node }) => (node.kind === "row" ? rowItem(node.row) : undefined)}
+      onDelete={onDeleteItem}
       reveal={reveal}
       onRevealed={onRevealed}
       wraps

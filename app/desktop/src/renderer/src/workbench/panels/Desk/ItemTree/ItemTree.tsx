@@ -7,7 +7,6 @@ import { useCommandScope } from "../../../commands/registry.ts";
 import type { Reveal } from "../../../registry.ts";
 import type { OpenOptions } from "../../../workbench-context.ts";
 import type { DeletableItem } from "../../Item/item-delete.ts";
-import { useItemDelete } from "../../Item/use-item-delete.tsx";
 import { DESK_COMMAND, DESK_ROW_SCOPE } from "../desk-commands.ts";
 import type { PreviewTarget } from "../ItemPreview/item-preview.ts";
 import { useRowPreview } from "../ItemPreview/use-row-preview.tsx";
@@ -36,6 +35,8 @@ type Props<N> = {
   previewOf?: ((row: FlatRow<N>) => PreviewTarget | undefined) | undefined;
   /** The item a row's menu and delete act on; none for a row without a menu. */
   itemOf?: ((row: FlatRow<N>) => DeletableItem | undefined) | undefined;
+  /** The delete command on a row with an item (`useItemDelete`'s `ask`, whose dialog the caller renders). */
+  onDelete?: ((item: DeletableItem) => void) | undefined;
   reveal?: Reveal | undefined;
   onRevealed?: (() => void) | undefined;
   /** Rows grow to hold their whole title (a list's); else each is one line (a tree's). */
@@ -58,13 +59,12 @@ const ROW_KEY_ATTRIBUTE = "data-row-key";
  * one tab stop; the row `reveal` lands on is shown (`useReveal`); one preview box for its rows (`useRowPreview`).
  * The tree is a `desk.row` command scope; an item's row has a context menu (`ItemMenu`) that runs its commands.
  */
-export const ItemTree = <N,>({ label, rows, onToggle, onOpen, previewOf, itemOf, reveal, onRevealed, wraps = false, children }: Props<N>) => {
+export const ItemTree = <N,>({ label, rows, onToggle, onOpen, previewOf, itemOf, onDelete, reveal, onRevealed, wraps = false, children }: Props<N>) => {
   const focus = useTreeFocus(rows.map(({ key }) => key));
   const ref = useRef<HTMLDivElement>(null);
   useReveal(reveal, ref, onRevealed);
   const folds = rows.some(({ expanded }) => expanded !== undefined);
   const preview = useRowPreview({ rows, previewOf, onOpen, within: ref });
-  const remove = useItemDelete();
   const keyOf = (element: Element) => element.closest(`[${ROW_KEY_ATTRIBUTE}]`)?.getAttribute(ROW_KEY_ATTRIBUTE) ?? undefined;
   const rowOf = (element: Element) => {
     const key = keyOf(element);
@@ -78,7 +78,7 @@ export const ItemTree = <N,>({ label, rows, onToggle, onOpen, previewOf, itemOf,
     [DESK_COMMAND.delete]: (element) => {
       const row = rowOf(element);
       const item = row === undefined ? undefined : itemOf?.(row);
-      if (item !== undefined) remove.ask(item);
+      if (item !== undefined) onDelete?.(item);
     },
     [DESK_COMMAND.preview]: (element) => {
       const key = keyOf(element);
@@ -153,7 +153,6 @@ export const ItemTree = <N,>({ label, rows, onToggle, onOpen, previewOf, itemOf,
         </div>
       )}
       {preview.box}
-      {remove.dialog}
     </div>
   );
 };

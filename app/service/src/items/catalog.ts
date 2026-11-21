@@ -7,7 +7,7 @@ import { randomUUIDv7 } from "node:crypto";
 import { join } from "node:path";
 
 import { errorCode } from "@wombat/shared/errno";
-import type { Item, Problem, BinderSettings } from "@wombat/shared/items";
+import { type BinderSettings, isItemId, type Item, type Problem } from "@wombat/shared/items";
 
 import type { Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
@@ -15,7 +15,7 @@ import { queueWrite, readAtVersion, readVersioned, VersionChanged, writeAtomic }
 import { bodyExcerpt } from "./body-excerpt.ts";
 import { addKeyEdits, checkedText, parseItemFile, scalarRange, type ParsedItemFile, type TextEdit } from "./item-file.ts";
 import { folderProblem, inFolder, isCatalogFile, oldSettingsProblem, ownerOf, readSettings, SETTINGS_FILE, binderFiles, binderFolders } from "./binders.ts";
-import { formatHandle, isUuid, parseHandle, validateOwnKeys, validateProperties, type LinkLookup } from "./validate.ts";
+import { formatHandle, parseHandle, validateOwnKeys, validateProperties, type LinkLookup } from "./validate.ts";
 
 export type { Problem } from "@wombat/shared/items";
 
@@ -359,7 +359,7 @@ export const readRoot = async (root: string): Promise<RootRead> => {
     }
     // Rewriting to an id that isn't unique, or isn't an id, would turn a findable handle into a wrong link.
     const { id } = read.names;
-    if (!isUuid(id) || byId.get(id)?.length !== 1) return { kind: "none", reason: "has no valid id yet", names: namesOfFiles(binders, [read]) };
+    if (!isItemId(id) || byId.get(id)?.length !== 1) return { kind: "none", reason: "has no valid id yet", names: namesOfFiles(binders, [read]) };
     return { kind: "handle", id };
   };
 

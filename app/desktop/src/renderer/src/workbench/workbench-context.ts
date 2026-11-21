@@ -2,13 +2,13 @@
 import { createContext, useContext, useEffect } from "react";
 
 import type { DeskLayout } from "./layout.ts";
-import { closeGuards, tabKey } from "./tabs.ts";
+import { closeGuards, type OpenTabOptions, tabKey } from "./tabs.ts";
 
 /** A tab: the panel it shows and its params (its identity, with `tabKey`). */
 export type TabRef = { panelId: string; params: unknown };
 
 /** How a tab opens: as a temporary tab (a row's click), or kept. */
-export type OpenOptions = { temporary?: boolean };
+export type OpenOptions = Pick<OpenTabOptions, "temporary">;
 
 export type WorkbenchActions = {
   /**

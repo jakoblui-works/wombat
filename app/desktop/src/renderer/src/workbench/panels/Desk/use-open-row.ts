@@ -1,5 +1,5 @@
 import { type OpenOptions, useWorkbench } from "../../workbench-context.ts";
-import { isItemRow, type Row } from "./view-model/view-model.ts";
+import { isItemRow, type Row, rowItemId } from "./view-model/view-model.ts";
 import { opensProposal } from "./view-model/with-proposals.ts";
 
 /** Opens a binder's item by id from one of its rows. */
@@ -13,7 +13,8 @@ export const useOpenRow = (onOpenItem: OpenRowItem | undefined): ((row: Row, opt
   const { openProposal } = useWorkbench();
   return (row, options) => {
     if (isItemRow(row)) {
-      if (row.item.id !== null) onOpenItem?.(row.item.id, options);
+      const itemId = rowItemId(row);
+      if (itemId !== undefined) onOpenItem?.(itemId, options);
       return;
     }
     const id = opensProposal(row);

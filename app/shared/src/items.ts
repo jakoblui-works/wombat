@@ -72,6 +72,11 @@ export const slugOf = (title: string) => {
   return slug;
 };
 
+const ITEM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Whether `value` has the form of an item's id: a UUID. */
+export const isItemId = (value: unknown): value is string => typeof value === "string" && ITEM_ID.test(value);
+
 /** The longest a handle prefix may be. */
 export const HANDLE_PREFIX_MAX = 10;
 

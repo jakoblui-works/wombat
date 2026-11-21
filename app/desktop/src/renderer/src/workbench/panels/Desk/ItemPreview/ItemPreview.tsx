@@ -10,6 +10,7 @@ import { itemQuery } from "../../../../data/query-client.ts";
 import { lastPathPart } from "../../../../lib/path.ts";
 import { cn } from "../../../../lib/utils";
 import { itemName } from "../../Item/item-params.ts";
+import { itemNotFound } from "../../Item/item-state.ts";
 import { READ_FAILED, UnparseableItem } from "../../Item/ItemNotice/ItemNotice.tsx";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
 import { previewName, previewShown, propertyLines } from "./item-preview.ts";
@@ -58,7 +59,7 @@ export const ItemPreview = ({ itemRef, listed, onOpen }: Props) => {
     case "loading":
       return <Note>Loading…</Note>;
     case "not-found":
-      return <Note>{previewName(itemRef, listed)} can't be found: it may have been deleted or its handle changed. Check the handle, or look for the item in its binder's views.</Note>;
+      return <Note>{itemNotFound(previewName(itemRef, listed))}</Note>;
     case "error":
       return (
         <Note>

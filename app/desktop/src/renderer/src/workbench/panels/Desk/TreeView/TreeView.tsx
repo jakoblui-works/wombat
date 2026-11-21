@@ -2,6 +2,7 @@ import type { LenientProperty, LenientView } from "@wombat/shared/items";
 import { useMemo, useState } from "react";
 
 import type { Reveal } from "../../../registry.ts";
+import type { DeletableItem } from "../../Item/item-delete.ts";
 import { itemName } from "../../Item/item-params.ts";
 import { rowPreview } from "../ItemPreview/item-preview.ts";
 import { ItemTree, ItemTreeRow, RowAction } from "../ItemTree/ItemTree.tsx";
@@ -15,12 +16,14 @@ type Props = {
   view: Extract<LenientView, { kind: "tree" }>;
   properties: Record<string, LenientProperty>;
   onOpenItem?: OpenRowItem | undefined;
+  /** Asks to delete a row's item (`useItemDelete`'s `ask`). */
+  onDeleteItem?: ((item: DeletableItem) => void) | undefined;
   onNewItem: NewItem;
   reveal?: Reveal | undefined;
   onRevealed?: (() => void) | undefined;
 };
 
-export const TreeView = ({ rows: given, view, properties, onOpenItem, onNewItem, reveal, onRevealed }: Props) => {
+export const TreeView = ({ rows: given, view, properties, onOpenItem, onDeleteItem, onNewItem, reveal, onRevealed }: Props) => {
   const openRow = useOpenRow(onOpenItem);
   const [closed, setClosedRows] = useState<ReadonlySet<string>>(new Set());
   const revealed = useLastRevealTarget(reveal);
@@ -41,6 +44,7 @@ export const TreeView = ({ rows: given, view, properties, onOpenItem, onNewItem,
       onOpen={({ node }, options) => openRow(node, options)}
       previewOf={({ node }) => rowPreview(node)}
       itemOf={({ node }) => rowItem(node)}
+      onDelete={onDeleteItem}
       reveal={reveal}
       onRevealed={onRevealed}
     >

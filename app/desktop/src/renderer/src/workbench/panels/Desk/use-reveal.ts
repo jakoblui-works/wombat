@@ -19,6 +19,10 @@ export const proposalProps = (row: Row): Record<string, string | undefined> => {
 /** What a row carries to be revealed by: its proposals' ids (`PROPOSAL_ATTRIBUTE`) and its item's id (`ITEM_ATTRIBUTE`), as props for its element. */
 export const revealProps = (row: Row): Record<string, string | undefined> => ({ ...proposalProps(row), [ITEM_ATTRIBUTE]: rowItemId(row) });
 
+/** Whether reveal target `target` (a proposal id or an item id) lands on the row carrying `props` (`revealProps`). */
+export const carries = (props: Readonly<Record<string, string | undefined>>, target: string): boolean =>
+  props[ITEM_ATTRIBUTE] === target || (props[PROPOSAL_ATTRIBUTE]?.split(" ").includes(target) ?? false);
+
 /**
  * The target of the view's last reveal request, also after the request ends: its row keeps showing where the view's
  * filter would hide it (`isOutsideFilter`) for as long as the view shows.
@@ -39,11 +43,15 @@ const WAIT_MS = 10_000;
 
 const FOCUSABLE = 'button, [role="treeitem"], [tabindex]';
 
-/** The element under `root` of the row `target` (a proposal id or an item id) lands on (`revealsRow`), if it shows. */
-const holderOf = (root: HTMLElement, target: string): HTMLElement | null => {
-  const value = CSS.escape(target);
-  return root.querySelector<HTMLElement>(`[${PROPOSAL_ATTRIBUTE}~="${value}"], [${ITEM_ATTRIBUTE}="${value}"]`);
-};
+/** The reveal attributes an element carries, as `revealProps` gave them. */
+const carried = (element: Element): Record<string, string | undefined> => ({
+  [PROPOSAL_ATTRIBUTE]: element.getAttribute(PROPOSAL_ATTRIBUTE) ?? undefined,
+  [ITEM_ATTRIBUTE]: element.getAttribute(ITEM_ATTRIBUTE) ?? undefined,
+});
+
+/** The element under `root` of the row `target` (a proposal id or an item id) lands on (`carries`), if it shows. */
+const holderOf = (root: HTMLElement, target: string): HTMLElement | undefined =>
+  [...root.querySelectorAll<HTMLElement>(`[${PROPOSAL_ATTRIBUTE}], [${ITEM_ATTRIBUTE}]`)].find((element) => carries(carried(element), target));
 
 type Highlight = { element: HTMLElement; timer: number };
 
@@ -70,7 +78,7 @@ export const useReveal = (reveal: Reveal | undefined, ref: RefObject<HTMLElement
     if (reveal === undefined || root === null) return;
     const show = (): boolean => {
       const holder = holderOf(root, reveal.target);
-      if (holder === null) return false;
+      if (holder === undefined) return false;
       holder.scrollIntoView({ block: "nearest" });
       (holder.matches(FOCUSABLE) ? holder : holder.querySelector<HTMLElement>(FOCUSABLE))?.focus({ preventScroll: true });
       unhighlight(highlight.current);
