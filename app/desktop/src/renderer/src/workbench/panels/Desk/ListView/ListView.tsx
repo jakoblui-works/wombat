@@ -3,6 +3,7 @@ import { cloneElement, useMemo, useState } from "react";
 
 import { cn } from "../../../../lib/utils";
 import type { Reveal } from "../../../registry.ts";
+import { rowPreview } from "../ItemPreview/item-preview.ts";
 import { ItemTree, ItemTreeRow, RowAction } from "../ItemTree/ItemTree.tsx";
 import { FIRST_LINE } from "../tree-keys.ts";
 import { setClosed } from "../TreeView/tree-view.ts";
@@ -45,6 +46,7 @@ export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem,
       onOpen={({ node }) => {
         if (node.kind === "row") openRow(node.row);
       }}
+      previewOf={({ node }) => (node.kind === "row" ? rowPreview(node.row) : undefined)}
       reveal={reveal}
       onRevealed={onRevealed}
       wraps

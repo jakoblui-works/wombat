@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 
 import type { Reveal } from "../../../registry.ts";
 import { itemName } from "../../Item/item-params.ts";
+import { rowPreview } from "../ItemPreview/item-preview.ts";
 import { ItemTree, ItemTreeRow, RowAction } from "../ItemTree/ItemTree.tsx";
 import { useOpenRow } from "../use-open-row.ts";
 import { isOutsideFilter, type NewItem, offersNewChild, type Row, treeRows, viewContext } from "../view-model/view-model.ts";
@@ -37,6 +38,7 @@ export const TreeView = ({ rows: given, view, properties, onOpenItem, onNewItem,
       onToggle={(key, open) => setClosedRows((current) => setClosed(current, key, open))}
       onActivate={({ node }) => openRow(node)}
       onOpen={({ node }) => openRow(node)}
+      previewOf={({ node }) => rowPreview(node)}
       reveal={reveal}
       onRevealed={onRevealed}
     >

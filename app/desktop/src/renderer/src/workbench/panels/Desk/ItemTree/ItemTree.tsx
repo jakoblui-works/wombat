@@ -6,6 +6,8 @@ import { cn } from "../../../../lib/utils";
 import { useCommandScope } from "../../../commands/registry.ts";
 import type { Reveal } from "../../../registry.ts";
 import { DESK_COMMAND, DESK_ROW_SCOPE } from "../desk-commands.ts";
+import type { PreviewTarget } from "../ItemPreview/item-preview.ts";
+import { useRowPreview } from "../ItemPreview/use-row-preview.tsx";
 import { ItemRow } from "../ItemRow/ItemRow.tsx";
 import { ProposalLines } from "../ProposalLine/ProposalLine.tsx";
 import { FIRST_LINE_BOX, type FlatRow, rowIndent, TREE_ROW, treeChevron, treeKey } from "../tree-keys.ts";
@@ -28,6 +30,8 @@ type Props<N> = {
   onActivate: (row: FlatRow<N>) => void;
   /** The open command on the focused row (Enter). */
   onOpen: (row: FlatRow<N>) => void;
+  /** What a row's preview box shows; none for a row without one. */
+  previewOf?: ((row: FlatRow<N>) => PreviewTarget | undefined) | undefined;
   reveal?: Reveal | undefined;
   onRevealed?: (() => void) | undefined;
   /** Rows grow to hold their whole title (a list's); else each is one line (a tree's). */
@@ -47,18 +51,26 @@ const ROW_KEY_ATTRIBUTE = "data-row-key";
 
 /**
  * A view's visible rows as one tree (the WAI-ARIA tree pattern): one line each or growing (`wraps`), the tree's keys,
- * one tab stop; the row holding proposal `reveal` is shown (`useReveal`). The tree is a `desk.row` command scope.
+ * one tab stop; the row holding proposal `reveal` is shown (`useReveal`); one preview box for its rows (`useRowPreview`).
+ * The tree is a `desk.row` command scope.
  */
-export const ItemTree = <N,>({ label, rows, onToggle, onActivate, onOpen, reveal, onRevealed, wraps = false, children }: Props<N>) => {
+export const ItemTree = <N,>({ label, rows, onToggle, onActivate, onOpen, previewOf, reveal, onRevealed, wraps = false, children }: Props<N>) => {
   const focus = useTreeFocus(rows.map(({ key }) => key));
   const ref = useRef<HTMLDivElement>(null);
   useReveal(reveal, ref, onRevealed);
   const folds = rows.some(({ expanded }) => expanded !== undefined);
+  const preview = useRowPreview({ rows, previewOf, onOpen, within: ref });
+  const keyOf = (element: Element) => element.closest(`[${ROW_KEY_ATTRIBUTE}]`)?.getAttribute(ROW_KEY_ATTRIBUTE) ?? undefined;
   const scope = useCommandScope(DESK_ROW_SCOPE, {
     [DESK_COMMAND.open]: (element) => {
-      const key = element.closest(`[${ROW_KEY_ATTRIBUTE}]`)?.getAttribute(ROW_KEY_ATTRIBUTE);
+      const key = keyOf(element);
       const row = rows.find((each) => each.key === key);
+      preview.off();
       if (row !== undefined) onOpen(row);
+    },
+    [DESK_COMMAND.preview]: (element) => {
+      const key = keyOf(element);
+      if (key !== undefined) preview.toggle(key);
     },
   });
 
@@ -78,7 +90,7 @@ export const ItemTree = <N,>({ label, rows, onToggle, onActivate, onOpen, reveal
       {rows.length === 0 ? (
         <p className="p-3 text-sm text-fg-tertiary">No items in this view.</p>
       ) : (
-        <div {...scope} role="tree" aria-label={label} className="flex flex-col gap-px px-1.5 pt-1 pb-3">
+        <div {...scope} role="tree" aria-label={label} onBlur={preview.onBlur} className="flex flex-col gap-px px-1.5 pt-1 pb-3">
           {rows.map((row, index) => {
             const lead = !folds ? null : (
               <span
@@ -93,7 +105,8 @@ export const ItemTree = <N,>({ label, rows, onToggle, onActivate, onOpen, reveal
                 {row.expanded === undefined ? null : <ChevronRight className={treeChevron(row.expanded)} />}
               </span>
             );
-            const treeitem = (
+            const treeitem = preview.trigger(
+              row,
               <div
                 ref={focus.register(row.key)}
                 role="treeitem"
@@ -103,18 +116,22 @@ export const ItemTree = <N,>({ label, rows, onToggle, onActivate, onOpen, reveal
                 aria-posinset={row.posInSet}
                 aria-expanded={row.expanded}
                 tabIndex={focus.tabIndex(index)}
-                onFocus={() => focus.onFocus(row.key)}
+                onFocus={() => {
+                  focus.onFocus(row.key);
+                  preview.follow(row.key);
+                }}
                 onClick={() => onActivate(row)}
                 onKeyDown={(event) => act(index, event.key, event)}
                 className={cn(TREE_ROW, wraps ? ROW_GROWS : ROW_LINE)}
                 style={{ paddingLeft: rowIndent(row.level) }}
-              />
+              />,
             );
             const titleStart = rowIndent(row.level) + (folds ? LEAD_PX : 0);
             return <Fragment key={row.key}>{children({ row, treeitem, lead, tabIndex: focus.tabIndex(index), titleStart, wraps })}</Fragment>;
           })}
         </div>
       )}
+      {preview.box}
     </div>
   );
 };
