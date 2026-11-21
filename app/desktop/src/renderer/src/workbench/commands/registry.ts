@@ -5,8 +5,11 @@ import { useCallback } from "react";
 
 import { MAIN_COMMAND_IDS, type MainCommandId } from "../../../../shared/bridge.ts";
 
-/** What a command acts on when it isn't the active group or tab: the clicked tab's or group's ids, or a scoped command's element. */
-export type CommandTarget = { groupId?: string; panelId?: string; element?: Element };
+/**
+ * What a command acts on when it isn't the active group or tab: the clicked tab's or group's ids, or a scoped command's
+ * element. `keep`: what the command opens is kept, not temporary (a menu's Open sets it; keys never do).
+ */
+export type CommandTarget = { groupId?: string; panelId?: string; element?: Element; keep?: boolean };
 
 /**
  * An action the user can take. `keys` are written like VS Code's keybindings (`"ctrl+shift+w"`, `"ctrl+="`,
@@ -198,7 +201,7 @@ const pressesItself = (target: unknown): boolean => {
   return tagName === "BUTTON" || tagName === "A";
 };
 
-type ScopeHandler = (element: Element) => void | Promise<void>;
+type ScopeHandler = (element: Element, target: CommandTarget) => void | Promise<void>;
 type ScopeHandlers = Partial<Record<string, ScopeHandler>>;
 
 const scopeRoots = new WeakMap<object, ScopeHandlers>();
@@ -229,11 +232,12 @@ export const useCommandScope = (scope: string, handlers: ScopeHandlers): { ref: 
   return { ref, [SCOPE_ATTRIBUTE]: scope };
 };
 
-/** A scoped command's `run`: runs command `id`'s handler of the nearest root of `scope` on the target's element; nothing without one. */
+/** A scoped command's `run`: runs command `id`'s handler of the nearest root of `scope` on the target's element, with the target; nothing without one. */
 export const runInScope =
   (scope: string, id: string) =>
-  async ({ element }: CommandTarget): Promise<void> => {
-    if (element !== undefined) await scopeHandler(scope, id, element)?.(element);
+  async (target: CommandTarget): Promise<void> => {
+    const { element } = target;
+    if (element !== undefined) await scopeHandler(scope, id, element)?.(element, target);
   };
 
 const matches = (chord: KeyChord, event: KeyboardEvent): boolean =>

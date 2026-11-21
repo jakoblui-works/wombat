@@ -1,48 +1,13 @@
-import type { Item, Problem } from "@wombat/shared/items";
+import type { Item } from "@wombat/shared/items";
 import { Ellipsis } from "lucide-react";
-import { useState } from "react";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../../../components/ui/dropdown-menu";
-import { useDeleteItem } from "../../../../data/commands.ts";
-import { writeFailure } from "../../../../data/write-failure.ts";
-import { lastPathPart } from "../../../../lib/path.ts";
-import { useWorkbench } from "../../../workbench-context.ts";
-import { DeleteItemDialog } from "../DeleteItemDialog/DeleteItemDialog.tsx";
-import { ITEM_PANEL, itemTitle, type SavedItemParams } from "../item-params.ts";
+import type { SavedItemParams } from "../item-params.ts";
+import { useItemDelete } from "../use-item-delete.tsx";
 
-/**
- * The item's menu: Delete asks once, then deletes the file at the version shown when it asked. A stale delete deletes
- * nothing and says the file changed; a delete closes the tab.
- */
-export const ItemActions = ({ tab, item, onStale }: { tab: SavedItemParams; item: Item; onStale: (stale: boolean) => void }) => {
-  const remove = useDeleteItem();
-  const { closeTab } = useWorkbench();
-  const [asked, setAsked] = useState<{ version: string } | undefined>();
-  const [problems, setProblems] = useState<readonly Problem[]>([]);
-
-  const confirm = () => {
-    if (asked === undefined) return;
-    setProblems([]);
-    remove.mutate(
-      { ref: tab.itemId, version: asked.version },
-      {
-        onSuccess: () => {
-          setAsked(undefined);
-          closeTab(ITEM_PANEL, tab);
-        },
-        onError: (failure) => {
-          const outcome = writeFailure(failure);
-          if (outcome !== "stale") {
-            setProblems(outcome);
-            return;
-          }
-          setAsked(undefined);
-          onStale(true);
-        },
-      },
-    );
-  };
-
+/** The item's menu: Delete… deletes the item shown (`useItemDelete`) and closes this tab. */
+export const ItemActions = ({ tab, item }: { tab: SavedItemParams; item: Item }) => {
+  const remove = useItemDelete();
   return (
     <>
       <DropdownMenu>
@@ -53,27 +18,13 @@ export const ItemActions = ({ tab, item, onStale }: { tab: SavedItemParams; item
           <Ellipsis className="size-4" />
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => {
-              setProblems([]);
-              onStale(false);
-              setAsked({ version: item.version });
-            }}
-          >
+          {/* The tab's own params name the item: the tab closed is this one, also after its file moved to another binder. */}
+          <DropdownMenuItem variant="destructive" onClick={() => remove.ask({ ...item, id: tab.itemId, binder: tab.binderId })}>
             Delete…
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <DeleteItemDialog
-        name={itemTitle(item)}
-        file={lastPathPart(item.path)}
-        open={asked !== undefined}
-        pending={remove.isPending}
-        problems={problems}
-        onCancel={() => setAsked(undefined)}
-        onDelete={confirm}
-      />
+      {remove.dialog}
     </>
   );
 };

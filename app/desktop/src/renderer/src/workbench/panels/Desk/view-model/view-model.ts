@@ -36,6 +36,13 @@ export const rowProposals = (row: Row): readonly ItemProposal[] => (isPending(ro
 /** The id of the item a row shows; undefined for a row without one or an item that can't be parsed. */
 export const rowItemId = (row: Row): string | undefined => (isItemRow(row) ? (row.item.id ?? undefined) : undefined);
 
+/** The item a row shows, with its id; undefined for a row without one or an item that can't be parsed. */
+export const rowItem = (row: Row): (ItemSummary & { id: string }) | undefined => {
+  if (!isItemRow(row)) return undefined;
+  const { item } = row;
+  return item.id === null ? undefined : { ...item, id: item.id };
+};
+
 /** Whether reveal target `target` (a proposal id or an item id) lands on `row`. */
 export const revealsRow = (row: Row, target: string): boolean => rowItemId(row) === target || rowProposals(row).some(({ id }) => id === target);
 

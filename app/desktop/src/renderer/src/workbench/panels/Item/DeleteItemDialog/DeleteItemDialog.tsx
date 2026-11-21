@@ -10,7 +10,8 @@ type Props = {
   name: string;
   file: string;
   open: boolean;
-  pending: boolean;
+  /** Delete can't be pressed (a delete on its way, or one refused as stale). */
+  disabled: boolean;
   /** Why the last delete failed, shown in the dialog. */
   problems: readonly Problem[];
   onCancel: () => void;
@@ -18,7 +19,7 @@ type Props = {
 };
 
 /** Asks once before an item's file is deleted (focus starts on Cancel). */
-export const DeleteItemDialog = ({ name, file, open, pending, problems, onCancel, onDelete }: Props) => {
+export const DeleteItemDialog = ({ name, file, open, disabled, problems, onCancel, onDelete }: Props) => {
   const cancelRef = useRef<HTMLButtonElement>(null);
   return (
     <AlertDialog
@@ -37,7 +38,7 @@ export const DeleteItemDialog = ({ name, file, open, pending, problems, onCancel
           <Button ref={cancelRef} type="button" variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="button" variant="destructive" disabled={pending} onClick={onDelete}>
+          <Button type="button" variant="destructive" disabled={disabled} onClick={onDelete}>
             Delete
           </Button>
         </AlertDialogFooter>

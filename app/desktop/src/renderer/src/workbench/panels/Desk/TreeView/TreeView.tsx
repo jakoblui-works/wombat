@@ -7,7 +7,7 @@ import { rowPreview } from "../ItemPreview/item-preview.ts";
 import { ItemTree, ItemTreeRow, RowAction } from "../ItemTree/ItemTree.tsx";
 import { type OpenRowItem, useOpenRow } from "../use-open-row.ts";
 import { useLastRevealTarget } from "../use-reveal.ts";
-import { isOutsideFilter, type NewItem, offersNewChild, type Row, treeRows, viewContext } from "../view-model/view-model.ts";
+import { isOutsideFilter, type NewItem, offersNewChild, type Row, rowItem, treeRows, viewContext } from "../view-model/view-model.ts";
 import { ancestorsOf, opened, setClosed, visibleTreeRows } from "./tree-view.ts";
 
 type Props = {
@@ -40,6 +40,7 @@ export const TreeView = ({ rows: given, view, properties, onOpenItem, onNewItem,
       onToggle={(key, open) => setClosedRows((current) => setClosed(current, key, open))}
       onOpen={({ node }, options) => openRow(node, options)}
       previewOf={({ node }) => rowPreview(node)}
+      itemOf={({ node }) => rowItem(node)}
       reveal={reveal}
       onRevealed={onRevealed}
     >

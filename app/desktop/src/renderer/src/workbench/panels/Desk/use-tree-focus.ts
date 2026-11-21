@@ -11,6 +11,7 @@ export const useTreeFocus = (keys: readonly string[]) => {
       if (element === null) elements.current.delete(key);
       else elements.current.set(key, element);
     },
+    element: (key: string): HTMLElement | undefined => elements.current.get(key),
     onFocus: setFocused,
     focus: (key: string) => {
       setFocused(key);

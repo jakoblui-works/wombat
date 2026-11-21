@@ -10,7 +10,7 @@ import { setClosed } from "../TreeView/tree-view.ts";
 import { useLastRevealTarget } from "../use-reveal.ts";
 import { type OpenRowItem, useOpenRow } from "../use-open-row.ts";
 import { richRows, rowContent } from "../view-model/row-content.ts";
-import { isItemRow, isOutsideFilter, itemCount, listGroups, type NewItem, newItemLabel, type Row, shownGroups, viewContext } from "../view-model/view-model.ts";
+import { isItemRow, isOutsideFilter, itemCount, listGroups, type NewItem, newItemLabel, type Row, rowItem, shownGroups, viewContext } from "../view-model/view-model.ts";
 import { listTree, unfoldedFor } from "./list-tree.ts";
 
 type Props = {
@@ -50,6 +50,7 @@ export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem,
         else if (options.temporary === true) toggle(key, expanded !== true);
       }}
       previewOf={({ node }) => (node.kind === "row" ? rowPreview(node.row) : undefined)}
+      itemOf={({ node }) => (node.kind === "row" ? rowItem(node.row) : undefined)}
       reveal={reveal}
       onRevealed={onRevealed}
       wraps

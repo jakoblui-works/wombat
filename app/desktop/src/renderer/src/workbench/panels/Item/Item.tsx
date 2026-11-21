@@ -177,7 +177,6 @@ const EditItem = ({
   const create = useCreateItem();
   const { closeTab, replaceTab } = useWorkbench();
   const [fileName, setFileName] = useState("");
-  const [staleDelete, setStaleDelete] = useState(false);
   const asksFile = editing.kind === "draft" && binder?.naming === "free";
 
   const refuse = (error: unknown) => {
@@ -253,7 +252,7 @@ const EditItem = ({
             <Button type="button" disabled={!savable || !canSave(state)} onClick={() => send(state)}>
               Save
             </Button>
-            {editing.kind === "saved" && fresh !== undefined ? <ItemActions tab={editing.tab} item={fresh} onStale={setStaleDelete} /> : null}
+            {editing.kind === "saved" && fresh !== undefined ? <ItemActions tab={editing.tab} item={fresh} /> : null}
           </div>
         </div>
         <Field label="Title" hideLabel problems={refused.at.get("title") ?? []} file={file}>
@@ -270,11 +269,6 @@ const EditItem = ({
           )}
         </Field>
       </header>
-      {staleDelete ? (
-        <div role="alert" className="rounded-md border border-state-waiting/40 bg-surface-2 px-3 py-2.5 text-sm text-fg-secondary">
-          This item's file changed since you asked to delete it, so nothing was deleted. Look at the item again, then delete it if you still want to.
-        </div>
-      ) : null}
       {asksFile ? <FileName value={fileName} onChange={(name) => {
             if (takesEdits) setFileName(name);
           }} problems={refused.at.get(FILE_FIELD) ?? []} /> : null}

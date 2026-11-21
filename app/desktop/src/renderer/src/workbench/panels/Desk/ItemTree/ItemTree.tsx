@@ -1,14 +1,17 @@
 import { ChevronRight, Plus } from "lucide-react";
-import { type AriaAttributes, Fragment, type KeyboardEvent, type ReactElement, type ReactNode, useRef } from "react";
+import { type AriaAttributes, type ComponentProps, Fragment, isValidElement, type KeyboardEvent, type ReactElement, type ReactNode, useRef } from "react";
 
 import { Button } from "../../../../components/ui/button";
 import { cn } from "../../../../lib/utils";
 import { useCommandScope } from "../../../commands/registry.ts";
 import type { Reveal } from "../../../registry.ts";
 import type { OpenOptions } from "../../../workbench-context.ts";
+import type { DeletableItem } from "../../Item/item-delete.ts";
+import { useItemDelete } from "../../Item/use-item-delete.tsx";
 import { DESK_COMMAND, DESK_ROW_SCOPE } from "../desk-commands.ts";
 import type { PreviewTarget } from "../ItemPreview/item-preview.ts";
 import { useRowPreview } from "../ItemPreview/use-row-preview.tsx";
+import { ItemMenu } from "../ItemMenu/ItemMenu.tsx";
 import { ItemRow } from "../ItemRow/ItemRow.tsx";
 import { ProposalLines } from "../ProposalLine/ProposalLine.tsx";
 import { FIRST_LINE_BOX, type FlatRow, rowIndent, TREE_ROW, treeChevron, treeKey } from "../tree-keys.ts";
@@ -31,6 +34,8 @@ type Props<N> = {
   onOpen: (row: FlatRow<N>, options: OpenOptions) => void;
   /** What a row's preview box shows; none for a row without one. */
   previewOf?: ((row: FlatRow<N>) => PreviewTarget | undefined) | undefined;
+  /** The item a row's menu and delete act on; none for a row without a menu. */
+  itemOf?: ((row: FlatRow<N>) => DeletableItem | undefined) | undefined;
   reveal?: Reveal | undefined;
   onRevealed?: (() => void) | undefined;
   /** Rows grow to hold their whole title (a list's); else each is one line (a tree's). */
@@ -51,20 +56,29 @@ const ROW_KEY_ATTRIBUTE = "data-row-key";
 /**
  * A view's visible rows as one tree (the WAI-ARIA tree pattern): one line each or growing (`wraps`), the tree's keys,
  * one tab stop; the row `reveal` lands on is shown (`useReveal`); one preview box for its rows (`useRowPreview`).
- * The tree is a `desk.row` command scope.
+ * The tree is a `desk.row` command scope; an item's row has a context menu (`ItemMenu`) that runs its commands.
  */
-export const ItemTree = <N,>({ label, rows, onToggle, onOpen, previewOf, reveal, onRevealed, wraps = false, children }: Props<N>) => {
+export const ItemTree = <N,>({ label, rows, onToggle, onOpen, previewOf, itemOf, reveal, onRevealed, wraps = false, children }: Props<N>) => {
   const focus = useTreeFocus(rows.map(({ key }) => key));
   const ref = useRef<HTMLDivElement>(null);
   useReveal(reveal, ref, onRevealed);
   const folds = rows.some(({ expanded }) => expanded !== undefined);
   const preview = useRowPreview({ rows, previewOf, onOpen, within: ref });
+  const remove = useItemDelete();
   const keyOf = (element: Element) => element.closest(`[${ROW_KEY_ATTRIBUTE}]`)?.getAttribute(ROW_KEY_ATTRIBUTE) ?? undefined;
+  const rowOf = (element: Element) => {
+    const key = keyOf(element);
+    return rows.find((each) => each.key === key);
+  };
   const scope = useCommandScope(DESK_ROW_SCOPE, {
-    [DESK_COMMAND.open]: (element) => {
-      const key = keyOf(element);
-      const row = rows.find((each) => each.key === key);
-      if (row !== undefined) preview.open(row, { temporary: true });
+    [DESK_COMMAND.open]: (element, { keep }) => {
+      const row = rowOf(element);
+      if (row !== undefined) preview.open(row, { temporary: keep !== true });
+    },
+    [DESK_COMMAND.delete]: (element) => {
+      const row = rowOf(element);
+      const item = row === undefined ? undefined : itemOf?.(row);
+      if (item !== undefined) remove.ask(item);
     },
     [DESK_COMMAND.preview]: (element) => {
       const key = keyOf(element);
@@ -129,16 +143,22 @@ export const ItemTree = <N,>({ label, rows, onToggle, onOpen, previewOf, reveal,
               />,
             );
             const titleStart = rowIndent(row.level) + (folds ? LEAD_PX : 0);
-            return <Fragment key={row.key}>{children({ row, treeitem, lead, tabIndex: focus.tabIndex(index), titleStart, wraps })}</Fragment>;
+            const drawn = children({ row, treeitem, lead, tabIndex: focus.tabIndex(index), titleStart, wraps });
+            return (
+              <Fragment key={row.key}>
+                {itemOf?.(row) === undefined || !isValidElement(drawn) ? drawn : <ItemMenu row={() => focus.element(row.key)}>{drawn}</ItemMenu>}
+              </Fragment>
+            );
           })}
         </div>
       )}
       {preview.box}
+      {remove.dialog}
     </div>
   );
 };
 
-type ItemTreeRowProps = {
+type ItemTreeRowProps = Omit<ComponentProps<"div">, "children" | "content"> & {
   parts: RowParts<unknown>;
   node: Row;
   /** The view's filter would hide the row (`isOutsideFilter`). */
@@ -151,9 +171,12 @@ type ItemTreeRowProps = {
   content?: RowContent | undefined;
 };
 
-/** One row of a view's items: its line (`ItemRow`), an action on hover or focus, and its proposals' lines under it. */
-export const ItemTreeRow = ({ parts: { treeitem, lead, tabIndex, titleStart, wraps }, node, outside, action, rich = false, content }: ItemTreeRowProps) => (
-  <div {...revealProps(node)} className={cn(REVEALABLE, "group/row relative", rich && "border-b border-line-subtle")}>
+/**
+ * One row of a view's items: its line (`ItemRow`), an action on hover or focus, and its proposals' lines under it; the
+ * rest of the props go on its box (an `ItemMenu` trigger's).
+ */
+export const ItemTreeRow = ({ parts: { treeitem, lead, tabIndex, titleStart, wraps }, node, outside, action, rich = false, content, className, ...box }: ItemTreeRowProps) => (
+  <div {...box} {...revealProps(node)} className={cn(REVEALABLE, "group/row relative", rich && "border-b border-line-subtle", className)}>
     <ItemRow row={node} render={treeitem} lead={lead} wraps={wraps} content={content} />
     {action}
     <ProposalLines row={node} outside={outside} tabIndex={tabIndex} className="pr-2 pb-1" style={{ paddingLeft: titleStart }} />
