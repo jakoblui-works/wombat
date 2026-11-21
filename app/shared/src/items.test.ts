@@ -24,8 +24,8 @@ const full = {
     blocks: { type: "link", to: "backlog" },
   },
   views: [
-    { name: "Open", kind: "list", filter: { repo: "api" }, group: "repo", sort: ["noted", "order"] },
-    { name: "Board", kind: "board", column: "repo" },
+    { name: "Open", kind: "list", filter: { repo: "api" }, group: "repo", sort: ["noted", "order"], excerpt: false },
+    { name: "Board", kind: "board", column: "repo", excerpt: false },
     { name: "Tree", kind: "tree", parent: "parent" },
   ],
 };

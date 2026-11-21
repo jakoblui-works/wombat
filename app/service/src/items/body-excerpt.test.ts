@@ -10,6 +10,17 @@ const bodyPiece = fc.oneof(
 );
 const anyBody = fc.array(bodyPiece, { maxLength: 20 }).map((pieces) => pieces.join(""));
 
+// A first paragraph that starts with a word and holds no blank line (every newline follows a word), with runs of astral
+// characters long enough that the cut often lands inside one; and maybe a second paragraph after it.
+const ASTRAL = ["😀", "🦘", "𝄞"];
+const paragraphPiece = fc.oneof(
+  fc.string({ unit: fc.constantFrom(..."abcdefgh ".split("")), maxLength: 300 }),
+  fc.constantFrom(" ", "\t", "  ", "end\n", "é"),
+  fc.tuple(fc.constantFrom(...ASTRAL), fc.integer({ min: 1, max: 300 })).map(([char, count]) => char.repeat(count)),
+);
+const firstParagraph = fc.array(paragraphPiece, { maxLength: 15 }).map((pieces) => `Word ${pieces.join("")}`);
+const secondParagraph = fc.constantFrom("", "\n\nA second paragraph.", "\n \nAnother one.");
+
 describe("bodyExcerpt", () => {
   test("is null or one line within the cut", () => {
     fc.assert(
@@ -19,6 +30,25 @@ describe("bodyExcerpt", () => {
         expect(result).not.toMatch(/[\n\r]/);
         expect(result.length).toBeGreaterThan(0);
         expect(result.length).toBeLessThanOrEqual(BODY_EXCERPT_LENGTH);
+      }),
+    );
+  });
+
+  test("is the first paragraph, folded: whole when it fits, else its start cut whole and ending in \"…\"", () => {
+    fc.assert(
+      fc.property(firstParagraph, secondParagraph, (paragraph, after) => {
+        const folded = paragraph.replace(/\s+/g, " ").trim();
+        const result = bodyExcerpt(paragraph + after);
+        if (folded.length <= BODY_EXCERPT_LENGTH) {
+          expect(result).toBe(folded);
+          return;
+        }
+        expect(result).not.toBeNull();
+        const text = result ?? "";
+        expect(text.length).toBeLessThanOrEqual(BODY_EXCERPT_LENGTH);
+        expect(text.isWellFormed()).toBe(true);
+        expect(text.endsWith("…")).toBe(true);
+        expect(folded.startsWith(text.slice(0, -1))).toBe(true);
       }),
     );
   });
