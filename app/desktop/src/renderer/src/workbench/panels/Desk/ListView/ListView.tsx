@@ -23,7 +23,7 @@ type Props = {
 
 /**
  * A binder's list view: its rows in the view's groups and order under headers that fold, the proposed creates its filter
- * hides first; each row's title wrapped in full, with its excerpt and values when the rows are rich (`richRows`).
+ * hides first; each row's title wrapped in full, or its paragraph in the title's place when the rows are rich (`richRows`).
  */
 export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem, reveal, onRevealed }: Props) => {
   const openRow = useOpenRow(onOpenItem);
@@ -50,7 +50,7 @@ export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem,
         const { node } = parts.row;
         if (node.kind === "row") {
           const { row } = node;
-          const content = isItemRow(row) ? rowContent(row.item, view, properties) : undefined;
+          const content = isItemRow(row) ? rowContent(row.item, view) : undefined;
           return <ItemTreeRow parts={parts} node={row} outside={isOutsideFilter(row, view, properties)} rich={rich} content={content} />;
         }
         const { group } = node;

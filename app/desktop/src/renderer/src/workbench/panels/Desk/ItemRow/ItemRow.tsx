@@ -9,7 +9,7 @@ import { proposedTitle } from "../../../proposals/proposal-label.ts";
 import { itemName } from "../../Item/item-params.ts";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
 import { FIRST_LINE, FIRST_LINE_BOX } from "../tree-keys.ts";
-import { NOTHING_SHOWN, type RowContent, type Shown, shownContent } from "../view-model/row-content.ts";
+import { type RowContent, shownContent } from "../view-model/row-content.ts";
 import { MISSING_ITEM } from "../view-model/values.ts";
 import { isItemRow, isPending, type Row } from "../view-model/view-model.ts";
 import { struck } from "../view-model/with-proposals.ts";
@@ -24,7 +24,7 @@ type Props = {
   lead?: ReactNode;
   /** The title wraps in full (a list's row); else it ends in an ellipsis when it doesn't fit (a tree's). */
   wraps?: boolean | undefined;
-  /** An item's excerpt and values, shown under its title or in its place (`rowContent`). */
+  /** An item's line, shown in its title's place (`rowContent`). */
   content?: RowContent | undefined;
 };
 
@@ -32,56 +32,31 @@ type Props = {
 const UNTITLED = "Untitled item";
 
 const TITLE_LINE = "block min-w-0 flex-1 truncate text-fg-primary";
-const TITLE_WRAPS = "min-w-0 break-words text-fg-primary";
+const TITLE_WRAPS = "min-w-0 flex-1 break-words text-fg-primary";
 const MARK = cn("text-xs text-fg-tertiary italic", FIRST_LINE);
 
-type Ids = { title: string; mark: string; problems: string; excerpt: string; values: string };
-
-const describedBy = (...ids: (string | false)[]): string | undefined => {
-  const named = ids.filter((id) => id !== false);
-  return named.length === 0 ? undefined : named.join(" ");
-};
+type Ids = { title: string; mark: string; problems: string };
 
 // Children are spread, not passed as one argument: an explicit undefined child would empty a tooltip trigger's element.
 const rooted = (render: Render, aria: AriaAttributes, ...children: ReactNode[]) => cloneElement(render, aria, ...children);
-
-/** The title as the row's form draws it: on one line, or wrapped in full above the content (`ItemRow`'s `wraps`). */
-const Titled = ({ title, wraps, shown, ids }: { title: ReactElement; wraps: boolean; shown: Shown; ids: Ids }) => {
-  if (!wraps) return title;
-  return (
-    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-      {title}
-      {shown.excerpt === undefined ? null : <InlineMarkdown id={ids.excerpt} text={shown.excerpt} className="line-clamp-2 text-sm text-fg-secondary" />}
-      {shown.values === undefined ? null : (
-        <span id={ids.values} className="truncate text-xs text-fg-tertiary">
-          {shown.values}
-        </span>
-      )}
-    </div>
-  );
-};
 
 const ItemLine = ({ row, render, lead, wraps = false, content, ids }: Props & { row: Extract<Row, { item: unknown }>; ids: Ids }) => {
   const { item } = row;
   const invalid = item.problems.length > 0;
   const titleClass = cn(wraps ? TITLE_WRAPS : TITLE_LINE, struck(row) && "text-fg-secondary line-through");
-  const shown = shownContent(wraps, content);
-  const aria = {
-    "aria-labelledby": ids.title,
-    "aria-describedby": describedBy(shown.excerpt !== undefined && ids.excerpt, shown.values !== undefined && ids.values, invalid && ids.problems),
-  };
-  const text = shown.line ?? item.title;
+  const aria = { "aria-labelledby": ids.title, "aria-describedby": invalid ? ids.problems : undefined };
+  const text = shownContent(wraps, content).line ?? item.title;
   const title =
     text === null ? (
-      <span id={ids.title} className={titleClass}>
+      <span key="title" id={ids.title} className={titleClass}>
         {itemName(item)}
       </span>
     ) : (
-      <InlineMarkdown id={ids.title} text={text} className={titleClass} />
+      <InlineMarkdown key="title" id={ids.title} text={text} className={titleClass} />
     );
   const children = [
     lead,
-    <Titled key="title" title={title} wraps={wraps} shown={shown} ids={ids} />,
+    title,
     invalid ? (
       <span key="invalid" className={FIRST_LINE_BOX}>
         <TriangleAlert role="img" aria-label="Invalid" className="size-3.5 text-danger" />
@@ -109,22 +84,20 @@ const ItemLine = ({ row, render, lead, wraps = false, content, ids }: Props & { 
 
 /**
  * One row of a view: an item's title (struck for a proposed delete, marked when invalid with its problems on hover or
- * focus) and, in a rich row, its excerpt and values, the excerpt in the title's place when it repeats the title; a
- * proposed create's title marked "new"; or a missing item's handle marked `MISSING_ITEM`. On one line, or growing with
- * the title wrapped (`wraps`).
+ * focus), in a rich row its line in the title's place (`rowContent`); a proposed create's title marked "new"; or a
+ * missing item's handle marked `MISSING_ITEM`. On one line, or growing with the title wrapped (`wraps`).
  */
 export const ItemRow = (props: Props) => {
   const { row, render, lead, wraps = false } = props;
   const id = useId();
-  const ids: Ids = { title: `${id}-title`, mark: `${id}-mark`, problems: `${id}-problems`, excerpt: `${id}-excerpt`, values: `${id}-values` };
+  const ids: Ids = { title: `${id}-title`, mark: `${id}-mark`, problems: `${id}-problems` };
   if (isItemRow(row)) return <ItemLine {...props} row={row} ids={ids} />;
   if (isPending(row)) {
-    const title = <InlineMarkdown id={ids.title} text={proposedTitle(row.fields) ?? UNTITLED} className={wraps ? TITLE_WRAPS : TITLE_LINE} />;
     return rooted(
       render,
       { "aria-labelledby": ids.title, "aria-describedby": ids.mark },
       lead,
-      <Titled key="title" title={title} wraps={wraps} shown={NOTHING_SHOWN} ids={ids} />,
+      <InlineMarkdown key="title" id={ids.title} text={proposedTitle(row.fields) ?? UNTITLED} className={wraps ? TITLE_WRAPS : TITLE_LINE} />,
       <span key="mark" id={ids.mark} className={cn(MARK, "shrink-0")}>
         new
       </span>,

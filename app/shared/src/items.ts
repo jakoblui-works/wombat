@@ -170,7 +170,10 @@ const viewFields = {
     .array(z.string(takes("sort", "a list of property names", "sort: [noted]")), takes("sort", "a list of property names", "sort: [noted]"))
     .exactOptional(),
 };
-/** `false` draws a list or board view's rows as titles only; absent or `true`, rich (title, excerpt, values). */
+/**
+ * `false` draws a list or board view's rows as titles only; absent or `true`, an item whose body starts with its title
+ * shows its whole first paragraph in the title's place.
+ */
 const excerptField = z.boolean(takes("excerpt", "true or false", "excerpt: false")).exactOptional();
 const ListView = z.strictObject(
   {
