@@ -124,7 +124,7 @@ Wombat doesn't drop a broken binder or item. The app lists it with its problems.
 
 `GET /items/:ref` answers one item with its body. `ref` is the item's id, its handle or one of its aliases, tried in that order.
 
-Every item the API sends (`GET /binders/:id/items`, `GET /items/:ref` and the answers to the writes below) carries `binder`, the id of its binder, and `excerpt`: the body's first paragraph (its first block of non-blank lines), with a leading list, quote or heading marker (`- `, `* `, `+ `, `1. `, `> `, `# ` to `###### `) removed, whitespace folded to single spaces and cut to at most 200 characters (UTF-16 code units). Markdown inside it stays as written. `excerpt` is `null` when the body has no text or the file can't be parsed. Agents' tools don't carry either.
+Every item the API sends (`GET /binders/:id/items`, `GET /items/:ref` and the answers to the writes below) carries `binder`, the id of its binder, and `excerpt`: the body's first paragraph (its first block of non-blank lines), with a leading list, quote or heading marker (`- `, `* `, `+ `, `1. `, `> `, `# ` to `###### `) removed, whitespace folded to single spaces and cut to at most 1,000 characters (UTF-16 code units), ending in "…" when cut. Markdown inside it stays as written. `excerpt` is `null` when the body has no text or the file can't be parsed. Agents' tools don't carry either.
 
 The app writes items through three routes. They check the values as an agent's writes are checked, but access levels and locked fields don't apply: you can change anything an agent may only propose.
 

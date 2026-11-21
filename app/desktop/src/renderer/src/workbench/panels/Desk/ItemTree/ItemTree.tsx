@@ -114,7 +114,7 @@ type ItemTreeRowProps = {
   action?: ReactNode;
   /** The row is one of a rich list's (`richRows`): a hairline under it. */
   rich?: boolean;
-  /** What an item's rich row shows under its title (`rowContent`). */
+  /** What an item's rich row shows under its title or in its place (`rowContent`). */
   content?: RowContent | undefined;
 };
 

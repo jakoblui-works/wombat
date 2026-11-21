@@ -24,7 +24,7 @@ type Props = {
   lead?: ReactNode;
   /** The title wraps in full (a list's row); else it ends in an ellipsis when it doesn't fit (a tree's). */
   wraps?: boolean | undefined;
-  /** An item's excerpt and values, shown under its title (`rowContent`). */
+  /** An item's excerpt and values, shown under its title or in its place (`rowContent`). */
   content?: RowContent | undefined;
 };
 
@@ -70,13 +70,14 @@ const ItemLine = ({ row, render, lead, wraps = false, content, ids }: Props & { 
     "aria-labelledby": ids.title,
     "aria-describedby": describedBy(shown.excerpt !== undefined && ids.excerpt, shown.values !== undefined && ids.values, invalid && ids.problems),
   };
+  const text = shown.line ?? item.title;
   const title =
-    item.title === null ? (
+    text === null ? (
       <span id={ids.title} className={titleClass}>
         {itemName(item)}
       </span>
     ) : (
-      <InlineMarkdown id={ids.title} text={item.title} className={titleClass} />
+      <InlineMarkdown id={ids.title} text={text} className={titleClass} />
     );
   const children = [
     lead,
@@ -108,8 +109,9 @@ const ItemLine = ({ row, render, lead, wraps = false, content, ids }: Props & { 
 
 /**
  * One row of a view: an item's title (struck for a proposed delete, marked when invalid with its problems on hover or
- * focus) and, in a rich row, its excerpt and values; a proposed create's title marked "new"; or a missing item's handle
- * marked `MISSING_ITEM`. On one line, or growing with the title wrapped (`wraps`).
+ * focus) and, in a rich row, its excerpt and values, the excerpt in the title's place when it repeats the title; a
+ * proposed create's title marked "new"; or a missing item's handle marked `MISSING_ITEM`. On one line, or growing with
+ * the title wrapped (`wraps`).
  */
 export const ItemRow = (props: Props) => {
   const { row, render, lead, wraps = false } = props;

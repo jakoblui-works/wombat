@@ -1,8 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
-import { EXCERPT_LENGTH } from "../excerpt.ts";
-import { bodyExcerpt } from "./body-excerpt.ts";
+import { BODY_EXCERPT_LENGTH, bodyExcerpt } from "./body-excerpt.ts";
 
 const bodyPiece = fc.oneof(
   fc.string({ maxLength: 40 }),
@@ -19,7 +18,7 @@ describe("bodyExcerpt", () => {
         if (result === null) return;
         expect(result).not.toMatch(/[\n\r]/);
         expect(result.length).toBeGreaterThan(0);
-        expect(result.length).toBeLessThanOrEqual(EXCERPT_LENGTH);
+        expect(result.length).toBeLessThanOrEqual(BODY_EXCERPT_LENGTH);
       }),
     );
   });
