@@ -24,6 +24,7 @@ const item = (n: number): ItemSummary => ({
   path: `chores/CH-${String(n)}.md`,
   version: "0".repeat(64),
   problems: [],
+  excerpt: null,
   binder: "chores",
 });
 

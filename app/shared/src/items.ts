@@ -170,14 +170,26 @@ const viewFields = {
     .array(z.string(takes("sort", "a list of property names", "sort: [noted]")), takes("sort", "a list of property names", "sort: [noted]"))
     .exactOptional(),
 };
+/** `false` draws a list or board view's rows as titles only; absent or `true`, rich (title, excerpt, values). */
+const excerptField = z.boolean(takes("excerpt", "true or false", "excerpt: false")).exactOptional();
 const ListView = z.strictObject(
-  { ...viewFields, kind: z.literal("list"), group: z.string(takes("group", "a property name", "group: repo")).exactOptional() },
-  keysOf("a list view", "name, kind, filter, sort and group", viewExample),
+  {
+    ...viewFields,
+    kind: z.literal("list"),
+    group: z.string(takes("group", "a property name", "group: repo")).exactOptional(),
+    excerpt: excerptField,
+  },
+  keysOf("a list view", "name, kind, filter, sort, group and excerpt", viewExample),
 );
 /** `column`: a select property; the app groups a list by its value. */
 const BoardView = z.strictObject(
-  { ...viewFields, kind: z.literal("board"), column: z.string(takes("column", "a select property's name", "column: repo")) },
-  keysOf("a board view", "name, kind, filter, sort and column", viewExample),
+  {
+    ...viewFields,
+    kind: z.literal("board"),
+    column: z.string(takes("column", "a select property's name", "column: repo")),
+    excerpt: excerptField,
+  },
+  keysOf("a board view", "name, kind, filter, sort, column and excerpt", viewExample),
 );
 /** `parent`: a link property to the same binder; an item nests under the item it links to. */
 const TreeView = z.strictObject(
@@ -372,6 +384,8 @@ const itemFields = {
   path: z.string(),
   /** sha256 (hex) of the file's bytes; a write names the version it's based on. */
   version: z.string(),
+  /** Null when the file can't be parsed or the body has no text. */
+  excerpt: z.string().nullable(),
   /** The id of the binder the item belongs to. */
   binder: z.string(),
   problems: z.array(Problem),

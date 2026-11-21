@@ -46,7 +46,7 @@ const cases: [string, object, null | [Path, string]][] = [
   ["a property named id", withProperties({ id: { type: "text" } }), [["properties", "id"], '"id"']],
   ["a board column that isn't a select", withView({ name: "B", kind: "board", column: "note" }), [["views", 0, "column"], "column"]],
   ["a view with show", withView({ name: "L", kind: "list", show: [] }), [["views", 0, "show"], "show: not a key"]],
-  ["a view with excerpt", withView({ name: "B", kind: "board", column: "repo", excerpt: false }), [["views", 0, "excerpt"], "excerpt: not a key"]],
+  ["a tree view with excerpt", withView({ name: "T", kind: "tree", parent: "parent", excerpt: false }), [["views", 0, "excerpt"], "excerpt: not a key"]],
 ];
 
 /** Where an issue is: its path, and for an unknown key the key itself. */
@@ -96,6 +96,7 @@ test("API shapes stay lenient: unknown fields stripped, unknown view kinds dropp
     properties: { repo: "api", blocks: { id: "0196f3c2-2b00-7000-8000-000000000001", handle: "BL-1" } },
     path: "bugs/BUG-1-login-times-out.md",
     version: "9f2c",
+    excerpt: "Steps: sign in.",
     binder: "bugs",
     problems: [],
     body: "\nSteps: sign in.\n",
