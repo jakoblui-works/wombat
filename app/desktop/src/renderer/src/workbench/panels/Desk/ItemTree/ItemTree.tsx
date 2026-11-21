@@ -5,6 +5,7 @@ import { Button } from "../../../../components/ui/button";
 import { cn } from "../../../../lib/utils";
 import { useCommandScope } from "../../../commands/registry.ts";
 import type { Reveal } from "../../../registry.ts";
+import type { OpenOptions } from "../../../workbench-context.ts";
 import { DESK_COMMAND, DESK_ROW_SCOPE } from "../desk-commands.ts";
 import type { PreviewTarget } from "../ItemPreview/item-preview.ts";
 import { useRowPreview } from "../ItemPreview/use-row-preview.tsx";
@@ -26,8 +27,8 @@ type Props<N> = {
   label: string;
   rows: readonly FlatRow<N>[];
   onToggle: (key: string, open: boolean) => void;
-  /** A click on the row, or the open command on the focused row (Enter). */
-  onOpen: (row: FlatRow<N>) => void;
+  /** A click on the row or the open command on the focused row (Enter), temporary; a double click, kept. */
+  onOpen: (row: FlatRow<N>, options: OpenOptions) => void;
   /** What a row's preview box shows; none for a row without one. */
   previewOf?: ((row: FlatRow<N>) => PreviewTarget | undefined) | undefined;
   reveal?: Reveal | undefined;
@@ -63,7 +64,7 @@ export const ItemTree = <N,>({ label, rows, onToggle, onOpen, previewOf, reveal,
     [DESK_COMMAND.open]: (element) => {
       const key = keyOf(element);
       const row = rows.find((each) => each.key === key);
-      if (row !== undefined) preview.open(row);
+      if (row !== undefined) preview.open(row, { temporary: true });
     },
     [DESK_COMMAND.preview]: (element) => {
       const key = keyOf(element);
@@ -98,6 +99,9 @@ export const ItemTree = <N,>({ label, rows, onToggle, onOpen, previewOf, reveal,
                   event.stopPropagation();
                   onToggle(row.key, !row.expanded);
                 }}
+                onDoubleClick={(event) => {
+                  if (row.expanded !== undefined) event.stopPropagation();
+                }}
               >
                 {row.expanded === undefined ? null : <ChevronRight className={treeChevron(row.expanded)} />}
               </span>
@@ -117,7 +121,8 @@ export const ItemTree = <N,>({ label, rows, onToggle, onOpen, previewOf, reveal,
                   focus.onFocus(row.key);
                   preview.follow(row.key);
                 }}
-                onClick={() => preview.open(row)}
+                onClick={() => preview.open(row, { temporary: true })}
+                onDoubleClick={() => preview.open(row, { temporary: false })}
                 onKeyDown={(event) => act(index, event.key, event)}
                 className={cn(TREE_ROW, wraps ? ROW_GROWS : ROW_LINE)}
                 style={{ paddingLeft: rowIndent(row.level) }}

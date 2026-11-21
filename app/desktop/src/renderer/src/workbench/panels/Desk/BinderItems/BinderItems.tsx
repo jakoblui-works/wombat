@@ -5,6 +5,7 @@ import type { Reveal } from "../../../registry.ts";
 import { EmptyState } from "../../EmptyState/EmptyState.tsx";
 import { ListView } from "../ListView/ListView.tsx";
 import { TreeView } from "../TreeView/TreeView.tsx";
+import type { OpenRowItem } from "../use-open-row.ts";
 import { useItemProposals } from "../use-item-proposals.ts";
 import { useItemsOf } from "../use-link-lists.ts";
 import { type NewItem, sidebarView } from "../view-model/view-model.ts";
@@ -13,7 +14,7 @@ import { withProposals } from "../view-model/with-proposals.ts";
 type Props = {
   binder: Extract<BinderSummary, { id: string }>;
   view: LenientView | undefined;
-  onOpenItem?: ((itemId: string) => void) | undefined;
+  onOpenItem?: OpenRowItem | undefined;
   onNewItem: NewItem;
   reveal?: Reveal | undefined;
   onRevealed?: (() => void) | undefined;

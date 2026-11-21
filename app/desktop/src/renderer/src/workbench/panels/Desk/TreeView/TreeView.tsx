@@ -5,7 +5,7 @@ import type { Reveal } from "../../../registry.ts";
 import { itemName } from "../../Item/item-params.ts";
 import { rowPreview } from "../ItemPreview/item-preview.ts";
 import { ItemTree, ItemTreeRow, RowAction } from "../ItemTree/ItemTree.tsx";
-import { useOpenRow } from "../use-open-row.ts";
+import { type OpenRowItem, useOpenRow } from "../use-open-row.ts";
 import { isOutsideFilter, type NewItem, offersNewChild, type Row, treeRows, viewContext } from "../view-model/view-model.ts";
 import { ancestorsOf, opened, setClosed, visibleTreeRows } from "./tree-view.ts";
 
@@ -13,7 +13,7 @@ type Props = {
   rows: readonly Row[];
   view: Extract<LenientView, { kind: "tree" }>;
   properties: Record<string, LenientProperty>;
-  onOpenItem?: ((itemId: string) => void) | undefined;
+  onOpenItem?: OpenRowItem | undefined;
   onNewItem: NewItem;
   reveal?: Reveal | undefined;
   onRevealed?: (() => void) | undefined;
@@ -36,7 +36,7 @@ export const TreeView = ({ rows: given, view, properties, onOpenItem, onNewItem,
       label={view.name}
       rows={rows}
       onToggle={(key, open) => setClosedRows((current) => setClosed(current, key, open))}
-      onOpen={({ node }) => openRow(node)}
+      onOpen={({ node }, options) => openRow(node, options)}
       previewOf={({ node }) => rowPreview(node)}
       reveal={reveal}
       onRevealed={onRevealed}

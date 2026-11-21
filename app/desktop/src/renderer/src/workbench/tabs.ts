@@ -34,18 +34,71 @@ const stableJson = (value: unknown): string =>
 /** A tab's identity: its panel and its params. */
 export const tabKey = (panelId: string, params: unknown): string => `${panelId}:${stableJson(params)}`;
 
+/**
+ * Which open tabs are temporary, by tab key: the page's memory only, never the tab's params or the saved layout, so a
+ * restored tab is kept. Read by the tabs' titles (`useSyncExternalStore`).
+ */
+const temporaryTabs = new Set<string>();
+const temporaryListeners = new Set<() => void>();
+
+const setTemporary = (key: string, temporary: boolean): void => {
+  if (temporaryTabs.has(key) === temporary) return;
+  if (temporary) temporaryTabs.add(key);
+  else temporaryTabs.delete(key);
+  for (const listener of temporaryListeners) listener();
+};
+
+export const isTemporaryTab = (key: string): boolean => temporaryTabs.has(key);
+
+export const subscribeTemporaryTabs = (listener: () => void): (() => void) => {
+  temporaryListeners.add(listener);
+  return () => temporaryListeners.delete(listener);
+};
+
+/** Makes the tab `key` kept: no temporary tab opened later replaces it. */
+export const keepTab = (key: string): void => setTemporary(key, false);
+
+/** Makes every tab kept: a restored layout's tabs are all kept. */
+export const keepAllTabs = (): void => {
+  for (const key of [...temporaryTabs]) setTemporary(key, false);
+};
+
+/** The tab a temporary tab opened in a group replaces: the group's temporary tab, unless it has unsaved edits. */
+export const tabToReplace = (tabs: { key: string; temporary: boolean; unsaved: boolean }[]): string | undefined => {
+  const temporary = tabs.find((tab) => tab.temporary);
+  return temporary === undefined || temporary.unsaved ? undefined : temporary.key;
+};
+
+/**
+ * The tabs to keep once tab `moved` is in a group with `tabs` (it among them): every other temporary tab, so the group
+ * holds one; the moved tab stays as it was.
+ */
+export const tabsToKeepAfterMove = (tabs: { key: string; temporary: boolean }[], moved: string): string[] =>
+  tabs.some((tab) => tab.key === moved && tab.temporary) ? tabs.filter((tab) => tab.temporary && tab.key !== moved).map(({ key }) => key) : [];
+
+/** Keeps what `tabsToKeepAfterMove` says once `panel` was moved into the group it's in now. */
+export const settleMovedTab = (panel: IDockviewPanel): void => {
+  const tabs = panel.group.panels.map(({ id }) => ({ key: id, temporary: isTemporaryTab(id) }));
+  for (const key of tabsToKeepAfterMove(tabs, panel.id)) keepTab(key);
+};
+
+/** The questions tabs with unsaved work ask before they close, by tab key: the page's one record (`closeGuards`). */
+const closeAsks = new Map<string, () => void>();
+
 type TabPosition = NonNullable<Parameters<TabHost["addPanel"]>[0]["position"]>;
 
-/** Adds the tab for (panel, params) at `position` (dockview's default place without one). */
-const addTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveContext, position: TabPosition | undefined): void => {
+/** Adds the tab for (panel, params) at `position` (dockview's default place without one), temporary or kept. */
+const addTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveContext, position: TabPosition | undefined, temporary = false): void => {
   const panel = getPanel(panelId);
   if (panel === undefined) throw new Error(`There's no panel "${panelId}" to open; register it in workbench/activities.ts.`);
   if (!paramsFit(panel, params)) {
     throw new Error(`The params for the panel "${panelId}" don't match its paramsSchema; pass what the panel registered.`);
   }
   const tab: TabParams = { panelId, params };
+  const key = tabKey(panelId, params);
+  setTemporary(key, temporary);
   host.addPanel({
-    id: tabKey(panelId, params),
+    id: key,
     component: TAB_COMPONENT,
     title: panelTitle(panel, params, ctx),
     params: tab,
@@ -53,29 +106,40 @@ const addTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveCon
   });
 };
 
+/** Adds the tab `to` where the open tab `old` is (same group, same position) and closes `old`. */
+const addInPlaceOf = (host: TabHost, old: IDockviewPanel, to: TabRef, ctx: ResolveContext, temporary: boolean): void => {
+  addTab(host, to.panelId, to.params, ctx, { referenceGroup: old.group, index: old.group.panels.indexOf(old) }, temporary);
+  host.removePanel(old);
+};
+
+/** How a tab opens: `beside` another tab (its key, while that tab is open), and as a temporary tab. */
+export type OpenTabOptions = { beside?: string | undefined; temporary?: boolean | undefined };
+
 /**
- * Focuses the tab for (panel, params) if it's open; otherwise adds it to the active group (or the first group). With
- * `beside` (another tab's key, while that tab is open) it goes beside that tab instead: into the group to the right of
- * that tab's group, or a new group there.
+ * Focuses the tab for (panel, params) if it's open (kept from now on unless opened as temporary); otherwise adds it to
+ * the active group (or the first group). With `beside` it goes beside that tab instead: into the group to the right of
+ * that tab's group, or a new group there. A temporary tab takes the place of the group's temporary tab (`tabToReplace`).
  */
-export const openTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveContext = { agents: undefined }, beside?: string): void => {
-  const open = host.getPanel(tabKey(panelId, params));
+export const openTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveContext = { agents: undefined }, { beside, temporary = false }: OpenTabOptions = {}): void => {
+  const key = tabKey(panelId, params);
+  const open = host.getPanel(key);
   if (open !== undefined) {
+    if (!temporary) keepTab(key);
     open.api.setActive();
     return;
   }
   const besideGroup = beside === undefined ? undefined : host.getPanel(beside)?.group;
   const right = besideGroup === undefined ? undefined : host.adjacentGroupInDirection(besideGroup, "right");
-  const group = host.activeGroup ?? host.groups[0];
+  const group = besideGroup === undefined ? (host.activeGroup ?? host.groups[0]) : right;
+  const replaced = !temporary || group === undefined ? undefined : tabToReplace(group.panels.map(({ id }) => ({ key: id, temporary: isTemporaryTab(id), unsaved: closeAsks.has(id) })));
+  const old = replaced === undefined ? undefined : host.getPanel(replaced);
+  if (old !== undefined) {
+    addInPlaceOf(host, old, { panelId, params }, ctx, true);
+    return;
+  }
   const position =
-    besideGroup === undefined
-      ? group === undefined
-        ? undefined
-        : { referenceGroup: group }
-      : right === undefined
-        ? { referenceGroup: besideGroup, direction: "right" as const }
-        : { referenceGroup: right.id };
-  addTab(host, panelId, params, ctx, position);
+    besideGroup !== undefined && right === undefined ? { referenceGroup: besideGroup, direction: "right" as const } : group === undefined ? undefined : { referenceGroup: group.id };
+  addTab(host, panelId, params, ctx, position, temporary);
 };
 
 /** Puts the tab `to` where the open tab `from` is (same group, same position) and closes `from`. */
@@ -86,9 +150,11 @@ export const replaceTab = (host: TabHost, from: string, to: TabRef, ctx: Resolve
     return;
   }
   const open = host.getPanel(tabKey(to.panelId, to.params));
-  if (open === undefined) addTab(host, to.panelId, to.params, ctx, { referenceGroup: old.group, index: old.group.panels.indexOf(old) });
-  else open.api.setActive();
-  host.removePanel(old);
+  if (open === undefined) addInPlaceOf(host, old, to, ctx, false);
+  else {
+    open.api.setActive();
+    host.removePanel(old);
+  }
 };
 
 /** The sides of a group a split can open on. */
@@ -124,28 +190,27 @@ const tabOf = (panel: IDockviewPanel): TabParams | undefined => {
 
 /**
  * How tabs with unsaved work ask before they close: a panel registers its question by tab key while it holds such
- * work, and a close the user asks for runs the question instead of closing.
+ * work, and a close the user asks for runs the question instead of closing. One for the page, over `closeAsks`.
  */
-export const closeGuards = () => {
-  const asks = new Map<string, () => void>();
-  return {
-    /** Registers `ask` for the tab `key`; returns its unregistration. */
-    guard: (key: string, ask: () => void): (() => void) => {
-      asks.set(key, ask);
-      return () => {
-        if (asks.get(key) === ask) asks.delete(key);
-      };
-    },
-    /** A close the user asked for: the tab's question when it has one, else the close. */
-    close: (host: Pick<TabHost, "removePanel">, panel: IDockviewPanel): void => {
-      const ask = asks.get(panel.id);
-      if (ask === undefined) host.removePanel(panel);
-      else ask();
-    },
-  };
+const pageCloseGuards = {
+  /** Registers `ask` for the tab `key`, which keeps the tab (an edit keeps a temporary tab); returns its unregistration. */
+  guard: (key: string, ask: () => void): (() => void) => {
+    closeAsks.set(key, ask);
+    keepTab(key);
+    return () => {
+      if (closeAsks.get(key) === ask) closeAsks.delete(key);
+    };
+  },
+  /** A close the user asked for: the tab's question when it has one, else the close. */
+  close: (host: Pick<TabHost, "removePanel">, panel: IDockviewPanel): void => {
+    const ask = closeAsks.get(panel.id);
+    if (ask === undefined) host.removePanel(panel);
+    else ask();
+  },
 };
 
-export type CloseGuards = ReturnType<typeof closeGuards>;
+/** The page's close guards: every call gives the same one. */
+export const closeGuards = (): typeof pageCloseGuards => pageCloseGuards;
 
 /** Closes every tab that no longer applies (`isKnown`, the same rule as the restore's). */
 export const pruneTabs = (host: TabHost, isKnown: IsKnown): void => {
@@ -250,17 +315,18 @@ export const workbenchActions = (
   showActivity: (activity: string) => void,
   desk: DeskHost,
 ): WorkbenchActions => {
+  const show = (panelId: string, params: unknown, reveal: string | undefined, temporary: boolean): void => {
+    const key = tabKey(panelId, params);
+    const wasOpen = host.getPanel(key) !== undefined;
+    openTab(host, panelId, params, ctx(), { temporary });
+    // A new request each time, so the panel reveals again; a tab opened anew starts without an old one.
+    if (reveal !== undefined) reveals.set(key, { target: reveal });
+    else if (!wasOpen) reveals.set(key, undefined);
+  };
   const actions: WorkbenchActions = {
-    openTab: (panelId, params, reveal) => {
-      const key = tabKey(panelId, params);
-      const wasOpen = host.getPanel(key) !== undefined;
-      openTab(host, panelId, params, ctx());
-      // A new request each time, so the panel reveals again; a tab opened anew starts without an old one.
-      if (reveal !== undefined) reveals.set(key, { target: reveal });
-      else if (!wasOpen) reveals.set(key, undefined);
-    },
+    openTab: (panelId, params, reveal) => show(panelId, params, reveal, false),
     openBeside: (panelId, params, beside) => {
-      openTab(host, panelId, params, ctx(), tabKey(beside.panelId, beside.params));
+      openTab(host, panelId, params, ctx(), { beside: tabKey(beside.panelId, beside.params) });
     },
     closeTab: (panelId, params) => {
       const panel = host.getPanel(tabKey(panelId, params));
@@ -282,8 +348,8 @@ export const workbenchActions = (
         showActivity(DESK_ACTIVITY);
       });
     },
-    openItem: (binderId, itemId) => {
-      actions.openTab(ITEM_PANEL, { binderId, itemId } satisfies ItemParams);
+    openItem: (binderId, itemId, options) => {
+      show(ITEM_PANEL, { binderId, itemId } satisfies ItemParams, undefined, options?.temporary === true);
     },
     openNewItem: (binderId, context) => {
       const params = { binderId, draft: newCommandId(), context } satisfies ItemParams;

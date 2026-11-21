@@ -42,7 +42,7 @@ export const Desk = ({ reveal, onRevealed }: PanelProps) => {
         view={view}
         onBack={() => changeDesk(showTree)}
         onView={(name) => openBinder(binder.id, undefined, name)}
-        onOpenItem={(itemId) => openItem(binder.id, itemId)}
+        onOpenItem={(itemId, options) => openItem(binder.id, itemId, options)}
         onNewItem={(context) => openNewItem(binder.id, context)}
         reveal={reveal}
         onRevealed={onRevealed}

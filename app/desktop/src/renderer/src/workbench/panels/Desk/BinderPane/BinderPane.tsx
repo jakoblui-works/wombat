@@ -6,6 +6,7 @@ import { ScrollArea } from "../../../../components/ui/scroll-area";
 import { cn } from "../../../../lib/utils";
 import type { Reveal } from "../../../registry.ts";
 import { BinderItems } from "../BinderItems/BinderItems.tsx";
+import type { OpenRowItem } from "../use-open-row.ts";
 import { type NewItem, sidebarView, viewContext } from "../view-model/view-model.ts";
 
 type Props = {
@@ -13,7 +14,7 @@ type Props = {
   view: LenientView | undefined;
   onBack: () => void;
   onView: (view: string) => void;
-  onOpenItem?: ((itemId: string) => void) | undefined;
+  onOpenItem?: OpenRowItem | undefined;
   onNewItem: NewItem;
   reveal?: Reveal | undefined;
   onRevealed?: (() => void) | undefined;

@@ -2,10 +2,13 @@
 import { createContext, useContext, useEffect } from "react";
 
 import type { DeskLayout } from "./layout.ts";
-import { type CloseGuards, closeGuards, tabKey } from "./tabs.ts";
+import { closeGuards, tabKey } from "./tabs.ts";
 
 /** A tab: the panel it shows and its params (its identity, with `tabKey`). */
 export type TabRef = { panelId: string; params: unknown };
+
+/** How a tab opens: as a temporary tab (a row's click), or kept. */
+export type OpenOptions = { temporary?: boolean };
 
 export type WorkbenchActions = {
   /**
@@ -32,8 +35,11 @@ export type WorkbenchActions = {
    * items. `reveal` (a proposal id) reaches the Desk's sidebar.
    */
   openBinder: (binderId: string, reveal?: string, view?: string) => void;
-  /** Opens or focuses the item's tab. */
-  openItem: (binderId: string, itemId: string) => void;
+  /**
+   * Opens or focuses the item's tab. A `temporary` tab takes the place of its group's temporary tab and is replaced by
+   * the next one, until it's kept (`keepTab`); a tab opened again without it is kept.
+   */
+  openItem: (binderId: string, itemId: string, options?: OpenOptions) => void;
   /** Opens a new tab on an item not written yet in the binder, starting with `context`'s values (`viewContext`). */
   openNewItem: (binderId: string, context: Record<string, unknown>) => void;
   /**
@@ -70,11 +76,8 @@ export const useDesk = (): DeskState => {
   return state;
 };
 
-export const CloseGuardsContext = createContext<CloseGuards>(closeGuards());
-
 /** While `ask` is given, a close of the tab (its X, Close, Ctrl+W) runs `ask` instead; the panel closes it itself. */
 export const useCloseGuard = (tab: TabRef, ask: (() => void) | undefined): void => {
-  const guards = useContext(CloseGuardsContext);
   const key = tabKey(tab.panelId, tab.params);
-  useEffect(() => (ask === undefined ? undefined : guards.guard(key, ask)), [guards, key, ask]);
+  useEffect(() => (ask === undefined ? undefined : closeGuards().guard(key, ask)), [key, ask]);
 };

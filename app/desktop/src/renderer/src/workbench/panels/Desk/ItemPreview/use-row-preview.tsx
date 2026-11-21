@@ -2,6 +2,7 @@ import type { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview
 import { type AriaAttributes, type FocusEvent, type ReactElement, type RefObject, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { createPreviewCardHandle, PreviewCard, PreviewCardTrigger } from "../../../../components/ui/preview-card";
+import type { OpenOptions } from "../../../workbench-context.ts";
 import type { FlatRow } from "../tree-keys.ts";
 import { ItemPreview, ItemPreviewContent, PREVIEW_CLOSE_DELAY_MS, PREVIEW_DELAY_MS } from "./ItemPreview.tsx";
 import { previewOnFocus, previewOnSpace, type PreviewTarget } from "./item-preview.ts";
@@ -10,7 +11,7 @@ type Options<N> = {
   rows: readonly FlatRow<N>[];
   /** What a row's box previews; none for a row without a box. */
   previewOf: ((row: FlatRow<N>) => PreviewTarget | undefined) | undefined;
-  onOpen: (row: FlatRow<N>) => void;
+  onOpen: (row: FlatRow<N>, options: OpenOptions) => void;
   /** The view's root: the box opens beside its right edge, and the focus leaving it turns the box off. */
   within: RefObject<HTMLElement | null>;
 };
@@ -57,9 +58,9 @@ export const useRowPreview = <N,>({ rows, previewOf, onOpen, within }: Options<N
     on.current = false;
     handle.close();
   };
-  const openRow = (shown: FlatRow<N>) => {
+  const openRow = (shown: FlatRow<N>, options: OpenOptions) => {
     off();
-    onOpen(shown);
+    onOpen(shown, options);
   };
   const anchor = useMemo(() => (trigger === undefined ? undefined : besideRow(trigger, within)), [trigger, within]);
   const gone = open && (target === undefined || trigger?.isConnected !== true);
@@ -78,7 +79,7 @@ export const useRowPreview = <N,>({ rows, previewOf, onOpen, within }: Options<N
       const action = previewOnFocus(keys(), key, previewable(key));
       if (action !== undefined) show(key, action);
     },
-    /** Turns the box off and opens the row: for a click and Enter, as the box's Open does. */
+    /** Turns the box off and opens the row: temporary for a click and Enter, as the box's Open does; kept for a double click. */
     open: openRow,
     onBlur: (event: FocusEvent) => {
       const next = event.relatedTarget;
@@ -112,7 +113,7 @@ export const useRowPreview = <N,>({ rows, previewOf, onOpen, within }: Options<N
       >
         {target === undefined || row === undefined ? null : (
           <ItemPreviewContent ref={popup} anchor={anchor}>
-            <ItemPreview itemRef={target.itemRef} listed={target.listed} onOpen={() => openRow(row)} />
+            <ItemPreview itemRef={target.itemRef} listed={target.listed} onOpen={() => openRow(row, { temporary: true })} />
           </ItemPreviewContent>
         )}
       </PreviewCard>

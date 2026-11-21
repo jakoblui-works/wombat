@@ -7,7 +7,7 @@ import { rowPreview } from "../ItemPreview/item-preview.ts";
 import { ItemTree, ItemTreeRow, RowAction } from "../ItemTree/ItemTree.tsx";
 import { FIRST_LINE } from "../tree-keys.ts";
 import { setClosed } from "../TreeView/tree-view.ts";
-import { useOpenRow } from "../use-open-row.ts";
+import { type OpenRowItem, useOpenRow } from "../use-open-row.ts";
 import { richRows, rowContent } from "../view-model/row-content.ts";
 import { isItemRow, isOutsideFilter, itemCount, listGroups, type NewItem, newItemLabel, type Row, shownGroups, viewContext } from "../view-model/view-model.ts";
 import { listTree, unfoldedFor } from "./list-tree.ts";
@@ -16,7 +16,7 @@ type Props = {
   rows: readonly Row[];
   view: Extract<LenientView, { kind: "list" }>;
   properties: Record<string, LenientProperty>;
-  onOpenItem?: ((itemId: string) => void) | undefined;
+  onOpenItem?: OpenRowItem | undefined;
   onNewItem: NewItem;
   reveal?: Reveal | undefined;
   onRevealed?: (() => void) | undefined;
@@ -42,7 +42,11 @@ export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem,
       label={view.name}
       rows={rows}
       onToggle={toggle}
-      onOpen={({ node, key, expanded }) => (node.kind === "group" ? toggle(key, expanded !== true) : openRow(node.row))}
+      onOpen={({ node, key, expanded }, options) => {
+        if (node.kind === "row") openRow(node.row, options);
+        // A double click's kept open isn't a third toggle: its two clicks already folded and unfolded the header.
+        else if (options.temporary === true) toggle(key, expanded !== true);
+      }}
       previewOf={({ node }) => (node.kind === "row" ? rowPreview(node.row) : undefined)}
       reveal={reveal}
       onRevealed={onRevealed}

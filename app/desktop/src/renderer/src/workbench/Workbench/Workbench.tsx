@@ -30,10 +30,12 @@ import { TabBarMenu } from "../TabBar/TabBarMenu.tsx";
 import { ResizeHandle } from "../ResizeHandle/ResizeHandle.tsx";
 import {
   closeGuards,
+  keepAllTabs,
   pruneTabs,
   type Reveals,
   retitleTabs,
   revealStore,
+  settleMovedTab,
   sidebarRevealKey,
   TAB_COMPONENT,
   type TabParams,
@@ -43,7 +45,7 @@ import {
 } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { showBinder } from "../panels/Desk/desk-place.ts";
-import { type ActiveTab, ActiveTabContext, CloseGuardsContext, DeskContext, type DeskState, type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
+import { type ActiveTab, ActiveTabContext, DeskContext, type DeskState, type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
 import { ZoomToast } from "../ZoomToast/ZoomToast.tsx";
 
 type Chrome = Pick<SavedLayout, "sidebars" | "activity"> & { desk: DeskLayout };
@@ -178,7 +180,10 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     const proposalsState = queryClient.getQueryState<ListProposalsResponse>(keys.proposals);
     if (!readAnswered(state, connection) || !readAnswered(proposalsState, connection)) return;
     fellBack.current = false;
-    const layout = restoreLayout(saved.raw, isRestorable({ agents: state?.data?.agents, proposals: proposalsState?.data?.proposals }), (dockview) => api.fromJSON(dockview), () => {
+    const layout = restoreLayout(saved.raw, isRestorable({ agents: state?.data?.agents, proposals: proposalsState?.data?.proposals }), (dockview) => {
+      keepAllTabs();
+      api.fromJSON(dockview);
+    }, () => {
       fellBack.current = true;
     });
     setChrome({ sidebars: layout.sidebars, activity: layout.activity, desk: layout.desk ?? DEFAULT_DESK });
@@ -248,8 +253,13 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     return () => change.dispose();
   }, [api]);
 
+  useEffect(() => {
+    if (api === undefined) return;
+    const moved = api.onDidMovePanel(({ panel }) => settleMovedTab(panel));
+    return () => moved.dispose();
+  }, [api]);
+
   const reveals = useMemo(revealStore, []);
-  const guards = useMemo(closeGuards, []);
   const showActivity = useCallback((id: string) => {
     setChrome((current) => ({ ...current, activity: id }));
     saver.current?.schedule("user");
@@ -299,9 +309,9 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         ...(rightPanel === undefined ? {} : { rightSidebarTitle: rightPanel.title }),
         blocked: () => blockedRef.current,
         restartService: () => restartRef.current(),
-        ...(api === undefined ? {} : { closePanel: (panel: IDockviewPanel) => guards.close(api, panel) }),
+        ...(api === undefined ? {} : { closePanel: (panel: IDockviewPanel) => closeGuards().close(api, panel) }),
       }),
-    [api, showActivity, rightPanel?.title, guards],
+    [api, showActivity, rightPanel?.title],
   );
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -358,7 +368,6 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         <ActiveTabContext value={activeTab}>
           <RevealsContext value={reveals}>
             <TitlesContext value={titles}>
-              <CloseGuardsContext value={guards}>
               <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
                 <TitleBar
                   right={rightPanel}
@@ -417,7 +426,6 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                   Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
                 </span>
               </div>
-              </CloseGuardsContext>
             </TitlesContext>
           </RevealsContext>
         </ActiveTabContext>
