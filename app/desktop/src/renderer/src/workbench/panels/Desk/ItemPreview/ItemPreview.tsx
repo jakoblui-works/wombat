@@ -1,14 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ItemSummary } from "@wombat/shared/items";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 
 import { InlineMarkdown, Markdown } from "../../../../components/Markdown/Markdown.tsx";
 import { Button } from "../../../../components/ui/button";
+import { PreviewCardContent } from "../../../../components/ui/preview-card";
 import { useBinders } from "../../../../data/hooks.ts";
 import { itemQuery } from "../../../../data/query-client.ts";
 import { lastPathPart } from "../../../../lib/path.ts";
 import { cn } from "../../../../lib/utils";
 import { itemName } from "../../Item/item-params.ts";
+import { READ_FAILED, UnparseableItem } from "../../Item/ItemNotice/ItemNotice.tsx";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
 import { previewName, previewShown, propertyLines } from "./item-preview.ts";
 
@@ -24,6 +26,14 @@ type Props = {
   listed?: ItemSummary | undefined;
   onOpen: () => void;
 };
+
+/**
+ * The box an `ItemPreview` shows in, which its body's scroll needs. Focusable by the pointer only: a click in the box
+ * takes the focus there (a view's preview counts that as staying), and the keyboard never moves it in.
+ */
+export const ItemPreviewContent = ({ className, ...props }: ComponentProps<typeof PreviewCardContent>) => (
+  <PreviewCardContent tabIndex={-1} className={cn("flex max-h-[min(32rem,var(--available-height))] w-[26rem] max-w-(--available-width) flex-col", className)} {...props} />
+);
 
 const PART = "border-line-subtle px-3 py-2 not-first:border-t";
 
@@ -52,17 +62,14 @@ export const ItemPreview = ({ itemRef, listed, onOpen }: Props) => {
     case "error":
       return (
         <Note>
-          Couldn't read {previewName(itemRef, listed)}: {shown.message}
+          {READ_FAILED.item}: {shown.message}
         </Note>
       );
     case "unparseable":
       return (
-        <>
-          <Note>
-            {lastPathPart(shown.item.path)} can't be parsed, so it has no handle and can't be opened here. Fix the file by hand ({shown.item.path}).
-          </Note>
-          <ProblemList problems={shown.item.problems} file={lastPathPart(shown.item.path)} className={PART} />
-        </>
+        <div className={cn(PART, "flex flex-col gap-2 text-fg-secondary")}>
+          <UnparseableItem entry={shown.item} />
+        </div>
       );
     case "item": {
       const { item } = shown;
@@ -71,7 +78,7 @@ export const ItemPreview = ({ itemRef, listed, onOpen }: Props) => {
       return (
         <>
           <div className={cn(PART, "flex items-start gap-3")}>
-            <InlineMarkdown text={item.title ?? itemName(item)} className="flex-1 text-fg-primary" />
+            <InlineMarkdown text={itemName(item)} className="flex-1 text-fg-primary" />
             {/* The spaces keep the handle a word apart in the text content; the flex gap only shows it apart. */}
             {item.handle === null ? null : (
               <>

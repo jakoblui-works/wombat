@@ -1,6 +1,6 @@
 import { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview-card"
 import { cn } from "../../lib/utils"
-import { POPUP_MOTION, useOpenInput, useOpenTracking } from "./popup-motion"
+import { HOVER_POPUP_LAYER, POPUP_MOTION, useOpenInput, useOpenTracking } from "./popup-motion"
 
 const createPreviewCardHandle = PreviewCardPrimitive.createHandle
 
@@ -24,7 +24,7 @@ function PreviewCardContent({
   const input = useOpenInput()
   return (
     <PreviewCardPrimitive.Portal>
-      <PreviewCardPrimitive.Positioner side={side} align={align} sideOffset={sideOffset} anchor={anchor} className="isolate z-[70] outline-none">
+      <PreviewCardPrimitive.Positioner side={side} align={align} sideOffset={sideOffset} anchor={anchor} className={cn(HOVER_POPUP_LAYER, "outline-none")}>
         <PreviewCardPrimitive.Popup
           data-slot="preview-card-content"
           data-input={input}

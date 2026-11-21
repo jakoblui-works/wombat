@@ -2,7 +2,6 @@ import { TriangleAlert } from "lucide-react";
 import { type AriaAttributes, cloneElement, type ReactElement, type ReactNode, useId } from "react";
 
 import { InlineMarkdown } from "../../../../components/Markdown/Markdown.tsx";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../../../../components/ui/tooltip";
 import { lastPathPart } from "../../../../lib/path.ts";
 import { cn } from "../../../../lib/utils";
 import { proposedTitle } from "../../../proposals/proposal-label.ts";
@@ -37,7 +36,7 @@ const MARK = cn("text-xs text-fg-tertiary italic", FIRST_LINE);
 
 type Ids = { title: string; mark: string; problems: string };
 
-// Children are spread, not passed as one argument: an explicit undefined child would empty a tooltip trigger's element.
+// Children are spread, not passed as one argument: an explicit undefined child would empty a preview trigger's element.
 const rooted = (render: Render, aria: AriaAttributes, ...children: ReactNode[]) => cloneElement(render, aria, ...children);
 
 const ItemLine = ({ row, render, lead, wraps = false, content, ids }: Props & { row: Extract<Row, { item: unknown }>; ids: Ids }) => {
@@ -64,27 +63,19 @@ const ItemLine = ({ row, render, lead, wraps = false, content, ids }: Props & { 
     ) : null,
   ];
   if (!invalid) return rooted(render, aria, ...children);
-  const file = lastPathPart(item.path);
   return (
     <>
-      <Tooltip>
-        <TooltipTrigger delay={200} render={rooted(render, {})} {...aria}>
-          {children}
-        </TooltipTrigger>
-        <TooltipContent className="max-w-80">
-          <ProblemList problems={item.problems} file={file} />
-        </TooltipContent>
-      </Tooltip>
+      {rooted(render, aria, ...children)}
       <div hidden>
-        <ProblemList problems={item.problems} file={file} id={ids.problems} />
+        <ProblemList problems={item.problems} file={lastPathPart(item.path)} id={ids.problems} />
       </div>
     </>
   );
 };
 
 /**
- * One row of a view: an item's title (struck for a proposed delete, marked when invalid with its problems on hover or
- * focus), in a rich row its line in the title's place (`rowContent`); a proposed create's title marked "new"; or a
+ * One row of a view: an item's title (struck for a proposed delete, marked when invalid, its problems its description),
+ * in a rich row its line in the title's place (`rowContent`); a proposed create's title marked "new"; or a
  * missing item's handle marked `MISSING_ITEM`. On one line, or growing with the title wrapped (`wraps`).
  */
 export const ItemRow = (props: Props) => {

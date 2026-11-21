@@ -26,9 +26,7 @@ type Props<N> = {
   label: string;
   rows: readonly FlatRow<N>[];
   onToggle: (key: string, open: boolean) => void;
-  /** A click on the row. */
-  onActivate: (row: FlatRow<N>) => void;
-  /** The open command on the focused row (Enter). */
+  /** A click on the row, or the open command on the focused row (Enter). */
   onOpen: (row: FlatRow<N>) => void;
   /** What a row's preview box shows; none for a row without one. */
   previewOf?: ((row: FlatRow<N>) => PreviewTarget | undefined) | undefined;
@@ -54,7 +52,7 @@ const ROW_KEY_ATTRIBUTE = "data-row-key";
  * one tab stop; the row holding proposal `reveal` is shown (`useReveal`); one preview box for its rows (`useRowPreview`).
  * The tree is a `desk.row` command scope.
  */
-export const ItemTree = <N,>({ label, rows, onToggle, onActivate, onOpen, previewOf, reveal, onRevealed, wraps = false, children }: Props<N>) => {
+export const ItemTree = <N,>({ label, rows, onToggle, onOpen, previewOf, reveal, onRevealed, wraps = false, children }: Props<N>) => {
   const focus = useTreeFocus(rows.map(({ key }) => key));
   const ref = useRef<HTMLDivElement>(null);
   useReveal(reveal, ref, onRevealed);
@@ -65,8 +63,7 @@ export const ItemTree = <N,>({ label, rows, onToggle, onActivate, onOpen, previe
     [DESK_COMMAND.open]: (element) => {
       const key = keyOf(element);
       const row = rows.find((each) => each.key === key);
-      preview.off();
-      if (row !== undefined) onOpen(row);
+      if (row !== undefined) preview.open(row);
     },
     [DESK_COMMAND.preview]: (element) => {
       const key = keyOf(element);
@@ -120,7 +117,7 @@ export const ItemTree = <N,>({ label, rows, onToggle, onActivate, onOpen, previe
                   focus.onFocus(row.key);
                   preview.follow(row.key);
                 }}
-                onClick={() => onActivate(row)}
+                onClick={() => preview.open(row)}
                 onKeyDown={(event) => act(index, event.key, event)}
                 className={cn(TREE_ROW, wraps ? ROW_GROWS : ROW_LINE)}
                 style={{ paddingLeft: rowIndent(row.level) }}

@@ -38,6 +38,17 @@ const BrokenBinders = ({ binders }: { binders: readonly BrokenBinder[] }) => (
   </ul>
 );
 
+/** What an item's views say about an item whose file can't be parsed: why, its problems, and which file to fix. */
+export const UnparseableItem = ({ entry }: { entry: ItemSummary }) => (
+  <>
+    <p>This item's file can't be read, so its fields and body can't be shown:</p>
+    <ProblemList problems={entry.problems} file={lastPathPart(entry.path)} className="text-sm text-danger" />
+    <p>
+      Fix <Path path={entry.path} /> by hand; the item shows here again once it can be read.
+    </p>
+  </>
+);
+
 /** What an item's tab says when its binder isn't listed. */
 export const BinderNotice = ({ shown }: { shown: NoBinder }) =>
   shown.kind === "binder-missing" ? (
@@ -61,11 +72,7 @@ export const ItemNotice = ({ shown }: { shown: Exclude<ItemShown, { kind: "loadi
     case "unparseable":
       return (
         <Notice>
-          <p>This item's file can't be read, so its fields and body can't be shown:</p>
-          <ProblemList problems={shown.entry.problems} file={lastPathPart(shown.entry.path)} className="text-sm text-danger" />
-          <p>
-            Fix <Path path={shown.entry.path} /> by hand; the item shows here again once it can be read.
-          </p>
+          <UnparseableItem entry={shown.entry} />
         </Notice>
       );
     case "missing":

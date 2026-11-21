@@ -42,10 +42,7 @@ export const ListView = ({ rows: given, view, properties, onOpenItem, onNewItem,
       label={view.name}
       rows={rows}
       onToggle={toggle}
-      onActivate={({ node, key, expanded }) => (node.kind === "group" ? toggle(key, expanded !== true) : openRow(node.row))}
-      onOpen={({ node }) => {
-        if (node.kind === "row") openRow(node.row);
-      }}
+      onOpen={({ node, key, expanded }) => (node.kind === "group" ? toggle(key, expanded !== true) : openRow(node.row))}
       previewOf={({ node }) => (node.kind === "row" ? rowPreview(node.row) : undefined)}
       reveal={reveal}
       onRevealed={onRevealed}

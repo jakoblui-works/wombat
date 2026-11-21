@@ -1,9 +1,9 @@
 import type { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview-card";
 import { type AriaAttributes, type FocusEvent, type ReactElement, type RefObject, useEffect, useId, useMemo, useRef, useState } from "react";
 
-import { createPreviewCardHandle, PreviewCard, PreviewCardContent, PreviewCardTrigger } from "../../../../components/ui/preview-card";
+import { createPreviewCardHandle, PreviewCard, PreviewCardTrigger } from "../../../../components/ui/preview-card";
 import type { FlatRow } from "../tree-keys.ts";
-import { ItemPreview, PREVIEW_CLOSE_DELAY_MS, PREVIEW_DELAY_MS } from "./ItemPreview.tsx";
+import { ItemPreview, ItemPreviewContent, PREVIEW_CLOSE_DELAY_MS, PREVIEW_DELAY_MS } from "./ItemPreview.tsx";
 import { previewOnFocus, previewOnSpace, type PreviewTarget } from "./item-preview.ts";
 
 type Options<N> = {
@@ -33,8 +33,8 @@ const IMPERATIVE: PreviewCardPrimitive.Root.ChangeEventReason = "imperative-acti
 
 /**
  * One preview box shared by a view's rows: it opens on a row after the hover delay, and Space (`toggle`) turns its
- * keyboard mode on and off (`previewOnSpace`, `previewOnFocus`); `follow` on each focus move, `off` for Enter, and
- * `onBlur` on the view's root for the focus leaving it. It closes when its row goes.
+ * keyboard mode on and off (`previewOnSpace`, `previewOnFocus`); `follow` on each focus move, `open` for a click or
+ * Enter, and `onBlur` on the view's root for the focus leaving it. It closes when its row goes.
  */
 export const useRowPreview = <N,>({ rows, previewOf, onOpen, within }: Options<N>) => {
   const [handle] = useState(() => createPreviewCardHandle());
@@ -57,6 +57,10 @@ export const useRowPreview = <N,>({ rows, previewOf, onOpen, within }: Options<N
     on.current = false;
     handle.close();
   };
+  const openRow = (shown: FlatRow<N>) => {
+    off();
+    onOpen(shown);
+  };
   const anchor = useMemo(() => (trigger === undefined ? undefined : besideRow(trigger, within)), [trigger, within]);
   const gone = open && (target === undefined || trigger?.isConnected !== true);
 
@@ -74,9 +78,11 @@ export const useRowPreview = <N,>({ rows, previewOf, onOpen, within }: Options<N
       const action = previewOnFocus(keys(), key, previewable(key));
       if (action !== undefined) show(key, action);
     },
-    off,
+    /** Turns the box off and opens the row: for a click and Enter, as the box's Open does. */
+    open: openRow,
     onBlur: (event: FocusEvent) => {
       const next = event.relatedTarget;
+      // A click in the box moves the focus into it (`ItemPreviewContent`), which counts as staying.
       if (next instanceof Node && (within.current?.contains(next) === true || popup.current?.contains(next) === true)) return;
       off();
     },
@@ -104,18 +110,10 @@ export const useRowPreview = <N,>({ rows, previewOf, onOpen, within }: Options<N
           else if (details.reason !== IMPERATIVE) on.current = false;
         }}
       >
-        {/* Focusable by the pointer only: a click in the box takes the focus there, which `onBlur` counts as staying. */}
-        {target === undefined ? null : (
-          <PreviewCardContent ref={popup} tabIndex={-1} anchor={anchor} className="flex max-h-[min(32rem,var(--available-height))] w-[26rem] max-w-(--available-width) flex-col">
-            <ItemPreview
-              itemRef={target.itemRef}
-              listed={target.listed}
-              onOpen={() => {
-                off();
-                if (row !== undefined) onOpen(row);
-              }}
-            />
-          </PreviewCardContent>
+        {target === undefined || row === undefined ? null : (
+          <ItemPreviewContent ref={popup} anchor={anchor}>
+            <ItemPreview itemRef={target.itemRef} listed={target.listed} onOpen={() => openRow(row)} />
+          </ItemPreviewContent>
         )}
       </PreviewCard>
     ),

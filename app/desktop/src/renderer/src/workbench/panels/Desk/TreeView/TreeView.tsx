@@ -36,7 +36,6 @@ export const TreeView = ({ rows: given, view, properties, onOpenItem, onNewItem,
       label={view.name}
       rows={rows}
       onToggle={(key, open) => setClosedRows((current) => setClosed(current, key, open))}
-      onActivate={({ node }) => openRow(node)}
       onOpen={({ node }) => openRow(node)}
       previewOf={({ node }) => rowPreview(node)}
       reveal={reveal}

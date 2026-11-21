@@ -66,6 +66,7 @@ const NAMED_CODES: Record<string, string> = {
   numpad_multiply: "NumpadMultiply",
   numpad_divide: "NumpadDivide",
   numpad_decimal: "NumpadDecimal",
+  numpad_enter: "NumpadEnter",
 };
 
 /** How a key shows in a menu, where its name alone wouldn't read well. */
@@ -75,6 +76,7 @@ const KEY_LABELS: Record<string, string> = {
   NumpadMultiply: "Numpad*",
   NumpadDivide: "Numpad/",
   NumpadDecimal: "Numpad.",
+  NumpadEnter: "Numpad Enter",
   ArrowUp: "Up",
   ArrowDown: "Down",
   ArrowLeft: "Left",

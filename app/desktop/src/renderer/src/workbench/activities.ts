@@ -4,6 +4,7 @@ import { createElement } from "react";
 
 import "../harnesses/claude/claude-ui.ts";
 import { AGENTS_ACTIVITY, DESK_ACTIVITY, DESK_PANEL } from "./activity-ids.ts";
+import { registerOnce } from "../lib/register-once.ts";
 import { type ActivityDescriptor, registerActivity, registerPanel } from "./registry.ts";
 import { AgentsList } from "./panels/AgentsList/AgentsList.tsx";
 import { Chat } from "./panels/Chat/Chat.tsx";
@@ -85,11 +86,4 @@ const register = (): void => {
   unbuilt("project-overview", "Project overview", LayoutDashboard, { title: "Project overview arrives later", body: "See the project's codebase and what's being worked on here." });
 };
 
-// The registry lives as long as the page and refuses an id twice, so a second copy of this module (a hot update in
-// development) mustn't register again: it reloads the page instead. `hot.data` outlives each copy of the module.
-const hot = import.meta.hot as { data: { registered?: boolean } } | undefined;
-if (hot?.data.registered === true) location.reload();
-else {
-  register();
-  if (hot) hot.data.registered = true;
-}
+registerOnce(import.meta.hot, register);
