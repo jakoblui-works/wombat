@@ -1,8 +1,8 @@
 # Items
 
-Items are markdown files that you and your agents work on together: bugs, backlog entries, conventions, documents. Wombat reads them from a folder on your machine, the items root, and gives agents tools to read them and change them. Each change goes through the rules you set for its binder.
+Items are markdown files that you and your agents work on together: bugs, backlog entries, conventions, documents. Wombat reads them from a folder on your machine, the items folder, and gives agents tools to read them and change them. Each change goes through the rules you set for its binder.
 
-In the app, choose the items root with the Desk's Choose items folder… button, or later with Choose Items Folder… in the File menu. The app saves it per workspace in its `settings.json` and restarts the service with it, asking first when agents have a process. A folder that doesn't exist, isn't a folder or can't be read is refused, and the items root stays as it was. The app ignores a `WOMBAT_ITEMS` it inherits from your shell.
+In the app, choose the items folder with the Desk's Choose items folder… button, or later with Choose Items Folder… in the File menu. The app saves it per workspace in its `settings.json` and restarts the service with it, asking first when agents have a process. A folder that doesn't exist, isn't a folder or can't be read is refused, and the items folder stays as it was. The app ignores a `WOMBAT_ITEMS` it inherits from your shell.
 
 When you run the service on its own, set the items folder with `WOMBAT_ITEMS`, an absolute path. Without an items folder, the service runs without items.
 
@@ -10,7 +10,7 @@ When you run the service on its own, set the items folder with `WOMBAT_ITEMS`, a
 
 A binder is a folder with a `_binder.yaml` in it. Every markdown file below that folder belongs to it, up to the next folder that has its own `_binder.yaml`. A file belongs to exactly one binder, so a nested binder's access level covers only its own files. Folders starting with `.` and `node_modules` are never read.
 
-In the app, New binder at the top of the Desk's tree (or in its empty state), or the + on a drawer's row, asks for a name, a handle prefix and a folder, and writes a starter `_binder.yaml` there; everything after that you edit by hand, and the Desk follows. The prefix and folder are suggested from the name. The folder is relative to the items root, or to the drawer you started from, and may hold `/` to make new drawers. The starter for "Team Chores" with the prefix `CHORE`:
+In the app, New binder at the top of the Desk's tree (or in its empty state), or the + on a drawer's row, asks for a name, a handle prefix and a folder, and writes a starter `_binder.yaml` there; everything after that you edit by hand, and the Desk follows. The prefix and folder are suggested from the name. The folder is relative to the items folder, or to the drawer you started from, and may hold `/` to make new drawers. The starter for "Team Chores" with the prefix `CHORE`:
 
 ```yaml
 version: 1
@@ -132,11 +132,11 @@ The app writes items through three routes. They check the values as an agent's w
 - `PATCH /items/:ref` with `{ version, fields }` changes an item and answers it. `fields` holds only what changes: `title`, `body` or property names; `null` clears a property. `version` is the version you read.
 - `DELETE /items/:ref?version=<version>` deletes the item's file (204). Its handle number is never given out again.
 
-`POST /binders` with `{ path, name, prefix, adopt? }` creates a binder and answers it (201) as `GET /binders` lists it. `path` is its folder relative to the items root, with `/`; missing folders on the way are created. The service writes `<path>/_binder.yaml` with the starter above: the id is the name's slug (lowercase letters and digits, words joined by `-`), access is `read`, and there's one list view named List. It's refused with `400 invalid_fields`, and nothing written, when:
+`POST /binders` with `{ path, name, prefix, adopt? }` creates a binder and answers it (201) as `GET /binders` lists it. `path` is its folder relative to the items folder, with `/`; missing folders on the way are created. The service writes `<path>/_binder.yaml` with the starter above: the id is the name's slug (lowercase letters and digits, words joined by `-`), access is `read`, and there's one list view named List. It's refused with `400 invalid_fields`, and nothing written, when:
 
 - `name`: the id made from it is taken by another binder (hidden ones too), or doesn't fit the id's pattern (a lowercase letter first, at most 40 characters).
 - `prefix`: another binder (hidden ones too) has it, or it isn't an uppercase letter followed by up to 9 uppercase letters or digits.
-- `path`: it isn't a plain relative path inside the items root (absolute, or with `..`), it's in a dot folder or `node_modules`, it goes through a symlink or a file, its folder already holds a `_binder.yaml` or `_structure.yaml`, or it's inside a binder with `naming: free` whose `include` reaches it.
+- `path`: it isn't a plain relative path inside the items folder (absolute, or with `..`), it's in a dot folder or `node_modules`, it goes through a symlink or a file, its folder already holds a `_binder.yaml` or `_structure.yaml`, or it's inside a binder with `naming: free` whose `include` reaches it.
 - `adopt`: the folder already holds Markdown files the new binder would take as its items (the next read writes an id and a handle into each); send `adopt: true` to create it anyway.
 
 A refused write changes nothing on disk and answers one of:
