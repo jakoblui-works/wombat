@@ -41,6 +41,8 @@ export const RIGHT_WIDTH: WidthBounds = { min: 240, max: 1200 };
 /** What a panel registered without `wants` wants. */
 export const RIGHT_DEFAULT_WANTS = 480;
 export const CHAT_MIN_WIDTH = 360;
+/** The navigator's width beside a tab. */
+export const NAVIGATOR_WIDTH = 240;
 
 export const emptyShell: ShellState = { leftHidden: false, barCollapsed: false, workspaces: {} };
 
@@ -293,10 +295,22 @@ export const fitRight = (state: ShellState, workspace: string, wanted: number, b
 export const dragRight = (state: ShellState, workspace: string, width: number, bounds: WidthBounds): ShellState =>
   withWorkspace(state, workspace, (shell) => ({ ...shell, right: { width: clampWidth(width, bounds), dragged: true } }));
 
-/** The right sidebar's bounds in a window `available` wide beside the left sidebar: the chat keeps its minimum. */
-export const rightBounds = (available: number): WidthBounds => ({
-  min: RIGHT_WIDTH.min,
-  max: Math.max(RIGHT_WIDTH.min, Math.min(RIGHT_WIDTH.max, available - CHAT_MIN_WIDTH)),
+/**
+ * The right sidebar's bounds in a window `available` wide beside the left sidebar: the chat keeps its minimum, the
+ * sidebar giving way below its own when the room is short.
+ */
+export const rightBounds = (available: number): WidthBounds => {
+  const min = Math.min(RIGHT_WIDTH.min, Math.max(0, available - CHAT_MIN_WIDTH));
+  return { min, max: Math.max(min, Math.min(RIGHT_WIDTH.max, available - CHAT_MIN_WIDTH)) };
+};
+
+/**
+ * The left sidebar's bounds for a drag, in a row `room` wide not counting its resize handles: the chat keeps its minimum, and the
+ * right sidebar, while open, its own.
+ */
+export const leftBounds = (room: number, rightOpen: boolean): WidthBounds => ({
+  min: LEFT_WIDTH.min,
+  max: Math.max(LEFT_WIDTH.min, Math.min(LEFT_WIDTH.max, room - CHAT_MIN_WIDTH - (rightOpen ? RIGHT_WIDTH.min : 0))),
 });
 
 /** The width the shown kind wants: the active tab's panel, else the navigator alone; undefined while closed. */

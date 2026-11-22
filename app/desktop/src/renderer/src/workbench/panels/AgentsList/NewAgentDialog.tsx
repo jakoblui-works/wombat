@@ -5,7 +5,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { startAgentVars, useStartAgent } from "../../../data/commands.ts";
 import { useHarnesses, useRepos, useWorkspaces } from "../../../data/hooks.ts";
-import { shownOf } from "../../../data/shown-workspace.ts";
 import { asError } from "../../../lib/errors.ts";
 import { useOpenAgent } from "../../agents/open-agent-chat.ts";
 import { useShownWorkspace } from "../../shell/ShellProvider.tsx";
@@ -20,7 +19,8 @@ const NewAgentForm = ({ onDone }: { onDone: () => void }) => {
   const shown = useShownWorkspace();
   const [pickedWorkspace, setPickedWorkspace] = useState<string>();
   const listedWorkspaces = workspaces.data?.workspaces ?? [];
-  const workspace = shownOf(listedWorkspaces, pickedWorkspace ?? shown?.id)?.id;
+  const wanted = pickedWorkspace ?? shown?.id;
+  const workspace = listedWorkspaces.some(({ id }) => id === wanted) ? wanted : undefined;
   const repos = useRepos(workspace);
   const harnesses = useHarnesses();
   const start = useStartAgent();

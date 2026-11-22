@@ -11,9 +11,6 @@ export type WorkbenchCommandDeps = {
   api: () => DockviewApi | undefined;
   activities: readonly ActivityDescriptor[];
   showActivity: (id: string) => void;
-  toggleRightSidebar: () => void;
-  /** What the right sidebar shows, as the toggle's menu item names it (default "Right Sidebar"). */
-  rightSidebarTitle?: string;
   /** Whether the connection banner has made the panels inert: no key may change them then. */
   blocked: () => boolean;
   /** Closes a tab the user asked to close; a tab with unsaved work asks first (default: closes it). */
@@ -35,7 +32,6 @@ export const WORKBENCH_COMMAND = {
   chooseItemsFolder: "items.chooseFolder",
   closeTab: "view.closeTab",
   closeGroup: "view.closeGroup",
-  toggleRightSidebar: "view.toggleRightSidebar",
   restartService: "service.restart",
 } as const;
 
@@ -58,8 +54,6 @@ export const registerWorkbenchCommands = ({
   api,
   activities,
   showActivity,
-  toggleRightSidebar,
-  rightSidebarTitle = "Right Sidebar",
   blocked,
   restartService,
   closePanel,
@@ -124,8 +118,6 @@ export const registerWorkbenchCommands = ({
         },
       }),
     ),
-    // VS Code's toggle for its secondary side bar.
-    registerCommand({ id: WORKBENCH_COMMAND.toggleRightSidebar, title: `Toggle ${rightSidebarTitle}`, keys: ["ctrl+alt+b"], when: unblocked, run: toggleRightSidebar }),
     // Restart works whatever the connection's state (it is the way out of a failed one), so it has no `when`.
     registerCommand({
       id: WORKBENCH_COMMAND.restartService,

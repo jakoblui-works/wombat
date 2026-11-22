@@ -35,7 +35,7 @@ export const DecideButtons = ({
   const shows = proposalShows(proposal.status);
   const busy = decide.isPending;
   const approve = () =>
-    decide.mutate({ proposalId: proposal.id, decision: "approve", version: proposal.version }, { onSuccess: (result) => result === "changed" && openProposal(proposal.id) });
+    decide.mutate({ proposalId: proposal.id, decision: "approve", version: proposal.version }, { onSuccess: (result) => result === "changed" && openProposal(proposal.id, { workspace: proposal.workspace }) });
   return (
     <>
       <span className={cn("flex items-center gap-1.5", className)}>

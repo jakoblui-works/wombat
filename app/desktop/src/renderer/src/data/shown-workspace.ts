@@ -1,6 +1,5 @@
-// The workspace the page shows: the one chosen last while the service lists it, else the first listed. The Desk, the
-// New agent dialog's start and Choose Items Folder… follow it; the agents list shows every workspace, and a chat or a
-// tab keeps the workspace of its agent, proposal or item.
+// Open Folder… and Choose Items Folder…; and the old workbench's shown workspace (the one chosen last while the service
+// lists it, else the first listed), which the shell doesn't use: its shell state owns the shown workspace.
 import type { QueryClient } from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 
@@ -46,14 +45,14 @@ export const shownWorkspaceId = async (queryClient: QueryClient): Promise<string
 };
 
 /** File → Open Folder…: the folder picker, the folder added to the service's workspaces, then shown by `show`. */
-export const openFolder = async (queryClient: QueryClient, show: (id: string) => void = showWorkspace): Promise<void> => {
+export const openFolder = async (queryClient: QueryClient, show: (id: string) => void): Promise<void> => {
   const id = await window.wombat.workspace.add();
   if (id === undefined) return;
   show(id);
   await refresh(queryClient, keys.workspaces);
 };
 
-/** Choose Items Folder…: the folder picker for workspace `id`'s items folder, else the shown workspace's. */
-export const chooseItemsFolder = async (queryClient: QueryClient, id?: string): Promise<void> => {
-  await window.wombat.workspace.chooseItemsFolder(id ?? (await shownWorkspaceId(queryClient)));
+/** Choose Items Folder…: the folder picker for workspace `id`'s items folder. */
+export const chooseItemsFolder = async (id: string): Promise<void> => {
+  await window.wombat.workspace.chooseItemsFolder(id);
 };

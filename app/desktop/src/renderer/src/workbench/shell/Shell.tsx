@@ -26,7 +26,7 @@ import { RightSidebar } from "./RightSidebar/RightSidebar.tsx";
 import { requestClose, shellTabActions } from "./RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "./RightSidebar/tab-titles.ts";
 import { useCommandKeys, useServiceChrome } from "./service-chrome.ts";
-import { clampWidth, LEFT_START_WIDTH, LEFT_WIDTH, middleView, newChat, rightView, showActivity as showActivityIn, shownTab } from "./shell-state.ts";
+import { clampWidth, LEFT_START_WIDTH, leftBounds, middleView, newChat, rightView, showActivity as showActivityIn, shownTab } from "./shell-state.ts";
 import { ShellProvider, useShell, useShownWorkspace } from "./ShellProvider.tsx";
 import { Toolbar } from "./Toolbar/Toolbar.tsx";
 import { WorkspaceActivityStates } from "./WorkspaceActivityStates.tsx";
@@ -34,6 +34,8 @@ import { WorkspaceActivityStates } from "./WorkspaceActivityStates.tsx";
 // Clipped, not hidden: a hidden overflow can still be scrolled by focus or scrollIntoView, which would take the
 // sidebar's header out of view. Its panel owns the scroll.
 const SIDEBAR = "flex shrink-0 flex-col overflow-clip bg-surface-0";
+
+const NO_WORKSPACE_SHOWN = "Wombat couldn't choose the items folder: no workspace is shown. Open one with File → Open Folder…, then try again.";
 
 /** The left sidebar's panel: the agents for now. */
 const LeftPanel = () => {
@@ -101,6 +103,9 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   const [leftWidth, setLeftWidth] = useState(LEFT_START_WIDTH);
   const beside = useRef<HTMLDivElement>(null);
   const besideWidth = useWidth(beside);
+  const row = useRef<HTMLDivElement>(null);
+  const rowWidth = useWidth(row);
+  const middle = useRef<HTMLElement>(null);
 
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
@@ -148,17 +153,22 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
           const tab = shownTab(stateRef.current, workspace);
           if (workspace !== undefined && tab !== undefined) requestClose(change, workspace, tabKey(tab.panelId, tab.params));
         },
-        toggleRightSidebar: () => undefined,
         blocked: () => blockedRef.current,
         restartService: () => restartRef.current(),
         openFolder: () =>
           openFolder(queryClient, (id) => change((current) => newChat(current, id))).catch((error: unknown) =>
             tell(`Wombat couldn't open the folder: ${asSentence(asError(error).message)}`),
           ),
-        chooseItemsFolder: () =>
-          chooseItemsFolder(queryClient, shownRef.current).catch((error: unknown) =>
+        chooseItemsFolder: async () => {
+          const workspace = shownRef.current;
+          if (workspace === undefined) {
+            tell(NO_WORKSPACE_SHOWN);
+            return;
+          }
+          await chooseItemsFolder(workspace).catch((error: unknown) =>
             tell(`Wombat couldn't choose the items folder: ${asSentence(asError(error).message)}`),
-          ),
+          );
+        },
       }),
     [queryClient, change, showActivity],
   );
@@ -174,18 +184,21 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
         {blocked ? <ConnectionBanner connection={connection.state} message={connection.message} attempt={attempt} onRestart={restart} /> : null}
         {noticeShown ? <LiveLaunchNotice connection={connection} onRestart={restart} onDismiss={dismissNotice} /> : null}
         {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
-        <div inert={blocked} className="relative flex min-h-0 min-w-0 flex-1">
+        <div ref={row} inert={blocked} className="relative flex min-h-0 min-w-0 flex-1">
           <WorkspaceActivityStates workspace={shown?.id}>
             <aside aria-label="Agents" className={SIDEBAR} style={{ width: leftWidth }}>
               <LeftPanel />
             </aside>
-            <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => setLeftWidth((width) => clampWidth(width + dx, LEFT_WIDTH))} />
+            <ResizeHandle
+              label="Resize the left sidebar"
+              onDrag={(dx) => setLeftWidth((width) => clampWidth(width + dx, leftBounds(rowWidth - RESIZE_HANDLE_WIDTH * (rightOpen ? 2 : 1), rightOpen)))}
+            />
             <div ref={beside} className="flex min-w-0 flex-1">
-              <main className="flex min-w-0 flex-1">
+              <main ref={middle} className="relative flex min-w-0 flex-1">
                 <div className="flex min-w-0 flex-1 flex-col">
                   <Middle reveals={reveals} />
                 </div>
-                <Toolbar workspace={shown?.id} />
+                <Toolbar workspace={shown?.id} area={middle} />
               </main>
               <RightSidebar className={SIDEBAR} shown={shown?.id} available={besideWidth - RESIZE_HANDLE_WIDTH} reveals={reveals} titles={titles} />
             </div>

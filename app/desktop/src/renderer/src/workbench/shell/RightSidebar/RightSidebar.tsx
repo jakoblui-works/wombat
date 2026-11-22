@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useSyncExternalStore } from "re
 import { cn } from "@/lib/utils";
 import { useAgents, useProposals } from "../../../data/hooks.ts";
 import { type ActivityDescriptor, activities, getPanel, isKnown, type NavigatorParams, type ResolveContext } from "../../registry.ts";
-import { closeGuards, type Reveals, sidebarRevealKey, tabKey } from "../../tabs.ts";
+import { closeGuards, navigatorRevealKey, type Reveals, tabKey } from "../../tabs.ts";
 import { ActiveTabContext } from "../../workbench-context.ts";
 import { ResizeHandle } from "../../ResizeHandle/ResizeHandle.tsx";
 import {
@@ -13,6 +13,7 @@ import {
   fitShownRight,
   hideNavigator,
   keepTab,
+  NAVIGATOR_WIDTH,
   navigatorToggle,
   pruneTabs,
   rightBounds,
@@ -65,7 +66,7 @@ const NavigatorToggle = ({ workspace }: { workspace: string }) => {
 };
 
 const Navigator = ({ workspace, activity, visible, alone, shown, reveals }: Pick<Stores, "reveals"> & { workspace: string; activity: ActivityDescriptor; visible: boolean; alone: boolean; shown: boolean }) => {
-  const key = sidebarRevealKey(activity.navigator);
+  const key = navigatorRevealKey(activity.id);
   // A hidden navigator would end the reveal unseen (display:none rows can't scroll or focus), so it waits until shown.
   const reveal = useSyncExternalStore(reveals.subscribe, () => (shown && visible ? reveals.get(key) : undefined));
   const onRevealed = useCallback(() => reveals.forget(key), [reveals, key]);
@@ -75,7 +76,8 @@ const Navigator = ({ workspace, activity, visible, alone, shown, reveals }: Pick
     <aside
       aria-label={activity.title}
       hidden={!visible}
-      className={cn("flex min-h-0 min-w-0 flex-col bg-surface-0", alone ? "flex-1" : "w-60 max-w-1/2 shrink-0 border-l border-line")}
+      className={cn("flex min-h-0 min-w-0 flex-col bg-surface-0", alone ? "flex-1" : "max-w-1/2 shrink-0 border-l border-line")}
+      style={alone ? undefined : { width: NAVIGATOR_WIDTH }}
     >
       {Panel === undefined ? null : <Panel params={params} reveal={reveal} onRevealed={onRevealed} />}
     </aside>

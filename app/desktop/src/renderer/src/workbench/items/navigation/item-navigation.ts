@@ -6,8 +6,8 @@ import type { BinderSummary, Item } from "@wombat/shared/items";
 import { newCommandId } from "../../../data/commands.ts";
 import { bindersQuery, itemQuery } from "../../../data/query-client.ts";
 import { asError, asSentence } from "../../../lib/errors.ts";
-import { DESK_ACTIVITY, DESK_PANEL } from "../../activity-ids.ts";
-import { sidebarRevealKey } from "../../tabs.ts";
+import { DESK_ACTIVITY } from "../../activity-ids.ts";
+import { navigatorRevealKey } from "../../tabs.ts";
 import { tell } from "../../Toast/Toast.tsx";
 import { type OpenOptions, type TabRef, useWorkbench, type WorkbenchContextValue } from "../../workbench-context.ts";
 import { previewName } from "../ItemPreview/item-preview.ts";
@@ -44,7 +44,7 @@ const itemUnread = (error: unknown): string => `${READ_FAILED.item}: ${asSentenc
 export const openBinder = ({ workbench, queryClient, changeDesk }: ItemNavigator, ws: string, binderId: string, reveal?: string, view?: string): void => {
   void readBinders(queryClient, ws).then((binders) => {
     const place = binderPlace(binders?.find(({ id }) => id === binderId), view);
-    workbench.reveals.set(sidebarRevealKey(DESK_PANEL), reveal === undefined ? undefined : { target: reveal });
+    workbench.reveals.set(navigatorRevealKey(DESK_ACTIVITY), reveal === undefined ? undefined : { target: reveal });
     changeDesk((desk) => showBinder(desk, binderId, place.sidebarView), ws);
     workbench.showActivity(DESK_ACTIVITY, ws);
   });

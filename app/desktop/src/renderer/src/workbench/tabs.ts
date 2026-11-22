@@ -293,6 +293,9 @@ export const withoutTitleChanges = (reasons: ReadonlySet<string>): ReadonlySet<s
 /** The key a sidebar panel's reveal requests are kept under, apart from every tab's. */
 export const sidebarRevealKey = (panelId: string): string => `sidebar:${panelId}`;
 
+/** The key an activity's navigator's reveal requests are kept under, apart from every tab's. */
+export const navigatorRevealKey = (activityId: string): string => `navigator:${activityId}`;
+
 /** What each tab and sidebar panel was last asked to reveal; tab contents read it by their tab's key. */
 export type Reveals = {
   get: (key: string) => Reveal | undefined;

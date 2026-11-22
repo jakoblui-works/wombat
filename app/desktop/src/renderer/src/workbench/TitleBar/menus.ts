@@ -29,7 +29,7 @@ export const MENUS: readonly MenuModel[] = [
   },
   {
     label: "View",
-    entries: [{ id: "zoom.in" }, { id: "zoom.out" }, { id: "zoom.reset" }, "separator", { id: WORKBENCH_COMMAND.toggleRightSidebar }],
+    entries: [{ id: "zoom.in" }, { id: "zoom.out" }, { id: "zoom.reset" }],
   },
   { label: "Window", entries: [{ id: "window.minimize" }, { id: "window.maximize" }, { id: "window.close" }] },
 ];

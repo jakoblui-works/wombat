@@ -5,6 +5,7 @@ import "../harnesses/claude/claude-ui.ts";
 import { AGENTS_PANEL, DESK_ACTIVITY, DESK_PANEL } from "./activity-ids.ts";
 import { registerOnce } from "../lib/register-once.ts";
 import { NavigatorParams, registerActivity, registerPanel } from "./registry.ts";
+import { NAVIGATOR_WIDTH } from "./shell/shell-state.ts";
 import { AgentsList } from "./panels/AgentsList/AgentsList.tsx";
 import { Chat } from "./panels/Chat/Chat.tsx";
 import { CHAT_PANEL, ChatParams, chatResolves, chatTitle } from "./agents/chat-params.ts";
@@ -58,8 +59,7 @@ const register = (): void => {
     icon: FileText,
     locations: ["tab"],
     activity: DESK_ACTIVITY,
-    // With the Desk's navigator beside it.
-    wants: 520,
+    wants: NAVIGATOR_WIDTH + 280,
     component: Item,
     paramsSchema: ItemParams,
     saves: itemTabSaved,

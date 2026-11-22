@@ -8,7 +8,7 @@ import type { ConnectionState } from "../../../../shared/bridge.ts";
 import { isSettled } from "@/lib/connection-state";
 import { cn } from "@/lib/utils";
 import { useAgents, useProposals } from "../../data/hooks.ts";
-import { chooseItemsFolder, openFolder } from "../../data/shown-workspace.ts";
+import { chooseItemsFolder, openFolder, showWorkspace, shownWorkspaceId } from "../../data/shown-workspace.ts";
 import { keys } from "../../data/keys.ts";
 // Registers the activities and their panels, which the workbench reads from the registry.
 import "../activities.ts";
@@ -19,7 +19,7 @@ import type { OpenAgents } from "../open-agents.ts";
 import { activities, activityOrDefault, getPanel, isKnown, isRestorable, isSaved, panelsFor, panelTitle } from "../registry.ts";
 import { ActivityBar } from "../ActivityBar/ActivityBar.tsx";
 import { runLogged } from "../commands/registry.ts";
-import { activityCommandId, registerWorkbenchCommands, WORKBENCH_COMMAND } from "../commands/workbench-commands.ts";
+import { activityCommandId, registerWorkbenchCommands } from "../commands/workbench-commands.ts";
 import { ConnectionBanner } from "../ConnectionBanner/ConnectionBanner.tsx";
 import { LiveLaunchNotice } from "../LaunchNotice/LaunchNotice.tsx";
 import { LiveStatusBar } from "../StatusBar/StatusBar.tsx";
@@ -225,8 +225,6 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     // Saved after the delay, by which time the change has rendered into chromeRef.
     saver.current?.schedule("user");
   };
-  const changeChromeRef = useRef(changeChrome);
-  changeChromeRef.current = changeChrome;
 
   // The active tab, for panels that mark what's open.
   const [activeTab, setActiveTab] = useState<ActiveTab>();
@@ -291,17 +289,16 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         api: () => api,
         activities: activities(),
         showActivity,
-        toggleRightSidebar: () =>
-          changeChromeRef.current((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } })),
-        ...(rightPanel === undefined ? {} : { rightSidebarTitle: rightPanel.title }),
         blocked: () => blockedRef.current,
         restartService: () => restartRef.current(),
         ...(api === undefined ? {} : { closePanel: (panel: IDockviewPanel) => closeGuards().close(api, panel) }),
-        openFolder: () => openFolder(queryClient).catch((error: unknown) => tell(`Wombat couldn't open the folder: ${asSentence(asError(error).message)}`)),
+        openFolder: () => openFolder(queryClient, showWorkspace).catch((error: unknown) => tell(`Wombat couldn't open the folder: ${asSentence(asError(error).message)}`)),
         chooseItemsFolder: () =>
-          chooseItemsFolder(queryClient).catch((error: unknown) => tell(`Wombat couldn't choose the items folder: ${asSentence(asError(error).message)}`)),
+          shownWorkspaceId(queryClient)
+            .then(chooseItemsFolder)
+            .catch((error: unknown) => tell(`Wombat couldn't choose the items folder: ${asSentence(asError(error).message)}`)),
       }),
-    [api, showActivity, rightPanel?.title, queryClient],
+    [api, showActivity, queryClient],
   );
   useCommandKeys();
 
@@ -321,7 +318,9 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                     right={rightPanel}
                     count={agentList === undefined ? 0 : needsMeCount(agentList, proposals.data?.proposals ?? [])}
                     rightOpen={!chrome.sidebars.rightCollapsed}
-                    onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
+                    onToggleRight={() =>
+                      changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } }))
+                    }
                   />
                   {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
                   {!noticeShown ? null : (
