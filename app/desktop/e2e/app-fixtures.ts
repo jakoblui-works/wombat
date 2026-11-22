@@ -20,6 +20,7 @@ import path from "node:path";
 import { _electron as electron, test as base, expect, type ElectronApplication, type Locator, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "@wombat/shared";
 import { fakeSystemd, type Call, type FakeSystemd, type FakeSystemdOptions } from "../../service/test/fake-systemd.ts";
+import { agentTitle } from "../src/renderer/src/lib/agent-title.ts";
 import { CHANNELS } from "../src/shared/bridge.ts";
 import { E2E_NOTIFICATIONS } from "../src/main/e2e-switches.ts";
 import { SWITCH } from "../src/shared/e2e-switch-names.ts";
@@ -86,6 +87,8 @@ export type LaunchedApp = {
   isRunning: () => boolean;
   /** Electron's pid, taken at launch (Playwright's handle may be gone once the app has exited). */
   pid: number | undefined;
+  /** The sandbox's service API, as `Sandbox.api`. */
+  api: Sandbox["api"];
 };
 
 export type Sandbox = {
@@ -347,6 +350,7 @@ const createSandbox = (systemdOptions: SandboxOptions): { sandbox: Sandbox; tear
         ]),
       isRunning: () => child.exitCode === null && child.signalCode === null,
       pid: child.pid,
+      api,
     };
     apps.push(launched);
     // Safety net, after the fact: by now the app has started up, so this only reports a profile outside the sandbox
@@ -654,10 +658,10 @@ export const startAgent = async (sandbox: Sandbox, harness: "fake-reply" | "fake
   return (started.json as { id: string }).id;
 };
 
-type Summary = { id: string; state: string; title?: string; lastText?: string; pendingPermissions?: { title: string }[] };
+type Summary = { id: string; state: string; title?: string; repo: string; lastText?: string; pendingPermissions?: { title: string }[] };
 
 /** The agent's summary from GET /agents. */
-export const agentSummary = async (sandbox: Sandbox, agentId: string): Promise<Summary | undefined> => {
+export const agentSummary = async (sandbox: Pick<Sandbox, "api">, agentId: string): Promise<Summary | undefined> => {
   const listed = await sandbox.api("GET", "/agents");
   return (listed.json as { agents: Summary[] }).agents.find((agent) => agent.id === agentId);
 };
@@ -686,10 +690,14 @@ export const sendOpenAgent = (app: ElectronApplication, agentId: string): Promis
 // 0 while the page is still loading (its context may be replaced under the count).
 export const tabCount = (page: Page): Promise<number> => page.locator(".dv-tab").count().catch(() => 0);
 
-/** Opens the agent's chat once, as one notification click would, and waits for its tab (the `tabsAfter`th). */
-export const openAgent = async (launched: LaunchedApp, agentId: string, tabsAfter: number): Promise<void> => {
+/** Opens the agent's chat once, as one notification click would, and waits for its header (its title) in the middle (`main`). */
+export const openAgent = async (launched: LaunchedApp, agentId: string): Promise<void> => {
   await sendOpenAgent(launched.app, agentId);
-  await until(`the chat tab of ${agentId}`, WAIT_MS, async () => ((await tabCount(launched.page)) >= tabsAfter ? true : undefined));
+  await until(`the chat of ${agentId}`, WAIT_MS, async () => {
+    const title = agentTitle(agentId, await agentSummary(launched, agentId));
+    const header = launched.page.getByRole("main").getByRole("heading", { level: 2, name: title, exact: true });
+    return (await header.count().catch(() => 0)) >= 1 ? true : undefined;
+  });
 };
 
 /** The editor's groups, left to right then top to bottom, each with its tabs' text and the active tab's. */

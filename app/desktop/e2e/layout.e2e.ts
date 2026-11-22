@@ -31,7 +31,7 @@ test.describe("saved layout", () => {
     const first = await sandbox.launch({ env, onWindow: (app) => sendOpenAgent(app, agents[0] as string) });
     await waitUntil("the chat tab opened before the page loaded", WAIT_MS, async () => ((await tabCount(first.page)) >= 1 ? true : undefined));
     await waitForConnection(first.page, "connected");
-    await openAgent(first, agents[1] as string, 2);
+    await openAgent(first, agents[1] as string);
 
     // Split: the active (second) tab dragged to the right edge of its group's content.
     const tab = first.page.locator(".dv-tab.dv-active-tab").first();

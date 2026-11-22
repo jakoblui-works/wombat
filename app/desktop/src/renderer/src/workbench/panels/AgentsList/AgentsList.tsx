@@ -11,8 +11,8 @@ import { useNewAgentDialog } from "../../commands/new-agent-dialog.ts";
 import { runLogged } from "../../commands/registry.ts";
 import { WORKBENCH_COMMAND } from "../../commands/workbench-commands.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
-import { useActiveTab, useWorkbench } from "../../workbench-context.ts";
-import { CHAT_PANEL, ChatParams } from "../../agents/chat-params.ts";
+import { useOpenAgent } from "../../agents/open-agent-chat.ts";
+import { useShell } from "../../shell/ShellProvider.tsx";
 import { AgentsError } from "../../approvals/LogError/LogError.tsx";
 import { AgentRow } from "./AgentRow.tsx";
 import { groupAgents } from "./group-agents.ts";
@@ -22,13 +22,12 @@ import { NewAgentDialog } from "./NewAgentDialog.tsx";
 /** The Agents sidebar: every agent, grouped by state with what needs me first. */
 export const AgentsList = () => {
   const agents = useAgents();
-  const { openTab } = useWorkbench();
-  const active = useActiveTab();
+  const openAgent = useOpenAgent();
+  const activeAgentId = useShell().state.openAgent;
   const now = useNow();
   const [creating, setCreating] = useNewAgentDialog();
   const workspaces = useWorkspaces();
 
-  const activeAgentId = active?.panelId === CHAT_PANEL ? ChatParams.safeParse(active.params).data?.agentId : undefined;
   const list = agents.data?.agents;
   // The groups follow the list a render later, as a transition: a row moving to another group then slides there.
   // Only that pairing animates (`share`); content changes and re-sorts within a group start no view transition.
@@ -76,7 +75,7 @@ export const AgentsList = () => {
                       now={now}
                       selected={agent.id === activeAgentId}
                       stateChanged={tracked.changed.has(agent.id)}
-                      onOpen={() => openTab(CHAT_PANEL, { agentId: agent.id })}
+                      onOpen={() => openAgent(agent.id)}
                     />
                   </ViewTransition>
                 ))}

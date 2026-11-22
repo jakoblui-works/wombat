@@ -5,10 +5,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { startAgentVars, useStartAgent } from "../../../data/commands.ts";
 import { useHarnesses, useRepos, useWorkspaces } from "../../../data/hooks.ts";
-import { shownOf, useShownWorkspace } from "../../../data/shown-workspace.ts";
+import { shownOf } from "../../../data/shown-workspace.ts";
 import { asError } from "../../../lib/errors.ts";
-import { useWorkbench } from "../../workbench-context.ts";
-import { CHAT_PANEL } from "../../agents/chat-params.ts";
+import { useOpenAgent } from "../../agents/open-agent-chat.ts";
+import { useShownWorkspace } from "../../shell/ShellProvider.tsx";
 import { handOverUnsent } from "../Chat/Composer/unsent.ts";
 
 /** The folder the pick starts on: the one used last if it's still listed, else the workspace root. */
@@ -24,7 +24,7 @@ const NewAgentForm = ({ onDone }: { onDone: () => void }) => {
   const repos = useRepos(workspace);
   const harnesses = useHarnesses();
   const start = useStartAgent();
-  const { openTab } = useWorkbench();
+  const openAgent = useOpenAgent();
   const [last, setLast] = useState<{ read: boolean; folder?: string }>({ read: false });
   const [picked, setPicked] = useState<string>();
   const [pickedTool, setPickedTool] = useState<string>();
@@ -65,7 +65,7 @@ const NewAgentForm = ({ onDone }: { onDone: () => void }) => {
     // The dialog's job is done once the agent runs; remembering the folder must not hold up opening its chat.
     await window.wombat.settings.set({ lastAgentFolder: folder }).catch(() => undefined);
     onDone();
-    openTab(CHAT_PANEL, { agentId: agent.id });
+    openAgent(agent.id);
   };
 
   const error = failure ?? workspaces.error ?? repos.error ?? harnesses.error;

@@ -46,7 +46,7 @@ test.describe("edit approvals", () => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await recordViolations(page);
-    await openAgent(launched, agentId, 1);
+    await openAgent(launched, agentId);
     const chat = groupWithTab(page, REPO);
 
     // The inline card: the file, one line removed and one added.

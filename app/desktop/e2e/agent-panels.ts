@@ -1,13 +1,16 @@
 // Helpers for the e2e checks of the agent panels (chat, edit approvals, Needs me), on top of app-fixtures.ts.
-// What they rely on in the page: dockview's `.dv-groupview` and `.dv-tab`; a chat tab is
-// titled after its agent (for a fake agent without a title: its repo).
+// What they rely on in the page: the middle (`main`) shows one chat, its header's `h2` titled after its agent (for a
+// fake agent without a title: its repo).
 import type { Locator, Page } from "@playwright/test";
 
 import { agentSummary, expect, type Sandbox, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 
-/** The editor group whose tabs include one titled `title` (exactly); its content shows the active tab. */
+/**
+ * The middle while it shows the chat titled `title` (exactly). By element, not role: a modal dialog hides the page
+ * from the accessibility tree while it's open.
+ */
 export const groupWithTab = (page: Page, title: string): Locator =>
-  page.locator(".dv-groupview").filter({ has: page.locator(".dv-tab", { hasText: new RegExp(`^\\s*${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`) }) });
+  page.locator("main").filter({ has: page.locator("h2", { hasText: new RegExp(`^\\s*${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`) }) });
 
 /** Sends `text` to the agent through the test's own client. */
 export const prompt = async (sandbox: Sandbox, agentId: string, text: string): Promise<void> => {

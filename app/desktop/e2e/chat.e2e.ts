@@ -93,7 +93,7 @@ test.describe("chat", () => {
     });
     await waitForConnection(page, "connected");
     const startUrl = page.url();
-    await openAgent(launched, agentId, 1);
+    await openAgent(launched, agentId);
     const chat = groupWithTab(page, REPO);
     await expect(chat.getByText("Hostile message starts.")).toBeVisible({ timeout: WAIT_MS });
     await expandAll(chat);
@@ -182,7 +182,7 @@ test.describe("chat", () => {
     const problems: string[] = [];
     page.on("pageerror", (error) => problems.push(`page error: ${error.message}`));
     await waitForConnection(page, "connected");
-    await openAgent(launched, agentId, 1);
+    await openAgent(launched, agentId);
     const chat = groupWithTab(page, REPO);
     await expect(chat.getByRole("region", { name: "Edit approval" })).toBeVisible({ timeout: WAIT_MS });
     await expandAll(chat);
@@ -211,7 +211,7 @@ test.describe("chat", () => {
       if (message.type() === "error") problems.push(`console: ${message.text()}`);
     });
     await waitForConnection(page, "connected");
-    await openAgent(launched, agentId, 1);
+    await openAgent(launched, agentId);
     const chat = groupWithTab(page, REPO);
     const replies = chat.getByText("Hello from the fake agent.", { exact: true });
     await expect(replies, "the first reply").toHaveCount(1, { timeout: WAIT_MS });

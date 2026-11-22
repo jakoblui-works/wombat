@@ -32,6 +32,35 @@ export const composerReducer = (state: ComposerState, event: ComposerEvent): Com
   }
 };
 
+/** An agent's message box with the proposal its next message is about (Ask for changes puts it there). */
+export type ComposerEntry = { composer: ComposerState; reference?: string | undefined };
+
+/** A `sent` names the reference the send carried (`about`): a reference set while it was under way stays. */
+export type ComposerEntryEvent =
+  | Exclude<ComposerEvent, { type: "sent" }>
+  | { type: "sent"; about: string | undefined }
+  | { type: "refer"; proposalId: string | undefined };
+
+export const EMPTY_ENTRY: ComposerEntry = { composer: EMPTY_COMPOSER };
+
+export const composerEntryReducer = (entry: ComposerEntry, event: ComposerEntryEvent): ComposerEntry => {
+  switch (event.type) {
+    case "refer":
+      return { ...entry, reference: event.proposalId };
+    case "sent":
+      return {
+        composer: composerReducer(entry.composer, { type: "sent" }),
+        reference: entry.reference === event.about ? undefined : entry.reference,
+      };
+    default:
+      return { ...entry, composer: composerReducer(entry.composer, event) };
+  }
+};
+
+/** Whether the entry holds nothing worth keeping. */
+export const isEmptyEntry = ({ composer, reference }: ComposerEntry): boolean =>
+  composer.text === "" && composer.sending === undefined && composer.error === undefined && reference === undefined;
+
 /**
  * Whether Send works: there's text, no send or turn is under way (the service answers `busy`), the app is connected,
  * and the agent can take a message: it runs, or the message starts it again (`resumable`); a `closed` one's send would

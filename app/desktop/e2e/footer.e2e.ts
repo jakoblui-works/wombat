@@ -45,7 +45,7 @@ test.describe("composer footer", () => {
     const launched = await sandbox.launch();
     const { page } = launched;
     await waitForConnection(page, "connected");
-    await openAgent(launched, agentId, 1);
+    await openAgent(launched, agentId);
     const chat = groupWithTab(page, REPO);
 
     const initial = optionName(FAKE_CONFIG.model.initial);

@@ -1,13 +1,13 @@
 import { type QueryState, useQueryClient } from "@tanstack/react-query";
 import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewPanel, type IDockviewPanelProps } from "dockview-react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import type { ListAgentsResponse } from "@wombat/shared/api";
 import type { ListProposalsResponse } from "@wombat/shared/proposals";
 import type { ConnectionState } from "../../../../shared/bridge.ts";
-import { isSettled, NO_RESTART, restartAttempt, showsBanner } from "@/lib/connection-state";
+import { isSettled } from "@/lib/connection-state";
 import { cn } from "@/lib/utils";
-import { useAgents, useConnection, useProposals } from "../../data/hooks.ts";
+import { useAgents, useProposals } from "../../data/hooks.ts";
 import { chooseItemsFolder, openFolder } from "../../data/shown-workspace.ts";
 import { keys } from "../../data/keys.ts";
 // Registers the activities and their panels, which the workbench reads from the registry.
@@ -18,7 +18,7 @@ import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
 import { activities, activityOrDefault, getPanel, isKnown, isRestorable, isSaved, panelsFor, panelTitle } from "../registry.ts";
 import { ActivityBar } from "../ActivityBar/ActivityBar.tsx";
-import { commandForKey, runLogged } from "../commands/registry.ts";
+import { runLogged } from "../commands/registry.ts";
 import { activityCommandId, registerWorkbenchCommands, WORKBENCH_COMMAND } from "../commands/workbench-commands.ts";
 import { ConnectionBanner } from "../ConnectionBanner/ConnectionBanner.tsx";
 import { LiveLaunchNotice } from "../LaunchNotice/LaunchNotice.tsx";
@@ -55,36 +55,15 @@ import {
   WorkbenchContext,
   type WorkbenchContextValue,
 } from "../workbench-context.ts";
-import { openAgentChat } from "../agents/open-agent-chat.ts";
+import { AGENTS_ACTIVITY } from "../activity-ids.ts";
+import { CHAT_PANEL } from "../agents/chat-params.ts";
+import { clampWidth, LEFT_WIDTH, RIGHT_WIDTH } from "../shell/shell-state.ts";
+import { useCommandKeys, useServiceChrome } from "../shell/service-chrome.ts";
 import { tell, Toast } from "../Toast/Toast.tsx";
 import { asError, asSentence } from "../../lib/errors.ts";
 
 type Chrome = Pick<SavedLayout, "sidebars" | "activity">;
 
-const SIDEBAR_MIN = 160;
-const SIDEBAR_MAX = 800;
-
-const clampWidth = (width: number): number => Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, width));
-
-// The launch notice's dismissal, in sessionStorage: it survives a reload of the window (main still reports the service
-// as found at launch) and starts empty on the next launch. Storage that fails only costs the notice coming back.
-const NOTICE_DISMISSED_KEY = "wombat.launchNoticeDismissed";
-
-const noticeDismissedBefore = (): boolean => {
-  try {
-    return sessionStorage.getItem(NOTICE_DISMISSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-};
-
-const rememberNoticeDismissed = (): void => {
-  try {
-    sessionStorage.setItem(NOTICE_DISMISSED_KEY, "1");
-  } catch {
-    // Kept for this page only.
-  }
-};
 
 /** What the actions do before dockview is ready; typed, so a new member can't be missed. */
 const NO_ACTIONS: WorkbenchActions = {
@@ -145,7 +124,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const queryClient = useQueryClient();
   const agents = useAgents();
   const proposals = useProposals();
-  const connectionState = useConnection();
+  const { connection: connectionState, blocked, attempt, restart, noticeShown, dismissNotice } = useServiceChrome();
   const { state: connection, message: connectionMessage } = connectionState;
   const [api, setApi] = useState<DockviewApi>();
   const [saved, setSaved] = useState<SavedRead>();
@@ -296,10 +275,15 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         console.warn("Wombat was asked to open an agent the service doesn't list; nothing was opened.");
         return;
       }
-      openAgentChat(workbench, agentId);
+      workbench.showActivity(AGENTS_ACTIVITY);
+      workbench.openTab(CHAT_PANEL, { agentId });
     });
   }, [ready, agentsKnown, openAgents, workbench]);
 
+  const blockedRef = useRef(blocked);
+  blockedRef.current = blocked;
+  const restartRef = useRef(restart);
+  restartRef.current = restart;
   const rightPanels = panelsFor("right");
   const rightPanel = rightPanels[0] === undefined ? undefined : { title: panelTitle(rightPanels[0], {}, { agents: undefined }), icon: rightPanels[0].icon };
   // The workbench's commands, and the page's one key listener: every key binding runs through the registry.
@@ -321,54 +305,11 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
       }),
     [api, showActivity, rightPanel?.title, queryClient],
   );
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      const found = commandForKey(event);
-      if (found === undefined) return;
-      event.preventDefault();
-      runLogged(found.command.id, found.element === undefined ? {} : { element: found.element });
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  useCommandKeys();
 
   const activity = activityOrDefault(chrome.activity);
   const resize = (side: "left" | "right", dx: number) =>
-    changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, [side]: clampWidth(current.sidebars[side] + dx) } }));
-
-  // Whether the service was ever connected: the first `connecting` is the app starting, not a loss.
-  const [connectedBefore, setConnectedBefore] = useState(false);
-  if (connection === "connected" && !connectedBefore) setConnectedBefore(true);
-  const blocked = showsBanner(connection, connectedBefore);
-  const blockedRef = useRef(blocked);
-  const restartRef = useRef<() => void>(() => undefined);
-  blockedRef.current = blocked;
-
-  // Kept here, not in the banner, which unmounts when the state moves (a first connecting) while a restart runs.
-  const [attempt, dispatchAttempt] = useReducer(restartAttempt, NO_RESTART);
-  useEffect(() => dispatchAttempt({ type: "connection", state: connection }), [connection]);
-  const restart = () => {
-    dismissNotice();
-    dispatchAttempt({ type: "start" });
-    window.wombat.service.restart().then(
-      () => dispatchAttempt({ type: "settled" }),
-      (failure: unknown) =>
-        dispatchAttempt({
-          type: "rejected",
-          error: `Couldn't restart the service${failure instanceof Error ? `: ${failure.message}` : ""}. Try Restart again.`,
-        }),
-    );
-  };
-
-  restartRef.current = restart;
-
-  // Whether the launch notice shows is serviceView's (main says whether the service was found at launch); the page
-  // only remembers that it was dismissed, or that Restart replaced the service it was about, for the launch.
-  const [noticeDismissed, setNoticeDismissed] = useState(noticeDismissedBefore);
-  const dismissNotice = () => {
-    rememberNoticeDismissed();
-    setNoticeDismissed(true);
-  };
+    changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, [side]: clampWidth(current.sidebars[side] + dx, side === "left" ? LEFT_WIDTH : RIGHT_WIDTH) } }));
 
   return (
     <WorkbenchContext value={workbench}>
@@ -385,7 +326,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                     onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
                   />
                   {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
-                  {noticeDismissed || blocked ? null : (
+                  {!noticeShown ? null : (
                     <LiveLaunchNotice connection={connectionState} onRestart={restart} onDismiss={dismissNotice} />
                   )}
                   <div className="flex min-h-0 flex-1">

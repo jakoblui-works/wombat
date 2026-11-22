@@ -45,15 +45,15 @@ export const shownWorkspaceId = async (queryClient: QueryClient): Promise<string
   return shown.id;
 };
 
-/** File → Open Folder…: the folder picker, the folder added to the service's workspaces, then shown. */
-export const openFolder = async (queryClient: QueryClient): Promise<void> => {
+/** File → Open Folder…: the folder picker, the folder added to the service's workspaces, then shown by `show`. */
+export const openFolder = async (queryClient: QueryClient, show: (id: string) => void = showWorkspace): Promise<void> => {
   const id = await window.wombat.workspace.add();
   if (id === undefined) return;
-  showWorkspace(id);
+  show(id);
   await refresh(queryClient, keys.workspaces);
 };
 
-/** Choose Items Folder…: the folder picker for the shown workspace's items folder. */
-export const chooseItemsFolder = async (queryClient: QueryClient): Promise<void> => {
-  await window.wombat.workspace.chooseItemsFolder(await shownWorkspaceId(queryClient));
+/** Choose Items Folder…: the folder picker for workspace `id`'s items folder, else the shown workspace's. */
+export const chooseItemsFolder = async (queryClient: QueryClient, id?: string): Promise<void> => {
+  await window.wombat.workspace.chooseItemsFolder(id ?? (await shownWorkspaceId(queryClient)));
 };

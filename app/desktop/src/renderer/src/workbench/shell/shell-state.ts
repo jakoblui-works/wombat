@@ -37,6 +37,7 @@ export type ShellState = {
 export type WidthBounds = { min: number; max: number };
 
 export const LEFT_WIDTH: WidthBounds = { min: 160, max: 800 };
+export const LEFT_START_WIDTH = 280;
 export const RIGHT_WIDTH: WidthBounds = { min: 240, max: 1200 };
 export const CHAT_MIN_WIDTH = 360;
 
@@ -87,6 +88,19 @@ export const openAgent = (state: ShellState, agentId: string): ShellState => ({ 
 export const newChat = (state: ShellState, workspace: string | undefined): ShellState => {
   const rest = omit(state, "openAgent", "newChatWorkspace");
   return workspace === undefined ? rest : { ...rest, newChatWorkspace: workspace };
+};
+
+/** After `agentId` was deleted: the empty chat on its workspace if it was the open agent, so that workspace stays shown. */
+export const agentDeleted = (state: ShellState, agentId: string, workspace: string | undefined): ShellState =>
+  state.openAgent === agentId ? newChat(state, workspace) : state;
+
+export type MiddleView = { show: "chat"; agentId: string } | { show: "empty" };
+
+/** What the middle shows: the open agent's chat (also while the agents list isn't read), else the empty chat. */
+export const middleView = (state: ShellState, agents: readonly Pick<AgentSummary, "id">[] | undefined): MiddleView => {
+  const agentId = state.openAgent;
+  if (agentId === undefined || (agents !== undefined && !agents.some(({ id }) => id === agentId))) return { show: "empty" };
+  return { show: "chat", agentId };
 };
 
 const focus = (shell: WorkspaceShell, key: string): WorkspaceShell => {
@@ -193,13 +207,13 @@ export const rightView = (state: ShellState, shown: string | undefined): RightVi
   return activity === undefined || shell.navigatorHidden ? { show: "tab", tab } : { show: "tab-and-navigator", tab, activity };
 };
 
-const clamp = (width: number, { min, max }: WidthBounds): number => Math.min(max, Math.max(min, width));
+export const clampWidth = (width: number, { min, max }: WidthBounds): number => Math.min(max, Math.max(min, width));
 
 /** The right sidebar's width for a kind that wants `wanted`: the dragged width once dragged, else the widest asked for. */
 export const rightWidth = (state: ShellState, workspace: string, wanted: number, bounds: WidthBounds): number => {
   const { width, dragged } = workspaceShell(state, workspace).right;
-  if (width === undefined) return clamp(wanted, bounds);
-  return clamp(dragged ? width : Math.max(width, wanted), bounds);
+  if (width === undefined) return clampWidth(wanted, bounds);
+  return clampWidth(dragged ? width : Math.max(width, wanted), bounds);
 };
 
 /** Holds `rightWidth`'s answer as the width, so a kind wanting less later keeps it. */
@@ -210,7 +224,7 @@ export const fitRight = (state: ShellState, workspace: string, wanted: number, b
 };
 
 export const dragRight = (state: ShellState, workspace: string, width: number, bounds: WidthBounds): ShellState =>
-  withWorkspace(state, workspace, (shell) => ({ ...shell, right: { width: clamp(width, bounds), dragged: true } }));
+  withWorkspace(state, workspace, (shell) => ({ ...shell, right: { width: clampWidth(width, bounds), dragged: true } }));
 
 /** The right sidebar's bounds in a window `available` wide beside the left sidebar: the chat keeps its minimum. */
 export const rightBounds = (available: number): WidthBounds => ({

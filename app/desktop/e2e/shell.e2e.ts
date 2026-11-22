@@ -73,7 +73,7 @@ const appWithOpenChat = async (sandbox: Sandbox): Promise<{ launched: LaunchedAp
   const agentId = await startAgent(sandbox, "fake-reply");
   const launched = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
   await waitForConnection(launched.page, "connected");
-  await openAgent(launched, agentId, 1);
+  await openAgent(launched, agentId);
   await tag(launched.page, "chat-tab", ".dv-tab");
   return { launched, agentId };
 };

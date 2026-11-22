@@ -15,19 +15,24 @@ import {
   MenubarTrigger,
 } from "@/components/ui/menubar";
 import { useWorkspaces } from "../../data/hooks.ts";
-import { showWorkspace, useShownWorkspace } from "../../data/shown-workspace.ts";
 import { runLogged } from "../commands/registry.ts";
+import { newChat } from "../shell/shell-state.ts";
+import { useShell, useShownWorkspace } from "../shell/ShellProvider.tsx";
 import { type MenuModel, MENUS, menuItems } from "./menus.ts";
 import { WombatSymbol } from "../EmptyState/WombatSymbol.tsx";
 
-/** The workspaces by name, the shown one checked; choosing one shows it. */
+/** The workspaces by name, the shown one checked; choosing one shows the empty chat on it. */
 const WorkspaceEntries = () => {
   const listed = useWorkspaces().data?.workspaces ?? [];
   const shown = useShownWorkspace();
+  const { change } = useShell();
   if (listed.length === 0) return null;
   return (
     <>
-      <MenubarRadioGroup value={shown?.id ?? null} onValueChange={(id: unknown) => typeof id === "string" && showWorkspace(id)}>
+      <MenubarRadioGroup
+        value={shown?.id ?? null}
+        onValueChange={(id: unknown) => typeof id === "string" && id !== shown?.id && change((state) => newChat(state, id))}
+      >
         {listed.map(({ id, name, root }) => (
           <MenubarRadioItem key={id} value={id} title={root}>
             {name}
