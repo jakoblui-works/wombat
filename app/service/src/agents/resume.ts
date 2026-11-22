@@ -1,12 +1,12 @@
 import type { InitializeResponse } from "@agentclientprotocol/sdk";
-import { AgentErrorCode, configToRestore, type AgentSummary } from "@wombat/shared/api";
+import { AgentErrorCode, configToRestore, WorkspaceErrorCode, type AgentSummary } from "@wombat/shared/api";
 import { commandsOf, configOf, foldLog } from "@wombat/shared/log-fold";
 
 import type { Harness } from "../harness/harness.ts";
 import { canResume, findHarness } from "../harness/registry.ts";
 import { safeName, type Log } from "../log.ts";
 import type { Store } from "../store/store.ts";
-import { RepoError, resolveRepo } from "../workspace.ts";
+import { agentRepoGone, RepoError, resolveRepo, WorkspaceError } from "../workspace.ts";
 import { START_TIMEOUT_MS, startFailure, type AgentProcess } from "./agent-process.ts";
 import type { AgentRecord } from "./agent-record.ts";
 import { ConfigOptions, setConfigWithin, type Config } from "./config.ts";
@@ -16,12 +16,21 @@ import type { Proc } from "./proc.ts";
 import type { createScopes } from "./scope.ts";
 import type { Turns } from "./turns.ts";
 
-/** The agent's folder for `repo`, which must resolve inside the workspace. */
-export const folderOf = (workspaceRoot: string, repo: string) => {
+/**
+ * The agent's folder for `repo` in workspace `workspaceId`; `repo` must resolve inside that workspace's root. A refused
+ * repo of a `stored` agent says to restore its folder, one of a start to give another repo.
+ */
+const folderOf = (rootOf: (workspaceId: string) => string, workspaceId: string, repo: string, stored: boolean) => {
   try {
-    return resolveRepo(workspaceRoot, repo);
+    const root = rootOf(workspaceId);
+    try {
+      return resolveRepo(root, repo);
+    } catch (error) {
+      throw stored && error instanceof RepoError ? agentRepoGone(error.code, root, repo) : error;
+    }
   } catch (error) {
     if (error instanceof RepoError) throw new AgentError(error.code, error.message);
+    if (error instanceof WorkspaceError && error.code !== WorkspaceErrorCode.enum.invalid_folder) throw new AgentError(error.code, error.message);
     throw error;
   }
 };
@@ -37,7 +46,8 @@ const refusedResume = (error: unknown, harness: Harness) => {
 };
 
 export type ResumeDeps = {
-  workspaceRoot: string;
+  /** The root of a workspace by its id (the manager's `rootOf`). */
+  rootOf: (workspaceId: string) => string;
   harnesses: readonly Harness[];
   log: Log;
   readLog: Store["readLog"];
@@ -62,7 +72,7 @@ export type ResumeDeps = {
 /** Takes up a stored agent's session in a new process, for a message or setting that needs one. */
 export const createResume = (deps: ResumeDeps) => {
   const {
-    workspaceRoot,
+    rootOf,
     harnesses,
     log,
     readLog,
@@ -87,6 +97,15 @@ export const createResume = (deps: ResumeDeps) => {
   const resuming = new Map<string, Promise<Proc>>();
 
   const resumeOf = (agentId: string) => resuming.get(agentId);
+
+  /**
+   * The folder a stored agent runs in: its repo in its own workspace. Throws `workspace_missing` while that workspace's
+   * folder is gone, as a start there does.
+   */
+  const agentFolder = (summary: Pick<AgentSummary, "workspace" | "repo">) => folderOf(rootOf, summary.workspace, summary.repo, true);
+
+  /** The folder a new agent starts in: `repo` in workspace `workspaceId`. */
+  const startFolder = (workspaceId: string, repo: string) => folderOf(rootOf, workspaceId, repo, false);
 
   const resumableHarness = (summary: AgentSummary) => {
     const harness = findHarness(summary.harness, harnesses);
@@ -119,7 +138,7 @@ export const createResume = (deps: ResumeDeps) => {
       log("agent_resume_failed", { agentId, harness: harness.id, code: AgentErrorCode.enum.not_found });
       throw notFound(agentId);
     }
-    const cwd = folderOf(workspaceRoot, summary.repo);
+    const cwd = agentFolder(summary);
     const scope = await scopes.scopeFor(agentId);
     assertOpen();
     const proc = spawnAgent(agentId, harness, cwd, scope);
@@ -201,7 +220,7 @@ export const createResume = (deps: ResumeDeps) => {
     return attempt;
   };
 
-  return { ensureRunning, liveProc, canResumeAgent, resumeOf };
+  return { ensureRunning, liveProc, canResumeAgent, resumeOf, agentFolder, startFolder };
 };
 
 export type Resume = ReturnType<typeof createResume>;

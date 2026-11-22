@@ -18,7 +18,6 @@ import { bodyLimit } from "hono/body-limit";
 
 import { requireAgent } from "../agents/errors.ts";
 import { AgentError, type Manager } from "../agents/manager.ts";
-import { folderOf } from "../agents/resume.ts";
 import { handlesById, summarize, withLinks } from "../items/api-shape.ts";
 import { findByRef, type Catalog } from "../items/catalog.ts";
 import type { Writer } from "../items/write.ts";
@@ -29,8 +28,8 @@ import type { ApproveStep } from "../proposals/apply.ts";
 import { openProposals } from "../proposals/proposals.ts";
 import { ITEMS_NOT_CONFIGURED, ProposalError } from "../proposals/refused.ts";
 import type { Store } from "../store/store.ts";
-import { listRepos, RepoError } from "../workspace.ts";
-import { AGENT_STATUS, errorResponse, ITEMS_STATUS, SERVER_STATUS } from "./errors.ts";
+import { listRepos, RepoError, WorkspaceError } from "../workspace.ts";
+import { AGENT_CALL_STATUS, AGENT_STATUS, errorResponse, ITEMS_STATUS, SERVER_STATUS, WORKSPACE_STATUS } from "./errors.ts";
 import { createAlertStreams } from "./events.ts";
 import { itemRoutes, noItem } from "./item-routes.ts";
 import { mcpRoutes } from "./mcp.ts";
@@ -44,8 +43,8 @@ export type ServerOptions = {
   store: Store;
   harnesses: readonly Harness[];
   /**
-   * The one workspace agents start in and new proposals belong to; `root` for `GET /repos`. Without it, those routes
-   * and the items routes answer that the service has no workspace.
+   * The one workspace new proposals belong to and the items routes serve. Without it, the items routes answer that the
+   * service has no workspace. Agents and repos take their workspace by id (the manager's `rootOf`).
    */
   workspace?: { id: string; root: string };
   /** The bearer token every request must carry. */
@@ -119,7 +118,7 @@ export const startServer = async ({
     store,
     workspace: workspaceRoot,
     workspaceId,
-    agentFolder: (agentId) => folderOf(workspaceRoot, requireAgent(agentId, findAgent).repo),
+    agentFolder: (agentId) => manager.agentFolder(requireAgent(agentId, findAgent)),
     onProposal,
     log,
     items: items && writer ? { catalog: items, writer } : undefined,
@@ -157,19 +156,17 @@ export const startServer = async ({
 
   workspaceRoutes(app, { store, workspacesCommitted: manager.workspacesCommitted });
 
-  app.get("/repos", (c) => {
-    if (!workspace) return noWorkspace(c);
-    return c.json({ repos: listRepos(workspace.root) } satisfies ResponseOf<typeof ROUTES.listRepos>);
-  });
+  app.get("/workspaces/:ws/repos", (c) =>
+    c.json({ repos: listRepos(manager.rootOf(c.req.param("ws"))) } satisfies ResponseOf<typeof ROUTES.listRepos>),
+  );
 
   app.get("/agents", (c) =>
     c.json({ dbId: store.dbId, seq: store.currentSeq(), agents: store.listAgents().map(withLiveCache) } satisfies ResponseOf<typeof ROUTES.listAgents>),
   );
 
   app.post("/agents", async (c) => {
-    const { harness, repo } = await readBody(c, ROUTES.startAgent.body);
-    if (!workspace) return noWorkspace(c);
-    return c.json(await manager.start(harness, repo) satisfies ResponseOf<typeof ROUTES.startAgent>, 201);
+    const { workspace: workspaceId, harness, repo } = await readBody(c, ROUTES.startAgent.body);
+    return c.json(await manager.start(workspaceId, harness, repo) satisfies ResponseOf<typeof ROUTES.startAgent>, 201);
   });
 
   app.get("/agents/:id/log", (c) => {
@@ -298,10 +295,8 @@ export const startServer = async ({
     if (error instanceof InvalidRequest) return errorResponse(c, SERVER_STATUS.invalid_request, ServerErrorCode.enum.invalid_request, error.message, undefined, error.problems);
     if (error instanceof ProposalError) return errorResponse(c, ITEMS_STATUS[error.code], error.code, error.message);
     if (error instanceof RepoError) return errorResponse(c, AGENT_STATUS[error.code], error.code, error.message);
-    if (error instanceof AgentError) {
-      const status = error.code === ServerErrorCode.enum.invalid_request ? SERVER_STATUS.invalid_request : AGENT_STATUS[error.code];
-      return errorResponse(c, status, error.code, error.message, error.hint);
-    }
+    if (error instanceof WorkspaceError) return errorResponse(c, WORKSPACE_STATUS[error.code], error.code, error.message);
+    if (error instanceof AgentError) return errorResponse(c, AGENT_CALL_STATUS[error.code], error.code, error.message, error.hint);
     // The details stay in the service: an error's message may quote agent content or paths.
     // An errno code, when there is one, names no path.
     const code = errorCode(error);

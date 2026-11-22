@@ -6,7 +6,7 @@
 import type { LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
-import { isAlive, REPO, setup, TEST_TIMEOUT_MS, waitFor, type Setup } from "../../test/manager-fixtures.ts";
+import { isAlive, REPO, setup, TEST_TIMEOUT_MS, waitFor, WORKSPACE, type Setup } from "../../test/manager-fixtures.ts";
 
 /**
  * The log cut into turns (each starts at a user_message): per turn, the stopReasons of its turn_ended entries,
@@ -30,7 +30,7 @@ const turns = (entries: LogEntry[]) => {
 /** Starts an agent on `harness`; returns its id and its process's pid. */
 const startTracked = async (t: Setup, harness: string) => {
   const before = new Set(t.pids());
-  const { id } = await t.manager.start(harness, REPO);
+  const { id } = await t.manager.start(WORKSPACE, harness, REPO);
   const [pid] = t.pids().filter((p) => !before.has(p));
   if (pid === undefined) throw new Error("no agent pid recorded");
   return { id, pid };

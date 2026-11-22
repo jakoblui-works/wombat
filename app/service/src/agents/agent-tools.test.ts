@@ -5,7 +5,7 @@
 import { describe, expect, test } from "vitest";
 
 import { readAt } from "../../test/items-fixtures.ts";
-import { chunkTexts, REPO, TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
+import { chunkTexts, REPO, TEST_TIMEOUT_MS, WORKSPACE } from "../../test/manager-fixtures.ts";
 import { serveItems } from "../../test/mcp-fixtures.ts";
 import type { Served } from "../../test/server-fixtures.ts";
 
@@ -24,7 +24,7 @@ describe("agent tools end to end", () => {
     "a started agent lists items, creates one in an edit binder and proposes one in a propose binder",
     async () => {
       const { s, root } = await serveItems();
-      const { id } = await s.manager.start("fake-call-tool", REPO);
+      const { id } = await s.manager.start(WORKSPACE, "fake-call-tool", REPO);
 
       const listed = JSON.stringify(await ask(s, id, "list_items", { binder: "backlog" }));
       expect(listed).toContain("BL-1");

@@ -17,7 +17,7 @@ import { createMcpTokens } from "./mcp-tokens.ts";
 import { createPermissions, pendingPermissions } from "./permissions.ts";
 import { next, type EndRequest } from "./phase.ts";
 import { now, type Proc } from "./proc.ts";
-import { createResume, folderOf } from "./resume.ts";
+import { createResume } from "./resume.ts";
 import { createScopes, DEFAULT_SLICE } from "./scope.ts";
 import { createTurns } from "./turns.ts";
 
@@ -26,10 +26,11 @@ export type { Committed } from "./agent-record.ts";
 
 export type ManagerOptions = {
   store: Store;
-  /** Repo paths are relative to this folder, and must resolve inside it. */
-  workspaceRoot: string;
-  /** That workspace's id, which every new agent belongs to. */
-  workspace: string;
+  /**
+   * The root of a workspace by its id (`rootIn(store.getWorkspace)` in the service): an agent's repo is relative to its
+   * workspace's root and must resolve inside it. Throws `workspace_not_found` or `workspace_missing`.
+   */
+  rootOf: (workspaceId: string) => string;
   harnesses?: readonly Harness[];
   log?: Log;
   /** What each agent's environment is filtered from (see `agentEnv`). */
@@ -44,8 +45,7 @@ export type ManagerOptions = {
 
 export const createManager = ({
   store,
-  workspaceRoot,
-  workspace,
+  rootOf,
   harnesses = defaultHarnesses,
   log = logToStderr,
   env = process.env,
@@ -79,6 +79,7 @@ export const createManager = ({
     recordSession,
     recordClosed,
     markStored,
+    loadAdopted,
   } = createAgentRecord({
     store,
     log,
@@ -149,8 +150,8 @@ export const createManager = ({
 
   markStored();
 
-  const { ensureRunning, liveProc, canResumeAgent, resumeOf } = createResume({
-    workspaceRoot,
+  const { ensureRunning, liveProc, canResumeAgent, resumeOf, agentFolder, startFolder } = createResume({
+    rootOf,
     harnesses,
     log,
     readLog: store.readLog,
@@ -195,18 +196,21 @@ export const createManager = ({
     liveProc,
     canResumeAgent,
     ensureRunning,
+    resumeOf,
+    agentFolder,
     notes: () => notes,
     markDelivered: store.markDelivered,
     markNotDelivered: store.markNotDelivered,
   });
 
-  const start = async (harnessId: string, repo: string): Promise<AgentSummary> => {
+  /** Starts an agent in `repo` of `workspace`; the workspace is checked first, so an unknown one is refused as such. */
+  const start = async (workspace: string, harnessId: string, repo: string): Promise<AgentSummary> => {
     assertOpen();
+    const cwd = startFolder(workspace, repo);
     const harness = findHarness(harnessId, harnesses);
     if (!harness) {
       throw new AgentError(AgentErrorCode.enum.unknown_harness, `There's no harness "${harnessId}". List the harnesses to see which exist.`);
     }
-    const cwd = folderOf(workspaceRoot, repo);
     const agentId = randomUUID();
     const scope = await scopes.scopeFor(agentId);
     // Shutdown may have begun while the scopes were being set up.
@@ -307,8 +311,14 @@ export const createManager = ({
   /** Tells the listeners that an item or a binder's settings changed (a write of the service's or one by hand). */
   const itemsCommitted = (seq: number) => emit({ seq, type: ITEMS_ALERT });
 
-  /** Tells the listeners that a workspace was added or its items folder changed. */
-  const workspacesCommitted = (seq: number) => emit({ seq, type: WORKSPACES_ALERT });
+  /**
+   * Tells the listeners that a workspace was added or its items folder changed, then takes over the agents the change
+   * gave a workspace (`POST /workspaces { adopt: true }`), so they answer commands without a restart.
+   */
+  const workspacesCommitted = (seq: number) => {
+    emit({ seq, type: WORKSPACES_ALERT });
+    loadAdopted();
+  };
 
   /** The agent's live cache state (`AgentSummary.cache`): undefined without a process, null when none is known. */
   const liveCache = (agentId: string): CacheState | null | undefined => procOf(agentId)?.cache;
@@ -331,6 +341,8 @@ export const createManager = ({
     itemsCommitted,
     workspacesCommitted,
     liveCache,
+    rootOf,
+    agentFolder,
   };
 };
 

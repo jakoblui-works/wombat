@@ -30,7 +30,7 @@ const service = (messageStatus: number) => {
 test("a first message that fails comes back as sendError beside the agent that started", async () => {
   const paths = service(500);
 
-  const started = await startAgentFn(startAgentVars({ harness: "fake-reply", repo: ".", text: "Fix the hours" }));
+  const started = await startAgentFn(startAgentVars({ workspace: "ws-bakery0001", harness: "fake-reply", repo: ".", text: "Fix the hours" }));
 
   expect(started.agent.id).toBe("agent-bakery-1");
   expect(started.sendError?.message).toBe("Lost.");

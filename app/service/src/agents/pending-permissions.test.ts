@@ -6,7 +6,7 @@
 import type { AgentSummary, LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
-import { REPO, setup, TEST_TIMEOUT_MS, waitFor, type Setup } from "../../test/manager-fixtures.ts";
+import { REPO, setup, TEST_TIMEOUT_MS, waitFor, WORKSPACE, type Setup } from "../../test/manager-fixtures.ts";
 
 type Requested = Extract<LogEntry, { type: "permission_requested" }>;
 type Pending = AgentSummary["pendingPermissions"];
@@ -28,7 +28,7 @@ const announced = (t: Setup) => {
 
 /** Starts the permission scenario and waits until its request is open. */
 const openRequest = async (t: Setup) => {
-  const { id } = await t.manager.start("fake-permission", REPO);
+  const { id } = await t.manager.start(WORKSPACE, "fake-permission", REPO);
   await t.manager.send(id, { text: "Edit the notes" });
   await waitFor("state waiting", () => t.agent(id)?.state === "waiting");
   const request = t.entries(id).find((entry): entry is Requested => entry.type === "permission_requested");
@@ -91,7 +91,7 @@ describe("pending permissions", () => {
     async () => {
       const t = setup();
       const alerts = announced(t);
-      const { id } = await t.manager.start("fake-permissions-three", REPO);
+      const { id } = await t.manager.start(WORKSPACE, "fake-permissions-three", REPO);
       await t.manager.send(id, { text: "Edit the notes and run the tests" });
       let requests: Requested[] = [];
       await waitFor("three open requests", () => {
@@ -128,7 +128,7 @@ describe("pending permissions", () => {
     async () => {
       const t = setup();
       const alerts = announced(t);
-      const { id } = await t.manager.start("fake-permission-left-open", REPO);
+      const { id } = await t.manager.start(WORKSPACE, "fake-permission-left-open", REPO);
       await t.manager.send(id, { text: "Edit the notes" });
       const ended = await t.turnEnded(id);
 

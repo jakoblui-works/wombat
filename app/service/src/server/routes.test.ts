@@ -3,7 +3,7 @@
 import { AgentSummary } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
-import { REPO, TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
+import { REPO, TEST_TIMEOUT_MS, WORKSPACE } from "../../test/manager-fixtures.ts";
 import { expectError, serve } from "../../test/server-fixtures.ts";
 
 describe("routes", () => {
@@ -12,7 +12,7 @@ describe("routes", () => {
     async () => {
       const s = await serve();
       expectError(await s.api("POST", "/agents/agt_does_not_exist/messages", { text: "Hello" }), 404, "not_found", "an unknown agent");
-      expectError(await s.api("POST", "/agents", { harness: "fake-reply", repo: "missing" }), 422, "repo_not_found", "a missing repo");
+      expectError(await s.api("POST", "/agents", { workspace: WORKSPACE, harness: "fake-reply", repo: "missing" }), 422, "repo_not_found", "a missing repo");
       expect(s.pids(), "nothing was spawned").toEqual([]);
     },
     TEST_TIMEOUT_MS,
@@ -22,7 +22,7 @@ describe("routes", () => {
     "a body that isn't JSON or breaks the strict schema gets 400 with an ErrorBody, and nothing reaches the agent",
     async () => {
       const s = await serve();
-      const started = await s.api("POST", "/agents", { harness: "fake-reply", repo: REPO });
+      const started = await s.api("POST", "/agents", { workspace: WORKSPACE, harness: "fake-reply", repo: REPO });
       expect(started.status, started.text).toBe(201);
       const { id } = AgentSummary.parse(started.json);
       const messages = `/agents/${id}/messages`;

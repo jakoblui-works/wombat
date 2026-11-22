@@ -10,7 +10,7 @@ import { configOf, foldLog } from "@wombat/shared/log-fold";
 import { expect, test } from "vitest";
 
 import { CONFIG_REFUSAL_MESSAGE, FAKE_CONFIG, fakeConfigOptions, type ReplayStep } from "../../test/fake-agent.ts";
-import { REPO, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
+import { REPO, TEST_TIMEOUT_MS, waitFor, WORKSPACE } from "../../test/manager-fixtures.ts";
 import { expectError, serve, type Served } from "../../test/server-fixtures.ts";
 
 const INITIAL = { model: FAKE_CONFIG.model.initial, fast: FAKE_CONFIG.fast.initial };
@@ -22,7 +22,7 @@ const configEntries = (s: Served, agentId: string) =>
   s.entries(agentId).filter((entry: LogEntry) => entry.type === "session_update" && entry.update.sessionUpdate === "config_option_update").length;
 
 const startAgent = async (s: Served, harness: string): Promise<string> => {
-  const started = await s.api("POST", "/agents", { harness, repo: REPO });
+  const started = await s.api("POST", "/agents", { workspace: WORKSPACE, harness, repo: REPO });
   expect(started.status, started.text).toBe(201);
   const agentId = (started.json as { id: string }).id;
   await waitFor("the session's options in the log", () => configNow(s, agentId) !== undefined);

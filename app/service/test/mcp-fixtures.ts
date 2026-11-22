@@ -13,7 +13,7 @@ import type { LogFields } from "../src/log.ts";
 import { mcpRoutes } from "../src/server/mcp.ts";
 import { ACCESS_FILES, openAccessRoot, type AccessSetup } from "./access-fixtures.ts";
 import { writeRoot } from "./items-fixtures.ts";
-import { REPO } from "./manager-fixtures.ts";
+import { REPO, WORKSPACE } from "./manager-fixtures.ts";
 import { serve, type RequestOptions, type Response, type Served } from "./server-fixtures.ts";
 
 export type McpServerEntry = { type?: string; name?: string; url?: string; headers?: { name: string; value: string }[] };
@@ -104,7 +104,7 @@ export const serveItemsForStub = async (files: Record<string, string> = ACCESS_F
 
 /** Starts an mcp-config agent and returns what it was given; `agentId` reuses an agent started before. */
 export const agentConfig = async (s: Served, agentId?: string): Promise<AgentConfig> => {
-  const id = agentId ?? (await s.manager.start("fake-mcp-config", REPO)).id;
+  const id = agentId ?? (await s.manager.start(WORKSPACE, "fake-mcp-config", REPO)).id;
   const dir = mkdtempSync(join(tmpdir(), "wombat-mcp-config-"));
   onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
   const file = join(dir, "config.json");

@@ -61,7 +61,7 @@ const PAGE_ROUTES = {
   version: { method: "GET", pattern: "/version", response: VersionResponse },
   listHarnesses: { method: "GET", pattern: "/harnesses", response: ListHarnessesResponse },
   listWorkspaces: { method: "GET", pattern: "/workspaces", response: ListWorkspacesResponse },
-  listRepos: { method: "GET", pattern: "/repos", response: ListReposResponse },
+  listRepos: { method: "GET", pattern: "/workspaces/:ws/repos", response: ListReposResponse },
   listAgents: { method: "GET", pattern: "/agents", response: ListAgentsResponse },
   startAgent: { method: "POST", pattern: "/agents", body: StartAgentRequest, response: AgentSummary },
   agentLog: { method: "GET", pattern: "/agents/:id/log", query: ListLogQuery, response: ListLogResponse },

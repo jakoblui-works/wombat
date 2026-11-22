@@ -17,7 +17,7 @@ describe("port rules", () => {
     "every route refuses a request without the token, with a wrong token, a foreign Origin or a foreign Host, and nothing changes",
     async () => {
       const s = await serve();
-      const { id } = await s.manager.start("fake-hang", REPO);
+      const { id } = await s.manager.start(WORKSPACE, "fake-hang", REPO);
       const seq = s.store.currentSeq();
       const pids = s.pids().length;
 

@@ -3,7 +3,7 @@
 // dropped stream leaves no listener behind that fails on the next change.
 import { describe, expect, test } from "vitest";
 
-import { REPO, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
+import { REPO, TEST_TIMEOUT_MS, waitFor, WORKSPACE } from "../../test/manager-fixtures.ts";
 import { serve, type Served } from "../../test/server-fixtures.ts";
 
 type RawLogEntry = { seq: number; type: string; requestId?: string };
@@ -20,7 +20,7 @@ describe("catch-up after a dropped stream", () => {
     async () => {
       const s = await serve();
       const stream = await s.stream();
-      const created = await s.api("POST", "/agents", { harness: "fake-permission", repo: REPO });
+      const created = await s.api("POST", "/agents", { workspace: WORKSPACE, harness: "fake-permission", repo: REPO });
       const { id } = created.json as { id: string };
       expect((await s.api("POST", `/agents/${id}/messages`, { text: "Edit the notes" })).status).toBe(202);
 

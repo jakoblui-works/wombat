@@ -3,9 +3,9 @@
 // its own systemd slice; by default the manager sees no systemd at all (an empty PATH dir).
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type { AgentSummary, LogEntry } from "@wombat/shared/api";
@@ -15,6 +15,7 @@ import { createManager, type Committed } from "../src/agents/manager.ts";
 import { readInstructions } from "../src/items/instructions.ts";
 import type { Harness } from "../src/harness/harness.ts";
 import { openStore, type Store, type StoreOptions } from "../src/store/store.ts";
+import { rootIn } from "../src/workspace.ts";
 import { SCENARIOS, type FakeScenario } from "./fake-agent.ts";
 import { fakeHarness, type FakeHarnessOptions } from "./fake-harness.ts";
 import { fakeSystemd, type FakeSystemd, type FakeSystemdOptions } from "./fake-systemd.ts";
@@ -25,12 +26,17 @@ export const TEST_TIMEOUT_MS = 15_000;
 export const WAIT_MS = 8_000;
 
 export const REPO = "site-web";
+export { WORKSPACE };
 
 export type Manager = ReturnType<typeof createManager>;
 export type LogLine = { event: string; fields: Record<string, string | number | boolean> };
 export type { Committed };
 
 const RECORD_PID = pathToFileURL(join(import.meta.dirname, "record-pid.ts")).href;
+
+/** The manager's `rootOf` for one workspace, WORKSPACE at `root`, without a store holding it. */
+export const rootOfOne = (root: string) =>
+  rootIn((id) => (id === WORKSPACE ? { id, name: basename(root), root, missing: !existsSync(root) } : undefined));
 
 /** The fake agent on `scenario`, with id `fake-<scenario>`, recording its pid in `pidDir`. */
 export const trackedHarness = (scenario: FakeScenario, pidDir: string, options: FakeHarnessOptions = {}): Harness => {
@@ -168,8 +174,7 @@ export const setup = ({ systemd = "none", fake, storeOptions = {}, configSetTime
   const make = (store: Store) => {
     const manager = createManager({
       store,
-      workspaceRoot: root,
-      workspace: WORKSPACE,
+      rootOf: rootOfOne(root),
       harnesses,
       log: (event: string, fields: LogLine["fields"]) => logs.push({ event, fields }),
       env,

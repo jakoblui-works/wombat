@@ -27,9 +27,9 @@ export const appRoutes = (agentId: string): { method: string; path: string; body
   { method: "GET", path: "/workspaces" },
   { method: "POST", path: "/workspaces", body: { root: "/refused/workspace" } },
   { method: "PUT", path: "/workspaces/ws-a1b2c3d4e5/items-root", body: { itemsRoot: "/refused/items" } },
-  { method: "GET", path: "/repos" },
+  { method: "GET", path: `/workspaces/${WORKSPACE}/repos` },
   { method: "GET", path: "/agents" },
-  { method: "POST", path: "/agents", body: { harness: "fake-reply", repo: REPO } },
+  { method: "POST", path: "/agents", body: { workspace: WORKSPACE, harness: "fake-reply", repo: REPO } },
   { method: "GET", path: `/agents/${agentId}/log` },
   { method: "POST", path: `/agents/${agentId}/messages`, body: { text: "Refused prompt" } },
   { method: "POST", path: `/agents/${agentId}/permissions/req_1`, body: { kind: "allow_once" } },
@@ -74,6 +74,15 @@ export type RequestOptions = {
   body?: unknown;
   /** The Host header: default `127.0.0.1:<port>`; null sends none. */
   host?: string | null;
+};
+
+/** The id of the one workspace a service lists: the one its WOMBAT_WORKSPACE added. */
+export const onlyWorkspace = async (api: (method: string, path: string) => Promise<Response>): Promise<string> => {
+  const listed = await api("GET", "/workspaces");
+  const workspaces = (listed.json as { workspaces?: { id: string }[] } | undefined)?.workspaces ?? [];
+  const [only] = workspaces;
+  if (workspaces.length !== 1 || only === undefined) throw new Error(`expected the service to list one workspace: ${listed.text}`);
+  return only.id;
 };
 
 /** Fails the test if a response carries any CORS header. */

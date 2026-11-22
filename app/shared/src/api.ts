@@ -29,6 +29,8 @@ const PermissionKind = z.enum(["allow_once", "allow_always", "reject_once", "rej
 // Requests (strict)
 
 export const StartAgentRequest = z.strictObject({
+  /** The workspace the agent belongs to; `repo` is resolved against its root. */
+  workspace: z.string().min(1),
   harness: z.string().min(1),
   repo: z.string().refine(isRepoPath, {
     message: 'repo must be a path relative to the workspace root, like "site-web" or "." for the root itself',
@@ -163,9 +165,11 @@ export type RepoErrorCode = z.infer<typeof RepoErrorCode>;
 /**
  * The workspace routes' error codes: `workspace_not_found` for an id the list doesn't hold, or a route that needs a
  * workspace when the service has none (the app reads the list again); `invalid_folder` for a path that isn't the
- * absolute path of an existing folder (main shows the message and offers the folder picker again).
+ * absolute path of an existing folder (main shows the message and offers the folder picker again);
+ * `workspace_missing` for a start or resume of an agent, or a repo list, in a workspace whose folder is gone (the app
+ * shows the message, which names the folder; its agents stay listed).
  */
-export const WorkspaceErrorCode = z.enum(["workspace_not_found", "invalid_folder"]);
+export const WorkspaceErrorCode = z.enum(["workspace_not_found", "invalid_folder", "workspace_missing"]);
 export type WorkspaceErrorCode = z.infer<typeof WorkspaceErrorCode>;
 
 /**

@@ -2,7 +2,7 @@
 // served by the log route, so entries from other sessions (sub-agents, later) need no store migration.
 import { describe, expect, test } from "vitest";
 
-import { REPO, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
+import { REPO, TEST_TIMEOUT_MS, waitFor, WORKSPACE } from "../../test/manager-fixtures.ts";
 import { serve } from "../../test/server-fixtures.ts";
 
 const CARRIERS = ["session_update", "permission_requested", "permission_answered"];
@@ -12,7 +12,7 @@ describe("sessionId on entries", () => {
     "every session update and permission entry stores the agent's ACP sessionId, and the log route serves it",
     async () => {
       const s = await serve();
-      const agent = await s.manager.start("fake-permission", REPO);
+      const agent = await s.manager.start(WORKSPACE, "fake-permission", REPO);
       await s.manager.send(agent.id, { text: "Edit the notes" });
       await waitFor("a pending permission", () => s.agent(agent.id)?.state === "waiting");
       const request = s.entries(agent.id).find((entry) => entry.type === "permission_requested");

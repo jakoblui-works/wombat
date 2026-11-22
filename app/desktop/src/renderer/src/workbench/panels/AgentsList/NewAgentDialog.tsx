@@ -43,10 +43,11 @@ const NewAgentForm = ({ onDone }: { onDone: () => void }) => {
   const ready = folder !== undefined && harness !== undefined && text.trim() !== "" && !start.isPending;
 
   const submit = async () => {
-    if (folder === undefined || harness === undefined) return;
+    const workspace = repos.data?.workspace;
+    if (workspace === undefined || folder === undefined || harness === undefined) return;
     setFailure(undefined);
     const first = text.trim();
-    const started = await start.mutateAsync(startAgentVars({ harness, repo: folder, text: first })).catch((error: unknown) => {
+    const started = await start.mutateAsync(startAgentVars({ workspace, harness, repo: folder, text: first })).catch((error: unknown) => {
       // The agent didn't start: shown below; the dialog stays so the text isn't lost.
       setFailure(asError(error));
       return undefined;

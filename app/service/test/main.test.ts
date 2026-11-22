@@ -21,7 +21,7 @@ import { expect, onTestFinished, test } from "vitest";
 import { openStore } from "../src/store/store.ts";
 import { fakeSystemd, killedUnits, type FakeSystemd } from "./fake-systemd.ts";
 import { isAlive, REPO, SERVICE_SLICE, TEST_TIMEOUT_MS, WAIT_MS, waitFor } from "./manager-fixtures.ts";
-import { APP_ORIGIN, rawRequest } from "./server-fixtures.ts";
+import { APP_ORIGIN, onlyWorkspace, rawRequest } from "./server-fixtures.ts";
 
 const SERVICE_DIR = join(import.meta.dirname, "..");
 const MAIN = join(SERVICE_DIR, "src", "main.ts");
@@ -145,6 +145,10 @@ const waitForDiscovery = async (service: Spawned, path: string) => {
 const api = (file: DiscoveryFile, method: string, path: string, body?: unknown) =>
   rawRequest(file.port, { method, path, body, headers: { authorization: `Bearer ${file.token}`, origin: APP_ORIGIN } });
 
+/** POST /agents for a fake-reply agent in the service's one workspace. */
+const startReply = async (file: DiscoveryFile) =>
+  api(file, "POST", "/agents", { workspace: await onlyWorkspace((method, path) => api(file, method, path)), harness: "fake-reply", repo: REPO });
+
 test(
   "start-up: one instance, a discovery file the app can read, and SIGTERM ends the service and its agents",
   async () => {
@@ -173,7 +177,7 @@ test(
     expect(identity.codeId, "codeId isn't codeIdOf the checkout the service runs from").toBe(codeIdOf(join(SERVICE_DIR, "..")));
     expect(Date.parse(identity.startedAt ?? ""), "startedAt isn't a time").not.toBeNaN();
 
-    const started = await api(file, "POST", "/agents", { harness: "fake-reply", repo: REPO });
+    const started = await startReply(file);
     expect(started.status, started.text).toBeLessThan(300);
     await waitFor("the agent's process", () => at.pids().length > 0);
 
@@ -335,7 +339,7 @@ test(
     await waitForDiscovery(service, at.discoveryPath);
     const file = DiscoveryFile.parse(JSON.parse(readFileSync(at.discoveryPath, "utf8")));
 
-    const started = await api(file, "POST", "/agents", { harness: "fake-reply", repo: REPO });
+    const started = await startReply(file);
     expect(started.status, started.text).toBe(201);
     const agentId = (started.json as { id: string }).id;
     const sent = await api(file, "POST", `/agents/${agentId}/messages`, { text: "Say hello" });
@@ -378,7 +382,7 @@ test(
     const service = spawnService(ENTRY, at.env(systemd, { FAKE_AGENT_PID_DIR: at.pidDir, WOMBAT_TEST_SLICE: at.slice }));
     await waitForDiscovery(service, at.discoveryPath);
     const file = DiscoveryFile.parse(JSON.parse(readFileSync(at.discoveryPath, "utf8")));
-    const started = await api(file, "POST", "/agents", { harness: "fake-reply", repo: REPO });
+    const started = await startReply(file);
     expect(started.status, started.text).toBe(201);
     await waitFor("the agent's process", () => at.pids().length > 0);
 
@@ -427,7 +431,7 @@ test(
     const old = spawnService(ENTRY, env(oldSystemd));
     await waitForDiscovery(old, at.discoveryPath);
     const oldFile = DiscoveryFile.parse(JSON.parse(readFileSync(at.discoveryPath, "utf8")));
-    const started = await api(oldFile, "POST", "/agents", { harness: "fake-reply", repo: REPO });
+    const started = await startReply(oldFile);
     expect(started.status, started.text).toBe(201);
     await waitFor("the agent's process", () => at.pids().length > 0);
 

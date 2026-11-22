@@ -219,14 +219,15 @@ const without = (value: object, field: string): Record<string, unknown> =>
   Object.fromEntries(Object.entries(value).filter(([key]) => key !== field));
 
 describe("request bodies (strict)", () => {
-  test("StartAgentRequest takes a relative repo path inside the workspace, and nothing that could leave it or run something else", () => {
+  test("StartAgentRequest takes a workspace and a relative repo path inside it, and nothing that could leave it or run something else", () => {
     for (const repo of [".", "site-web", "libs/shared-ui"]) {
-      expect(StartAgentRequest.safeParse({ harness: "claude-code", repo }).success, repo).toBe(true);
+      expect(StartAgentRequest.safeParse({ workspace: "ws-a1b2c3d4e5", harness: "claude-code", repo }).success, repo).toBe(true);
     }
     for (const repo of ["..", "site-web/../../etc", "/home/dev/site-web", "site-web\\src", "site\u0000web"]) {
-      expect(StartAgentRequest.safeParse({ harness: "claude-code", repo }).success, JSON.stringify(repo)).toBe(false);
+      expect(StartAgentRequest.safeParse({ workspace: "ws-a1b2c3d4e5", harness: "claude-code", repo }).success, JSON.stringify(repo)).toBe(false);
     }
-    expect(StartAgentRequest.safeParse({ harness: "claude-code", repo: "site-web", command: "/bin/sh" }).success).toBe(false);
+    expect(StartAgentRequest.safeParse({ workspace: "ws-a1b2c3d4e5", harness: "claude-code", repo: "site-web", command: "/bin/sh" }).success).toBe(false);
+    expect(StartAgentRequest.safeParse({ harness: "claude-code", repo: "site-web" }).success, "without a workspace").toBe(false);
   });
 });
 

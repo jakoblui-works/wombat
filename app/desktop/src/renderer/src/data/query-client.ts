@@ -27,7 +27,15 @@ export const createQueryClient = (): QueryClient =>
 
 const readAgents = () => callRoute(ROUTES.listAgents);
 const readHarnesses = () => callRoute(ROUTES.listHarnesses);
-const readRepos = () => callRoute(ROUTES.listRepos);
+/** The folders an agent may start in, and the id of their workspace: the listed one whose root main opened. */
+const readRepos = async () => {
+  const { root } = await window.wombat.workspace.get();
+  const { workspaces } = await callRoute(ROUTES.listWorkspaces);
+  const shown = workspaces.find((workspace) => workspace.root === root);
+  if (shown === undefined) throw new Error(`The service doesn't list the workspace ${root}. Run Restart Service from the command palette (the service adds its workspace when it starts), then open the dialog again.`);
+  const { repos } = await callRoute(ROUTES.listRepos, { params: { ws: shown.id } });
+  return { workspace: shown.id, repos };
+};
 const readProposals = () => callRoute(ROUTES.listProposals);
 const readBinders = () => callRoute(ROUTES.listBinders);
 const readBinderItems = (binderId: string) => () => callRoute(ROUTES.binderItems, { params: { id: binderId } });

@@ -14,7 +14,7 @@ import { expect, onTestFinished } from "vitest";
 import { fakeSystemd } from "./fake-systemd.ts";
 import { writeAt } from "./items-fixtures.ts";
 import { REPO, SERVICE_SLICE, WAIT_MS, waitFor } from "./manager-fixtures.ts";
-import { APP_ORIGIN, rawRequest, type Response } from "./server-fixtures.ts";
+import { APP_ORIGIN, onlyWorkspace, rawRequest, type Response } from "./server-fixtures.ts";
 
 const SERVICE_DIR = join(import.meta.dirname, "..");
 const ENTRY = join(import.meta.dirname, "instructions-entry.ts");
@@ -131,7 +131,8 @@ export type RecordedAgent = {
 
 /** Starts an agent on `harness` and returns what its session/new carried (the mcp-config scenario reports it). */
 export const startRecorded = async (service: RunningService, harness: string): Promise<RecordedAgent> => {
-  const started = await service.api("POST", "/agents", { harness, repo: REPO });
+  const workspace = await onlyWorkspace(service.api);
+  const started = await service.api("POST", "/agents", { workspace, harness, repo: REPO });
   expect(started.status, `start ${harness}: ${started.text}`).toBe(201);
   const agentId = (started.json as { id: string }).id;
   const dir = mkdtempSync(join(tmpdir(), "wombat-recorded-"));

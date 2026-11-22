@@ -6,14 +6,14 @@ import { describe, expect, onTestFinished, test } from "vitest";
 import { LogEntry } from "@wombat/shared/api";
 
 import { openStore } from "../store/store.ts";
-import { REPO, setup, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
+import { REPO, setup, TEST_TIMEOUT_MS, waitFor, WORKSPACE } from "../../test/manager-fixtures.ts";
 
 describe("commit before alert", () => {
   test(
     "every committed event is readable when the listener runs, through start, reply, permission, crash, a skipped update and delete",
     async () => {
       const t = setup();
-      const first = await t.manager.start("fake-reply", REPO);
+      const first = await t.manager.start(WORKSPACE, "fake-reply", REPO);
       // Opened once the database exists; WAL lets it read while the manager writes, and only what's committed.
       const reader = openStore({ path: t.storePath });
       onTestFinished(() => {
@@ -49,7 +49,7 @@ describe("commit before alert", () => {
       await t.manager.send(first.id, { text: "Say hello" });
       await t.turnEnded(first.id);
 
-      const permission = await t.manager.start("fake-permission", REPO);
+      const permission = await t.manager.start(WORKSPACE, "fake-permission", REPO);
       await t.manager.send(permission.id, { text: "Edit the notes" });
       await waitFor("a pending permission", () => t.agent(permission.id)?.state === "waiting");
       const request = t.entries(permission.id).find((entry) => entry.type === "permission_requested");
@@ -57,11 +57,11 @@ describe("commit before alert", () => {
       t.manager.answer(permission.id, request.requestId, "allow_once");
       await t.turnEnded(permission.id);
 
-      const crash = await t.manager.start("fake-crash", REPO);
+      const crash = await t.manager.start(WORKSPACE, "fake-crash", REPO);
       await t.manager.send(crash.id, { text: "Go" });
       await waitFor("the crash recorded", () => t.agent(crash.id)?.state === "error");
 
-      const thinker = await t.manager.start("fake-unknown-update", REPO);
+      const thinker = await t.manager.start(WORKSPACE, "fake-unknown-update", REPO);
       await t.manager.send(thinker.id, { text: "Think first" });
       await t.turnEnded(thinker.id);
 

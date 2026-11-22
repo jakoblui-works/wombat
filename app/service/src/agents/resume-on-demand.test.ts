@@ -5,7 +5,7 @@ import type { LogEntry } from "@wombat/shared/api";
 import { expect, test } from "vitest";
 
 import { FAKE_CONFIG } from "../../test/fake-agent.ts";
-import { isAlive, REPO, setup, TEST_TIMEOUT_MS, waitFor, type Setup } from "../../test/manager-fixtures.ts";
+import { isAlive, REPO, setup, TEST_TIMEOUT_MS, waitFor, WORKSPACE, type Setup } from "../../test/manager-fixtures.ts";
 
 const latestConfig = (entries: LogEntry[]) => {
   const options = entries.flatMap((entry) =>
@@ -18,7 +18,7 @@ test(
   "a setting on a stopped agent resumes it, sets the value and leaves it done and running, with no turn",
   async () => {
     const t = setup();
-    const { id } = await t.manager.start("fake-reply", REPO);
+    const { id } = await t.manager.start(WORKSPACE, "fake-reply", REPO);
     await t.manager.stop(id);
 
     await t.manager.setConfig(id, FAKE_CONFIG.effort.id, "high");
@@ -42,7 +42,7 @@ test(
   "a delete while a message's resume waits on the stopping process leaves no live process and nothing stored",
   async () => {
     const t = setup();
-    const { id } = await t.manager.start("fake-reply", REPO);
+    const { id } = await t.manager.start(WORKSPACE, "fake-reply", REPO);
     const stopping = t.manager.stop(id);
     await t.manager.send(id, { text: "Still there?" });
     await t.manager.delete(id);
@@ -60,7 +60,7 @@ test(
   "a stop while a message's resume is under way ends the resumed process: stopped, no live process, the turn ended",
   async () => {
     const t = setup();
-    const { id } = await t.manager.start("fake-reply", REPO);
+    const { id } = await t.manager.start(WORKSPACE, "fake-reply", REPO);
     await t.manager.stop(id);
     await waitFor("the first process gone", () => t.pids().every((pid) => !isAlive(pid)));
 
@@ -79,7 +79,7 @@ test(
   "a cancel while a message waits for the agent to start ends that turn as cancelled, without sending it, and the agent runs on",
   async () => {
     const t = setup();
-    const { id } = await t.manager.start("fake-reply", REPO);
+    const { id } = await t.manager.start(WORKSPACE, "fake-reply", REPO);
     await t.manager.stop(id);
 
     await t.manager.send(id, { text: "Never mind" });

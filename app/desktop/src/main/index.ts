@@ -288,7 +288,11 @@ const currentWorkspace = (): string => {
 
 handleBridge(CHANNELS.request, (_event, method, pathname, body) => connection.request(method, pathname, body));
 handleBridge(CHANNELS.connectionNow, () => connection.current());
-handleBridge(CHANNELS.workspaceGet, (): WorkspaceInfo => ({ root: currentWorkspace() }));
+// The service lists each workspace by its root's real path, and the page finds the open one by comparing roots.
+handleBridge(CHANNELS.workspaceGet, async (): Promise<WorkspaceInfo> => {
+  const root = currentWorkspace();
+  return { root: await realpath(root).catch(() => root) };
+});
 /**
  * The folder picker, then a switch of the service to the chosen folder (asking first when that stops a running
  * service). A switch that went ahead reloads the page: it holds the old workspace's settings, layout and data, and

@@ -50,8 +50,8 @@ export type StartedAgent = { agent: AgentSummary; sendError: Error | undefined }
  * Starts the agent, then sends it the first message. Rejects only when the agent didn't start: once it exists, a
  * failed send comes back as `sendError`, so the message is sent again to this agent rather than starting another.
  */
-export const startAgentFn = async ({ harness, repo, text, commandId }: StartAgentVars): Promise<StartedAgent> => {
-  const agent = await callRoute(ROUTES.startAgent, { body: { harness, repo } });
+export const startAgentFn = async ({ workspace, harness, repo, text, commandId }: StartAgentVars): Promise<StartedAgent> => {
+  const agent = await callRoute(ROUTES.startAgent, { body: { workspace, harness, repo } });
   try {
     await sendMessageFn({ agentId: agent.id, text, commandId });
     return { agent, sendError: undefined };

@@ -8,6 +8,7 @@ import { ROUTES, type ResponseOf } from "@wombat/shared/routes";
 import type { Context, Hono } from "hono";
 
 import type { Store } from "../store/store.ts";
+import { workspaceNotFound } from "../workspace.ts";
 import { errorResponse, WORKSPACE_STATUS } from "./errors.ts";
 import { checked, readBody } from "./request.ts";
 
@@ -45,13 +46,13 @@ export const folderRefusal = (path: string, use: FolderUse, folderAt: (path: str
 
 const refused = (c: Context, message: string) => errorResponse(c, WORKSPACE_STATUS.invalid_folder, WorkspaceErrorCode.enum.invalid_folder, message);
 
-/** The answer of a route that needs a workspace when the service has none. */
+/** The answer of an item route when the service has no workspace. */
 export const noWorkspace = (c: Context) =>
   errorResponse(
     c,
     WORKSPACE_STATUS.workspace_not_found,
     WorkspaceErrorCode.enum.workspace_not_found,
-    `The service has no workspace, so there are no repos, agents or items to reach. Add a folder in the app, or set ${SERVICE_ENV.workspace} to a folder's absolute path and restart the service.`,
+    `The service has no workspace, so there are no items to reach. Add a folder in the app, or set ${SERVICE_ENV.workspace} to a folder's absolute path and restart the service.`,
   );
 
 export const workspaceRoutes = (app: Hono, { store, workspacesCommitted }: WorkspaceRoutesOptions) => {
@@ -98,12 +99,8 @@ export const workspaceRoutes = (app: Hono, { store, workspacesCommitted }: Works
     const refusal = folderRefusal(itemsRoot, "items folder", isFolder);
     if (refusal !== undefined) return refused(c, refusal);
     if (store.getWorkspace(id) === undefined) {
-      return errorResponse(
-        c,
-        WORKSPACE_STATUS.workspace_not_found,
-        WorkspaceErrorCode.enum.workspace_not_found,
-        `There's no workspace ${id}. List the workspaces to see which exist, and add the folder first if it isn't there.`,
-      );
+      const { code, message } = workspaceNotFound(id);
+      return errorResponse(c, WORKSPACE_STATUS[code], code, message);
     }
     const workspace = alerting(() => {
       const changed = store.setItemsRoot(id, itemsRoot);

@@ -15,7 +15,7 @@ import {
   CONTEXT_STARTED_FILE,
   FAKE_BREAKDOWN,
 } from "../../test/fake-agent.ts";
-import { GIVE_UP_HARNESS, REPO, setup, TEST_TIMEOUT_MS, waitFor, WAIT_MS, type Setup } from "../../test/manager-fixtures.ts";
+import { GIVE_UP_HARNESS, REPO, setup, TEST_TIMEOUT_MS, waitFor, WAIT_MS, WORKSPACE, type Setup } from "../../test/manager-fixtures.ts";
 
 /** The rejection of `promise`, or undefined if it resolves; "no answer" if it does neither within WAIT_MS. */
 const refusal = (promise: Promise<unknown>): Promise<unknown> =>
@@ -31,7 +31,7 @@ const eventsOf = (t: Setup, agentId: string) => t.committed.filter((event) => (e
 
 /** Starts the agent and waits until its session's options are stored, so nothing of the start is still arriving. */
 const started = async (t: Setup, harness: string): Promise<string> => {
-  const { id } = await t.manager.start(harness, REPO);
+  const { id } = await t.manager.start(WORKSPACE, harness, REPO);
   await waitFor("the session's options in the log", () =>
     t.entries(id).some((entry: LogEntry) => entry.type === "session_update" && entry.update.sessionUpdate === "config_option_update"),
   );

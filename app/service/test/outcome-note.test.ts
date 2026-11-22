@@ -31,7 +31,7 @@ type Told = { prompt: string; note: ProposalNoteEntry | undefined };
 /** A manager with one running echo agent, and the proposals on its store. */
 const open = async () => {
   const t = setup();
-  const { id: agentId } = await t.manager.start("fake-echo", REPO);
+  const { id: agentId } = await t.manager.start(WORKSPACE, "fake-echo", REPO);
   const folder = join(t.root, REPO);
   const proposals = createProposals({ store: t.store, workspace: t.root, workspaceId: WORKSPACE, agentFolder: () => folder, onProposal: () => undefined, log: () => undefined });
   const notes = () => t.entries(agentId).filter((entry): entry is ProposalNoteEntry => entry.type === "proposal_note");
@@ -233,7 +233,7 @@ test(
   "on the server with items, the note for a decided item proposal names the item by its handle",
   async () => {
     const s = await serve({ itemsRoot: writeRoot(ACCESS_FILES) });
-    const { id: agentId } = await s.manager.start("fake-echo", REPO);
+    const { id: agentId } = await s.manager.start(WORKSPACE, "fake-echo", REPO);
     const { proposal } = s.store.insertProposal(
       { workspace: WORKSPACE, target: "item", path: null, binder: "bugs", itemId: VISIBLE_IDS.bug2, kind: "update", file: null, reason: "Seen again", baseVersion: "9f2c", agentId },
       { fields: { note: "Also in Chromium" } },

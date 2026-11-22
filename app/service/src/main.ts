@@ -21,6 +21,7 @@ import { startServer } from "./server/server.ts";
 import { NO_WORKSPACE } from "./server/workspace-routes.ts";
 import { LockHeld, takeStartLock } from "./start-lock.ts";
 import { openStore, type Store } from "./store/store.ts";
+import { rootIn } from "./workspace.ts";
 
 export type MainOptions = {
   /** Default process.env. */
@@ -155,12 +156,11 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
       configured = { id: store.addWorkspace(configuredRoot, itemsRoot).workspace.id, root: configuredRoot };
       store.adoptUnassigned(configured.id);
     }
-    const { id: workspace, root: workspaceRoot } = configured ?? NO_WORKSPACE;
+    const { id: workspace } = configured ?? NO_WORKSPACE;
     const slice = options.slice === undefined ? {} : { slice: options.slice };
     manager = createManager({
       store,
-      workspaceRoot,
-      workspace,
+      rootOf: rootIn(store.getWorkspace),
       harnesses,
       log,
       env,
