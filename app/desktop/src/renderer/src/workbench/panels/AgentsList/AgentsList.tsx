@@ -12,7 +12,7 @@ import { WORKBENCH_COMMAND } from "../../commands/workbench-commands.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useActiveTab, useWorkbench } from "../../workbench-context.ts";
 import { CHAT_PANEL, ChatParams } from "../Chat/chat-params.ts";
-import { AgentsError } from "../approvals/LogError/LogError.tsx";
+import { AgentsError } from "../../approvals/LogError/LogError.tsx";
 import { AgentRow } from "./AgentRow.tsx";
 import { groupAgents } from "./group-agents.ts";
 import { NO_STATE_CHANGES, type StateChanges, trackStates } from "./state-changes.ts";

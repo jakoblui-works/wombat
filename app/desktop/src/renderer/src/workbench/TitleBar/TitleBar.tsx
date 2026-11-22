@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarSeparator, MenubarShortcut, MenubarTrigger } from "@/components/ui/menubar";
 import { runLogged } from "../commands/registry.ts";
 import { type MenuModel, MENUS, menuItems } from "./menus.ts";
-import { WombatSymbol } from "../panels/EmptyState/WombatSymbol.tsx";
+import { WombatSymbol } from "../EmptyState/WombatSymbol.tsx";
 
 /**
  * A menu's items. A component of its own, so they resolve against the registry when the popup opens: the workbench

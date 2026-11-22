@@ -8,7 +8,7 @@ import { ScrollArea } from "../../../../components/ui/scroll-area";
 import { useBinders } from "../../../../data/hooks.ts";
 import { lastPathPart } from "../../../../lib/path.ts";
 import { LazyMonacoDiff } from "../../Diff/MonacoDiff/LazyMonacoDiff.tsx";
-import { Note } from "../../approvals/Note/Note.tsx";
+import { Note } from "../../../approvals/Note/Note.tsx";
 import { type FieldRow, fieldRows } from "./field-rows.ts";
 import { ProblemList } from "../../Desk/ProblemList/ProblemList.tsx";
 import { problemsByField } from "../../Desk/view-model/problems.ts";

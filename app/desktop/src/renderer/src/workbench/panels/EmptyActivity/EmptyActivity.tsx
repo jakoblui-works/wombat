@@ -1,5 +1,5 @@
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
-import { EmptyState } from "../EmptyState/EmptyState.tsx";
+import { EmptyState } from "../../EmptyState/EmptyState.tsx";
 
 /** The sidebar of an activity that isn't built yet: its title row and its empty state, with the symbol. */
 export const EmptyActivity = ({ title, body, heading }: { title: string; body: string; heading: string }) => (

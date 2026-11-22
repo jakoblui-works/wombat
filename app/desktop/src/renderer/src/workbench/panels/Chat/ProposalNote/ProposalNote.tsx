@@ -4,8 +4,8 @@ import { useState } from "react";
 
 import { Collapse } from "../../../../components/ui/collapse";
 import type { ChatPart } from "../../../../data/chat-model.ts";
-import { DiffRows } from "../../approvals/EditDiff/EditDiff.tsx";
-import { type StoredDiff, storedDiffRows } from "../../approvals/EditDiff/inline-diff.ts";
+import { DiffRows } from "../../../approvals/EditDiff/EditDiff.tsx";
+import { type StoredDiff, storedDiffRows } from "../../../approvals/EditDiff/inline-diff.ts";
 import { noteLine, OUTCOME_WORDS } from "./note-line.ts";
 
 type NotePart = Extract<ChatPart, { kind: "proposal_note" }>;

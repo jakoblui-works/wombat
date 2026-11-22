@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 
-import { chatModel } from "../../../data/chat-model.ts";
-import { useAgentLog, useAgents } from "../../../data/hooks.ts";
+import { chatModel } from "../../data/chat-model.ts";
+import { useAgentLog, useAgents } from "../../data/hooks.ts";
 
 /**
  * One agent's chat model, its summary and its log read: what the chat and the diff tab read, so both build the same

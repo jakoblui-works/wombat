@@ -1,6 +1,6 @@
 import { useRef } from "react";
 
-import { cn } from "../../../../lib/utils";
+import { cn } from "../../../lib/utils";
 import type { EditDiff as EditDiffData } from "../edit-request.ts";
 import { type InlineDiff, type InlineRow, inlineDiff } from "./inline-diff.ts";
 

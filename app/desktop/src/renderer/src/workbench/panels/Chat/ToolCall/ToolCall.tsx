@@ -22,7 +22,7 @@ import { useState } from "react";
 import { Collapse } from "../../../../components/ui/collapse";
 import type { ChatPart, ToolCallContent, ToolCallStatus, ToolKind } from "../../../../data/chat-model.ts";
 import { cn } from "../../../../lib/utils";
-import { EditDiff } from "../../approvals/EditDiff/EditDiff.tsx";
+import { EditDiff } from "../../../approvals/EditDiff/EditDiff.tsx";
 import { ClippedMarkdown } from "../ClippedMarkdown/ClippedMarkdown.tsx";
 import { Omitted, useClipped } from "../Omitted/Omitted.tsx";
 

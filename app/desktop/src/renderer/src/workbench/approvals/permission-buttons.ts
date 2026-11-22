@@ -1,6 +1,6 @@
 // Which of a permission request's options the chat offers as Approve, as Reject and as the rest, and how an answer
 // reads once given. Pure: the chat's cards and the diff tab both use it.
-import type { ChatPart } from "../../../data/chat-model.ts";
+import type { ChatPart } from "../../data/chat-model.ts";
 
 type PermissionPart = Extract<ChatPart, { kind: "permission" }>;
 

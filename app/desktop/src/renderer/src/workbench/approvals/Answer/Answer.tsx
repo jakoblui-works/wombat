@@ -2,10 +2,10 @@ import type { AnswerPermissionRequest } from "@wombat/shared/api";
 import { Check, X } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Button } from "../../../../components/ui/button";
-import type { ChatPart } from "../../../../data/chat-model.ts";
-import { AGENT_STATES } from "../../../../lib/agent-state";
-import { cn } from "../../../../lib/utils";
+import { Button } from "../../../components/ui/button";
+import type { ChatPart } from "../../../data/chat-model.ts";
+import { AGENT_STATES } from "../../../lib/agent-state";
+import { cn } from "../../../lib/utils";
 import { DiffCounts } from "../EditDiff/EditDiff.tsx";
 import type { InlineDiff } from "../EditDiff/inline-diff.ts";
 import { ANSWER_LABELS, type PermissionOption, permissionButtons } from "../permission-buttons.ts";

@@ -12,7 +12,7 @@ import { PathText } from "../../proposals/PathText/PathText.tsx";
 import { OutsideWorkspace } from "../../proposals/OutsideWorkspace/OutsideWorkspace.tsx";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useWorkbench } from "../../workbench-context.ts";
-import { AgentsError } from "../approvals/LogError/LogError.tsx";
+import { AgentsError } from "../../approvals/LogError/LogError.tsx";
 import { KIND_ICONS } from "../Chat/ToolCall/ToolCall.tsx";
 import { binderOf } from "../Item/item-state.ts";
 import { type NeedsMeRow, needsMeRows } from "./needs-me-rows.ts";

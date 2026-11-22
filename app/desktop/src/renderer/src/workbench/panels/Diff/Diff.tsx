@@ -4,16 +4,16 @@ import { useEffect, useState } from "react";
 import { Button } from "../../../components/ui/button";
 import { useConnection } from "../../../data/hooks.ts";
 import type { PanelProps } from "../../registry.ts";
-import { useAnswer } from "../approvals/answer.ts";
-import { liveState } from "../approvals/live-state.ts";
-import { useChatModel } from "../approvals/use-chat-model.ts";
-import { CHANGE_GONE, NO_CHANGE } from "../approvals/EditDiff/EditDiff.tsx";
-import { LogError } from "../approvals/LogError/LogError.tsx";
-import { AnswerButtons, AnswerError, DecisionSlot, EditTarget, Outcome, Waiting } from "../approvals/Answer/Answer.tsx";
-import { Note } from "../approvals/Note/Note.tsx";
+import { useAnswer } from "../../approvals/answer.ts";
+import { liveState } from "../../approvals/live-state.ts";
+import { useChatModel } from "../../approvals/use-chat-model.ts";
+import { CHANGE_GONE, NO_CHANGE } from "../../approvals/EditDiff/EditDiff.tsx";
+import { LogError } from "../../approvals/LogError/LogError.tsx";
+import { AnswerButtons, AnswerError, DecisionSlot, EditTarget, Outcome, Waiting } from "../../approvals/Answer/Answer.tsx";
+import { Note } from "../../approvals/Note/Note.tsx";
 import { LazyMonacoDiff } from "./MonacoDiff/LazyMonacoDiff.tsx";
 import { DiffParams, diffTitle } from "./diff-params.ts";
-import { editRequest } from "../approvals/edit-request.ts";
+import { editRequest } from "../../approvals/edit-request.ts";
 
 
 /**

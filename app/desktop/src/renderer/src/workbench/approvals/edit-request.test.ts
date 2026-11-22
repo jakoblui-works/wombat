@@ -15,8 +15,8 @@ import {
   toolCall,
   toolUpdate,
   user,
-} from "../../../../../../../shared/test/log-entries.ts";
-import { chatModel } from "../../../data/chat-model.ts";
+} from "../../../../../../shared/test/log-entries.ts";
+import { chatModel } from "../../data/chat-model.ts";
 import { editRequest } from "./edit-request.ts";
 
 const HOURS = "/ws/bakery-site/hours.md";

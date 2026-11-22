@@ -2,7 +2,7 @@ import type { LenientView } from "@wombat/shared/items";
 
 import { useBinderItems } from "../../../../data/hooks.ts";
 import type { Reveal } from "../../../registry.ts";
-import { EmptyState } from "../../EmptyState/EmptyState.tsx";
+import { EmptyState } from "../../../EmptyState/EmptyState.tsx";
 import type { DeletableItem } from "../../Item/item-delete.ts";
 import { READ_FAILED } from "../../Item/ItemNotice/ItemNotice.tsx";
 import type { Binder } from "../../Item/item-state.ts";

@@ -5,7 +5,7 @@ import { type Mutation, useMutation, useMutationState, useQueryClient } from "@t
 import type { AnswerPermissionRequest } from "@wombat/shared/api";
 import { useMemo } from "react";
 
-import { answerPermissionMutation, type AnswerPermissionVars } from "../../../data/commands.ts";
+import { answerPermissionMutation, type AnswerPermissionVars } from "../../data/commands.ts";
 
 export const answerKey = (agentId: string) => ["answer", agentId] as const;
 

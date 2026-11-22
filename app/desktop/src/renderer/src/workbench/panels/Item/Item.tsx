@@ -13,7 +13,7 @@ import { asError } from "../../../lib/errors.ts";
 import { lastPathPart } from "../../../lib/path.ts";
 import type { PanelProps } from "../../registry.ts";
 import { useCloseGuard, useWorkbench } from "../../workbench-context.ts";
-import { Note } from "../approvals/Note/Note.tsx";
+import { Note } from "../../approvals/Note/Note.tsx";
 import { Field } from "../Desk/Field/Field.tsx";
 import { ProblemList } from "../Desk/ProblemList/ProblemList.tsx";
 import { type Listed, useLinkLists } from "../Desk/use-link-lists.ts";

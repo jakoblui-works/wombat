@@ -6,7 +6,7 @@
 // there is.
 import { type AgentSummary, isRunning } from "@wombat/shared/api";
 
-import type { ChatPart, ChatModel } from "../../../data/chat-model.ts";
+import type { ChatPart, ChatModel } from "../../data/chat-model.ts";
 
 type PermissionPart = Extract<ChatPart, { kind: "permission" }>;
 type RequestRef = Pick<PermissionPart, "requestId" | "answer">;

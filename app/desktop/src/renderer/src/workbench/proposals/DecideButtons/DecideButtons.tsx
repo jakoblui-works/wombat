@@ -5,7 +5,7 @@ import { useDecide } from "../../../data/commands.ts";
 import { useHarnessFeatures } from "../../../data/harness-features.ts";
 import { useAgents, useConnection } from "../../../data/hooks.ts";
 import { cn } from "../../../lib/utils";
-import { AnswerError } from "../../panels/approvals/Answer/Answer.tsx";
+import { AnswerError } from "../../approvals/Answer/Answer.tsx";
 import { useWorkbench } from "../../workbench-context.ts";
 import { proposalActions, proposalShows } from "../proposal-actions.ts";
 

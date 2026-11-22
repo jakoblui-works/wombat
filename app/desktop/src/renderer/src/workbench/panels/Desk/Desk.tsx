@@ -9,7 +9,7 @@ import { runLogged } from "../../commands/registry.ts";
 import type { PanelProps } from "../../registry.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useDesk, useWorkbench } from "../../workbench-context.ts";
-import { EmptyState } from "../EmptyState/EmptyState.tsx";
+import { EmptyState } from "../../EmptyState/EmptyState.tsx";
 import { READ_FAILED } from "../Item/ItemNotice/ItemNotice.tsx";
 import { BinderPane } from "./BinderPane/BinderPane.tsx";
 import { revealBinder, toggleDrawer } from "./desk-tree.ts";

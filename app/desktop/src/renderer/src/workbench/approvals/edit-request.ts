@@ -1,6 +1,6 @@
 // What an edit request is, pure: the one owner of "is this permission an edit" and of the change it asks to make. The
 // chat's edit card and the diff tab both read it from the same chat model, so they show the same request.
-import type { ChatPart, ChatModel } from "../../../data/chat-model.ts";
+import type { ChatPart, ChatModel } from "../../data/chat-model.ts";
 
 type PermissionPart = Extract<ChatPart, { kind: "permission" }>;
 

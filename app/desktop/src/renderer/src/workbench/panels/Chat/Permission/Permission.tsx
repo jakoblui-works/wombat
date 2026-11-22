@@ -6,10 +6,10 @@ import { Button } from "../../../../components/ui/button";
 import { Collapse } from "../../../../components/ui/collapse";
 import type { ChatPart } from "../../../../data/chat-model.ts";
 import { cn } from "../../../../lib/utils";
-import { AnswerButtons, AnswerError, EditTarget, Outcome, Waiting } from "../../approvals/Answer/Answer.tsx";
-import { DiffRows, useInlineDiff } from "../../approvals/EditDiff/EditDiff.tsx";
-import type { InlineDiff } from "../../approvals/EditDiff/inline-diff.ts";
-import type { EditRequest } from "../../approvals/edit-request.ts";
+import { AnswerButtons, AnswerError, EditTarget, Outcome, Waiting } from "../../../approvals/Answer/Answer.tsx";
+import { DiffRows, useInlineDiff } from "../../../approvals/EditDiff/EditDiff.tsx";
+import type { InlineDiff } from "../../../approvals/EditDiff/inline-diff.ts";
+import type { EditRequest } from "../../../approvals/edit-request.ts";
 import { hasDetails, KIND_ICONS, ToolDetails, type ToolPart } from "../ToolCall/ToolCall.tsx";
 
 export type PermissionPart = Extract<ChatPart, { kind: "permission" }>;
