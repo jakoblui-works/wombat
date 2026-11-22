@@ -1,14 +1,15 @@
 // A tab with unsaved work asks before it closes: the question a panel registers under its tab's key (the key
 // `useCloseGuard` makes) is found when the user closes the tab `openTab` opened. And a temporary tab never takes the
 // place of one with unsaved work or a kept one, and no group ever holds two temporary tabs, however tabs are opened,
-// edited, saved, moved and closed.
+// edited, saved, moved and closed. An item's open tabs are found by its id, whatever binder its tabs were opened from
+// (its file may have moved since), so deleting it warns about their unsaved work and closes them.
 import type { IDockviewPanel } from "dockview-react";
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
 import "./activities.ts";
 import { ITEM_PANEL } from "./panels/Item/item-params.ts";
-import { closeGuards, isTemporaryTab, keepAllTabs, openTab, settleMovedTab, type TabHost, tabKey, tabToReplace } from "./tabs.ts";
+import { closeGuards, isTemporaryTab, itemTabs, keepAllTabs, openTab, settleMovedTab, type TabHost, tabKey, tabToReplace } from "./tabs.ts";
 
 type FakeGroup = { id: string; panels: FakePanel[] };
 type FakePanel = { id: string; params: unknown; group: FakeGroup; api: { setActive: () => void } };
@@ -163,6 +164,30 @@ test("a temporary tab never replaces a kept or unsaved tab, and no group ever ho
         }
       } finally {
         for (const unguard of unguards.values()) unguard();
+        keepAllTabs();
+      }
+    }),
+    { numRuns: 300 },
+  );
+});
+
+test("an item's tabs are found by its id, whichever binder they were opened from, and no draft's or other item's tab", () => {
+  const binderArb = fc.constantFrom("tasks", "archive", "notes", "chores");
+  // Item tabs, each showing item 0..ITEMS-1 as opened from some binder; draft tabs, from some binder.
+  const openArb = fc.array(fc.oneof(fc.record({ n: item, binderId: binderArb }), fc.record({ draft: fc.nat({ max: 3 }), binderId: binderArb })), { maxLength: 12 });
+  fc.assert(
+    fc.property(openArb, item, (opened, wanted) => {
+      const { host } = fakeHost();
+      try {
+        const showing = new Set<string>();
+        for (const each of opened) {
+          const params = "n" in each ? { ...itemTab(each.n), binderId: each.binderId } : { binderId: each.binderId, draft: `draft-${String(each.draft)}`, context: {} };
+          openTab(host, ITEM_PANEL, params);
+          if ("n" in each && each.n === wanted) showing.add(tabKey(ITEM_PANEL, params));
+        }
+        const found = itemTabs(host, itemTab(wanted).itemId).map((tab) => tabKey(tab.panelId, tab.params));
+        expect(new Set(found), `item ${String(wanted)} among ${JSON.stringify(opened)}`).toEqual(showing);
+      } finally {
         keepAllTabs();
       }
     }),
