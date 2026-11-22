@@ -1,7 +1,7 @@
 import type { Problem } from "@wombat/shared/items";
 
-import { cn } from "../../../../lib/utils";
-import { problemLocation } from "../view-model/problems.ts";
+import { cn } from "../../../lib/utils";
+import { problemLocation } from "../problems.ts";
 
 type Props = {
   problems: readonly Problem[];

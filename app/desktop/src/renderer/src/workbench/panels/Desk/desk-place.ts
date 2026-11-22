@@ -4,7 +4,7 @@ import type { BinderSummary, ItemSummary, LenientView } from "@wombat/shared/ite
 
 import { ServiceError } from "../../../data/client.ts";
 import type { DeskLayout } from "../../layout.ts";
-import { itemTabParams, type SavedItemParams } from "../Item/item-params.ts";
+import { itemTabParams, type SavedItemParams } from "../../items/item-params.ts";
 import type { Binder } from "../Item/item-state.ts";
 import { type DeskNode, deskTree } from "./desk-tree.ts";
 

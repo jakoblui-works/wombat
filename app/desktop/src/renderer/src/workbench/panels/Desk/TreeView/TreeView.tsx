@@ -2,8 +2,8 @@ import type { LenientProperty, LenientView } from "@wombat/shared/items";
 import { useMemo } from "react";
 
 import type { Reveal } from "../../../registry.ts";
-import type { DeletableItem } from "../../Item/item-delete.ts";
-import { itemName } from "../../Item/item-params.ts";
+import type { DeletableItem } from "../../../items/item-delete.ts";
+import { itemName } from "../../../items/item-params.ts";
 import { rowPreview } from "../ItemPreview/item-preview.ts";
 import { ItemTree, ItemTreeRow } from "../ItemTree/ItemTree.tsx";
 import { RowAction } from "../RowAction/RowAction.tsx";

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { ItemSummary } from "@wombat/shared/items";
-import { lastPathPart } from "../../../lib/path.ts";
+import { lastPathPart } from "../../lib/path.ts";
 
 /** An item that exists in a binder, by its id. */
 export const SavedItemParams = z.object({ binderId: z.string(), itemId: z.string() });

@@ -3,7 +3,7 @@
 import type { ItemSummary } from "@wombat/shared/items";
 import { isOpen, type ItemProposal, type Proposal } from "@wombat/shared/proposals";
 
-import { proposedLink } from "./values.ts";
+import { proposedLink } from "../../../items/values.ts";
 import { type ItemRow, type ItemsOf, type LinkTarget, type MissingRow, type PendingRow, type Row, rowProposals } from "./view-model.ts";
 
 /** An item proposal as listed, or as read on its own with its latest version's `fields` (a create shows only then). */

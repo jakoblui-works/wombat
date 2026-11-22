@@ -4,7 +4,7 @@
 import type { CreateItemRequest } from "@wombat/shared/api";
 import { ITEM_FIELDS, type Item, type ItemSummary, type LenientProperty, type Problem } from "@wombat/shared/items";
 
-import { heldValue, linkValue } from "../Desk/view-model/values.ts";
+import { heldValue, linkValue } from "../../items/values.ts";
 
 /** A field as the form edits it: title, body or a property's value (a link as its target's id); null clears a property. */
 export type FieldValue = string | number | null;

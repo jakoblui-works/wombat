@@ -4,7 +4,7 @@ import { type KeyboardEvent, useEffect, useMemo } from "react";
 
 import { cn } from "../../../../lib/utils";
 import { type DeskNode, type DeskRow, deskKey, deskRows, nodeName, rowLabel } from "../desk-tree.ts";
-import { ProblemList } from "../ProblemList/ProblemList.tsx";
+import { ProblemList } from "../../../items/ProblemList/ProblemList.tsx";
 import { RowAction } from "../RowAction/RowAction.tsx";
 import { rowIndent, TREE_ROW, treeChevron } from "../tree-keys.ts";
 import { useTreeFocus } from "../use-tree-focus.ts";

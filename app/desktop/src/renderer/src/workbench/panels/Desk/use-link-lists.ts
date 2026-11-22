@@ -2,7 +2,7 @@ import type { ItemSummary, LenientProperty } from "@wombat/shared/items";
 
 import { useBinderItems } from "../../../data/hooks.ts";
 import { usable } from "../Item/item-state.ts";
-import { linkedBinders } from "./view-model/values.ts";
+import { linkedBinders } from "../../items/values.ts";
 import type { ItemsOf } from "./view-model/view-model.ts";
 
 /** A linked binder's items by its id; undefined while they can't be shown (`usable`). */

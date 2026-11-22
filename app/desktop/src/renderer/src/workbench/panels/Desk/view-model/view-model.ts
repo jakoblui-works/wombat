@@ -2,7 +2,7 @@
 import type { ItemSummary, LenientProperty, LenientView, LinkValue } from "@wombat/shared/items";
 import type { ItemProposal } from "@wombat/shared/proposals";
 
-import { compareHandles, compareValues, displayValue, linkValue, matchesFilter, valueRank } from "./values.ts";
+import { compareHandles, compareValues, displayValue, linkValue, matchesFilter, valueRank } from "../../../items/values.ts";
 
 export type Properties = Readonly<Record<string, LenientProperty>>;
 

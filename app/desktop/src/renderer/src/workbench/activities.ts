@@ -17,7 +17,7 @@ import { PROPOSAL_TITLE, PROPOSAL_PANEL, ProposalParams, proposalResolves, propo
 import { EmptyActivity } from "./panels/EmptyActivity/EmptyActivity.tsx";
 import { Desk } from "./panels/Desk/Desk.tsx";
 import { Item } from "./panels/Item/Item.tsx";
-import { ITEM_PANEL, ITEM_TITLE, ItemParams, itemTabSaved } from "./panels/Item/item-params.ts";
+import { ITEM_PANEL, ITEM_TITLE, ItemParams, itemTabSaved } from "./items/item-params.ts";
 
 /** An activity that isn't built yet: its sidebar panel shows its empty state. */
 const unbuilt = (id: string, title: string, icon: LucideIcon, emptyState: NonNullable<ActivityDescriptor["emptyState"]>): void => {

@@ -1,7 +1,7 @@
 // What the item tab's controls accept and show, pure.
 import type { ItemSummary, LenientProperty, LinkValue } from "@wombat/shared/items";
 
-import { MISSING_ITEM, numberOfText } from "../../Desk/view-model/values.ts";
+import { MISSING_ITEM, numberOfText } from "../../../items/values.ts";
 import type { FieldValue } from "../item-edit.ts";
 
 /** The value an emptied text, date or number input sends. */

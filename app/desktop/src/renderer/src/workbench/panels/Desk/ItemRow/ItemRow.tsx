@@ -5,10 +5,10 @@ import { InlineMarkdown } from "../../../../components/Markdown/Markdown.tsx";
 import { lastPathPart } from "../../../../lib/path.ts";
 import { cn } from "../../../../lib/utils";
 import { proposedTitle } from "../../../proposals/proposal-label.ts";
-import { itemName } from "../../Item/item-params.ts";
-import { ProblemList } from "../ProblemList/ProblemList.tsx";
+import { itemName } from "../../../items/item-params.ts";
+import { ProblemList } from "../../../items/ProblemList/ProblemList.tsx";
 import { FIRST_LINE, FIRST_LINE_BOX } from "../tree-keys.ts";
-import { MISSING_ITEM } from "../view-model/values.ts";
+import { MISSING_ITEM } from "../../../items/values.ts";
 import { isItemRow, isPending, type Row } from "../view-model/view-model.ts";
 import { struck } from "../view-model/with-proposals.ts";
 

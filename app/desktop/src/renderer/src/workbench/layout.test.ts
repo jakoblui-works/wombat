@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import "./activities.ts";
 import { defaultLayout, type IsKnown, pruneLayout, restoreLayout, SavedLayout } from "./layout.ts";
-import { ITEM_PANEL } from "./panels/Item/item-params.ts";
+import { ITEM_PANEL } from "./items/item-params.ts";
 import { activities, isKnown as registryIsKnown, isRestorable, isSaved } from "./registry.ts";
 import { summary } from "../../../../test/summaries.ts";
 

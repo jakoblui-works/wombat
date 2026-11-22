@@ -2,7 +2,7 @@ import { type ItemSummary, SETTINGS_FILE } from "@wombat/shared/items";
 import type { ReactNode } from "react";
 
 import { lastPathPart } from "../../../../lib/path.ts";
-import { ProblemList } from "../../Desk/ProblemList/ProblemList.tsx";
+import { ProblemList } from "../../../items/ProblemList/ProblemList.tsx";
 import { type BrokenBinder, type ItemShown, type NoBinder, settingsPath } from "../item-state.ts";
 
 /** What a failed read of a tab's content says before the error's message. */

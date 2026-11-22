@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { Markdown } from "../../../../components/Markdown/Markdown.tsx";
 import { Button } from "../../../../components/ui/button";
-import { ProblemList } from "../../Desk/ProblemList/ProblemList.tsx";
+import { ProblemList } from "../../../items/ProblemList/ProblemList.tsx";
 import { LazyMarkdownEditor } from "./MarkdownEditor/LazyMarkdownEditor.tsx";
 
 type Props = {

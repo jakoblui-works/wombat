@@ -2,8 +2,8 @@
 import { type BinderSummary, type Problem, SETTINGS_FILE } from "@wombat/shared/items";
 
 import { type FlatRow, flatTree, treeKey } from "./tree-keys.ts";
-import { problemLocation } from "./view-model/problems.ts";
-import { compareText } from "./view-model/values.ts";
+import { problemLocation } from "../../items/problems.ts";
+import { compareText } from "../../items/values.ts";
 
 export type DeskNode = { kind: "drawer"; name: string; path: string; children: DeskNode[] } | { kind: "binder"; binder: BinderSummary; children: DeskNode[] };
 

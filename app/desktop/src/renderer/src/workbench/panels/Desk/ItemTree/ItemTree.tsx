@@ -5,7 +5,7 @@ import { cn } from "../../../../lib/utils";
 import { useCommandScope } from "../../../commands/registry.ts";
 import type { Reveal } from "../../../registry.ts";
 import type { OpenOptions } from "../../../workbench-context.ts";
-import type { DeletableItem } from "../../Item/item-delete.ts";
+import type { DeletableItem } from "../../../items/item-delete.ts";
 import { DESK_COMMAND, DESK_ROW_SCOPE } from "../desk-commands.ts";
 import type { PreviewTarget } from "../ItemPreview/item-preview.ts";
 import { useRowPreview } from "../ItemPreview/use-row-preview.tsx";

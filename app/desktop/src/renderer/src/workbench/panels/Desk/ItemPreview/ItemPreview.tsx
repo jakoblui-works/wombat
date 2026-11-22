@@ -9,10 +9,10 @@ import { useBinders } from "../../../../data/hooks.ts";
 import { itemQuery } from "../../../../data/query-client.ts";
 import { lastPathPart } from "../../../../lib/path.ts";
 import { cn } from "../../../../lib/utils";
-import { itemName } from "../../Item/item-params.ts";
+import { itemName } from "../../../items/item-params.ts";
 import { itemNotFound } from "../../Item/item-state.ts";
 import { READ_FAILED, UnparseableItem } from "../../Item/ItemNotice/ItemNotice.tsx";
-import { ProblemList } from "../ProblemList/ProblemList.tsx";
+import { ProblemList } from "../../../items/ProblemList/ProblemList.tsx";
 import { previewName, previewShown, propertyLines } from "./item-preview.ts";
 
 /** How long the pointer rests on what has a preview before its box opens. */

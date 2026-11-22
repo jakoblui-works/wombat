@@ -6,8 +6,8 @@ import { lastPathPart } from "../../../lib/path.ts";
 import { closeGuards, tabKey } from "../../tabs.ts";
 import { useWorkbench } from "../../workbench-context.ts";
 import { DeleteItemDialog } from "./DeleteItemDialog/DeleteItemDialog.tsx";
-import { asked, closed, confirmable, type DeletableItem, type DeleteQuestion, refused, sending } from "./item-delete.ts";
-import { itemTitle } from "./item-params.ts";
+import { asked, closed, confirmable, type DeletableItem, type DeleteQuestion, refused, sending } from "../../items/item-delete.ts";
+import { itemTitle } from "../../items/item-params.ts";
 
 /**
  * Deletes an item from the UI: `ask` opens the question (`dialog`, to be rendered by the caller), and Delete there

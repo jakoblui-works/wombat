@@ -14,11 +14,11 @@ import { lastPathPart } from "../../../lib/path.ts";
 import type { PanelProps } from "../../registry.ts";
 import { useCloseGuard, useWorkbench } from "../../workbench-context.ts";
 import { Note } from "../../approvals/Note/Note.tsx";
-import { Field } from "../Desk/Field/Field.tsx";
-import { ProblemList } from "../Desk/ProblemList/ProblemList.tsx";
+import { Field } from "../../items/Field/Field.tsx";
+import { ProblemList } from "../../items/ProblemList/ProblemList.tsx";
 import { type Listed, useLinkLists } from "../Desk/use-link-lists.ts";
-import { problemsByField } from "../Desk/view-model/problems.ts";
-import { linkValue } from "../Desk/view-model/values.ts";
+import { problemsByField } from "../../items/problems.ts";
+import { linkValue } from "../../items/values.ts";
 import { type ItemChange, proposalsOnItem } from "../Desk/view-model/with-proposals.ts";
 import { Body } from "./Body/Body.tsx";
 import { CloseDialog } from "./CloseDialog/CloseDialog.tsx";
@@ -50,7 +50,7 @@ import {
   saveRequest,
   valueOf,
 } from "./item-edit.ts";
-import { type DraftItemParams, ITEM_PANEL, ItemParams, itemTitle, type SavedItemParams } from "./item-params.ts";
+import { type DraftItemParams, ITEM_PANEL, ItemParams, itemTitle, type SavedItemParams } from "../../items/item-params.ts";
 import { type Binder, draftShown, type ItemForm, itemForm, type ItemShown, itemShown, lastKnown, listedBinder } from "./item-state.ts";
 
 const NO_PROPERTIES: Readonly<Record<string, LenientProperty>> = {};

@@ -1,7 +1,7 @@
 // An item's fields as its tab shows them, pure: one row per property its binder declares.
 import type { ItemSummary, LenientProperty, Problem } from "@wombat/shared/items";
 
-import { problemsByField } from "../../Desk/view-model/problems.ts";
+import { problemsByField } from "../../../items/problems.ts";
 
 export type PropertyRow = { name: string; problems: Problem[] };
 

@@ -1,7 +1,7 @@
 import type { Problem } from "@wombat/shared/items";
 import { type ReactNode, useId } from "react";
 
-import { cn } from "../../../../lib/utils";
+import { cn } from "../../../lib/utils";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
 
 /** A text input's look in a field. */

@@ -8,7 +8,7 @@ import fc from "fast-check";
 import { expect, test } from "vitest";
 
 import "./activities.ts";
-import { ITEM_PANEL } from "./panels/Item/item-params.ts";
+import { ITEM_PANEL } from "./items/item-params.ts";
 import { closeGuards, isTemporaryTab, itemTabs, keepAllTabs, openTab, settleMovedTab, type TabHost, tabKey, tabToReplace } from "./tabs.ts";
 
 type FakeGroup = { id: string; panels: FakePanel[] };

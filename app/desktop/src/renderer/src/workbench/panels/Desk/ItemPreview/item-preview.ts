@@ -3,7 +3,7 @@ import { type BinderSummary, isItemId, type Item, type ItemSummary } from "@womb
 
 import { asError } from "../../../../lib/errors.ts";
 import { isItemNotFound } from "../../Item/item-state.ts";
-import { displayValue } from "../view-model/values.ts";
+import { displayValue } from "../../../items/values.ts";
 import { isItemRow, type Row } from "../view-model/view-model.ts";
 
 export type PreviewShown =
