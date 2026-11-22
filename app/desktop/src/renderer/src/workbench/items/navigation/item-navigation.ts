@@ -8,7 +8,7 @@ import { bindersQuery, itemQuery } from "../../../data/query-client.ts";
 import { showWorkspace } from "../../../data/shown-workspace.ts";
 import { asError, asSentence } from "../../../lib/errors.ts";
 import { DESK_ACTIVITY, DESK_PANEL } from "../../activity-ids.ts";
-import { openTabs, showTab, sidebarRevealKey } from "../../tabs.ts";
+import { sidebarRevealKey } from "../../tabs.ts";
 import { tell } from "../../Toast/Toast.tsx";
 import { type OpenOptions, type TabRef, useWorkbench, type WorkbenchContextValue } from "../../workbench-context.ts";
 import { previewName } from "../ItemPreview/item-preview.ts";
@@ -43,7 +43,6 @@ const itemUnread = (error: unknown): string => `${READ_FAILED.item}: ${asSentenc
  * else as a list of its items. `reveal` (a proposal id or an item id) reaches the Desk's sidebar.
  */
 export const openBinder = ({ workbench, queryClient, changeDesk }: ItemNavigator, ws: string, binderId: string, reveal?: string, view?: string): void => {
-  if (workbench.host === undefined) return;
   void readBinders(queryClient, ws).then((binders) => {
     const place = binderPlace(binders?.find(({ id }) => id === binderId), view);
     showWorkspace(ws);
@@ -58,17 +57,13 @@ export const openBinder = ({ workbench, queryClient, changeDesk }: ItemNavigator
  * is replaced by the next one, until it's kept (`keepTab`); a tab opened again without it is kept.
  */
 export const openItem = ({ workbench }: ItemNavigator, ws: string, binderId: string, itemId: string, options?: OpenOptions): void => {
-  if (workbench.host === undefined) return;
-  showTab(workbench.host, workbench.reveals, ITEM_PANEL, { ws, binderId, itemId } satisfies ItemParams, workbench.titleContext(), undefined, {
-    temporary: options?.temporary === true,
-  });
+  workbench.openTab(ITEM_PANEL, { ws, binderId, itemId } satisfies ItemParams, undefined, { workspace: ws, temporary: options?.temporary === true });
 };
 
 /** Opens a new tab on an item not written yet in workspace `ws`'s binder, starting with `context`'s values (`viewContext`). */
 export const openNewItem = ({ workbench }: ItemNavigator, ws: string, binderId: string, context: Record<string, unknown>): void => {
-  if (workbench.host === undefined) return;
   const params = { ws, binderId, draft: newCommandId(), context } satisfies ItemParams;
-  showTab(workbench.host, workbench.reveals, ITEM_PANEL, params, workbench.titleContext(), undefined, { title: NEW_ITEM_TITLE });
+  workbench.openTab(ITEM_PANEL, params, undefined, { workspace: ws, title: NEW_ITEM_TITLE });
 };
 
 // The page's one count of follows: only the latest lands, so one whose read comes back after a later follow's does nothing.
@@ -80,7 +75,6 @@ let follows = 0;
  * tells the user.
  */
 export const followItem = (navigator: ItemNavigator, ws: string, ref: string): void => {
-  if (navigator.workbench.host === undefined) return;
   follows += 1;
   const follow = follows;
   void readItemAfresh(navigator.queryClient, ws, ref).then(
@@ -101,8 +95,8 @@ export const followItem = (navigator: ItemNavigator, ws: string, ref: string): v
 };
 
 /** The open tabs on item `itemId`, whichever binder each was opened from (its file may have moved since). */
-export const itemTabs = ({ workbench }: { workbench: Pick<WorkbenchContextValue, "host"> }, itemId: string): TabRef[] =>
-  workbench.host === undefined ? [] : openTabs(workbench.host, ITEM_PANEL).filter((tab) => showsItem(tab.params, itemId));
+export const itemTabs = ({ workbench }: { workbench: Pick<WorkbenchContextValue, "openTabs"> }, itemId: string): TabRef[] =>
+  workbench.openTabs(ITEM_PANEL).filter((tab) => showsItem(tab.params, itemId));
 
 type ItemNavigation = {
   openBinder: (ws: string, binderId: string, reveal?: string, view?: string) => void;

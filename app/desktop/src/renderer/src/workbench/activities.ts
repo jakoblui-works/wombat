@@ -33,7 +33,8 @@ const register = (): void => {
     id: CHAT_PANEL,
     title: chatTitle,
     icon: MessageSquare,
-    locations: ["editor"],
+    // The middle shows it, never a tab.
+    locations: [],
     activity: AGENTS_ACTIVITY,
     component: Chat,
     paramsSchema: ChatParams,

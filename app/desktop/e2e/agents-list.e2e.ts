@@ -6,14 +6,16 @@
 // - the agent list groups rows in `region`s named by the group's label (AGENT_STATES' labels: "Done", …); a row's
 //   main part is a button naming the agent (its title, else its repo), and beside it a button "Agent actions" opens
 //   a `menu` with the `menuitem`s "Stop" (while it runs) and "Delete";
-// - Delete asks in an `alertdialog` with the buttons "Cancel" (focused when it opens) and "Delete".
+// - Delete asks in an `alertdialog` with the buttons "Cancel" (focused when it opens) and "Delete";
+// - the open agent's chat is in `main`, its `h2` naming the agent.
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
 import type { Page } from "@playwright/test";
 
 import { AGENT_STATES } from "../src/renderer/src/lib/agent-state.ts";
-import { click, expect, layoutOf, REPO, type Sandbox, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import { groupWithTab } from "./agent-panels.ts";
+import { click, expect, REPO, type Sandbox, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 
 const agentsSidebar = (page: Page) => page.getByRole("complementary", { name: "Agents", exact: true });
 
@@ -62,16 +64,13 @@ test.describe("Agents sidebar and New agent", () => {
     const done = sidebar.getByRole("region", { name: AGENT_STATES.done.label, exact: true });
     const row = done.getByRole("button", { name: new RegExp(REPO) }).first();
     await expect(row).toBeVisible({ timeout: WAIT_MS });
-    await expect(page.locator(".dv-groupview").getByText("Hello from the fake agent.")).toBeVisible({ timeout: WAIT_MS });
+    const chat = groupWithTab(page, REPO);
+    await expect(chat.getByText("Hello from the fake agent.")).toBeVisible({ timeout: WAIT_MS });
 
-    // Open its chat from the row (after closing it): the one tab, named after the agent.
-    // Forced: an inactive tab's close mark is hidden until the tab is hovered or focused.
-    while ((await page.locator(".dv-tab").count()) > 0) await page.locator(".dv-tab .dv-default-tab-action").first().click({ force: true });
-    await expect(page.locator(".dv-tab")).toHaveCount(0);
+    // Open its chat from the row: the one chat in `main`, named after the agent.
     await click(row);
-    await expect(page.locator(".dv-tab")).toHaveCount(1);
-    expect((await layoutOf(page)).flatMap((group) => group.tabs)).toEqual([REPO]);
-    await expect(page.locator(".dv-groupview").getByText("Hello from the fake agent.")).toBeVisible();
+    await expect(page.getByRole("main").getByRole("heading", { level: 2 })).toHaveText([REPO]);
+    await expect(chat.getByText("Hello from the fake agent.")).toBeVisible();
 
     // Delete: Enter on the confirmation is Cancel; the agent stays.
     await click(done.getByRole("button", { name: "Agent actions" }).first());
@@ -84,13 +83,13 @@ test.describe("Agents sidebar and New agent", () => {
     expect(await agentIds(sandbox)).toEqual([agentId]);
     await expect(row).toBeVisible();
 
-    // Confirmed: the agent, its row and its tab go.
+    // Confirmed: the agent, its row and its chat go.
     await click(done.getByRole("button", { name: "Agent actions" }).first());
     await click(page.getByRole("menuitem", { name: "Delete", exact: true }));
     await click(page.getByRole("alertdialog").getByRole("button", { name: "Delete", exact: true }));
     await waitUntil("the agent deleted in the service", WAIT_MS, async () => ((await agentIds(sandbox)).length === 0 ? true : undefined));
     await expect(sidebar.getByRole("button", { name: new RegExp(REPO) })).toHaveCount(0);
-    await expect(page.locator(".dv-tab")).toHaveCount(0);
+    await expect(chat).toHaveCount(0);
     await expect(sidebar.getByText("No agents yet")).toBeVisible();
   });
 });

@@ -4,13 +4,16 @@ import { afterEach, expect, test, vi } from "vitest";
 import { ItemsErrorCode } from "@wombat/shared/api";
 import type { Item } from "@wombat/shared/items";
 
-import { fakeHost, item, itemTab } from "../../../../../../test/fake-tab-host.ts";
+import { item, itemTab } from "../../../../../../test/fake-tab-host.ts";
 import { keys } from "../../../data/keys.ts";
 import { createQueryClient } from "../../../data/query-client.ts";
 import "../../activities.ts";
 import { DESK_ACTIVITY } from "../../activity-ids.ts";
 import { DEFAULT_DESK, type DeskLayout } from "../../layout.ts";
-import { keepAllTabs, openTab, openTabs, revealStore, tabKey, workbenchActions } from "../../tabs.ts";
+import { shellTabActions } from "../../shell/RightSidebar/tab-actions.ts";
+import { tabTitleStore } from "../../shell/RightSidebar/tab-titles.ts";
+import { emptyShell, type ShellState } from "../../shell/shell-state.ts";
+import { keepAllTabs, revealStore, tabKey } from "../../tabs.ts";
 import { previewName } from "../ItemPreview/item-preview.ts";
 import { ITEM_PANEL } from "../item-params.ts";
 import { itemNotFound } from "../reads.ts";
@@ -21,25 +24,35 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** The workbench's tab actions on a shell state of their own, with no workspace shown. */
+const shellTabs = (reveals = revealStore()) => {
+  let state: ShellState = emptyShell;
+  const actions = shellTabActions({
+    current: () => ({ state, shown: undefined }),
+    change: (update) => {
+      state = update(state);
+    },
+    reveals,
+    titles: tabTitleStore(),
+  });
+  return { actions, reveals };
+};
+
 test("an item's tabs are found by its id, whichever binder they were opened from, and no draft's or other item's tab", () => {
   const binderArb = fc.constantFrom("tasks", "archive", "notes", "chores");
   // Item tabs, each showing item 0..ITEMS-1 as opened from some binder; draft tabs, from some binder.
   const openArb = fc.array(fc.oneof(fc.record({ n: item, binderId: binderArb }), fc.record({ draft: fc.nat({ max: 3 }), binderId: binderArb })), { maxLength: 12 });
   fc.assert(
     fc.property(openArb, item, (opened, wanted) => {
-      const { host } = fakeHost();
-      try {
-        const showing = new Set<string>();
-        for (const each of opened) {
-          const params = "n" in each ? { ...itemTab(each.n), binderId: each.binderId } : { ws: itemTab(0).ws, binderId: each.binderId, draft: `draft-${String(each.draft)}`, context: {} };
-          openTab(host, ITEM_PANEL, params);
-          if ("n" in each && each.n === wanted) showing.add(tabKey(ITEM_PANEL, params));
-        }
-        const found = itemTabs({ workbench: { host } }, itemTab(wanted).itemId).map((tab) => tabKey(tab.panelId, tab.params));
-        expect(new Set(found), `item ${String(wanted)} among ${JSON.stringify(opened)}`).toEqual(showing);
-      } finally {
-        keepAllTabs();
+      const { actions } = shellTabs();
+      const showing = new Set<string>();
+      for (const each of opened) {
+        const params = "n" in each ? { ...itemTab(each.n), binderId: each.binderId } : { ws: itemTab(0).ws, binderId: each.binderId, draft: `draft-${String(each.draft)}`, context: {} };
+        actions.openTab(ITEM_PANEL, params, undefined, { workspace: params.ws });
+        if ("n" in each && each.n === wanted) showing.add(tabKey(ITEM_PANEL, params));
       }
+      const found = itemTabs({ workbench: actions }, itemTab(wanted).itemId).map((tab) => tabKey(tab.panelId, tab.params));
+      expect(new Set(found), `item ${String(wanted)} among ${JSON.stringify(opened)}`).toEqual(showing);
     }),
     { numRuns: 300 },
   );
@@ -74,15 +87,14 @@ const page = () => {
   };
   vi.stubGlobal("window", { wombat: { service: { request }, workspace: { get: () => Promise.resolve({ root: ws.root }) } } });
 
-  const { host } = fakeHost();
-  const reveals = revealStore();
+  const { actions, reveals } = shellTabs();
   const titleContext = () => ({ agents: [] });
   const shownActivities: string[] = [];
   const told: string[] = [];
   let desk: DeskLayout = DEFAULT_DESK;
   const queryClient = createQueryClient();
   const navigator: ItemNavigator = {
-    workbench: { ...workbenchActions(host, reveals, titleContext), host, reveals, titleContext, showActivity: (id) => shownActivities.push(id) },
+    workbench: { ...actions, reveals, titleContext, showActivity: (id) => shownActivities.push(id) },
     queryClient,
     changeDesk: (change) => {
       desk = change(desk);
@@ -99,7 +111,7 @@ const page = () => {
       await vi.waitFor(() => expect([...asked.keys()]).toContain(ref));
       asked.get(ref)?.(answer);
     },
-    itemTabsOpen: () => openTabs(host, ITEM_PANEL).map((tab) => tab.params),
+    itemTabsOpen: () => actions.openTabs(ITEM_PANEL).map((tab) => tab.params),
     desk: () => desk,
     shownActivities,
   };

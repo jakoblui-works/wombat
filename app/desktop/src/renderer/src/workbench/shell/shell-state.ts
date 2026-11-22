@@ -39,6 +39,7 @@ export type WidthBounds = { min: number; max: number };
 export const LEFT_WIDTH: WidthBounds = { min: 160, max: 800 };
 export const LEFT_START_WIDTH = 280;
 export const RIGHT_WIDTH: WidthBounds = { min: 240, max: 1200 };
+export const RIGHT_START_WIDTH = 480;
 export const CHAT_MIN_WIDTH = 360;
 
 export const emptyShell: ShellState = { leftHidden: false, barCollapsed: false, workspaces: {} };
@@ -138,9 +139,14 @@ export const openTab = (state: ShellState, workspace: string, tab: TabRef, { tem
   });
 
 export const keepTab = (state: ShellState, workspace: string, key: string): ShellState =>
-  withWorkspace(state, workspace, (shell) => ({ ...shell, tabs: shell.tabs.map((tab) => (keyOf(tab) === key ? { ...tab, kept: true } : tab)) }));
+  workspaceShell(state, workspace).tabs.some((tab) => keyOf(tab) === key && !tab.kept)
+    ? withWorkspace(state, workspace, (shell) => ({ ...shell, tabs: shell.tabs.map((tab) => (keyOf(tab) === key ? { ...tab, kept: true } : tab)) }))
+    : state;
 
 export const activateTab = (state: ShellState, workspace: string, key: string): ShellState => withWorkspace(state, workspace, (shell) => focus(shell, key));
+
+const forgetTab = (lastActive: WorkspaceShell["lastActive"], key: string): Record<string, string> =>
+  Object.fromEntries(Object.entries(lastActive ?? {}).filter(([, last]) => last !== key));
 
 /**
  * Closes the tab; an active one hands over to its neighbour. With no tab left the sidebar stays open on the closed
@@ -152,7 +158,7 @@ export const closeTab = (state: ShellState, workspace: string, key: string): She
     const closed = shell.tabs[index];
     if (closed === undefined) return shell;
     const tabs = shell.tabs.filter((_, at) => at !== index);
-    const lastActive = Object.fromEntries(Object.entries(shell.lastActive ?? {}).filter(([, last]) => last !== key));
+    const lastActive = forgetTab(shell.lastActive, key);
     if (shell.active !== key) return { ...shell, tabs, lastActive };
     const rest = omit({ ...shell, tabs, lastActive }, "active");
     const neighbour = tabs[index] ?? tabs[index - 1];
@@ -160,6 +166,43 @@ export const closeTab = (state: ShellState, workspace: string, key: string): She
     const activity = tabActivity(closed.panelId);
     return activity === undefined ? { ...rest, rightOpen: false } : { ...rest, activity };
   });
+
+/** Puts `to` where tab `from` is, kept and active, and closes `from`; with `from` not open, opens `to` kept. */
+export const replaceTab = (state: ShellState, workspace: string, from: string, to: TabRef): ShellState => {
+  const toKey = keyOf(to);
+  const { tabs } = workspaceShell(state, workspace);
+  const at = tabs.findIndex((tab) => keyOf(tab) === from);
+  if (at === -1) return openTab(state, workspace, to, { temporary: false });
+  if (tabs.some((tab) => keyOf(tab) === toKey)) return closeTab(activateTab(state, workspace, toKey), workspace, from);
+  const entry: TabEntry = { panelId: to.panelId, params: to.params, kept: true };
+  return withWorkspace(state, workspace, (shell) =>
+    focus({ ...shell, tabs: shell.tabs.map((tab, index) => (index === at ? entry : tab)), lastActive: forgetTab(shell.lastActive, from) }, toKey),
+  );
+};
+
+/** Closes every tab of the strip but `key` that `isDirty` doesn't hold back, and activates `key`. */
+export const closeOtherTabs = (state: ShellState, workspace: string, key: string, isDirty: (key: string) => boolean): ShellState =>
+  workspaceShell(state, workspace)
+    .tabs.map(keyOf)
+    .filter((other) => other !== key && !isDirty(other))
+    .reduce((current, other) => closeTab(current, workspace, other), activateTab(state, workspace, key));
+
+/** The workspace whose strip holds tab `key`: `preferred` if its strip does, else the first that does. */
+export const tabWorkspace = (state: ShellState, key: string, preferred?: string): string | undefined => {
+  const holds = (workspace: string) => workspaceShell(state, workspace).tabs.some((tab) => keyOf(tab) === key);
+  if (preferred !== undefined && holds(preferred)) return preferred;
+  return Object.keys(state.workspaces).find(holds);
+};
+
+export const allTabs = (state: ShellState): TabEntry[] => Object.values(state.workspaces).flatMap(({ tabs }) => tabs);
+
+/** Closes the tabs that no longer `apply`, in every workspace; the same state when all do. */
+export const pruneTabs = (state: ShellState, apply: (panelId: string, params: unknown) => boolean): ShellState =>
+  Object.entries(state.workspaces).reduce(
+    (current, [workspace, { tabs }]) =>
+      tabs.filter((tab) => !apply(tab.panelId, tab.params)).reduce((pruned, tab) => closeTab(pruned, workspace, keyOf(tab)), current),
+    state,
+  );
 
 /** The activity's last active tab still open, else its last tab in the strip. */
 const lastTabOf = (shell: WorkspaceShell, activity: string): string | undefined => {
@@ -185,6 +228,12 @@ export const pressToolbarButton = (state: ShellState, workspace: string, activit
     return { ...omit(shell, "active"), rightOpen: true, activity: activityId };
   });
 };
+
+export const activityStatesOf = (state: ShellState, workspace: string | undefined): Record<string, unknown> =>
+  workspace === undefined ? emptyWorkspace.activityStates : workspaceShell(state, workspace).activityStates;
+
+export const changeActivityState = (state: ShellState, workspace: string, activityId: string, change: (activityState: unknown) => unknown): ShellState =>
+  withWorkspace(state, workspace, (shell) => ({ ...shell, activityStates: { ...shell.activityStates, [activityId]: change(shell.activityStates[activityId]) } }));
 
 export const hideNavigator = (state: ShellState, workspace: string, hidden: boolean): ShellState =>
   withWorkspace(state, workspace, (shell) => ({ ...shell, navigatorHidden: hidden }));

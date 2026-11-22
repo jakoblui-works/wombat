@@ -2,17 +2,21 @@
 // changed). What this check relies on in the page (roles and names, not looks; the approved design's structure):
 // - an edit request in the chat is a `region` "Edit approval" with the file's name, its +/− counts, a button
 //   "Open side by side", and while open the buttons "Approve" and "Reject";
-// - the diff tab is titled "notes.txt (diff)" and has the same "Approve" and "Reject" while open;
+// - the diff tab is a `tab` titled "notes.txt (diff)" in the right sidebar's strip (an `aside` holding the `tablist`),
+//   and has the same "Approve" and "Reject" while open;
 // - an answered request says "approved" or "rejected" (any case), in the chat and in its diff tab;
 // - the diff tab shows Monaco's diff editor (`.monaco-diff-editor`).
 // It is also the one check that Monaco runs under the page's CSP: Monaco loads lazily with the first diff tab, so
 // no other test mounts it. While it's mounted, no CSP violation and no page error may happen.
 import type { Page } from "@playwright/test";
 
-import { click, expect, layoutOf, openAgent, REPO, startWaitingAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import { click, expect, layoutOf, openAgent, REPO, startWaitingAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 import { answersIn, groupWithTab, logOf, prompt, waitForState } from "./agent-panels.ts";
 
 const DIFF_TAB = "notes.txt (diff)";
+
+/** The right sidebar while it holds the diff tab; by element, as `groupWithTab`. */
+const rightSidebar = (page: Page) => page.locator("aside").filter({ has: page.locator('[role="tab"]', { hasText: DIFF_TAB }) });
 
 // Records CSP violations in the page from now on (the page is loaded; Monaco isn't yet).
 const VIOLATIONS = "__wombatE2eCspViolations";
@@ -56,13 +60,11 @@ test.describe("edit approvals", () => {
     await expect(card).toContainText(/\+\s*1/);
     await expect(card).toContainText(/[−-]\s*1/);
 
-    // Open side by side: the diff tab in a group to the right of the chat's.
+    // Open side by side: the diff tab in the right sidebar's strip, the chat still in the middle.
     await click(card.getByRole("button", { name: "Open side by side" }));
-    await waitUntil("the diff tab beside the chat", WAIT_MS, async () => {
-      const groups = await layoutOf(page);
-      return groups.length === 2 && groups[0]?.tabs.includes(REPO) && groups[1]?.tabs.includes(DIFF_TAB) ? true : undefined;
-    });
-    const diff = groupWithTab(page, DIFF_TAB);
+    await expect(page.getByRole("tablist").getByRole("tab", { name: DIFF_TAB })).toHaveCount(1, { timeout: WAIT_MS });
+    await expect(chat).toHaveCount(1);
+    const diff = rightSidebar(page);
     await expect(diff).toContainText("new line", { timeout: WAIT_MS });
 
     // Monaco is mounted, under the CSP, without a violation or a page error (its <style>s carry the page's nonce,
@@ -83,9 +85,10 @@ test.describe("edit approvals", () => {
     // A second request: its diff tab opened, then rejected inline; the tab says rejected.
     await prompt(sandbox, agentId, "Now the other line.");
     await waitForState(sandbox, agentId, "waiting");
-    const tabsBefore = await tabCount(page);
+    const tabCount = () => page.locator('[role="tab"]').count();
+    const tabsBefore = await tabCount();
     await click(chat.getByRole("region", { name: "Edit approval" }).last().getByRole("button", { name: "Open side by side" }));
-    await waitUntil("the second diff tab", WAIT_MS, async () => ((await tabCount(page)) > tabsBefore ? true : undefined));
+    await waitUntil("the second diff tab", WAIT_MS, async () => ((await tabCount()) > tabsBefore ? true : undefined));
     await click(chat.getByRole("button", { name: "Reject", exact: true }));
     await waitForState(sandbox, agentId, "done");
     expect(answersIn(await logOf(sandbox, agentId))).toEqual(["allow_once", "reject_once"]);

@@ -14,7 +14,7 @@ import { usePlay } from "../../../lib/motion.ts";
 import { useReveal } from "../../../lib/use-reveal.ts";
 import { type Arrivals, NO_ARRIVALS, trackArrivals } from "./arrivals.ts";
 import { type ChatBlock, chatBlocks, streamingKey } from "./chat-blocks.ts";
-import { CHAT_PANEL, ChatParams } from "../../agents/chat-params.ts";
+import { ChatParams } from "../../agents/chat-params.ts";
 import { featuresOrAssumed, useHarnessFeatures } from "../../../data/harness-features.ts";
 import { type LiveState, liveState } from "../../approvals/live-state.ts";
 import { sameBlock } from "./same-part.ts";
@@ -195,7 +195,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const edits = useMemo(() => (model === undefined ? new Map<string, EditRequest>() : editRequests(model, blocks)), [model, blocks]);
   const [contextOpen, setContextOpen] = useState(false);
   const workbench = useWorkbench();
-  const openSideBySide = (requestId: string) => workbench.openBeside(DIFF_PANEL, { agentId, requestId }, { panelId: CHAT_PANEL, params: { agentId } });
+  const openSideBySide = (requestId: string) => workbench.openTab(DIFF_PANEL, { agentId, requestId });
   const live = useMemo(() => (model === undefined ? undefined : liveState(model, agent)), [model, agent]);
   const streamingBlock = streamingKey(blocks, live?.turnActive ?? false);
   const [pacingState, setPacing] = useState<Pacing>(NO_PACING);

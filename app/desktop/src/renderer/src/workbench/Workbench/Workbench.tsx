@@ -66,9 +66,9 @@ type Chrome = Pick<SavedLayout, "sidebars" | "activity">;
 
 
 /** What the actions do before dockview is ready; typed, so a new member can't be missed. */
-const NO_ACTIONS: WorkbenchActions = {
+const NO_ACTIONS: WorkbenchActions & Pick<WorkbenchContextValue, "openTabs"> = {
+  openTabs: () => [],
   openTab: () => undefined,
-  openBeside: () => undefined,
   closeTab: () => undefined,
   replaceTab: () => undefined,
 };
@@ -258,10 +258,10 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     saver.current?.schedule("user");
   }, []);
   const titleContext = useCallback(() => ({ agents: agentsRef.current, proposals: proposalsRef.current }), []);
-  const actions = useMemo<WorkbenchActions>(() => (api === undefined ? NO_ACTIONS : workbenchActions(api, reveals, titleContext)), [api, reveals, titleContext]);
+  const actions = useMemo(() => (api === undefined ? NO_ACTIONS : workbenchActions(api, reveals, titleContext)), [api, reveals, titleContext]);
   const workbench = useMemo<WorkbenchContextValue>(
-    () => ({ ...actions, host: api, reveals, showActivity, titleContext }),
-    [actions, api, reveals, showActivity, titleContext],
+    () => ({ ...actions, reveals, showActivity, titleContext }),
+    [actions, reveals, showActivity, titleContext],
   );
 
   // Requests wait for the restore (which would replace their tabs) and for the agents list, so an id the service

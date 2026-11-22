@@ -5,7 +5,6 @@ import { PROPOSAL_PANEL, type ProposalParams } from "./proposal-params.ts";
 
 /** Opens or focuses the proposal's tab, kept. */
 export const openProposal = (workbench: WorkbenchContextValue, proposalId: string): void => {
-  if (workbench.host === undefined) return;
   workbench.openTab(PROPOSAL_PANEL, { proposalId } satisfies ProposalParams);
 };
 

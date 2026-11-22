@@ -2,8 +2,8 @@
 import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
 import type { IsKnown } from "./layout.ts";
-import { getPanel, paramsFit, type ResolveContext, type Reveal, panelTitle } from "./registry.ts";
-import type { TabRef, WorkbenchActions } from "./workbench-context.ts";
+import { getPanel, type PanelDescriptor, paramsFit, type ResolveContext, type Reveal, panelTitle } from "./registry.ts";
+import type { TabRef, WorkbenchActions, WorkbenchContextValue } from "./workbench-context.ts";
 
 /** The dockview component every tab renders through; it looks the panel up from the panel's params. */
 export const TAB_COMPONENT = "panel";
@@ -76,6 +76,20 @@ export const settleMovedTab = (panel: IDockviewPanel): void => {
 /** The questions tabs with unsaved work ask before they close, by tab key: the page's one record (`closeGuards`). */
 const closeAsks = new Map<string, () => void>();
 
+/**
+ * The panel a tab on (panel, params) shows; throws for a panel that isn't registered, isn't registered for a tab, or
+ * whose params don't fit it.
+ */
+export const openablePanel = (panelId: string, params: unknown): PanelDescriptor => {
+  const panel = getPanel(panelId);
+  if (panel === undefined) throw new Error(`There's no panel "${panelId}" to open; register it in workbench/activities.ts.`);
+  if (!panel.locations.includes("editor")) throw new Error(`The panel "${panelId}" doesn't open as a tab; open it where it's registered to show.`);
+  if (!paramsFit(panel, params)) {
+    throw new Error(`The params for the panel "${panelId}" don't match its paramsSchema; pass what the panel registered.`);
+  }
+  return panel;
+};
+
 type TabPosition = NonNullable<Parameters<TabHost["addPanel"]>[0]["position"]>;
 
 /**
@@ -83,11 +97,7 @@ type TabPosition = NonNullable<Parameters<TabHost["addPanel"]>[0]["position"]>;
  * `title` (else its panel's title).
  */
 const addTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveContext, position: TabPosition | undefined, temporary = false, title?: string): void => {
-  const panel = getPanel(panelId);
-  if (panel === undefined) throw new Error(`There's no panel "${panelId}" to open; register it in workbench/activities.ts.`);
-  if (!paramsFit(panel, params)) {
-    throw new Error(`The params for the panel "${panelId}" don't match its paramsSchema; pass what the panel registered.`);
-  }
+  const panel = openablePanel(panelId, params);
   const tab: TabParams = { panelId, params };
   const key = tabKey(panelId, params);
   setTemporary(key, temporary);
@@ -189,21 +199,33 @@ const tabOf = (panel: IDockviewPanel): TabParams | undefined => {
  * How tabs with unsaved work ask before they close: a panel registers its question by tab key while it holds such
  * work, and a close the user asks for runs the question instead of closing. One for the page, over `closeAsks`.
  */
+const guardListeners = new Set<(key: string) => void>();
+
 const pageCloseGuards = {
   /** Registers `ask` for the tab `key`, which keeps the tab (an edit keeps a temporary tab); returns its unregistration. */
   guard: (key: string, ask: () => void): (() => void) => {
     closeAsks.set(key, ask);
     keepTab(key);
+    for (const listener of guardListeners) listener(key);
     return () => {
       if (closeAsks.get(key) === ask) closeAsks.delete(key);
     };
+  },
+  /** Calls `listener` with a tab's key each time a question is registered for it; returns its removal. */
+  watch: (listener: (key: string) => void): (() => void) => {
+    guardListeners.add(listener);
+    return () => guardListeners.delete(listener);
   },
   /** Whether the tab `key` holds unsaved work: its question is registered. */
   unsaved: (key: string): boolean => closeAsks.has(key),
   /** A close the user asked for: the tab's question when it has one, else the close. */
   close: (host: Pick<TabHost, "removePanel">, panel: IDockviewPanel): void => {
-    const ask = closeAsks.get(panel.id);
-    if (ask === undefined) host.removePanel(panel);
+    pageCloseGuards.request(panel.id, () => host.removePanel(panel));
+  },
+  /** A close of the tab `key` the user asked for: its question when it has one, else `close`. */
+  request: (key: string, close: () => void): void => {
+    const ask = closeAsks.get(key);
+    if (ask === undefined) close();
     else ask();
   },
 };
@@ -317,11 +339,9 @@ export const showTab = (
 };
 
 /** The workbench's actions on `host`; `ctx` gives the agents as the page knows them now (for titles). */
-export const workbenchActions = (host: TabHost, reveals: ReturnType<typeof revealStore>, ctx: () => ResolveContext): WorkbenchActions => ({
-  openTab: (panelId, params, reveal) => showTab(host, reveals, panelId, params, ctx(), reveal),
-  openBeside: (panelId, params, beside) => {
-    openTab(host, panelId, params, ctx(), { beside: tabKey(beside.panelId, beside.params) });
-  },
+export const workbenchActions = (host: TabHost, reveals: ReturnType<typeof revealStore>, ctx: () => ResolveContext): WorkbenchActions & Pick<WorkbenchContextValue, "openTabs"> => ({
+  openTabs: (panelId) => openTabs(host, panelId),
+  openTab: (panelId, params, reveal, options) => showTab(host, reveals, panelId, params, ctx(), reveal, { temporary: options?.temporary, title: options?.title }),
   closeTab: (panelId, params) => {
     const panel = host.getPanel(tabKey(panelId, params));
     if (panel !== undefined) host.removePanel(panel);

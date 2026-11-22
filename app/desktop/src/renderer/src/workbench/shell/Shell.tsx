@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { cn } from "@/lib/utils";
-import { useAgents } from "../../data/hooks.ts";
+import { useAgents, useProposals } from "../../data/hooks.ts";
 import { chooseItemsFolder, openFolder } from "../../data/shown-workspace.ts";
 import { asError, asSentence } from "../../lib/errors.ts";
 // Registers the panels (the chat's among them) and the harnesses' UI.
@@ -21,17 +21,14 @@ import { LiveStatusBar } from "../StatusBar/StatusBar.tsx";
 import { type Reveals, revealStore } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { tell, Toast } from "../Toast/Toast.tsx";
-import { type WorkbenchActions, WorkbenchContext, type WorkbenchContextValue } from "../workbench-context.ts";
+import { WorkbenchContext, type WorkbenchContextValue } from "../workbench-context.ts";
+import { RightSidebar } from "./RightSidebar/RightSidebar.tsx";
+import { shellTabActions } from "./RightSidebar/tab-actions.ts";
+import { tabTitleStore } from "./RightSidebar/tab-titles.ts";
 import { useCommandKeys, useServiceChrome } from "./service-chrome.ts";
-import { clampWidth, LEFT_START_WIDTH, LEFT_WIDTH, middleView, newChat, RIGHT_WIDTH, rightView } from "./shell-state.ts";
+import { clampWidth, LEFT_START_WIDTH, LEFT_WIDTH, middleView, newChat, rightView } from "./shell-state.ts";
 import { ShellProvider, useShell, useShownWorkspace } from "./ShellProvider.tsx";
-
-const NO_ACTIONS: WorkbenchActions = {
-  openTab: () => undefined,
-  openBeside: () => undefined,
-  closeTab: () => undefined,
-  replaceTab: () => undefined,
-};
+import { WorkspaceActivityStates } from "./WorkspaceActivityStates.tsx";
 
 // Clipped, not hidden: a hidden overflow can still be scrolled by focus or scrollIntoView, which would take the
 // sidebar's header out of view. Its panel owns the scroll.
@@ -98,11 +95,23 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   const restartRef = useRef(restart);
   restartRef.current = restart;
 
+  const proposals = useProposals().data?.proposals;
+  const proposalsRef = useRef(proposals);
+  proposalsRef.current = proposals;
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
   const reveals = useMemo(revealStore, []);
-  const titleContext = useCallback(() => ({ agents: agentsRef.current }), []);
+  const titles = useMemo(tabTitleStore, []);
+  const titleContext = useCallback(() => ({ agents: agentsRef.current, proposals: proposalsRef.current }), []);
   const workbench = useMemo<WorkbenchContextValue>(
-    () => ({ ...NO_ACTIONS, host: undefined, reveals, showActivity: () => undefined, titleContext }),
-    [reveals, titleContext],
+    () => ({
+      ...shellTabActions({ current: () => ({ state: stateRef.current, shown: shownRef.current }), change, reveals, titles }),
+      reveals,
+      showActivity: () => undefined,
+      titleContext,
+    }),
+    [change, reveals, titles, titleContext],
   );
 
   useEffect(
@@ -138,14 +147,16 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
         {noticeShown ? <LiveLaunchNotice connection={connection} onRestart={restart} onDismiss={dismissNotice} /> : null}
         {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
         <div inert={blocked} className="relative flex min-h-0 min-w-0 flex-1">
-          <aside aria-label="Agents" className={SIDEBAR} style={{ width: leftWidth }}>
-            <LeftPanel />
-          </aside>
-          <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => setLeftWidth((width) => clampWidth(width + dx, LEFT_WIDTH))} />
-          <main className="flex min-w-0 flex-1 flex-col">
-            <Middle reveals={reveals} />
-          </main>
-          {rightOpen ? <aside className={cn(SIDEBAR, "border-l border-line")} style={{ width: RIGHT_WIDTH.min }} /> : null}
+          <WorkspaceActivityStates workspace={shown?.id}>
+            <aside aria-label="Agents" className={SIDEBAR} style={{ width: leftWidth }}>
+              <LeftPanel />
+            </aside>
+            <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => setLeftWidth((width) => clampWidth(width + dx, LEFT_WIDTH))} />
+            <main className="flex min-w-0 flex-1 flex-col">
+              <Middle reveals={reveals} />
+            </main>
+          </WorkspaceActivityStates>
+          <RightSidebar className={cn(SIDEBAR, "border-l border-line")} shown={shown?.id} reveals={reveals} titles={titles} />
           <div aria-hidden className={cn("pointer-events-none absolute inset-0 z-20 bg-scrim transition-opacity", blocked ? "opacity-100" : "opacity-0")} />
         </div>
         <LiveStatusBar connection={connection} agents={agents} />
