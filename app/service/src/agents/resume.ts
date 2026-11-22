@@ -141,7 +141,7 @@ export const createResume = (deps: ResumeDeps) => {
     const cwd = agentFolder(summary);
     const scope = await scopes.scopeFor(agentId);
     assertOpen();
-    const proc = spawnAgent(agentId, harness, cwd, scope);
+    const proc = spawnAgent(agentId, summary.workspace, harness, cwd, scope);
     log("agent_resuming", { agentId, harness: harness.id });
     const tooSlow = () =>
       new AgentError(

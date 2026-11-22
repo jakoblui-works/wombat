@@ -18,6 +18,9 @@ import { summary } from "./summaries.ts";
 
 export type FakeRequest = { method: string; path: string };
 
+/** The one workspace GET /workspaces lists, whose root `workspace.get` answers. */
+export const FAKE_WORKSPACE = { id: "ws-fake000001", name: "bakery", root: "/fake/bakery", missing: false };
+
 export type FakeService = {
   bridge: WombatBridge;
   /** The current store's id; `newStore()` changes it. */
@@ -80,6 +83,7 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
       const ids = [...new Set([...logs.keys(), ...agentFields.keys()])];
       return { status: 200, body: { dbId, seq, agents: ids.map((id) => summary(id, agentFields.get(id))) } };
     }
+    if (method === "GET" && url.pathname === "/workspaces") return { status: 200, body: { workspaces: [FAKE_WORKSPACE] } };
     if (method === "GET" && url.pathname === "/repos") return { status: 200, body: { repos } };
     if (method === "GET" && url.pathname === "/proposals") return { status: 200, body: { proposals } };
     const logMatch = /^\/agents\/([^/]+)\/log$/.exec(url.pathname);
@@ -151,7 +155,7 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
       },
       restart: notImplemented("restart"),
     },
-    workspace: { get: notImplemented("workspace.get"), switch: notImplemented("workspace.switch") },
+    workspace: { get: () => Promise.resolve({ root: FAKE_WORKSPACE.root }), switch: notImplemented("workspace.switch") },
     settings: { get: notImplemented("settings.get"), set: notImplemented("settings.set") },
     onOpenAgent: () => () => undefined,
   };

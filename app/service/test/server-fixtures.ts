@@ -10,12 +10,24 @@ import { ErrorBody } from "@wombat/shared/api";
 import { expect, onTestFinished } from "vitest";
 
 import { openCatalog } from "../src/items/catalog.ts";
+import type { WorkspaceItems } from "../src/items/workspace-items.ts";
 import { openWriter } from "../src/items/write.ts";
+import type { Log } from "../src/log.ts";
 import { startServer } from "../src/server/server.ts";
+import type { Store } from "../src/store/store.ts";
 import { fixtureHarnesses, type LogLine, REPO, setup, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
 import { WORKSPACE } from "./store-fixtures.ts";
 
 export { APP_ORIGIN };
+
+/** The path of an items route of the fixtures' workspace: `/workspaces/<WORKSPACE><path>`. */
+export const wsPath = (path: string) => `/workspaces/${WORKSPACE}${path}`;
+
+/** The items of WORKSPACE alone, on `itemsRoot`; adds and items-folder changes open nothing. */
+const oneWorkspaceItems = (itemsRoot: string, store: Store, log: Log): Pick<WorkspaceItems, "of" | "open" | "reopen"> => {
+  const items = { catalog: openCatalog({ root: itemsRoot, store, workspace: WORKSPACE }), writer: openWriter({ root: itemsRoot, store, workspace: WORKSPACE, log }) };
+  return { of: (id) => (id === WORKSPACE ? items : undefined), open: () => Promise.resolve(), reopen: () => Promise.resolve() };
+};
 
 /**
  * Every route of the app's contract, on a real agent and request id, plus a path no route has: the port rules
@@ -40,13 +52,13 @@ export const appRoutes = (agentId: string): { method: string; path: string; body
   { method: "DELETE", path: `/agents/${agentId}` },
   { method: "POST", path: "/shutdown" },
   { method: "GET", path: "/events" },
-  { method: "GET", path: "/binders" },
-  { method: "POST", path: "/binders", body: { path: "refused", name: "Refused", prefix: "REF" } },
-  { method: "GET", path: "/binders/bugs/items" },
-  { method: "GET", path: "/items/BUG-1" },
-  { method: "POST", path: "/binders/bugs/items", body: { title: "Refused item", body: "", properties: {} } },
-  { method: "PATCH", path: "/items/BUG-1", body: { version: "0".repeat(64), fields: { title: "Refused title" } } },
-  { method: "DELETE", path: `/items/BUG-1?version=${"0".repeat(64)}` },
+  { method: "GET", path: wsPath("/binders") },
+  { method: "POST", path: wsPath("/binders"), body: { path: "refused", name: "Refused", prefix: "REF" } },
+  { method: "GET", path: wsPath("/binders/bugs/items") },
+  { method: "GET", path: wsPath("/items/BUG-1") },
+  { method: "POST", path: wsPath("/binders/bugs/items"), body: { title: "Refused item", body: "", properties: {} } },
+  { method: "PATCH", path: wsPath("/items/BUG-1"), body: { version: "0".repeat(64), fields: { title: "Refused title" } } },
+  { method: "DELETE", path: wsPath(`/items/BUG-1?version=${"0".repeat(64)}`) },
   { method: "GET", path: "/proposals" },
   { method: "POST", path: "/proposals/prop_1/approve", body: { version: 1 } },
   { method: "POST", path: "/proposals/prop_1/reject", body: {} },
@@ -324,12 +336,7 @@ export const serve = async ({ heartbeatMs, sendFails, itemsRoot, agentTokens = {
       shutdownRequests += 1;
     },
     ...(heartbeatMs === undefined ? {} : { heartbeatMs }),
-    ...(itemsRoot === undefined
-      ? {}
-      : {
-          items: openCatalog({ root: itemsRoot, store: t.store, workspace: WORKSPACE }),
-          writer: openWriter({ root: itemsRoot, store: t.store, workspace: WORKSPACE, log }),
-        }),
+    ...(itemsRoot === undefined ? {} : { items: oneWorkspaceItems(itemsRoot, t.store, log) }),
   });
   let closed: Promise<void> | undefined;
   const close = () => (closed ??= server.close());

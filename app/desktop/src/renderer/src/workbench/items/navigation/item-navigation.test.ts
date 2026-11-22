@@ -66,9 +66,13 @@ const tabOf = (shown: Item) => ({ binderId: shown.binder, itemId: shown.id });
 /** A page whose item reads the test answers itself, one ref at a time; the service lists no binders. */
 const page = () => {
   const asked = new Map<string, (answer: Answer) => void>();
-  const request = (_method: string, path: string): Promise<Answer> =>
-    path === "/binders" ? Promise.resolve({ status: 200, body: { binders: [] } }) : new Promise((resolve) => asked.set(decodeURIComponent(path.replace("/items/", "")), resolve));
-  vi.stubGlobal("window", { wombat: { service: { request } } });
+  const ws = { id: "ws-apiary0001", name: "apiary", root: "/invented/apiary", missing: false };
+  const request = (_method: string, path: string): Promise<Answer> => {
+    if (path === "/workspaces") return Promise.resolve({ status: 200, body: { workspaces: [ws] } });
+    if (path === `/workspaces/${ws.id}/binders`) return Promise.resolve({ status: 200, body: { binders: [] } });
+    return new Promise((resolve) => asked.set(decodeURIComponent(path.replace(`/workspaces/${ws.id}/items/`, "")), resolve));
+  };
+  vi.stubGlobal("window", { wombat: { service: { request }, workspace: { get: () => Promise.resolve({ root: ws.root }) } } });
 
   const { host } = fakeHost();
   const reveals = revealStore();

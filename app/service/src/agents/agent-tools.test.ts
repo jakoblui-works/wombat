@@ -7,7 +7,7 @@ import { describe, expect, test } from "vitest";
 import { readAt } from "../../test/items-fixtures.ts";
 import { chunkTexts, REPO, TEST_TIMEOUT_MS, WORKSPACE } from "../../test/manager-fixtures.ts";
 import { serveItems } from "../../test/mcp-fixtures.ts";
-import type { Served } from "../../test/server-fixtures.ts";
+import { wsPath, type Served } from "../../test/server-fixtures.ts";
 
 /** Sends `{ tool, arguments }` to a call-tool agent and returns the answer it reported, parsed. */
 const ask = async (s: Served, agentId: string, tool: string, args: Record<string, unknown>) => {
@@ -35,7 +35,7 @@ describe("agent tools end to end", () => {
         body: "\nThrough the item tools.\n",
       })) as { written?: string };
       expect(created.written).toMatch(/^BL-\d+$/);
-      const item = await s.api("GET", `/items/${created.written ?? ""}`);
+      const item = await s.api("GET", wsPath(`/items/${created.written ?? ""}`));
       expect(item.status, item.text).toBe(200);
       expect((item.json as { title: string; problems: unknown[]; path: string }).problems).toEqual([]);
       expect(readAt(root, (item.json as { path: string }).path)).toContain("# Created by an agent");

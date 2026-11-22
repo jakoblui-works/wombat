@@ -20,7 +20,7 @@ import { ACCESS_FILES, VISIBLE_IDS } from "./access-fixtures.ts";
 import { fakeSystemd } from "./fake-systemd.ts";
 import { writeAt } from "./items-fixtures.ts";
 import { REPO, SERVICE_SLICE, TEST_TIMEOUT_MS, waitFor } from "./manager-fixtures.ts";
-import { APP_ORIGIN, expectError, rawRequest, type Response } from "./server-fixtures.ts";
+import { APP_ORIGIN, expectError, onlyWorkspace, rawRequest, type Response } from "./server-fixtures.ts";
 import { WORKSPACE } from "./store-fixtures.ts";
 
 const SERVICE_DIR = join(import.meta.dirname, "..");
@@ -150,7 +150,7 @@ const TARGETS: Record<string, Target> = {
       ).proposal.id,
     writes: (at) => newBugs(at).length,
     after: async (_at, api) => {
-      const listed = await api("GET", "/binders/bugs/items");
+      const listed = await api("GET", `/workspaces/${await onlyWorkspace(api)}/binders/bugs/items`);
       const titles = (listed.json as { items: { title: string }[] }).items.map((item) => item.title);
       expect(titles.filter((title) => title === NEW_BUG_TITLE), "exactly one item was made").toHaveLength(1);
       expect(titles).toHaveLength(3);

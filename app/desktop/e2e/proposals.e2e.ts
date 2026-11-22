@@ -40,6 +40,12 @@ const listed = async (sandbox: Sandbox): Promise<Listed[]> => {
   return (read.json as { proposals: Listed[] }).proposals;
 };
 
+/** The path of item `ref` in the one workspace the service lists. */
+const itemPath = async (sandbox: Sandbox, ref: string): Promise<string> => {
+  const { workspaces } = (await sandbox.api("GET", "/workspaces")).json as { workspaces: { id: string }[] };
+  return `/workspaces/${workspaces[0]?.id ?? ""}/items/${ref}`;
+};
+
 const proposalOn = async (sandbox: Sandbox, file: string): Promise<Listed | undefined> => (await listed(sandbox)).find((p) => p.path === file);
 
 /** Has the agent propose `edits` to `file` and waits until the service lists the proposal. */
@@ -155,7 +161,7 @@ test("a Needs me click on an item update highlights its row in the Desk; droppin
   await sandbox.startService(sandbox.workspace, { WOMBAT_ITEMS: items });
 
   type ItemRead = { body: string | null; properties: Record<string, unknown>; version: string };
-  const item = async (): Promise<ItemRead> => (await sandbox.api("GET", `/items/${bug.handle}`)).json as ItemRead;
+  const item = async (): Promise<ItemRead> => (await sandbox.api("GET", await itemPath(sandbox, bug.handle))).json as ItemRead;
   const newBody = "\nThe coupon shows but the total stays the same, only for coupons in percent.\n";
   const agentId = await startAgent(sandbox, "fake-call-tool");
   await waitUntil(`agent ${agentId} between turns`, WAIT_MS, async () => ((await agentSummary(sandbox, agentId))?.state === "working" ? undefined : true));
@@ -217,7 +223,7 @@ test("in the Desk's list, Approve on a proposed create writes its item's file, a
   };
   const mulch = "Mulch the raspberry bed";
   const createId = await proposeItem("propose_create", { binder: "chores", title: mulch, reason: "The raspberries dried out.", properties: { stage: "doing" } });
-  const version = ((await sandbox.api("GET", "/items/CH-1")).json as { version: string }).version;
+  const version = ((await sandbox.api("GET", await itemPath(sandbox, "CH-1"))).json as { version: string }).version;
   const updateId = await proposeItem("propose_update", { handle: "CH-1", fields: { stage: "done" }, version, reason: "Watered this morning." });
   const statusOf = async (id: string): Promise<string | undefined> => (await listed(sandbox)).find((p) => p.id === id)?.status;
 

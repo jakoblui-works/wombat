@@ -7,18 +7,14 @@ import { errorCode } from "@wombat/shared/errno";
 import { startTimeOf } from "@wombat/shared/process-stat";
 
 import { createManager, type Manager } from "./agents/manager.ts";
-import { readConfig } from "./config.ts";
+import { readConfig, type Config } from "./config.ts";
 import { newToken, removeDiscovery, writeDiscovery } from "./discovery.ts";
-import { openCatalog } from "./items/catalog.ts";
-import { openInstructions, readInstructions, refreshingWriter, type Instructions } from "./items/instructions.ts";
 import type { Harness } from "./harness/harness.ts";
 import { defaultHarnesses } from "./harness/registry.ts";
-import { openWatch, type Watch } from "./items/watch.ts";
-import { openWriter } from "./items/write.ts";
+import { openWorkspaceItems, type WorkspaceItems } from "./items/workspace-items.ts";
 import { logToStderr } from "./log.ts";
 import type { ApproveStep } from "./proposals/apply.ts";
 import { startServer } from "./server/server.ts";
-import { NO_WORKSPACE } from "./server/workspace-routes.ts";
 import { LockHeld, takeStartLock } from "./start-lock.ts";
 import { openStore, type Store } from "./store/store.ts";
 import { rootIn } from "./workspace.ts";
@@ -90,6 +86,19 @@ const probePort = (port: number) =>
     probe.listen(port, "127.0.0.1", () => probe.close(() => resolve()));
   });
 
+/**
+ * The workspace WOMBAT_WORKSPACE names, while the app doesn't add its folders itself: added, given every stored row
+ * that has no workspace (before the manager loads the agents, so they're listed), and given WOMBAT_ITEMS as its items
+ * folder when that differs from the stored one, as the variable always decided.
+ */
+const configureWorkspace = (store: Store, { workspaceRoot, itemsRoot }: Pick<Config, "workspaceRoot" | "itemsRoot">) => {
+  if (workspaceRoot === undefined) return undefined;
+  const { workspace } = store.addWorkspace(workspaceRoot, itemsRoot);
+  if (itemsRoot !== undefined && itemsRoot !== workspace.itemsRoot) store.setItemsRoot(workspace.id, itemsRoot);
+  store.adoptUnassigned(workspace.id);
+  return { id: workspace.id, root: workspaceRoot };
+};
+
 /** Runs the service: config, single-instance check, store, manager, server, discovery file, signals. */
 export const main = async (options: MainOptions = {}): Promise<void> => {
   const env = options.env ?? process.env;
@@ -135,8 +144,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   let store: Store | undefined;
   let manager: Manager | undefined;
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
-  let instructions: Instructions | undefined;
-  let watch: Watch | undefined;
+  let workspaceItems: WorkspaceItems | undefined;
   const token = newToken();
   try {
     let codeId: string;
@@ -149,52 +157,24 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
     }
     const identity = { startedAt, codeId };
     store = openStore({ path: config.storePath });
-    const { workspaceRoot: configuredRoot, itemsRoot } = config;
-    let configured: { id: string; root: string } | undefined;
-    if (configuredRoot !== undefined) {
-      // Before the manager loads the agents: rows stored before workspaces existed are listed once adopted.
-      configured = { id: store.addWorkspace(configuredRoot, itemsRoot).workspace.id, root: configuredRoot };
-      store.adoptUnassigned(configured.id);
-    }
-    const { id: workspace } = configured ?? NO_WORKSPACE;
+    const configured = configureWorkspace(store, config);
     const slice = options.slice === undefined ? {} : { slice: options.slice };
+    const { takeSeq } = store;
+    const items = openWorkspaceItems({ store, log, onChanged: (id) => manager?.itemsCommitted(id, takeSeq()) });
+    workspaceItems = items;
     manager = createManager({
       store,
       rootOf: rootIn(store.getWorkspace),
       harnesses,
       log,
       env,
-      readInstructions: async () => (configured === undefined ? undefined : readInstructions(configured.root, log)),
+      readInstructions: items.instructionsOf,
       ...slice,
     });
     try {
-      const catalog = itemsRoot === undefined ? undefined : openCatalog({ root: itemsRoot, store, workspace, log });
-      watch = itemsRoot === undefined ? undefined : openWatch({ root: itemsRoot, log });
-      if (configured !== undefined) {
-        instructions = openInstructions({ catalog, workspaceRoot: configured.root, ...(watch === undefined ? {} : { watch }), log });
-        // Written (or a stale one removed) before the server takes POST /agents, so the first agent gets it.
-        await instructions.refresh();
-        instructions.watch();
-      }
-      const refresh = async () => instructions?.refresh();
-      const { itemsCommitted } = manager;
-      const { takeSeq } = store;
-      const itemsChanged = () => itemsCommitted(takeSeq());
-      watch?.on(itemsChanged);
-      const afterWrite = async () => {
-        await refresh();
-        // The file is written by now: a failed alert mustn't fail the write, and the watch alerts for it anyway.
-        try {
-          itemsChanged();
-        } catch (error) {
-          log("items_alert_failed", { error: errorCode(error) });
-        }
-      };
-      // Approvals write through this writer too, so they alert here.
-      const items =
-        itemsRoot === undefined || catalog === undefined
-          ? {}
-          : { items: catalog, writer: refreshingWriter(openWriter({ root: itemsRoot, store, workspace, log }), afterWrite) };
+      // Every instructions file is written (or a stale one removed) before the server takes POST /agents, so the first
+      // agent of each workspace gets its own.
+      await Promise.all(store.listWorkspaces().map((workspace) => items.open(workspace)));
       server = await startServer({
         manager,
         store,
@@ -217,7 +197,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
             log("shutdown_step_failed", { step: "discovery", error: error instanceof Error ? error.name : "unknown" });
           }
         },
-        ...items,
+        items,
       });
     } catch (error) {
       throw listenRefusal(config.port, error) ?? error;
@@ -242,8 +222,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   } catch (error) {
     // Best effort: the start failure is what the user needs to see, not a follow-on error from cleaning up.
     await server?.close().catch(() => undefined);
-    await instructions?.close().catch(() => undefined);
-    watch?.close();
+    await workspaceItems?.close().catch(() => undefined);
     await manager?.shutdown().catch(() => undefined);
     try {
       store?.close();
@@ -260,8 +239,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   const openedStore = store;
   const openedManager = manager;
   const openedServer = server;
-  const openedInstructions = instructions;
-  const openedWatch = watch;
+  const openedItems = workspaceItems;
   const heldLock = lock;
   let stopping: Promise<void> | undefined;
   /** The one stop path, for SIGINT, SIGTERM and POST /shutdown. */
@@ -280,8 +258,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
       };
       await step("discovery", () => removeDiscovery(discoveryPath, process.pid));
       await step("server", () => openedServer.close());
-      await step("instructions", () => openedInstructions?.close());
-      await step("watch", () => openedWatch?.close());
+      await step("items", () => openedItems?.close());
       await step("manager", () => openedManager.shutdown());
       await step("store", () => openedStore.close());
       // Last: a start waiting on the lock may open the store as soon as it's gone.

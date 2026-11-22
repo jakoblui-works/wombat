@@ -2,11 +2,11 @@
 import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 
-import { SERVICE_ENV } from "@wombat/shared";
 import { WorkspaceErrorCode, type Workspace } from "@wombat/shared/api";
 import { ROUTES, type ResponseOf } from "@wombat/shared/routes";
 import type { Context, Hono } from "hono";
 
+import type { WorkspaceItems } from "../items/workspace-items.ts";
 import type { Store } from "../store/store.ts";
 import { workspaceNotFound } from "../workspace.ts";
 import { errorResponse, WORKSPACE_STATUS } from "./errors.ts";
@@ -16,10 +16,12 @@ export type WorkspaceRoutesOptions = {
   store: Store;
   /** Called after a committed add or items-folder change, with its seq. */
   workspacesCommitted: (seq: number) => void;
+  /** Opens an added workspace's items, and opens them again on an items-folder change, before the route answers. */
+  items?: Pick<WorkspaceItems, "open" | "reopen">;
 };
 
 /**
- * What the manager and the proposals get while the service has no workspace: no folder resolves from its root, so an
+ * What the proposals get while the service has no configured workspace: no folder resolves from its root, so an
  * agent or a file under it is refused rather than placed in some other folder.
  */
 export const NO_WORKSPACE = { id: "", root: "" } as const;
@@ -46,22 +48,17 @@ export const folderRefusal = (path: string, use: FolderUse, folderAt: (path: str
 
 const refused = (c: Context, message: string) => errorResponse(c, WORKSPACE_STATUS.invalid_folder, WorkspaceErrorCode.enum.invalid_folder, message);
 
-/** The answer of an item route when the service has no workspace. */
-export const noWorkspace = (c: Context) =>
-  errorResponse(
-    c,
-    WORKSPACE_STATUS.workspace_not_found,
-    WorkspaceErrorCode.enum.workspace_not_found,
-    `The service has no workspace, so there are no items to reach. Add a folder in the app, or set ${SERVICE_ENV.workspace} to a folder's absolute path and restart the service.`,
-  );
-
-export const workspaceRoutes = (app: Hono, { store, workspacesCommitted }: WorkspaceRoutesOptions) => {
-  /** Runs `write` and takes its alert's seq in one transaction when it changed anything; alerts once committed. */
-  const alerting = (write: () => { workspace: Workspace; changed: boolean }): Workspace => {
+export const workspaceRoutes = (app: Hono, { store, workspacesCommitted, items }: WorkspaceRoutesOptions) => {
+  /**
+   * Runs `write` and takes its alert's seq in one transaction when it changed anything; once committed, opens the
+   * workspace's items with `open`, then alerts, so the app's read after the alert finds them.
+   */
+  const alerting = async (write: () => { workspace: Workspace; changed: boolean }, open: (workspace: Workspace) => Promise<void> | undefined) => {
     const { workspace, seq } = store.transaction(() => {
       const result = write();
       return { workspace: result.workspace, seq: result.changed ? store.takeSeq() : undefined };
     });
+    await open(workspace);
     if (seq !== undefined) workspacesCommitted(seq);
     return workspace;
   };
@@ -78,12 +75,16 @@ export const workspaceRoutes = (app: Hono, { store, workspacesCommitted }: Works
     if (refusal !== undefined) return refused(c, refusal);
     let workspace: Workspace;
     try {
-      workspace = alerting(() => {
-        const { workspace: stored, added } = store.addWorkspace(root, itemsRoot);
-        const adopted = adopt === true ? store.adoptUnassigned(stored.id) : undefined;
-        const adoptedAny = adopted !== undefined && adopted.agents + adopted.proposals + adopted.counters > 0;
-        return { workspace: stored, changed: added || adoptedAny };
-      });
+      workspace = await alerting(
+        () => {
+          const { workspace: stored, added } = store.addWorkspace(root, itemsRoot);
+          const adopted = adopt === true ? store.adoptUnassigned(stored.id) : undefined;
+          const adoptedAny = adopted !== undefined && adopted.agents + adopted.proposals + adopted.counters > 0;
+          return { workspace: stored, changed: added || adoptedAny };
+        },
+        // A root already listed is open already, as it was.
+        (stored) => items?.open(stored),
+      );
     } catch (error) {
       // The folder may have gone since the check above; the store then refuses it.
       const gone = refusalNow();
@@ -102,11 +103,14 @@ export const workspaceRoutes = (app: Hono, { store, workspacesCommitted }: Works
       const { code, message } = workspaceNotFound(id);
       return errorResponse(c, WORKSPACE_STATUS[code], code, message);
     }
-    const workspace = alerting(() => {
-      const changed = store.setItemsRoot(id, itemsRoot);
-      if (changed === undefined) throw new Error(`Workspace ${id} vanished while its items folder was being set.`);
-      return { workspace: changed, changed: true };
-    });
+    const workspace = await alerting(
+      () => {
+        const changed = store.setItemsRoot(id, itemsRoot);
+        if (changed === undefined) throw new Error(`Workspace ${id} vanished while its items folder was being set.`);
+        return { workspace: changed, changed: true };
+      },
+      (changed) => items?.reopen(changed),
+    );
     return c.json(checked(ROUTES.setItemsRoot.response, workspace) satisfies ResponseOf<typeof ROUTES.setItemsRoot>);
   });
 };

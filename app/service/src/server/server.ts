@@ -3,50 +3,46 @@ import type { AddressInfo } from "node:net";
 
 import { getRequestListener, type HttpBindings } from "@hono/node-server";
 import { API_VERSION } from "@wombat/shared";
-import {
-  BODY_OVER_CAP_MESSAGE,
-  HEARTBEAT_MS,
-  ItemsErrorCode,
-  ServerErrorCode,
-  type AgentSummary,
-  type ErrorBody,
-} from "@wombat/shared/api";
+import { BODY_OVER_CAP_MESSAGE, HEARTBEAT_MS, ServerErrorCode, type AgentSummary, type ErrorBody } from "@wombat/shared/api";
 import { errorCode } from "@wombat/shared/errno";
 import { MAX_BODY_BYTES, ROUTES, type ResponseOf } from "@wombat/shared/routes";
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
 import { requireAgent } from "../agents/errors.ts";
 import { AgentError, type Manager } from "../agents/manager.ts";
-import { handlesById, summarize, withLinks } from "../items/api-shape.ts";
-import { findByRef, type Catalog } from "../items/catalog.ts";
-import type { Writer } from "../items/write.ts";
+import type { WorkspaceItems } from "../items/workspace-items.ts";
 import type { Harness } from "../harness/harness.ts";
 import { harnessFeatures } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { ApproveStep } from "../proposals/apply.ts";
 import { openProposals } from "../proposals/proposals.ts";
-import { ITEMS_NOT_CONFIGURED, ProposalError } from "../proposals/refused.ts";
+import { ProposalError } from "../proposals/refused.ts";
 import type { Store } from "../store/store.ts";
 import { listRepos, RepoError, WorkspaceError } from "../workspace.ts";
 import { AGENT_CALL_STATUS, AGENT_STATUS, errorResponse, ITEMS_STATUS, SERVER_STATUS, WORKSPACE_STATUS } from "./errors.ts";
 import { createAlertStreams } from "./events.ts";
-import { itemRoutes, noItem } from "./item-routes.ts";
+import { itemRoutes } from "./item-routes.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { portRules } from "./port-rules.ts";
 import { proposalRoutes } from "./proposal-routes.ts";
-import { checked, InvalidRequest, readBody, readQuery } from "./request.ts";
-import { NO_WORKSPACE, noWorkspace, workspaceRoutes } from "./workspace-routes.ts";
+import { InvalidRequest, readBody, readQuery } from "./request.ts";
+import { NO_WORKSPACE, workspaceRoutes } from "./workspace-routes.ts";
 
 export type ServerOptions = {
   manager: Manager;
   store: Store;
   harnesses: readonly Harness[];
   /**
-   * The one workspace new proposals belong to and the items routes serve. Without it, the items routes answer that the
-   * service has no workspace. Agents and repos take their workspace by id (the manager's `rootOf`).
+   * The one workspace new proposals belong to, and whose items the agents' /mcp tools reach (until they take their
+   * agent's). Agents, repos and the items routes take their workspace by id.
    */
   workspace?: { id: string; root: string };
+  /**
+   * Each workspace's items (workspace-items.ts): the items routes and the proposals ask it, and the workspace routes
+   * open a workspace's items before they answer. Without it no workspace has items.
+   */
+  items?: Pick<WorkspaceItems, "of" | "open" | "reopen">;
   /** The bearer token every request must carry. */
   token: string;
   /** 0 (the default) picks a free port. */
@@ -56,10 +52,6 @@ export type ServerOptions = {
   defaultLogLimit?: number;
   /** Ids and names only, like the manager's log. */
   log?: Log;
-  /** The items; without it the items routes answer items_not_configured. */
-  items?: Catalog;
-  /** Writes the items; with `items`, it opens the agents' write tools on /mcp. */
-  writer?: Writer;
   /**
    * Called once POST /shutdown has stopped every agent and its response is out: the service's own stop path,
    * which main passes. Without it the route still stops the agents, but the service keeps running.
@@ -90,7 +82,6 @@ export const startServer = async ({
   defaultLogLimit = 1000,
   log = logToStderr,
   items,
-  writer,
   onShutdown,
   onShutdownStart,
   identity,
@@ -121,7 +112,7 @@ export const startServer = async ({
     agentFolder: (agentId) => manager.agentFolder(requireAgent(agentId, findAgent)),
     onProposal,
     log,
-    items: items && writer ? { catalog: items, writer } : undefined,
+    items: workspace === undefined ? undefined : items?.of(workspace.id),
     onApproveStep,
   });
   // Before the server listens: no request may see a proposal a service death left applying.
@@ -154,7 +145,7 @@ export const startServer = async ({
     c.json(harnesses.map((harness) => ({ id: harness.id, name: harness.name, features: harnessFeatures(harness) })) satisfies ResponseOf<typeof ROUTES.listHarnesses>),
   );
 
-  workspaceRoutes(app, { store, workspacesCommitted: manager.workspacesCommitted });
+  workspaceRoutes(app, { store, workspacesCommitted: manager.workspacesCommitted, ...(items === undefined ? {} : { items }) });
 
   app.get("/workspaces/:ws/repos", (c) =>
     c.json({ repos: listRepos(manager.rootOf(c.req.param("ws"))) } satisfies ResponseOf<typeof ROUTES.listRepos>),
@@ -228,48 +219,8 @@ export const startServer = async ({
     return c.json({} satisfies ResponseOf<typeof ROUTES.shutdown>, 202);
   });
 
-  const notConfigured = (c: Context) =>
-    workspace
-      ? errorResponse(c, ITEMS_STATUS.items_not_configured, ItemsErrorCode.enum.items_not_configured, ITEMS_NOT_CONFIGURED)
-      : noWorkspace(c);
-
-  app.get("/binders", async (c) => {
-    if (!items) return notConfigured(c);
-    const { binders, items: all } = await items.snapshot();
-    const body = { binders: binders.map((binder) => summarize(binder, all)) };
-    return c.json(checked(ROUTES.listBinders.response, body) satisfies ResponseOf<typeof ROUTES.listBinders>);
-  });
-
-  app.get("/binders/:id/items", async (c) => {
-    if (!items) return notConfigured(c);
-    const id = c.req.param("id");
-    const { binders, items: all } = await items.snapshot();
-    if (!binders.some((binder) => binder.id === id)) {
-      return errorResponse(
-        c,
-        ITEMS_STATUS.binder_not_found,
-        ItemsErrorCode.enum.binder_not_found,
-        `There's no binder ${id}. List the binders to see which exist.`,
-      );
-    }
-    const handles = handlesById(all);
-    // The schema drops each item's body: a list carries none.
-    const listed = all.filter((item) => item.binder === id).map((item) => withLinks(item, binders, handles));
-    return c.json(checked(ROUTES.binderItems.response, { items: listed }) satisfies ResponseOf<typeof ROUTES.binderItems>);
-  });
-
-  app.get("/items/:ref", async (c) => {
-    if (!items) return notConfigured(c);
-    const ref = c.req.param("ref");
-    const { binders, items: all } = await items.snapshot();
-    const found = findByRef(all, ref);
-    if (!found) return noItem(c, ref);
-    const handles = handlesById(all);
-    return c.json(checked(ROUTES.getItem.response, withLinks(found, binders, handles)) satisfies ResponseOf<typeof ROUTES.getItem>);
-  });
-
   manager.setNoteSource(notes);
-  itemRoutes(app, items && writer ? { catalog: items, writer } : undefined, notConfigured);
+  itemRoutes(app, { of: (workspaceId) => items?.of(workspaceId), getWorkspace: store.getWorkspace });
   proposalRoutes(app, proposals);
 
   app.get("/events", (c) => {

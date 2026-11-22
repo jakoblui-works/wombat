@@ -1,19 +1,34 @@
-// My item writes: create, update and delete through the one Writer, with its validation and version check but no
-// access levels or locks; and a new binder, through the same Writer. Items alerts come from the Writer the server is given, never from here.
-import { ItemsErrorCode } from "@wombat/shared/api";
+// A workspace's binders and items under /workspaces/:ws: my reads, and my writes (create, update and delete through the
+// workspace's one Writer, with its validation and version check but no access levels or locks; and a new binder, through
+// the same Writer). Items alerts come from the Writer, never from here.
+import { ItemsErrorCode, type Workspace } from "@wombat/shared/api";
 import { ROUTES, type ResponseOf } from "@wombat/shared/routes";
 import type { Context, Hono } from "hono";
 
 import { handlesById, summarize, withLinks } from "../items/api-shape.ts";
 import { findByRef, type Catalog, type LoadedItem } from "../items/catalog.ts";
-import { ItemWriteError, ME, unfixedItem, type Writer } from "../items/write.ts";
+import type { ItemsOfWorkspace } from "../items/workspace-items.ts";
+import { ItemWriteError, ME, unfixedItem } from "../items/write.ts";
+import { workspaceNotFound } from "../workspace.ts";
 import { errorResponse, ITEMS_STATUS, itemWriteResponse } from "./errors.ts";
 import { checked, readBody, readQuery } from "./request.ts";
 
-export type ItemWrites = { catalog: Catalog; writer: Writer };
-
 export const noItem = (c: Context, ref: string) =>
   errorResponse(c, ITEMS_STATUS.item_not_found, ItemsErrorCode.enum.item_not_found, `There's no item ${ref}. List a binder's items to see their handles.`);
+
+const noItemsFolder = (c: Context, workspace: Workspace) =>
+  errorResponse(
+    c,
+    ITEMS_STATUS.items_not_configured,
+    ItemsErrorCode.enum.items_not_configured,
+    `The workspace ${workspace.root} has no items folder, so it has no binders. Choose its items folder in the app (Choose Items Folder… in the File menu), then try again.`,
+  );
+
+export type ItemRoutesOptions = {
+  /** The workspace's catalog and writer; undefined for one without an items folder. */
+  of: (workspaceId: string) => ItemsOfWorkspace | undefined;
+  getWorkspace: (workspaceId: string) => Workspace | undefined;
+};
 
 /** The handle the Writer takes for `ref` (id, handle or alias), or the refusal to answer. */
 const handleOf = async (c: Context, catalog: Catalog, ref: string, action: "updated" | "deleted"): Promise<{ handle: string } | { refused: Response }> => {
@@ -23,7 +38,7 @@ const handleOf = async (c: Context, catalog: Catalog, ref: string, action: "upda
   return { handle: found.handle };
 };
 
-/** The written item as GET /items/:ref answers it, from a read after the write. */
+/** The written item as GET /workspaces/:ws/items/:ref answers it, from a read after the write. */
 const answered = async (catalog: Catalog, written: LoadedItem) => {
   const { binders, items } = await catalog.snapshot();
   const item = (written.id === null ? undefined : findByRef(items, written.id)) ?? written;
@@ -40,10 +55,58 @@ const writing = async (c: Context, write: () => Promise<Response>) => {
   }
 };
 
-/** `notConfigured` answers each route when the service runs without items. */
-export const itemRoutes = (app: Hono, items: ItemWrites | undefined, notConfigured: (c: Context) => Response) => {
-  app.post("/binders", async (c) => {
-    if (!items) return notConfigured(c);
+export const itemRoutes = (app: Hono, { of, getWorkspace }: ItemRoutesOptions) => {
+  /** The items of the route's workspace, or the refusal: an unknown workspace throws, one without items answers so. */
+  const itemsAt = (c: Context): ItemsOfWorkspace | Response => {
+    const id = c.req.param("ws") ?? "";
+    const items = of(id);
+    if (items !== undefined) return items;
+    const workspace = getWorkspace(id);
+    if (workspace === undefined) throw workspaceNotFound(id);
+    return noItemsFolder(c, workspace);
+  };
+
+  app.get("/workspaces/:ws/binders", async (c) => {
+    const items = itemsAt(c);
+    if (items instanceof Response) return items;
+    const { binders, items: all } = await items.catalog.snapshot();
+    const body = { binders: binders.map((binder) => summarize(binder, all)) };
+    return c.json(checked(ROUTES.listBinders.response, body) satisfies ResponseOf<typeof ROUTES.listBinders>);
+  });
+
+  app.get("/workspaces/:ws/binders/:id/items", async (c) => {
+    const items = itemsAt(c);
+    if (items instanceof Response) return items;
+    const id = c.req.param("id");
+    const { binders, items: all } = await items.catalog.snapshot();
+    if (!binders.some((binder) => binder.id === id)) {
+      return errorResponse(
+        c,
+        ITEMS_STATUS.binder_not_found,
+        ItemsErrorCode.enum.binder_not_found,
+        `There's no binder ${id}. List the binders to see which exist.`,
+      );
+    }
+    const handles = handlesById(all);
+    // The schema drops each item's body: a list carries none.
+    const listed = all.filter((item) => item.binder === id).map((item) => withLinks(item, binders, handles));
+    return c.json(checked(ROUTES.binderItems.response, { items: listed }) satisfies ResponseOf<typeof ROUTES.binderItems>);
+  });
+
+  app.get("/workspaces/:ws/items/:ref", async (c) => {
+    const items = itemsAt(c);
+    if (items instanceof Response) return items;
+    const ref = c.req.param("ref");
+    const { binders, items: all } = await items.catalog.snapshot();
+    const found = findByRef(all, ref);
+    if (!found) return noItem(c, ref);
+    const handles = handlesById(all);
+    return c.json(checked(ROUTES.getItem.response, withLinks(found, binders, handles)) satisfies ResponseOf<typeof ROUTES.getItem>);
+  });
+
+  app.post("/workspaces/:ws/binders", async (c) => {
+    const items = itemsAt(c);
+    if (items instanceof Response) return items;
     const { catalog, writer } = items;
     const binder = await readBody(c, ROUTES.createBinder.body);
     return writing(c, async () => {
@@ -55,8 +118,9 @@ export const itemRoutes = (app: Hono, items: ItemWrites | undefined, notConfigur
     });
   });
 
-  app.post("/binders/:id/items", async (c) => {
-    if (!items) return notConfigured(c);
+  app.post("/workspaces/:ws/binders/:id/items", async (c) => {
+    const items = itemsAt(c);
+    if (items instanceof Response) return items;
     const { catalog, writer } = items;
     const item = await readBody(c, ROUTES.createItem.body);
     return writing(c, async () => {
@@ -65,8 +129,9 @@ export const itemRoutes = (app: Hono, items: ItemWrites | undefined, notConfigur
     });
   });
 
-  app.patch("/items/:ref", async (c) => {
-    if (!items) return notConfigured(c);
+  app.patch("/workspaces/:ws/items/:ref", async (c) => {
+    const items = itemsAt(c);
+    if (items instanceof Response) return items;
     const { catalog, writer } = items;
     const { version, fields } = await readBody(c, ROUTES.updateItem.body);
     const target = await handleOf(c, catalog, c.req.param("ref"), "updated");
@@ -78,8 +143,9 @@ export const itemRoutes = (app: Hono, items: ItemWrites | undefined, notConfigur
     });
   });
 
-  app.delete("/items/:ref", async (c) => {
-    if (!items) return notConfigured(c);
+  app.delete("/workspaces/:ws/items/:ref", async (c) => {
+    const items = itemsAt(c);
+    if (items instanceof Response) return items;
     const { catalog, writer } = items;
     const { version } = readQuery(c, ROUTES.deleteItem.query);
     const target = await handleOf(c, catalog, c.req.param("ref"), "deleted");

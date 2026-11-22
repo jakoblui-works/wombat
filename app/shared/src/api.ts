@@ -72,7 +72,7 @@ export type ListLogQuery = z.infer<typeof ListLogQuery>;
 
 const ItemVersion = z.string().regex(/^[0-9a-f]{64}$/, { message: "version must be the item's version as you read it (64 hex characters)" });
 
-/** `POST /binders/:id/items`: the service checks the values against the binder, as for an agent's create. */
+/** `POST /workspaces/:ws/binders/:id/items`: the service checks the values against the binder, as for an agent's create. */
 export const CreateItemRequest = z.strictObject({
   title: z.string(),
   body: z.string(),
@@ -83,8 +83,9 @@ export const CreateItemRequest = z.strictObject({
 export type CreateItemRequest = z.infer<typeof CreateItemRequest>;
 
 /**
- * `POST /binders`: a new binder in `path` (its folder relative to the items root, with `/`; missing parent folders
- * are created), with a starter `_binder.yaml` whose id is the name's slug. Answers the BinderSummary GET /binders lists.
+ * `POST /workspaces/:ws/binders`: a new binder in `path` (its folder relative to the items root, with `/`; missing
+ * parent folders are created), with a starter `_binder.yaml` whose id is the name's slug. Answers the BinderSummary
+ * GET /workspaces/:ws/binders lists.
  */
 export const NewBinderRequest = z.strictObject({ path: z.string(), name: z.string(), prefix: z.string(), adopt: z.boolean().optional() });
 export type NewBinderRequest = z.infer<typeof NewBinderRequest>;
@@ -101,11 +102,11 @@ export type AddWorkspaceRequest = z.infer<typeof AddWorkspaceRequest>;
 export const SetItemsRootRequest = z.strictObject({ itemsRoot: z.string().min(1) });
 export type SetItemsRootRequest = z.infer<typeof SetItemsRootRequest>;
 
-/** `PATCH /items/:ref`: only the changed fields among title, body and property names; null clears a property. */
+/** `PATCH /workspaces/:ws/items/:ref`: only the changed fields among title, body and property names; null clears a property. */
 export const UpdateItemRequest = z.strictObject({ version: ItemVersion, fields: z.record(z.string(), z.unknown()) });
 export type UpdateItemRequest = z.infer<typeof UpdateItemRequest>;
 
-/** `DELETE /items/:ref?version=`: the version the delete is based on. */
+/** `DELETE /workspaces/:ws/items/:ref?version=`: the version the delete is based on. */
 export const DeleteItemQuery = z.strictObject(
   { version: ItemVersion },
   { error: (issue) => (issue.code === "unrecognized_keys" ? "unknown query parameter; send only version" : undefined) },
@@ -204,8 +205,8 @@ export const AgentErrorCode = z.enum([
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 
 /**
- * The items routes' error codes: `items_not_configured` when the service runs without an items root (the app hides
- * the items views), `binder_not_found` and `item_not_found` for an unknown binder id or handle (the app
+ * The items routes' error codes: `items_not_configured` for a workspace without an items folder (the app hides the
+ * items views), `binder_not_found` and `item_not_found` for an unknown binder id or handle (the app
  * refetches the binders). The proposal routes add the ProposalErrorCode codes. `items_not_writable`: my write to
  * an item or binder to fix by hand first (a shared handle, problems on disk, broken binder settings), sent with its
  * `problems`; or one the items root's filesystem can't take, sent without. On approve either settles the proposal as
@@ -665,15 +666,15 @@ export type SessionUpdate = z.infer<typeof SessionUpdate>;
 
 // Items (lenient), read by the app; the shapes live in `items.ts`, the proposals' in `proposals.ts`.
 
-/** `GET /binders`: every binder under the items root, hidden ones and broken settings included. */
+/** `GET /workspaces/:ws/binders`: every binder under the workspace's items root, hidden ones and broken settings included. */
 export const ListBindersResponse = z.object({ binders: z.array(BinderSummary) });
 export type ListBindersResponse = z.infer<typeof ListBindersResponse>;
 
-/** `GET /binders/:id/items`: every file of the binder, invalid ones included. */
+/** `GET /workspaces/:ws/binders/:id/items`: every file of the binder, invalid ones included. */
 export const ListItemsResponse = z.object({ items: z.array(ItemSummary) });
 export type ListItemsResponse = z.infer<typeof ListItemsResponse>;
 
-/** `GET /items/:ref`: one item by id, handle or alias, with its body. */
+/** `GET /workspaces/:ws/items/:ref`: one item by id, handle or alias, with its body. */
 export const GetItemResponse = Item;
 export type GetItemResponse = z.infer<typeof GetItemResponse>;
 
@@ -828,7 +829,7 @@ export const HEARTBEAT_MS = 15_000;
 
 /** The alert type of a proposal change. */
 export const PROPOSAL_ALERT = "proposal";
-/** The alert type of a change to any item or binder settings, by the service or by hand. */
+/** The alert type of a change to any item or binder settings of one workspace, by the service or by hand. */
 export const ITEMS_ALERT = "items";
 /** The alert type of a workspace added, or its items folder changed. */
 export const WORKSPACES_ALERT = "workspaces";
@@ -837,8 +838,8 @@ const AgentAlertType = z.enum(["agent_added", "agent_changed", "agent_removed", 
 
 /**
  * Says that something changed, up to `seq`; the app fetches the change. An agent alert names the agent, a
- * `proposal` alert the proposal; an `items` or `workspaces` alert names nothing, so the app reads its items or the
- * workspace list again. Alerts carry ids only: unknown fields are stripped, so an alert never carries agent or item
+ * `proposal` alert the proposal, an `items` alert the workspace whose items changed; a `workspaces` alert names nothing,
+ * so the app reads the workspace list again. Alerts carry ids only: unknown fields are stripped, so an alert never carries agent or item
  * content even if one is sent.
  */
 export const Alert = z.discriminatedUnion("type", [
@@ -849,7 +850,7 @@ export const Alert = z.discriminatedUnion("type", [
     agentId: z.string(),
   }),
   z.object({ seq: Seq, dbId: DbId, type: z.literal(PROPOSAL_ALERT), proposalId: z.string() }),
-  z.object({ seq: Seq, dbId: DbId, type: z.literal(ITEMS_ALERT) }),
+  z.object({ seq: Seq, dbId: DbId, type: z.literal(ITEMS_ALERT), workspace: WorkspaceId }),
   z.object({ seq: Seq, dbId: DbId, type: z.literal(WORKSPACES_ALERT) }),
 ]);
 export type Alert = z.infer<typeof Alert>;

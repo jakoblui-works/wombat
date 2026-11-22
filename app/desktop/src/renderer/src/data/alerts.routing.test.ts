@@ -2,7 +2,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { fakeService, type FakeService } from "../../../../test/fake-bridge.ts";
+import { FAKE_WORKSPACE, fakeService, type FakeService } from "../../../../test/fake-bridge.ts";
 import { summary } from "../../../../test/summaries.ts";
 import { connectAlerts } from "./alerts.ts";
 import { keys } from "./keys.ts";
@@ -57,5 +57,6 @@ test.each<[string, (service: FakeService) => void]>([
   client.setQueryData(keys.item("BUG-1"), { id: "bug-1" });
   trigger(service);
   await vi.waitFor(() => expect(service.requests()).not.toEqual([]));
-  expect(await reads(service)).toEqual(expect.arrayContaining(["GET /binders", "GET /binders/bugs/items", "GET /items/BUG-1"]));
+  const ws = `/workspaces/${FAKE_WORKSPACE.id}`;
+  expect(await reads(service)).toEqual(expect.arrayContaining([`GET ${ws}/binders`, `GET ${ws}/binders/bugs/items`, `GET ${ws}/items/BUG-1`]));
 });

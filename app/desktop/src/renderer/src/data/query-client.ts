@@ -27,19 +27,24 @@ export const createQueryClient = (): QueryClient =>
 
 const readAgents = () => callRoute(ROUTES.listAgents);
 const readHarnesses = () => callRoute(ROUTES.listHarnesses);
-/** The folders an agent may start in, and the id of their workspace: the listed one whose root main opened. */
-const readRepos = async () => {
+/** The id of the workspace the page shows: the listed one whose root main opened. */
+export const shownWorkspace = async (): Promise<string> => {
   const { root } = await window.wombat.workspace.get();
   const { workspaces } = await callRoute(ROUTES.listWorkspaces);
   const shown = workspaces.find((workspace) => workspace.root === root);
-  if (shown === undefined) throw new Error(`The service doesn't list the workspace ${root}. Run Restart Service from the command palette (the service adds its workspace when it starts), then open the dialog again.`);
-  const { repos } = await callRoute(ROUTES.listRepos, { params: { ws: shown.id } });
-  return { workspace: shown.id, repos };
+  if (shown === undefined) throw new Error(`The service doesn't list the workspace ${root}. Run Restart Service from the command palette (the service adds its workspace when it starts), then try again.`);
+  return shown.id;
+};
+/** The folders an agent may start in, and the id of their workspace. */
+const readRepos = async () => {
+  const ws = await shownWorkspace();
+  const { repos } = await callRoute(ROUTES.listRepos, { params: { ws } });
+  return { workspace: ws, repos };
 };
 const readProposals = () => callRoute(ROUTES.listProposals);
-const readBinders = () => callRoute(ROUTES.listBinders);
-const readBinderItems = (binderId: string) => () => callRoute(ROUTES.binderItems, { params: { id: binderId } });
-const readItem = (ref: string) => () => callRoute(ROUTES.getItem, { params: { ref } });
+const readBinders = async () => callRoute(ROUTES.listBinders, { params: { ws: await shownWorkspace() } });
+const readBinderItems = (binderId: string) => async () => callRoute(ROUTES.binderItems, { params: { ws: await shownWorkspace(), id: binderId } });
+const readItem = (ref: string) => async () => callRoute(ROUTES.getItem, { params: { ws: await shownWorkspace(), ref } });
 
 const readProposal = (proposalId: string, version?: number) => () =>
   callRoute(ROUTES.getProposal, { params: { id: proposalId }, query: version === undefined ? {} : { version } });

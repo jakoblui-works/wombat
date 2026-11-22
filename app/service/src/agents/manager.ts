@@ -37,8 +37,8 @@ export type ManagerOptions = {
   env?: NodeJS.ProcessEnv;
   /** The systemd slice agents' scopes go in; everything in it is stopped at start-up and shutdown. */
   slice?: string;
-  /** The instructions file's text for a new session, or undefined when there is none: then nothing is sent. */
-  readInstructions: () => Promise<string | undefined>;
+  /** The instructions file's text of a workspace for a new session, or undefined when there is none: then nothing is sent. */
+  readInstructions: (workspaceId: string) => Promise<string | undefined>;
   /** How long a setting change waits for the agent's answer before failing. */
   configSetTimeoutMs?: number;
 };
@@ -215,7 +215,7 @@ export const createManager = ({
     const scope = await scopes.scopeFor(agentId);
     // Shutdown may have begun while the scopes were being set up.
     assertOpen();
-    const proc = spawnAgent(agentId, harness, cwd, scope);
+    const proc = spawnAgent(agentId, workspace, harness, cwd, scope);
     log("agent_starting", { agentId, harness: harness.id });
     const tooSlow = () =>
       new AgentError(
@@ -308,8 +308,8 @@ export const createManager = ({
   /** Tells the listeners about a committed proposal change (stored, approved, rejected, conflict). */
   const proposalCommitted = (proposalId: string, seq: number) => emit({ seq, type: PROPOSAL_ALERT, proposalId });
 
-  /** Tells the listeners that an item or a binder's settings changed (a write of the service's or one by hand). */
-  const itemsCommitted = (seq: number) => emit({ seq, type: ITEMS_ALERT });
+  /** Tells the listeners that an item or a binder's settings of a workspace changed (a write of the service's or one by hand). */
+  const itemsCommitted = (workspace: string, seq: number) => emit({ seq, type: ITEMS_ALERT, workspace });
 
   /**
    * Tells the listeners that a workspace was added or its items folder changed, then takes over the agents the change

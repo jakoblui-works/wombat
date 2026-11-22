@@ -1,6 +1,6 @@
 // The items alert through the service as a process (its real start-up wiring): a hand edit of an item file and an
-// agent's write each reach GET /events as an alert that carries exactly seq, dbId and type "items", nothing of the
-// item.
+// agent's write each reach GET /events as an alert that carries exactly seq, dbId, type "items" and the workspace,
+// nothing of the item.
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -42,7 +42,7 @@ const CHANGES = [
 
 describe("the items alert", () => {
   test.each(CHANGES)(
-    "$what reaches GET /events as an items alert with exactly seq, dbId and type",
+    "$what reaches GET /events as an items alert with exactly seq, dbId, type and workspace",
     async ({ change }) => {
       const service = await startService({ items: ACCESS_FILES });
       const stream = await openStream(service.file.port, { headers: { authorization: `Bearer ${service.file.token}`, origin: APP_ORIGIN } });
@@ -53,7 +53,7 @@ describe("the items alert", () => {
 
       await stream.until("an items alert", (current) => itemsAlerts(current).length > before);
       expect(readFileSync(join(service.itemsRoot ?? "", "backlog/BL-1-items.md"), "utf8"), "the change was made").toContain(MARKER);
-      for (const alert of itemsAlerts(stream)) expect(Object.keys(alert).sort()).toEqual(["dbId", "seq", "type"]);
+      for (const alert of itemsAlerts(stream)) expect(Object.keys(alert).sort()).toEqual(["dbId", "seq", "type", "workspace"]);
       expect(stream.raw().includes(MARKER), "the written text on the alert stream").toBe(false);
     },
     TEST_TIMEOUT_MS * 2,
