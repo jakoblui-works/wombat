@@ -3,18 +3,20 @@
 // its own systemd slice; by default the manager sees no systemd at all (an empty PATH dir).
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type { AgentSummary, LogEntry } from "@wombat/shared/api";
+import { isFolder } from "@wombat/shared/folder";
 import { onTestFinished } from "vitest";
 
 import { createManager, type Committed } from "../src/agents/manager.ts";
 import { readInstructions } from "../src/items/instructions.ts";
 import type { Harness } from "../src/harness/harness.ts";
 import { openStore, type Store, type StoreOptions } from "../src/store/store.ts";
+import { workspaceOf } from "../src/store/workspaces.ts";
 import { rootIn } from "../src/workspace.ts";
 import { SCENARIOS, type FakeScenario } from "./fake-agent.ts";
 import { fakeHarness, type FakeHarnessOptions } from "./fake-harness.ts";
@@ -36,7 +38,7 @@ const RECORD_PID = pathToFileURL(join(import.meta.dirname, "record-pid.ts")).hre
 
 /** The manager's `rootOf` for one workspace, WORKSPACE at `root`, without a store holding it. */
 export const rootOfOne = (root: string) =>
-  rootIn((id) => (id === WORKSPACE ? { id, name: basename(root), root, missing: !existsSync(root) } : undefined));
+  rootIn((id) => (id === WORKSPACE ? workspaceOf({ id, root, items_root: null }, isFolder) : undefined));
 
 /** The fake agent on `scenario`, with id `fake-<scenario>`, recording its pid in `pidDir`. */
 export const trackedHarness = (scenario: FakeScenario, pidDir: string, options: FakeHarnessOptions = {}): Harness => {

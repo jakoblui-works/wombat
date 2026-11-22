@@ -10,7 +10,7 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Locator, Page } from "@playwright/test";
 
-import { agentSummary, click, expect, REPO, type Sandbox, startAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS, wheelPastEnd } from "./app-fixtures.ts";
+import { agentSummary, click, expect, REPO, type Sandbox, startAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS, wheelPastEnd, workspaceId } from "./app-fixtures.ts";
 import { SETTINGS_FILE } from "../../service/src/items/binders.ts";
 
 type Listed = { id: string; status: string; path?: string; rejectReason?: string };
@@ -40,11 +40,8 @@ const listed = async (sandbox: Sandbox): Promise<Listed[]> => {
   return (read.json as { proposals: Listed[] }).proposals;
 };
 
-/** The path of item `ref` in the one workspace the service lists. */
-const itemPath = async (sandbox: Sandbox, ref: string): Promise<string> => {
-  const { workspaces } = (await sandbox.api("GET", "/workspaces")).json as { workspaces: { id: string }[] };
-  return `/workspaces/${workspaces[0]?.id ?? ""}/items/${ref}`;
-};
+/** The path of item `ref` in the sandbox's workspace. */
+const itemPath = async (sandbox: Sandbox, ref: string): Promise<string> => `/workspaces/${await workspaceId(sandbox)}/items/${ref}`;
 
 const proposalOn = async (sandbox: Sandbox, file: string): Promise<Listed | undefined> => (await listed(sandbox)).find((p) => p.path === file);
 

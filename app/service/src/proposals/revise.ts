@@ -11,8 +11,8 @@ import type { ItemProposalRecord, ItemProposals } from "./item-proposals.ts";
 import { heldIn, reviseFile, type Revision } from "./propose-file.ts";
 import {
   DraftRefused,
-  itemsNotConfigured,
   itemsNotConfiguredForAgent,
+  itemsNotConfiguredIn,
   notOwnOpenProposal,
   ownOpenProposal,
   PROPOSAL_UNCHANGED,
@@ -132,7 +132,7 @@ export const reviser = ({ store, decide, committed, itemsOf, holds, summaryOf }:
     }
     if (stored.target === "item") {
       const items = itemsOf?.(stored.workspace);
-      if (items === undefined) throw itemsNotConfigured(workspaceFolder(store, stored.workspace));
+      if (items === undefined) throw itemsNotConfiguredIn(store, stored.workspace);
       await items.checkItemDraft(stored, content.fields);
     }
     return { fields: content.fields };

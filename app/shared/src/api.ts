@@ -12,6 +12,9 @@ import { Item, ItemSummary, knownItems, Problem, BinderSummary } from "./items.t
 import { DiffLine } from "./line-diff.ts";
 import { ProposalErrorCode, Timestamp } from "./proposals.ts";
 import { queryInt } from "./query.ts";
+import { WorkspaceId } from "./workspace-id.ts";
+
+export { newWorkspaceId, WorkspaceId } from "./workspace-id.ts";
 
 const Seq = z.int().nonnegative();
 const DbId = z.string().min(1);
@@ -30,7 +33,7 @@ const PermissionKind = z.enum(["allow_once", "allow_always", "reject_once", "rej
 
 export const StartAgentRequest = z.strictObject({
   /** The workspace the agent belongs to; `repo` is resolved against its root. */
-  workspace: z.string().min(1),
+  workspace: WorkspaceId,
   harness: z.string().min(1),
   repo: z.string().refine(isRepoPath, {
     message: 'repo must be a path relative to the workspace root, like "site-web" or "." for the root itself',
@@ -164,8 +167,8 @@ export const RepoErrorCode = z.enum(["repo_not_found", "repo_outside_workspace"]
 export type RepoErrorCode = z.infer<typeof RepoErrorCode>;
 
 /**
- * The workspace routes' error codes: `workspace_not_found` for an id the list doesn't hold, or a route that needs a
- * workspace when the service has none (the app reads the list again); `invalid_folder` for a path that isn't the
+ * The workspace routes' error codes: `workspace_not_found` for a `:ws` or `workspace` id the list doesn't hold (the
+ * app reads the list again); `invalid_folder` for a path that isn't the
  * absolute path of an existing folder (main shows the message and offers the folder picker again);
  * `workspace_missing` for a start or resume of an agent, or a repo list, in a workspace whose folder is gone (the app
  * shows the message, which names the folder; its agents stay listed).
@@ -290,26 +293,6 @@ export type ListHarnessesResponse = z.infer<typeof ListHarnessesResponse>;
 /** The folders an agent may start in: the workspace root (`path: "."`) first, then its git repos by name. */
 export const ListReposResponse = z.object({ repos: z.array(z.object({ path: z.string(), name: z.string() })) });
 export type ListReposResponse = z.infer<typeof ListReposResponse>;
-
-const WORKSPACE_ID = /^ws-[a-z0-9]{10}$/;
-const WORKSPACE_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
-
-/** A workspace's id: `ws-` and ten lowercase letters and digits, made by `newWorkspaceId`. */
-export const WorkspaceId = z.string().regex(WORKSPACE_ID);
-export type WorkspaceId = z.infer<typeof WorkspaceId>;
-
-export const isWorkspaceId = (value: unknown): value is WorkspaceId => WorkspaceId.safeParse(value).success;
-
-export const newWorkspaceId = (): WorkspaceId => {
-  let id = "";
-  while (id.length < 10) {
-    for (const byte of crypto.getRandomValues(new Uint8Array(16))) {
-      // 252 is the largest multiple of 36 a byte holds; the bytes above it would make the first letters likelier.
-      if (byte < 252 && id.length < 10) id += WORKSPACE_ID_ALPHABET[byte % WORKSPACE_ID_ALPHABET.length];
-    }
-  }
-  return `ws-${id}`;
-};
 
 /**
  * A folder in the service's list. `root` is its real path; `name` the root's last segment; `missing` is true while the

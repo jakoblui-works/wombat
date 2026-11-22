@@ -28,7 +28,7 @@ import { noteSource } from "./note-source.ts";
 import { fileProposer, heldIn } from "./propose-file.ts";
 import { reviser } from "./revise.ts";
 import { commonFields } from "./proposal-fields.ts";
-import { itemsNotConfigured, notApprovable, notFound, ProposalError, ProposalRefused, toApprove, toReject, workspaceFolder } from "./refused.ts";
+import { itemsNotConfiguredIn, notApprovable, notFound, ProposalError, ProposalRefused, toApprove, toReject } from "./refused.ts";
 
 type StoredFileProposal = Extract<StoredProposal, { target: "file" }>;
 
@@ -107,7 +107,7 @@ export const createProposals = ({ store, workspaceOf, rootOf, agentFolder, onPro
   /** The item side of `workspaceId` as its items are now; ProposalError when it has no items folder. */
   const itemSide = (workspaceId: string) => {
     const items = itemsOf?.(workspaceId);
-    if (items === undefined) throw itemsNotConfigured(workspaceFolder(store, workspaceId));
+    if (items === undefined) throw itemsNotConfiguredIn(store, workspaceId);
     return items;
   };
 

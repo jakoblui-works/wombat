@@ -1,8 +1,8 @@
 // The workspace list: the page lists it; only main adds a folder or sets its items folder, since those take a path.
-import { statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 
 import { WorkspaceErrorCode, type Workspace } from "@wombat/shared/api";
+import { usableFolder } from "@wombat/shared/folder";
 import { ROUTES, type ResponseOf } from "@wombat/shared/routes";
 import type { Context, Hono } from "hono";
 
@@ -22,22 +22,12 @@ export type WorkspaceRoutesOptions = {
 
 type FolderUse = "workspace" | "items folder";
 
-const isFolder = (path: string) => {
-  try {
-    return statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false;
-  } catch {
-    return false;
-  }
-};
-
-/** Why `path` can't be used as `use`, or undefined when it's the absolute path of an existing folder. */
-export const folderRefusal = (path: string, use: FolderUse, folderAt: (path: string) => boolean): string | undefined => {
+/** Why `path` can't be used as `use`, or undefined when it's a usable folder (usableFolder). */
+const folderRefusal = (path: string, use: FolderUse): string | undefined => {
+  if (usableFolder(path)) return undefined;
   const as = use === "workspace" ? "a workspace" : "the items folder";
   if (!isAbsolute(path)) return `Can't use ${path} as ${as}: it's a relative path. Send the folder's absolute path.`;
-  if (!folderAt(path)) {
-    return `Can't use ${path} as ${as}: there's no folder there you can open (it's missing, a file, or not readable). Choose an existing folder and try again.`;
-  }
-  return undefined;
+  return `Can't use ${path} as ${as}: there's no folder there you can open (it's missing, a file, or not readable). Choose an existing folder you can read and try again.`;
 };
 
 const refused = (c: Context, message: string) => errorResponse(c, WORKSPACE_STATUS.invalid_folder, WorkspaceErrorCode.enum.invalid_folder, message);
@@ -64,7 +54,7 @@ export const workspaceRoutes = (app: Hono, { store, workspacesCommitted, items }
   app.post("/workspaces", async (c) => {
     const { root, itemsRoot, adopt } = await readBody(c, ROUTES.addWorkspace.body);
     const refusalNow = () =>
-      folderRefusal(root, "workspace", isFolder) ?? (itemsRoot === undefined ? undefined : folderRefusal(itemsRoot, "items folder", isFolder));
+      folderRefusal(root, "workspace") ?? (itemsRoot === undefined ? undefined : folderRefusal(itemsRoot, "items folder"));
     const refusal = refusalNow();
     if (refusal !== undefined) return refused(c, refusal);
     let workspace: Workspace;
@@ -91,16 +81,15 @@ export const workspaceRoutes = (app: Hono, { store, workspacesCommitted, items }
   app.put("/workspaces/:ws/items-root", async (c) => {
     const { itemsRoot } = await readBody(c, ROUTES.setItemsRoot.body);
     const id = c.req.param("ws");
-    const refusal = folderRefusal(itemsRoot, "items folder", isFolder);
+    const refusal = folderRefusal(itemsRoot, "items folder");
     if (refusal !== undefined) return refused(c, refusal);
-    if (store.getWorkspace(id) === undefined) {
-      const { code, message } = workspaceNotFound(id);
-      return errorResponse(c, WORKSPACE_STATUS[code], code, message);
-    }
+    if (store.getWorkspace(id) === undefined) throw workspaceNotFound(id);
     const workspace = await alerting(
       () => {
         const changed = store.setItemsRoot(id, itemsRoot);
-        if (changed === undefined) throw new Error(`Workspace ${id} vanished while its items folder was being set.`);
+        if (changed === undefined) {
+          throw new Error(`Workspace ${id} left the service's list while its items folder was being set. List the workspaces, add its folder again if it's gone, then choose the items folder again.`);
+        }
         return { workspace: changed, changed: true };
       },
       (changed) => items?.reopen(changed),

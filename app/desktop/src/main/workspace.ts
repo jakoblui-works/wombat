@@ -2,9 +2,9 @@
 // open a folder. On a service of this app's API version it hands over a version 1 settings file's workspaces once
 // (prepare), and on a service that lists none it asks for a first folder. What a quit does to the service is
 // decideQuit's (quit.ts). Every start, upgrade and stop runs through one queue, so two of them never race.
-import { statSync } from "node:fs";
 import type { AddWorkspaceRequest, Workspace } from "@wombat/shared/api";
 import { discoveryPath, type DiscoveryFile } from "@wombat/shared/discovery";
+import { usableFolder } from "@wombat/shared/folder";
 import { addWorkspace, listWorkspaces } from "./service-client.ts";
 import { answeringService, runningService, startService, stopService } from "./service-start.ts";
 import type { RendererSettings } from "../shared/bridge.ts";
@@ -29,8 +29,8 @@ export type WorkspaceDeps = {
   serviceEntry: string;
   /** The workspace folder picker; undefined when it's cancelled. */
   chooseFolder: () => Promise<string | undefined>;
-  /** Whether `at` is an existing folder; the upgrade leaves out the settings' folders that aren't. */
-  isFolder?: (at: string) => boolean;
+  /** Whether the service takes `at` as a folder (usableFolder); the upgrade leaves out the settings' folders it wouldn't. */
+  usable?: (at: string) => boolean;
   log?: (line: string) => void;
   /** How long a running service gets to answer /version before it counts as not answering; the default when absent. */
   versionTimeoutMs?: number;
@@ -74,14 +74,6 @@ export type WorkspaceControl = {
   setPageSettings: (patch: unknown) => void;
 };
 
-const folderAt = (at: string): boolean => {
-  try {
-    return statSync(at, { throwIfNoEntry: false })?.isDirectory() ?? false;
-  } catch {
-    return false;
-  }
-};
-
 /** The folder picker, then `add` with the chosen folder: the added workspace's id, or undefined when it's cancelled. */
 export const addChosenWorkspace = async (
   pick: () => Promise<string | undefined>,
@@ -96,7 +88,7 @@ export const workspaceControl = ({
   settingsFile,
   serviceEntry,
   chooseFolder,
-  isFolder = folderAt,
+  usable = usableFolder,
   log = console.warn,
   versionTimeoutMs,
 }: WorkspaceDeps): WorkspaceControl => {
@@ -134,15 +126,15 @@ export const workspaceControl = ({
       const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
       let waitingFor: string | undefined;
       try {
-        waitingFor = await upgradeSettings(pending, (request) => addWorkspace(file, request), isFolder);
+        waitingFor = await upgradeSettings(pending, (request) => addWorkspace(file, request), usable);
       } catch (error) {
         log(`Wombat couldn't hand the workspaces in settings.json to the service, so the file stays at version 1 and the next start tries again: ${reason(error)}`);
         return;
       }
       if (waitingFor !== undefined) {
         log(
-          `The workspace folder ${waitingFor}, open when Wombat last ran, is gone, so its agents and proposals from before aren't listed yet. ` +
-            "settings.json stays at version 1: restore the folder and start Wombat again to list them.",
+          `The workspace folder ${waitingFor}, open when Wombat last ran, is gone or can't be read, so its agents and proposals from before aren't listed yet. ` +
+            "settings.json stays at version 1: restore the folder (or make it readable) and start Wombat again to list them.",
         );
         return;
       }

@@ -8,6 +8,7 @@
     "./code-id": "./src/code-id.ts",
     "./discovery": "./src/discovery.ts",
     "./errno": "./src/errno.ts",
+    "./folder": "./src/folder.ts",
     "./items": "./src/items.ts",
     "./line-diff": "./src/line-diff.ts",
     "./log-fold": "./src/log-fold.ts",

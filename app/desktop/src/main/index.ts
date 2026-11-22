@@ -340,11 +340,11 @@ const workspaceAt = async (file: DiscoveryFile, id: string) => (await listWorksp
 
 const chooseItemsFolder = itemsFolderChooser({
   workspaceOf: (id) => connection.withService((file) => workspaceAt(file, id)),
-  pick: (current, parent) =>
+  pick: ({ name, root, itemsRoot }, parent) =>
     pickFolder({
-      title: "Choose the items folder (the folder that holds your binders)",
+      title: `Choose the items folder of the workspace ${name} (${root}): the folder that holds its binders`,
       buttonLabel: "Use Folder",
-      defaultPath: current,
+      defaultPath: itemsRoot,
       e2e: e2e === undefined ? undefined : { answer: e2e.itemsFolder },
       parent,
     }),

@@ -134,18 +134,18 @@ export const isV1 = (settings: Settings | SettingsV1): settings is SettingsV1 =>
 /**
  * The POST /workspaces calls that carry a version 1 file's workspaces to the service, in order: the open workspace
  * first, adopting the rows stored before the service listed workspaces, then the others, each with its items root.
- * A root that isn't a folder (`isFolder`) is left out, and so is an items root that isn't: the service refuses both,
- * and a refusal would keep the file at version 1 for good.
+ * A root the service would refuse (`usable`: usableFolder, the rule it refuses by) is left out, and so is such an items root: a
+ * refusal would keep the file at version 1 for good.
  */
-export const workspacesToAdd = (v1: SettingsV1, isFolder: (at: string) => boolean): AddWorkspaceRequest[] => {
+export const workspacesToAdd = (v1: SettingsV1, usable: (at: string) => boolean): AddWorkspaceRequest[] => {
   const roots = [...new Set([...(v1.workspace === undefined ? [] : [v1.workspace]), ...Object.keys(v1.workspaces)])];
   return roots
-    .filter((root) => path.isAbsolute(root) && isFolder(root))
+    .filter((root) => usable(root))
     .map((root) => {
       const itemsRoot = v1.workspaces[root]?.itemsRoot;
       return {
         root,
-        ...(itemsRoot !== undefined && isFolder(itemsRoot) ? { itemsRoot } : {}),
+        ...(itemsRoot !== undefined && usable(itemsRoot) ? { itemsRoot } : {}),
         ...(root === v1.workspace ? { adopt: true } : {}),
       };
     });
@@ -160,12 +160,12 @@ export const asVersion2 = ({ askOnQuit, quitAnswer, zoomLevel }: SettingsV1): Se
 });
 
 /**
- * A version 1 file's open workspace when its folder is gone (`isFolder`); undefined when it's there or the file names
- * none. The rows stored before the service listed workspaces are adopted only by adding that folder, so the file stays
- * at version 1 until it's back.
+ * A version 1 file's open workspace when the service would refuse its folder (`usable`); undefined when it wouldn't or
+ * the file names none. The rows stored before the service listed workspaces are adopted only by adding that folder, so
+ * the file stays at version 1 until it's back.
  */
-export const missingCurrent = (v1: SettingsV1, isFolder: (at: string) => boolean): string | undefined =>
-  v1.workspace !== undefined && !(path.isAbsolute(v1.workspace) && isFolder(v1.workspace)) ? v1.workspace : undefined;
+export const missingCurrent = (v1: SettingsV1, usable: (at: string) => boolean): string | undefined =>
+  v1.workspace !== undefined && !usable(v1.workspace) ? v1.workspace : undefined;
 
 /**
  * Adds a version 1 file's workspaces through `addWorkspace` (workspacesToAdd's order, one at a time). Resolves with
@@ -176,10 +176,10 @@ export const missingCurrent = (v1: SettingsV1, isFolder: (at: string) => boolean
 export const upgradeSettings = async (
   v1: SettingsV1,
   addWorkspace: (request: AddWorkspaceRequest) => Promise<unknown>,
-  isFolder: (at: string) => boolean,
+  usable: (at: string) => boolean,
 ): Promise<string | undefined> => {
-  for (const request of workspacesToAdd(v1, isFolder)) await addWorkspace(request);
-  return missingCurrent(v1, isFolder);
+  for (const request of workspacesToAdd(v1, usable)) await addWorkspace(request);
+  return missingCurrent(v1, usable);
 };
 
 /** What the page may change: the patch `settings.set` takes. */

@@ -120,17 +120,19 @@ Wombat doesn't drop a broken binder or item. The app lists it with its problems.
 
 ## The API
 
-`GET /items/:ref` answers one item with its body. `ref` is the item's id, its handle or one of its aliases, tried in that order.
+Every binder and item route is under one workspace, `/workspaces/:ws/…`, where `:ws` is the workspace's id as `GET /workspaces` lists it. An id the service doesn't list answers `404 workspace_not_found`; a listed workspace without an items folder answers `409 items_not_configured`, naming its folder.
 
-Every item the API sends (`GET /binders/:id/items`, `GET /items/:ref` and the answers to the writes below) carries `binder`, the id of its binder, and `excerpt`: the body's first paragraph (its first block of non-blank lines), with a leading list, quote or heading marker (`- `, `* `, `+ `, `1. `, `> `, `# ` to `###### `) removed, whitespace folded to single spaces and cut to at most 1,000 characters (UTF-16 code units), ending in "…" when cut. Markdown inside it stays as written. `excerpt` is `null` when the body has no text or the file can't be parsed. Agents' tools don't carry either.
+`GET /workspaces/:ws/binders` lists the workspace's binders. `GET /workspaces/:ws/items/:ref` answers one item with its body. `ref` is the item's id, its handle or one of its aliases, tried in that order.
+
+Every item the API sends (`GET /workspaces/:ws/binders/:id/items`, `GET /workspaces/:ws/items/:ref` and the answers to the writes below) carries `binder`, the id of its binder, and `excerpt`: the body's first paragraph (its first block of non-blank lines), with a leading list, quote or heading marker (`- `, `* `, `+ `, `1. `, `> `, `# ` to `###### `) removed, whitespace folded to single spaces and cut to at most 1,000 characters (UTF-16 code units), ending in "…" when cut. Markdown inside it stays as written. `excerpt` is `null` when the body has no text or the file can't be parsed. Agents' tools don't carry either.
 
 The app writes items through three routes. They check the values as an agent's writes are checked, but access levels and locked fields don't apply: you can change anything an agent may only propose.
 
-- `POST /binders/:id/items` with `{ title, body, properties, file? }` creates an item and answers it (201) with its new handle. `file` is for free-named binders only. A link value may be the target's handle or id.
-- `PATCH /items/:ref` with `{ version, fields }` changes an item and answers it. `fields` holds only what changes: `title`, `body` or property names; `null` clears a property. `version` is the version you read.
-- `DELETE /items/:ref?version=<version>` deletes the item's file (204). Its handle number is never given out again.
+- `POST /workspaces/:ws/binders/:id/items` with `{ title, body, properties, file? }` creates an item and answers it (201) with its new handle. `file` is for free-named binders only. A link value may be the target's handle or id.
+- `PATCH /workspaces/:ws/items/:ref` with `{ version, fields }` changes an item and answers it. `fields` holds only what changes: `title`, `body` or property names; `null` clears a property. `version` is the version you read.
+- `DELETE /workspaces/:ws/items/:ref?version=<version>` deletes the item's file (204). Its handle number is never given out again.
 
-`POST /binders` with `{ path, name, prefix, adopt? }` creates a binder and answers it (201) as `GET /binders` lists it. `path` is its folder relative to the items folder, with `/`; missing folders on the way are created. The service writes `<path>/_binder.yaml` with the starter above: the id is the name's slug (lowercase letters and digits, words joined by `-`), access is `read`, and there's one list view named List. It's refused with `400 invalid_fields`, and nothing written, when:
+`POST /workspaces/:ws/binders` with `{ path, name, prefix, adopt? }` creates a binder and answers it (201) as `GET /workspaces/:ws/binders` lists it. `path` is its folder relative to the items folder, with `/`; missing folders on the way are created. The service writes `<path>/_binder.yaml` with the starter above: the id is the name's slug (lowercase letters and digits, words joined by `-`), access is `read`, and there's one list view named List. It's refused with `400 invalid_fields`, and nothing written, when:
 
 - `name`: the id made from it is taken by another binder (hidden ones too), or doesn't fit the id's pattern (a lowercase letter first, at most 40 characters).
 - `prefix`: another binder (hidden ones too) has it, or it isn't an uppercase letter followed by up to 9 uppercase letters or digits.
@@ -145,4 +147,6 @@ A refused write changes nothing on disk and answers one of:
 - `404 item_not_found` or `binder_not_found`: no item has that id, handle or alias, or no binder that id.
 - `409 items_not_writable`: the item or its binder needs a fix by hand first: its handle is shared with another file, its file has problems on disk (or no handle yet), or the binder's `_binder.yaml` has problems. `problems` lists what to fix, as above. It's also the answer, without `problems`, when the items folder can't take the write.
 
-Every change to an item file or a binder's `_binder.yaml` sends an `items` alert on `GET /events`: `{ seq, dbId, type: "items" }`. It covers the service's own writes (your writes through these routes, a new binder, agents' tools, approved proposals) and edits made by hand, which Wombat notices about 200 ms after the last one. The alert says only that something changed, never which item or what; the app reads its binders and items again. A write of the service's can send two alerts, one for the write and one when the watch sees the file change. Its `seq` is on the same sequence as the other alerts.
+Every change to an item file or a binder's `_binder.yaml` sends an `items` alert on `GET /events`: `{ seq, dbId, type: "items", workspace }`, with the id of the workspace whose items changed. It covers the service's own writes (your writes through these routes, a new binder, agents' tools, approved proposals) and edits made by hand, which Wombat notices about 200 ms after the last one. The alert says only that something changed, never which item or what; the app reads that workspace's binders and items again. A write of the service's can send two alerts, one for the write and one when the watch sees the file change. Its `seq` is on the same sequence as the other alerts.
+
+A workspace added, or a workspace's items folder changed, sends a `workspaces` alert: `{ seq, dbId, type: "workspaces" }`. It names no workspace; the app reads `GET /workspaces` again, and the binders and items with it.

@@ -4,6 +4,7 @@ import { canDecide, canDraft, canReject, canRevise, nextStatus, ProposalErrorCod
 
 import { currentVersion } from "../store/proposal-rules.ts";
 import type { Store, StoredProposal } from "../store/store.ts";
+import { itemsNotConfigured, noItemsFolder } from "../workspace.ts";
 
 /** A propose call refused for a reason the agent can act on, which the message states; nothing was stored. */
 export class ProposalRefused extends Error {
@@ -49,17 +50,13 @@ export class ProposalError extends Error {
 /** How a refusal names a workspace: by its folder; by its id only when it isn't listed. */
 export const workspaceFolder = (store: Pick<Store, "getWorkspace">, id: string): string => store.getWorkspace(id)?.root ?? id;
 
-/** What went wrong when the workspace at `folder` has no items folder, for the user and for its agents alike. */
-const noItemsFolder = (folder: string) => `The workspace ${folder} has no items folder, so it has no items to read or change.`;
-
-const CHOOSE_ITEMS_FOLDER = "an items folder for it in the app (File → Choose Items Folder…)";
-
 /** What an agent of the workspace at `folder` is told when it has no items folder. */
-export const itemsNotConfiguredForAgent = (folder: string) => `${noItemsFolder(folder)} Ask the user to choose ${CHOOSE_ITEMS_FOLDER}.`;
+export const itemsNotConfiguredForAgent = (folder: string) =>
+  `${noItemsFolder(folder)} Ask the user to choose an items folder for it in the app (File → Choose Items Folder…).`;
 
-/** An item proposal read or decided while its workspace, at `folder`, has no items folder. */
-export const itemsNotConfigured = (folder: string) =>
-  new ProposalError(ItemsErrorCode.enum.items_not_configured, `${noItemsFolder(folder)} Choose ${CHOOSE_ITEMS_FOLDER}, then try again.`);
+/** An item proposal read or decided while its workspace, `workspaceId`, has no items folder. */
+export const itemsNotConfiguredIn = (store: Pick<Store, "getWorkspace">, workspaceId: string) =>
+  new ProposalError(ItemsErrorCode.enum.items_not_configured, itemsNotConfigured(store.getWorkspace(workspaceId) ?? { name: workspaceId, root: workspaceId }));
 
 export const notFound = (id: string) =>
   new ProposalError(ProposalErrorCode.enum.proposal_not_found, `No proposal has the id ${id}. Refresh the proposals to see the current ones.`);

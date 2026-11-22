@@ -9,7 +9,7 @@ import { handlesById, summarize, withLinks } from "../items/api-shape.ts";
 import { findByRef, type Catalog, type LoadedItem } from "../items/catalog.ts";
 import type { ItemsOfWorkspace } from "../items/workspace-items.ts";
 import { ItemWriteError, ME, unfixedItem } from "../items/write.ts";
-import { workspaceNotFound } from "../workspace.ts";
+import { itemsNotConfigured, workspaceNotFound } from "../workspace.ts";
 import { errorResponse, ITEMS_STATUS, itemWriteResponse } from "./errors.ts";
 import { checked, readBody, readQuery } from "./request.ts";
 
@@ -21,7 +21,7 @@ const noItemsFolder = (c: Context, workspace: Workspace) =>
     c,
     ITEMS_STATUS.items_not_configured,
     ItemsErrorCode.enum.items_not_configured,
-    `The workspace ${workspace.root} has no items folder, so it has no binders. Choose its items folder in the app (Choose Items Folder… in the File menu), then try again.`,
+    itemsNotConfigured(workspace),
   );
 
 export type ItemRoutesOptions = {

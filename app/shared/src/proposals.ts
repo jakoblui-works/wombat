@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { Item, Problem } from "./items.ts";
 import { queryInt } from "./query.ts";
+import { WorkspaceId } from "./workspace-id.ts";
 
 /** An ISO date-time with its offset, as every timestamp on the wire. */
 export const Timestamp = z.iso.datetime({ offset: true });
@@ -109,7 +110,7 @@ const proposalFields = {
   status: ProposalStatus,
   agentId: z.string(),
   /** The id of the workspace it belongs to: its agent's. */
-  workspace: z.string().min(1),
+  workspace: WorkspaceId,
   reason: z.string(),
   /** The current version's number; approving names it, so the user approves what they saw. */
   version: z.int().positive(),

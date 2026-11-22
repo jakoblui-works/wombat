@@ -39,6 +39,14 @@ export const workspaceNotFound = (id: string) =>
     `There's no workspace ${id}. List the workspaces to see which exist, and add the folder first if it isn't there.`,
   );
 
+/** What went wrong when the workspace at `root` has no items folder, for the user and for its agents alike. */
+export const noItemsFolder = (root: string) => `The workspace ${root} has no items folder, so it has no items to read or change.`;
+
+/** The `items_not_configured` message the user gets for a workspace without an items folder. */
+export const itemsNotConfigured = ({ name, root }: Pick<Workspace, "name" | "root">) =>
+  `${noItemsFolder(root)} Show that workspace first (choose ${name} in the File menu's list of workspaces), ` +
+  "then choose its items folder with File → Choose Items Folder…, and try again.";
+
 /**
  * The refusal of a stored agent's repo that is gone or now leads outside its workspace, from `resolveRepo`'s `code`:
  * unlike a start, the agent can't be given another repo.

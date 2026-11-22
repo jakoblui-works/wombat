@@ -1,8 +1,9 @@
-import { realpathSync, statSync } from "node:fs";
+import { realpathSync } from "node:fs";
 import { basename } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
 import { newWorkspaceId, type Workspace } from "@wombat/shared/api";
+import { isFolder } from "@wombat/shared/folder";
 
 import { asNullableString, asString } from "./values.ts";
 
@@ -29,8 +30,6 @@ export type WorkspaceStore = {
 };
 
 type Transaction = <T>(fn: () => T) => T;
-
-const isFolder = (path: string) => statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false;
 
 /** A stored row as the API sends it; `exists` tells whether the root is an existing folder now. */
 export const workspaceOf = (row: Record<string, unknown>, exists: (path: string) => boolean): Workspace => {
