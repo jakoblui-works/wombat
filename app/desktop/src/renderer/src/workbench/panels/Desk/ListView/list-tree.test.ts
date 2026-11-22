@@ -1,7 +1,7 @@
-// A list's folded groups and a reveal: whatever groups are folded, the row holding the proposal a reveal targets (an
-// item's update or delete, a proposed create, or a change on a missing item) is among the list's visible rows once
-// `unfoldedFor` has had its say, and the fold set it gives settles (asked again, or with nothing to reveal, it is the
-// same set), so the list's render-time state write stops.
+// A list's folded groups and a reveal: whatever groups are folded, the row a reveal targets (by its item's id, or by
+// the proposal it holds: an item's update or delete, a proposed create, or a change on a missing item) is among the
+// list's visible rows once `unfoldedFor` has had its say, and the fold set it gives settles (asked again, or with
+// nothing to reveal, it is the same set), so the list's render-time state write stops.
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
@@ -61,8 +61,8 @@ const rowOf = (kind: RowKind, n: number, count: number): Row => {
   }
 };
 
-/** The open proposals a row holds, as the generator made them. */
-const heldBy = (row: Row): string[] => ("pending" in row ? [row.pending.id] : (row.proposals ?? []).map(({ id }) => id));
+/** The ids a reveal finds a row by, as the generator made them: its item's, and the open proposals it holds. */
+const heldBy = (row: Row): string[] => ("pending" in row ? [row.pending.id] : [...("item" in row && row.item.id !== null ? [row.item.id] : []), ...(row.proposals ?? []).map(({ id }) => id)]);
 
 const rowArb = fc.tuple(fc.constantFrom<RowKind>("item", "itemWithProposals", "pending", "missing"), fc.integer({ min: 1, max: 3 }));
 
@@ -88,7 +88,7 @@ const groupsArb = fc
     });
   });
 
-/** Groups, a fold set over their headers' keys (and keys of nothing), and a proposal one of their rows holds, if any. */
+/** Groups, a fold set over their headers' keys (and keys of nothing), and an item or proposal one of their rows holds, if any. */
 const caseArb = groupsArb.chain((groups) => {
   const keys = listTree(groups, new Set()).map(({ key }) => key);
   const held = groups.flatMap((group) => group.rows.flatMap((row) => heldBy(row).map((id) => ({ id, row }))));

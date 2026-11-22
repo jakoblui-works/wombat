@@ -7,6 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 
 import { InlineMarkdown, Markdown } from "./Markdown.tsx";
+import { ReferenceProvider } from "./ReferenceProvider.tsx";
 
 type Element = { tag: string; attrs: Map<string, string> };
 
@@ -142,4 +143,67 @@ test("inline text shows as written: block markers stay text, a code span is code
 
   const image = expectInert("Before ![a loaf of rye bread](https://example.invalid/bread.png) after", true);
   expect(image.elements.map(({ tag }) => tag)).not.toContain("img");
+});
+
+// ---- References to items ----
+// A reference is `<prefix>-<digits>` for a listed prefix, touching no letter, digit, `-` or `_` on either side (across
+// Markdown's own markup too); in text, or an inline code span that is the handle alone; never in a link or a code
+// block. It renders as the provider's `render` and never as a link.
+
+const PREFIXES = ["AP", "TSK"];
+
+/** The handles rendered as references in `text`'s Markdown under a provider, in order, and its markup. */
+const referencesIn = (text: string): { handles: string[]; html: string; visible: string } => {
+  const html = renderToStaticMarkup(
+    <ReferenceProvider prefixes={PREFIXES} render={(handle) => <button data-test-reference={handle}>{handle}</button>}>
+      <Markdown text={text} />
+    </ReferenceProvider>,
+  );
+  const handles = [...html.matchAll(/<button data-test-reference="([^"]*)"/g)].map(([, handle = ""]) => decode(handle));
+  return { handles, html, visible: decode(html.replace(/<[^>]*>/g, "")) };
+};
+
+test("a reference is a listed prefix's handle that touches no word character, in text or a code span of its own; never in a link or a code block", () => {
+  const cases: { text: string; references: string[] }[] = [
+    { text: "Blocked by AP-1 for now", references: ["AP-1"] },
+    { text: "Blocked by `AP-2` for now", references: ["AP-2"] },
+    { text: "Blocked (AP-7) for now", references: ["AP-7"] },
+    { text: "Blocked by **AP-8**.", references: ["AP-8"] },
+    { text: "Ask TSK-30, then AP-9", references: ["TSK-30", "AP-9"] },
+    { text: "Blocked `see AP-3` for now", references: [] },
+    { text: "Blocked by XX-1", references: [] },
+    { text: "Blocked by XAP-12", references: [] },
+    { text: "Blocked by AP-12x", references: [] },
+    { text: "Blocked by AP-12_b", references: [] },
+    { text: "Blocked by AP-12-3", references: [] },
+    { text: "Blocked by *x*AP-3", references: [] },
+    { text: "Blocked by AP-4*y*", references: [] },
+    { text: "Blocked by AP-1\u0301 for now", references: [] },
+    { text: "See [the AP-4 notes](https://example.invalid/notes)", references: [] },
+    { text: "Notes:\n\n```\nAP-4 holds the key\n```", references: [] },
+  ];
+  for (const { text, references } of cases) {
+    const { handles, html, visible } = referencesIn(text);
+    expect(handles, JSON.stringify(text)).toEqual(references);
+    if (references.length > 0) expect(html, `no link from ${JSON.stringify(text)}`).not.toMatch(/\shref=/);
+    for (const handle of ["AP-1", "AP-3", "AP-4", "XX-1"]) if (text.includes(handle)) expect(visible, `${handle} still reads in ${JSON.stringify(text)}`).toContain(handle);
+  }
+});
+
+test("raw HTML can't forge a reference: a literal reference span stays its own text", () => {
+  const text = 'Look at <span data-reference="AP-5">this</span> now';
+  const { handles, visible } = referencesIn(text);
+  expect(handles).toEqual([]);
+  expect(visible).toContain('<span data-reference="AP-5">');
+});
+
+test("without a ReferenceProvider nothing is a reference: the text renders as under a provider listing none of its prefixes", () => {
+  const text = "Blocked by AP-1 and `AP-2`";
+  const unlisted = renderToStaticMarkup(
+    <ReferenceProvider prefixes={["ZZ"]} render={(handle) => <button>{handle}</button>}>
+      <Markdown text={text} />
+    </ReferenceProvider>,
+  );
+  expect(renderToStaticMarkup(<Markdown text={text} />)).toBe(unlisted);
+  expect(referencesIn(text).handles, "the same text under its prefix").toEqual(["AP-1", "AP-2"]);
 });

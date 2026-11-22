@@ -2,15 +2,17 @@
 // row, an update or delete on its item's row, the oldest as the mark, or on a row of its own when no item has its
 // handle; a filter never hides one), with a line each; decided ones and other binders' never; a proposed create is
 // placed by every view exactly as an item holding the same fields, its links named only by their own binder's items;
-// and a reveal finds a row by any open proposal it holds. The expected rows come from these rules, by hand.
+// and a reveal finds a row by any open proposal it holds or by its item's id, filter or no filter, a tree opening the
+// rows above it. The expected rows come from these rules, by hand.
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
 import type { ItemSummary, LenientProperty, LinkValue } from "@wombat/shared/items";
 import type { ItemProposalKind, ProposalStatus } from "@wombat/shared/proposals";
 
-import { PROPOSAL_ATTRIBUTE, proposalProps } from "../use-reveal.ts";
-import { isItemRow, isPending, type ItemRow, type ItemsOf, listGroups, type Row, type SidebarList, type SidebarView, sorted, treeRows, type TreeRow, visibleItems } from "./view-model.ts";
+import { ancestorsOf, opened, visibleTreeRows } from "../TreeView/tree-view.ts";
+import { carries, PROPOSAL_ATTRIBUTE, proposalProps, revealProps } from "../use-reveal.ts";
+import { isItemRow, isPending, type ItemRow, type ItemsOf, listGroups, revealsRow, type Row, rowKey, type SidebarList, type SidebarView, sorted, treeRows, type TreeRow, visibleItems } from "./view-model.ts";
 import { type ItemProposalRead, proposalLines, rowProposalIds, struck, withProposals } from "./with-proposals.ts";
 
 type Properties = Record<string, LenientProperty>;
@@ -197,6 +199,46 @@ describe("revealing a proposal", () => {
           else expect(rowHome(row), `${p.id} is found on its item's row, or its missing item's`).toBe(`handle:${String(p.handle)}`);
         }
         for (const p of scenario.proposals.filter((one) => !open.includes(one))) expect(holding(p.id), `${p.id} (${p.binder}, ${p.status}) is on no row`).toEqual([]);
+      }),
+      { numRuns: 300 },
+    );
+  });
+
+  /** Every id a reveal may name: each proposal's, each item's, and a cut-short one of each that names nothing. */
+  const targetsOf = ({ items, proposals }: Scenario): string[] => {
+    const ids = [...proposals.map(({ id }) => id), ...items.flatMap(({ id }) => (id === null ? [] : [id]))];
+    return [...ids, ...ids.map((id) => id.slice(0, -1))];
+  };
+
+  test("a row's reveal attributes land a target exactly where the views' reveal does: a proposal it holds or its item's id", () => {
+    fc.assert(
+      fc.property(scenarioArb, (scenario) => {
+        const rows = withProposals(scenario.items, scenario.proposals, CHORES, itemsOfScenario(scenario.items));
+        for (const row of rows) {
+          for (const target of targetsOf(scenario)) expect(carries(revealProps(row), target), `${rowHome(row)} and ${target}`).toBe(revealsRow(row, target));
+        }
+      }),
+      { numRuns: 300 },
+    );
+  });
+
+  test("a revealed item or proposal shows in every view however its filter goes, and a tree opens the rows above it", () => {
+    fc.assert(
+      fc.property(scenarioArb, (scenario) => {
+        const { view } = scenario;
+        const rows = withProposals(scenario.items, scenario.proposals, CHORES, itemsOfScenario(scenario.items));
+        const targets = [...scenario.items.flatMap(({ id }) => (id === null ? [] : [{ id, on: (row: Row) => itemRowOf(row)?.item.id === id }])), ...ownOpen(scenario).map(({ id }) => ({ id, on: (row: Row) => rowProposalIds(row).includes(id) }))];
+        for (const target of targets) {
+          const said = `${target.id} in view ${JSON.stringify(view)}`;
+          if (view.kind === "list") {
+            expect(listGroups(rows, view, OWN, target.id).flatMap((group) => group.rows).filter(target.on), said).toHaveLength(1);
+            continue;
+          }
+          const tree = treeRows(rows, view, OWN, target.id);
+          const allClosed = new Set(visibleTreeRows(tree, new Set()).map(({ key }) => key));
+          const shown = visibleTreeRows(tree, opened(allClosed, ancestorsOf(tree, target.id) ?? []));
+          expect(shown.filter(({ node }) => target.on(node)).map(({ node }) => rowKey(node)), `${said}, its ancestors opened`).toHaveLength(1);
+        }
       }),
       { numRuns: 300 },
     );
