@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import "./activities.ts";
 import { DESK_ACTIVITY } from "./activity-ids.ts";
-import { DEFAULT_DESK, defaultLayout, type DeskLayout, type IsKnown, layoutActivityStates, pruneLayout, restoreLayout, savedActivityStates, SavedLayout } from "./layout.ts";
+import { DEFAULT_DESK, defaultLayout, type DeskLayout, type IsKnown, layoutActivityStates, layoutToSave, pruneLayout, restoreLayout, SavedLayout } from "./layout.ts";
 import { ITEM_PANEL } from "./items/item-params.ts";
 import { deskOf } from "./items/navigation/desk-state.ts";
 import { activities, isKnown as registryIsKnown, isRestorable, isSaved } from "./registry.ts";
@@ -244,7 +244,7 @@ describe("the Desk's state in a layout", () => {
         const layout: SavedLayout = { ...defaultLayout(), ...(desk === undefined ? {} : { desk }) };
         const states = layoutActivityStates(layout);
         expect(deskOf(states[DESK_ACTIVITY]), "what the Desk reads").toEqual(desk ?? DEFAULT_DESK);
-        expect(savedActivityStates(states).desk, "what the layout saves").toEqual(desk ?? DEFAULT_DESK);
+        expect(layoutToSave(layout.dockview, layout, states).desk, "what the layout saves").toEqual(desk ?? DEFAULT_DESK);
       }),
     );
   });

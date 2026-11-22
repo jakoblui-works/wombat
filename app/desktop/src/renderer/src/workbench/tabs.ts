@@ -278,7 +278,7 @@ export type Reveals = {
   subscribe: (listener: () => void) => () => void;
 };
 
-/** The reveal requests, and the setter only the workbench's actions use. */
+/** The reveal requests, and their setter. */
 export const revealStore = (): Reveals & { set: (key: string, reveal: Reveal | undefined) => void } => {
   const reveals = new Map<string, Reveal>();
   const listeners = new Set<() => void>();

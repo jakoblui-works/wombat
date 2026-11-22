@@ -30,7 +30,6 @@ export type WorkbenchActions = {
   replaceTab: (from: TabRef, to: TabRef) => void;
 };
 
-/** What a topic's navigation builds on, beside the actions. */
 export type WorkbenchContextValue = WorkbenchActions & {
   /** Undefined until dockview is ready; a navigation does nothing until then. */
   host: TabHost | undefined;

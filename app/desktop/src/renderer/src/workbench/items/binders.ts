@@ -1,4 +1,3 @@
-// The binders as listed: a binder by id, else why it isn't listed, and a broken binder's settings file, pure.
 import { type BinderSummary, SETTINGS_FILE } from "@wombat/shared/items";
 
 export type Binder = Extract<BinderSummary, { id: string }>;

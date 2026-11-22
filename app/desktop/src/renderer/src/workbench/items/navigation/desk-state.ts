@@ -10,7 +10,7 @@ export type DeskState = { desk: DeskLayout; changeDesk: (change: (desk: DeskLayo
 /** The Desk's slot holds only what layout.ts and `changeDesk` wrote, so it's trusted as it is; an empty slot is `DEFAULT_DESK`. */
 export const deskOf = (slot: unknown): DeskLayout => (slot === undefined ? DEFAULT_DESK : (slot as DeskLayout));
 
-export const deskChange =
+const deskChange =
   (change: ActivityState["change"]): DeskState["changeDesk"] =>
   (changeDesk) =>
     change((slot) => changeDesk(deskOf(slot)));

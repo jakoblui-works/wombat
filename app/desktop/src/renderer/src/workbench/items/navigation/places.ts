@@ -6,7 +6,7 @@ import { itemTabParams, type SavedItemParams } from "../item-params.ts";
 const viewsOf = (binder: BinderSummary | undefined): readonly LenientView[] => (binder === undefined || binder.id === null ? [] : binder.views);
 
 /** The view to show in the sidebar (none: what it shows for the binder stays). */
-export type BinderPlace = { sidebarView?: string };
+type BinderPlace = { sidebarView?: string };
 
 /** Where a binder opens: in the sidebar, on its view `viewName` (else its first); a binder without views as a list of its items. */
 export const binderPlace = (binder: BinderSummary | undefined, viewName?: string): BinderPlace => {
@@ -15,7 +15,7 @@ export const binderPlace = (binder: BinderSummary | undefined, viewName?: string
 };
 
 /** Where following an item lands: its binder (on its first view, `binderPlace`) with the item's row revealed, and the item's tab. */
-export type FollowPlace = SavedItemParams;
+type FollowPlace = SavedItemParams;
 
 /** Where following `item` lands; undefined for no item or one without an id. */
 export const followPlace = (item: Pick<ItemSummary, "id" | "binder"> | undefined): FollowPlace | undefined =>

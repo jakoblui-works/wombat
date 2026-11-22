@@ -1,4 +1,4 @@
-// What the item tab's controls accept and show, pure.
+// What a field's controls accept and show, pure.
 import type { ItemSummary, LenientProperty, LinkValue } from "@wombat/shared/items";
 
 import { linkValue, MISSING_ITEM, numberOfText } from "./values.ts";

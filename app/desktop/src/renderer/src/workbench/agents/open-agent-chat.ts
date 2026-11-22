@@ -7,7 +7,7 @@ import { useWorkbench, type WorkbenchContextValue } from "../workbench-context.t
 import { CHAT_PANEL } from "./chat-params.ts";
 
 /** The agent's oldest open request: the smallest `at`, the first listed of equals. */
-export const oldestPending = (agent: AgentSummary | undefined): string | undefined => {
+const oldestPending = (agent: AgentSummary | undefined): string | undefined => {
   let oldest: AgentSummary["pendingPermissions"][number] | undefined;
   for (const request of agent?.pendingPermissions ?? []) {
     if (oldest === undefined || Date.parse(request.at) < Date.parse(oldest.at)) oldest = request;
@@ -15,8 +15,7 @@ export const oldestPending = (agent: AgentSummary | undefined): string | undefin
   return oldest?.requestId;
 };
 
-/** What the chat reveals: `requestId`, else the agent's oldest pending permission request. */
-export const chatReveal = (agents: readonly AgentSummary[] | undefined, agentId: string, requestId: string | undefined): string | undefined =>
+const chatReveal = (agents: readonly AgentSummary[] | undefined, agentId: string, requestId: string | undefined): string | undefined =>
   requestId ?? oldestPending(agents?.find(({ id }) => id === agentId));
 
 /** Switches to Agents, opens or focuses the agent's chat and reveals `chatReveal`'s request. */

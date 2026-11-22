@@ -1,4 +1,4 @@
-// What the preview box shows and which row it's on, pure.
+// Which row the preview box is on, pure.
 import type { ItemSummary } from "@wombat/shared/items";
 
 import { isItemRow, type Row } from "../view-model/view-model.ts";

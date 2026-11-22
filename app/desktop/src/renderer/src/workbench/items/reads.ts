@@ -1,4 +1,3 @@
-// What a read gives to show, and what the app says when no item has the ref read, pure.
 import { ItemsErrorCode } from "@wombat/shared/api";
 
 import { ServiceError } from "../../data/client.ts";

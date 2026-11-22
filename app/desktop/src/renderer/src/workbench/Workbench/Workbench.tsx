@@ -13,7 +13,7 @@ import { keys } from "../../data/keys.ts";
 // Registers the activities and their panels, which the workbench reads from the registry.
 import "../activities.ts";
 import { needsMeCount } from "../../data/needs-me.ts";
-import { defaultLayout, layoutActivityStates, pruneLayout, restoreLayout, type SavedLayout, savedActivityStates } from "../layout.ts";
+import { defaultLayout, layoutActivityStates, layoutToSave, pruneLayout, restoreLayout, type SavedLayout } from "../layout.ts";
 import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
 import { activities, activityOrDefault, getPanel, isKnown, isRestorable, isSaved, panelsFor, panelTitle } from "../registry.ts";
@@ -212,7 +212,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   useEffect(() => {
     if (!ready || saved?.readable !== true) return;
     const current = layoutSaver(
-      () => pruneLayout({ version: 2, dockview: api.toJSON(), ...chromeRef.current, ...savedActivityStates(activityStatesRef.current) }, isSaved),
+      () => pruneLayout(layoutToSave(api.toJSON(), chromeRef.current, activityStatesRef.current), isSaved),
       (layout) => {
         window.wombat.settings.set({ layout }).catch(() => {
           console.warn("Wombat couldn't save the layout.");

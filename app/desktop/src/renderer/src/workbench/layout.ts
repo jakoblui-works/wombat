@@ -25,8 +25,12 @@ export const DEFAULT_DESK: Readonly<DeskLayout> = { openDrawers: [] };
 /** The activities' states a layout restores: the Desk's as saved, else `DEFAULT_DESK`. */
 export const layoutActivityStates = (layout: Pick<SavedLayout, "desk">): ActivityStates => ({ [DESK_ACTIVITY]: layout.desk ?? DEFAULT_DESK });
 
-/** The activities' states as the layout saves them; the Desk's slot holds only what `layoutActivityStates` and the Desk wrote. */
-export const savedActivityStates = (states: ActivityStates): Pick<SavedLayout, "desk"> => ({ desk: states[DESK_ACTIVITY] as DeskLayout });
+/** The layout as the workbench saves it; the Desk's slot holds only what `layoutActivityStates` and the Desk wrote. */
+export const layoutToSave = (
+  dockview: SerializedDockview,
+  { sidebars, activity }: Pick<SavedLayout, "sidebars" | "activity">,
+  states: ActivityStates,
+): SavedLayout & { desk: DeskLayout } => ({ version: 2, dockview, sidebars, activity, desk: states[DESK_ACTIVITY] as DeskLayout });
 
 const DeskLayout = z.object({ binderId: z.string().exactOptional(), view: z.string().exactOptional(), openDrawers: z.array(z.string()) });
 
