@@ -63,7 +63,7 @@ export const findByRef = (items: readonly LoadedItem[], ref: string): LoadedItem
   items.find((item) => item.id === ref) ?? findByHandle(items, ref);
 
 export type Catalog = {
-  /** The items root, as given. */
+  /** The items root, as given: the folder's real path. */
   root: string;
   /** The binders and their items, invalid ones included, from one read. */
   snapshot(): Promise<Snapshot>;
@@ -71,8 +71,8 @@ export type Catalog = {
   holds(path: string): Promise<boolean>;
 };
 
-/** `workspace`: the id of the workspace whose items folder `root` is; its handle counters are the workspace's. */
-export type CatalogOptions = { root: string; store: Store; workspace: string; log?: Log };
+/** `root`: the items folder's real path, as the store holds it; its handle counters are the folder's, keyed by it. */
+export type CatalogOptions = { root: string; store: Store; log?: Log };
 
 type NextHandle = (binder: string, floor: number) => number;
 
@@ -455,8 +455,8 @@ const assign = (root: string, nextHandle: NextHandle, log: Log | undefined, floo
 /** Enough for one pass of writes and one to read back what a parallel read wrote; then the read stands. */
 const MAX_PASSES = 3;
 
-export const openCatalog = ({ root, store, workspace, log }: CatalogOptions): Catalog => {
-  const nextHandle: NextHandle = (binder, floor) => store.nextHandleNumber(workspace, binder, floor);
+export const openCatalog = ({ root, store, log }: CatalogOptions): Catalog => {
+  const nextHandle: NextHandle = (binder, floor) => store.nextHandleNumber(root, binder, floor);
   const snapshot = async () => {
     /** Root-relative path → why its write failed; not retried within this read. */
     const failed = new Map<string, Problem>();

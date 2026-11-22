@@ -107,9 +107,10 @@ const SCHEMA_V5 = `
 `;
 
 // Rows written before workspaces existed have none (no `workspace` in an agent's summary, NULL in the columns) until
-// `adoptUnassigned` gives them one; reads leave them out until then. The counters' key is UNIQUE, not PRIMARY KEY,
-// since a STRICT table's primary key refuses the NULL workspace; a NULL is distinct in it, so it never answers for a
-// workspace's binder.
+// `adoptUnassigned` gives them one; reads leave them out until then. Handle counters belong to an items folder (its
+// real path), since workspaces may share one; old counters have a NULL folder until adopted. The counters' key is
+// UNIQUE, not PRIMARY KEY, since a STRICT table's primary key refuses the NULL folder; a NULL is distinct in it, so it
+// never answers for a folder's binder.
 const SCHEMA_V6 = `
   CREATE TABLE workspaces (
     id TEXT PRIMARY KEY,
@@ -120,12 +121,12 @@ const SCHEMA_V6 = `
   ALTER TABLE proposals ADD COLUMN workspace TEXT;
   ALTER TABLE item_counters RENAME TO item_counters_v5;
   CREATE TABLE item_counters (
-    workspace TEXT,
+    items_root TEXT,
     binder TEXT NOT NULL,
     last INTEGER NOT NULL,
-    UNIQUE (workspace, binder)
+    UNIQUE (items_root, binder)
   ) STRICT;
-  INSERT INTO item_counters (workspace, binder, last) SELECT NULL, binder, last FROM item_counters_v5 ORDER BY rowid;
+  INSERT INTO item_counters (items_root, binder, last) SELECT NULL, binder, last FROM item_counters_v5 ORDER BY rowid;
   DROP TABLE item_counters_v5;
 `;
 

@@ -81,8 +81,8 @@ export type ItemChange =
   | { kind: "update"; handle: string; fields: Record<string, unknown>; baseVersion: string }
   | { kind: "delete"; handle: string; baseVersion: string };
 
-/** `workspace`: the id of the workspace whose items folder `root` is; its handle counters are the workspace's. */
-export type WriterOptions = { root: string; store: Store; workspace: string; log?: Log };
+/** `root`: the items folder's real path, as the store holds it; its handle counters are the folder's, keyed by it. */
+export type WriterOptions = { root: string; store: Store; log?: Log };
 
 /** A value as one line of YAML that reads back as the same value. */
 const yamlValue = (value: unknown) => {
@@ -403,12 +403,12 @@ const removeEmptyFolders = async (deepest: string, top: string) => {
   }
 };
 
-export const openWriter = ({ root, store, workspace, log }: WriterOptions): Writer => ({
+export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
   createItem: (by, binderId, item, id = randomUUIDv7()) =>
     queueWrite(root, async () => {
       const { read, binder, title, textFor } = await checkCreate(root, binderId, item);
       const { settings } = binder;
-      const handle = formatHandle(settings.prefix, store.nextHandleNumber(workspace, settings.id, read.floors.get(settings.prefix) ?? 0));
+      const handle = formatHandle(settings.prefix, store.nextHandleNumber(root, settings.id, read.floors.get(settings.prefix) ?? 0));
       const text = textFor(id, handle);
       if (text === undefined) throw new Error(`The new item ${handle} passed its read-back check with stand-in values but not with the real ones.`);
       const file = settings.naming === "free" ? (item.file ?? "") : [handle, slugOf(title)].filter(Boolean).join("-") + ".md";

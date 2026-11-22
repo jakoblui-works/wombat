@@ -149,12 +149,12 @@ const raw = <T>(path: string, read: (db: DatabaseSync) => T): T => {
 
 const version = (path: string) => raw(path, (db) => db.prepare("PRAGMA user_version").get()?.user_version);
 
-/** Opens the upgraded store with its rows given a workspace, as the service does at start; returns that workspace's id. */
+/** Opens the upgraded store with its rows given a workspace with an items folder; returns its id and items folder. */
 const openAdopted = (path: string) => {
   const store = open({ path });
-  const { id } = store.addWorkspace(tempDir()).workspace;
+  const { id, itemsRoot = "" } = store.addWorkspace(tempDir(), tempDir()).workspace;
   store.adoptUnassigned(id);
-  return { store, workspace: id };
+  return { store, workspace: id, itemsRoot };
 };
 
 type V3Row = Omit<typeof PROPOSAL, "kind" | "status" | "itemId" | "fields" | "file" | "baseVersion"> & {
@@ -431,7 +431,7 @@ describe("opening a store an older version wrote", () => {
     expect(store.listAgents(), "no agent is listed before a workspace adopts it").toEqual([]);
     expect(store.listProposals(), "no proposal is listed before a workspace adopts it").toEqual([]);
 
-    const { id: workspace } = store.addWorkspace(tempDir()).workspace;
+    const { id: workspace, itemsRoot = "" } = store.addWorkspace(tempDir(), tempDir()).workspace;
     store.adoptUnassigned(workspace);
 
     expect(store.listAgents().map(({ id, workspace }) => ({ id, workspace }))).toEqual([
@@ -443,7 +443,7 @@ describe("opening a store an older version wrote", () => {
       expect(store.getProposal(row.id), `the ${row.target} proposal ${row.id}`).toStrictEqual({ ...row, workspace });
       expect(store.listVersions(row.id), `the versions of ${row.id}`).toEqual(versions);
     }
-    for (const { binder, last } of V4_COUNTERS) expect(store.nextHandleNumber(workspace, binder, 0), `${binder}'s counter carries on`).toBe(last + 1);
+    for (const { binder, last } of V4_COUNTERS) expect(store.nextHandleNumber(itemsRoot, binder, 0), `${binder}'s counter carries on`).toBe(last + 1);
     expect(store.currentSeq(), "the upgrade takes no seq").toBe(LAST_SEQ);
     store.close();
     expect(version(path)).toBe(SCHEMA_VERSION);
@@ -454,7 +454,7 @@ describe("opening a store an older version wrote", () => {
     mkdirSync(dirname(path), { recursive: true });
     writeV2Store(path);
 
-    const { store, workspace } = openAdopted(path);
+    const { store, workspace, itemsRoot } = openAdopted(path);
 
     expect(store.dbId).toBe(DB_ID);
     expect(store.currentSeq()).toBe(LAST_SEQ);
@@ -468,7 +468,7 @@ describe("opening a store an older version wrote", () => {
     const { fields, ...stored } = PROPOSAL;
     expect(store.getProposal(PROPOSAL.id)).toEqual({ ...stored, target: "item", path: null, workspace });
     expect(store.listVersions(PROPOSAL.id).map((version) => version.content)).toEqual([{ fields }]);
-    expect(store.nextHandleNumber(workspace, COUNTER.binder, 0), "the handle counter carries on").toBe(COUNTER.last + 1);
+    expect(store.nextHandleNumber(itemsRoot, COUNTER.binder, 0), "the handle counter carries on").toBe(COUNTER.last + 1);
     store.close();
     expect(version(path)).toBe(SCHEMA_VERSION);
   });
@@ -505,11 +505,11 @@ describe("opening a store an older version wrote", () => {
     const path = tempStorePath();
     writeV4Store(path);
 
-    const { store, workspace } = openAdopted(path);
+    const { store, workspace, itemsRoot } = openAdopted(path);
 
     expect(store.dbId).toBe(DB_ID);
     expect(store.currentSeq(), "the upgrade takes no seq").toBe(LAST_SEQ);
-    for (const { binder, last } of V4_COUNTERS) expect(store.nextHandleNumber(workspace, binder, 0), `${binder}'s counter carries on`).toBe(last + 1);
+    for (const { binder, last } of V4_COUNTERS) expect(store.nextHandleNumber(itemsRoot, binder, 0), `${binder}'s counter carries on`).toBe(last + 1);
     expect(store.listProposals().map((proposal) => proposal.id)).toEqual(V4_ROWS.map((row) => row.id));
     for (const { versions, ...row } of V4_ROWS) {
       expect(store.getProposal(row.id), `the ${row.target} proposal ${row.id}`).toStrictEqual({ ...row, workspace });

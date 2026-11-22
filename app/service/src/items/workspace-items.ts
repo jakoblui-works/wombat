@@ -61,7 +61,7 @@ export const openWorkspaceItems = ({ store, log = logToStderr, onChanged }: Work
    */
   const openOne = async (workspace: Workspace): Promise<Opened> => {
     const { id, root, itemsRoot } = workspace;
-    const catalog = itemsRoot === undefined ? undefined : openCatalog({ root: itemsRoot, store, workspace: id, log });
+    const catalog = itemsRoot === undefined ? undefined : openCatalog({ root: itemsRoot, store, log });
     const watch = itemsRoot === undefined ? undefined : openWatch({ root: itemsRoot, log });
     const instructions = workspace.missing ? undefined : openInstructions({ catalog, workspaceRoot: root, ...(watch === undefined ? {} : { watch }), log });
     const entry: Opened = { workspace, items: undefined, watch, instructions, closed: false };
@@ -75,7 +75,7 @@ export const openWorkspaceItems = ({ store, log = logToStderr, onChanged }: Work
         alert(id);
       };
       // Approvals write through this writer too, so they alert here.
-      entry.items = { catalog, writer: refreshingWriter(openWriter({ root: itemsRoot, store, workspace: id, log }), afterWrite) };
+      entry.items = { catalog, writer: refreshingWriter(openWriter({ root: itemsRoot, store, log }), afterWrite) };
     }
     return entry;
   };

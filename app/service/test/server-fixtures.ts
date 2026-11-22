@@ -25,7 +25,7 @@ export const wsPath = (path: string) => `/workspaces/${WORKSPACE}${path}`;
 
 /** The items of WORKSPACE alone, on `itemsRoot`; adds and items-folder changes open nothing. */
 const oneWorkspaceItems = (itemsRoot: string, store: Store, log: Log): Pick<WorkspaceItems, "of" | "open" | "reopen"> => {
-  const items = { catalog: openCatalog({ root: itemsRoot, store, workspace: WORKSPACE }), writer: openWriter({ root: itemsRoot, store, workspace: WORKSPACE, log }) };
+  const items = { catalog: openCatalog({ root: itemsRoot, store }), writer: openWriter({ root: itemsRoot, store, log }) };
   return { of: (id) => (id === WORKSPACE ? items : undefined), open: () => Promise.resolve(), reopen: () => Promise.resolve() };
 };
 

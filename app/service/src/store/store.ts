@@ -53,10 +53,11 @@ export type Store = ProposalStore & WorkspaceStore & {
   /** `truncated` is true exactly when an entry of this agent after `after` was dropped by the cap. */
   readLog: (agentId: string, after?: number, limit?: number) => { entries: LogEntry[]; truncated: boolean };
   /**
-   * The next handle number of a workspace's binder: one above both the last number it gave and `floor` (the highest
-   * number on disk), remembered so a deleted item's number is never given again.
+   * The next handle number of a binder in the items folder `itemsRoot` (its real path, as the workspaces hold it): one
+   * above the last number it gave, `floor` (the highest number on disk) and an unadopted counter of that binder,
+   * remembered so a deleted item's number is never given again.
    */
-  nextHandleNumber: (workspace: string, binder: string, floor: number) => number;
+  nextHandleNumber: (itemsRoot: string, binder: string, floor: number) => number;
   /**
    * Runs `fn` as one transaction; store writes called inside it join it instead of committing on their own. `fn` must
    * be synchronous. There's no savepoint: catching a store error inside `fn` keeps that call's earlier writes.
@@ -145,8 +146,9 @@ export const openStore = ({
     logEntries: db.prepare("SELECT seq, body FROM log_entries WHERE agent_id = ? AND seq > ? ORDER BY seq LIMIT ?"),
     droppedThrough: db.prepare("SELECT dropped_through FROM agents WHERE id = ?"),
     nextHandleNumber: db.prepare(
-      `INSERT INTO item_counters (workspace, binder, last) VALUES (?, ?, ? + 1)
-       ON CONFLICT (workspace, binder) DO UPDATE SET last = max(last, excluded.last - 1) + 1 RETURNING last`,
+      `INSERT INTO item_counters (items_root, binder, last)
+       VALUES (:root, :binder, max(:floor, coalesce((SELECT last FROM item_counters WHERE items_root IS NULL AND binder = :binder), 0)) + 1)
+       ON CONFLICT (items_root, binder) DO UPDATE SET last = max(last, excluded.last - 1) + 1 RETURNING last`,
     ),
   };
 
@@ -234,8 +236,8 @@ export const openStore = ({
 
   const takeSeq = () => transaction(() => takeSeqs(1)[0] ?? 0);
 
-  const nextHandleNumber = (workspace: string, binder: string, floor: number) =>
-    transaction(() => asNumber(statements.nextHandleNumber.get(workspace, binder, floor)?.last));
+  const nextHandleNumber = (itemsRoot: string, binder: string, floor: number) =>
+    transaction(() => asNumber(statements.nextHandleNumber.get({ root: itemsRoot, binder, floor })?.last));
 
   return {
     dbId,

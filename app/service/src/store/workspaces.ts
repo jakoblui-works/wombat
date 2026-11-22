@@ -13,8 +13,8 @@ export type Adopted = { agents: number; proposals: number; counters: number };
 /** Each write is one transaction and takes no seq; a caller that alerts takes one inside its own transaction. */
 export type WorkspaceStore = {
   /**
-   * The workspace whose root is `root`'s real path, added (`added: true`) unless one is stored; a stored one is answered
-   * unchanged, whatever `itemsRoot`. Throws when `root` isn't an existing folder.
+   * The workspace whose root is `root`'s real path, added (`added: true`) with `itemsRoot`'s real path unless one is
+   * stored; a stored one is answered unchanged, whatever `itemsRoot`. Throws when `root` isn't an existing folder.
    */
   addWorkspace: (root: string, itemsRoot?: string) => { workspace: Workspace; added: boolean };
   /** Every workspace, in the order they were added. */
@@ -23,8 +23,9 @@ export type WorkspaceStore = {
   /** Undefined, nothing written, for an unknown id. */
   setItemsRoot: (id: string, itemsRoot: string) => Workspace | undefined;
   /**
-   * Gives every agent, proposal and handle counter without a workspace (stored before workspaces existed) to `id`. A
-   * counter the workspace already has keeps the higher number. Throws for an unknown id.
+   * Gives every agent and proposal without a workspace (stored before workspaces existed) to `id`, and the handle
+   * counters without an items folder to its items folder; a counter the folder already has keeps the higher number. A
+   * workspace without an items folder leaves those counters unadopted. Throws for an unknown id.
    */
   adoptUnassigned: (id: string) => Adopted;
 };
@@ -46,6 +47,9 @@ const realPathOf = (path: string) => {
   }
 };
 
+/** The handle counters are keyed by it, so two workspaces naming one folder by different paths share them. */
+const realItemsRoot = (itemsRoot: string) => realPathOf(itemsRoot) ?? itemsRoot;
+
 const realFolder = (root: string) => {
   const real = realPathOf(root);
   if (real === undefined || !isFolder(real)) {
@@ -64,10 +68,10 @@ export const openWorkspaceStore = (db: DatabaseSync, transaction: Transaction, n
     adoptAgents: db.prepare("UPDATE agents SET summary = json_set(summary, '$.workspace', ?) WHERE json_extract(summary, '$.workspace') IS NULL"),
     adoptProposals: db.prepare("UPDATE proposals SET workspace = ? WHERE workspace IS NULL"),
     adoptCounters: db.prepare(
-      `INSERT INTO item_counters (workspace, binder, last) SELECT ?, binder, last FROM item_counters WHERE workspace IS NULL
-       ON CONFLICT (workspace, binder) DO UPDATE SET last = max(last, excluded.last)`,
+      `INSERT INTO item_counters (items_root, binder, last) SELECT ?, binder, last FROM item_counters WHERE items_root IS NULL
+       ON CONFLICT (items_root, binder) DO UPDATE SET last = max(last, excluded.last)`,
     ),
-    dropUnassignedCounters: db.prepare("DELETE FROM item_counters WHERE workspace IS NULL"),
+    dropUnassignedCounters: db.prepare("DELETE FROM item_counters WHERE items_root IS NULL"),
   };
 
   const getWorkspace = (id: string) => {
@@ -81,7 +85,7 @@ export const openWorkspaceStore = (db: DatabaseSync, transaction: Transaction, n
       const stored = statements.byRoot.get(real);
       if (stored !== undefined) return { workspace: workspaceOf(stored, isFolder), added: false };
       const id = newWorkspaceId();
-      statements.insert.run(id, real, itemsRoot ?? null, now().toISOString());
+      statements.insert.run(id, real, itemsRoot === undefined ? null : realItemsRoot(itemsRoot), now().toISOString());
       const workspace = getWorkspace(id);
       if (workspace === undefined) throw new Error(`Workspace ${real} vanished while it was being added.`);
       return { workspace, added: true };
@@ -89,14 +93,17 @@ export const openWorkspaceStore = (db: DatabaseSync, transaction: Transaction, n
   };
 
   const setItemsRoot = (id: string, itemsRoot: string) =>
-    transaction(() => (statements.setItemsRoot.run(itemsRoot, id).changes === 0 ? undefined : getWorkspace(id)));
+    transaction(() => (statements.setItemsRoot.run(realItemsRoot(itemsRoot), id).changes === 0 ? undefined : getWorkspace(id)));
 
   const adoptUnassigned = (id: string): Adopted =>
     transaction(() => {
-      if (statements.byId.get(id) === undefined) throw new Error(`Can't adopt the stored rows into workspace ${id}: it isn't in the store. Add the workspace first.`);
+      const row = statements.byId.get(id);
+      if (row === undefined) throw new Error(`Can't adopt the stored rows into workspace ${id}: it isn't in the store. Add the workspace first.`);
       const agents = Number(statements.adoptAgents.run(id).changes);
       const proposals = Number(statements.adoptProposals.run(id).changes);
-      statements.adoptCounters.run(id);
+      const itemsRoot = asNullableString(row.items_root);
+      if (itemsRoot === null) return { agents, proposals, counters: 0 };
+      statements.adoptCounters.run(itemsRoot);
       const counters = Number(statements.dropUnassignedCounters.run().changes);
       return { agents, proposals, counters };
     });

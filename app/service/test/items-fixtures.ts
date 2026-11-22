@@ -12,7 +12,7 @@ import { expect, onTestFinished } from "vitest";
 import { openCatalog, type Catalog, type LoadedItem } from "../src/items/catalog.ts";
 import { ItemWriteError, openWriter, type Writer } from "../src/items/write.ts";
 import { openStore, type Store } from "../src/store/store.ts";
-import { tempStorePath, WORKSPACE } from "./store-fixtures.ts";
+import { tempStorePath } from "./store-fixtures.ts";
 import { OLD_SETTINGS_FILE, SETTINGS_FILE } from "../src/items/binders.ts";
 
 /** UUIDv7 ids for the hand-made fixture items (version nibble 7, variant 8). */
@@ -283,8 +283,8 @@ export const openItems = (root: string, storePath = tempStorePath()): Opened => 
     closed = true;
   };
   onTestFinished(close);
-  const catalog = openCatalog({ root, store, workspace: WORKSPACE });
-  const writer = openWriter({ root, store, workspace: WORKSPACE });
+  const catalog = openCatalog({ root, store });
+  const writer = openWriter({ root, store });
   return {
     root,
     storePath,
