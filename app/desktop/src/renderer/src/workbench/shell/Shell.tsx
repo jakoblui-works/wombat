@@ -29,7 +29,6 @@ import { useCommandKeys, useServiceChrome } from "./service-chrome.ts";
 import { clampWidth, LEFT_START_WIDTH, leftBounds, middleView, newChat, rightView, showActivity as showActivityIn, shownTab } from "./shell-state.ts";
 import { ShellProvider, useShell, useShownWorkspace } from "./ShellProvider.tsx";
 import { Toolbar } from "./Toolbar/Toolbar.tsx";
-import { WorkspaceActivityStates } from "./WorkspaceActivityStates.tsx";
 
 // Clipped, not hidden: a hidden overflow can still be scrolled by focus or scrollIntoView, which would take the
 // sidebar's header out of view. Its panel owns the scroll.
@@ -185,24 +184,22 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
         {noticeShown ? <LiveLaunchNotice connection={connection} onRestart={restart} onDismiss={dismissNotice} /> : null}
         {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
         <div ref={row} inert={blocked} className="relative flex min-h-0 min-w-0 flex-1">
-          <WorkspaceActivityStates workspace={shown?.id}>
-            <aside aria-label="Agents" className={SIDEBAR} style={{ width: leftWidth }}>
-              <LeftPanel />
-            </aside>
-            <ResizeHandle
-              label="Resize the left sidebar"
-              onDrag={(dx) => setLeftWidth((width) => clampWidth(width + dx, leftBounds(rowWidth - RESIZE_HANDLE_WIDTH * (rightOpen ? 2 : 1), rightOpen)))}
-            />
-            <div ref={beside} className="flex min-w-0 flex-1">
-              <main ref={middle} className="relative flex min-w-0 flex-1">
-                <div className="flex min-w-0 flex-1 flex-col">
-                  <Middle reveals={reveals} />
-                </div>
-                <Toolbar workspace={shown?.id} area={middle} />
-              </main>
-              <RightSidebar className={SIDEBAR} shown={shown?.id} available={besideWidth - RESIZE_HANDLE_WIDTH} reveals={reveals} titles={titles} />
-            </div>
-          </WorkspaceActivityStates>
+          <aside aria-label="Agents" className={SIDEBAR} style={{ width: leftWidth }}>
+            <LeftPanel />
+          </aside>
+          <ResizeHandle
+            label="Resize the left sidebar"
+            onDrag={(dx) => setLeftWidth((width) => clampWidth(width + dx, leftBounds(rowWidth - RESIZE_HANDLE_WIDTH * (rightOpen ? 2 : 1), rightOpen)))}
+          />
+          <div ref={beside} className="flex min-w-0 flex-1">
+            <main ref={middle} className="relative flex min-w-0 flex-1">
+              <div className="flex min-w-0 flex-1 flex-col">
+                <Middle reveals={reveals} />
+              </div>
+              <Toolbar workspace={shown?.id} area={middle} />
+            </main>
+            <RightSidebar className={SIDEBAR} shown={shown?.id} available={besideWidth - RESIZE_HANDLE_WIDTH} reveals={reveals} titles={titles} />
+          </div>
           <div aria-hidden className={cn("pointer-events-none absolute inset-0 z-20 bg-scrim transition-opacity", blocked ? "opacity-100" : "opacity-0")} />
         </div>
         <LiveStatusBar connection={connection} agents={agents} />
