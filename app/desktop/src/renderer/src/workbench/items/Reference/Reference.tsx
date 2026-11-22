@@ -1,7 +1,7 @@
 import type { BinderSummary } from "@wombat/shared/items";
 
-import { useWorkbench } from "../../workbench-context.ts";
 import { useHoverPreview } from "../ItemPreview/HoverPreview.tsx";
+import { useItemNavigation } from "../navigation/item-navigation.ts";
 
 /** The prefixes of the listed binders, which references in text are to. */
 export const referencePrefixes = (binders: readonly BinderSummary[] | undefined): string[] =>
@@ -9,7 +9,7 @@ export const referencePrefixes = (binders: readonly BinderSummary[] | undefined)
 
 /** A reference to item `handle` in text: its preview on hover or focus, and a click follows it to the item. */
 export const Reference = ({ handle }: { handle: string }) => {
-  const { followItem } = useWorkbench();
+  const { followItem } = useItemNavigation();
   const follow = () => followItem(handle);
   const preview = useHoverPreview({ itemRef: handle, onOpen: follow });
   return (

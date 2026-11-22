@@ -24,25 +24,6 @@ export type WorkbenchActions = {
   openBeside: (panelId: string, params: unknown, beside: TabRef) => void;
   /** Closes the tab for this panel and params, if it's open. */
   closeTab: (panelId: string, params: unknown) => void;
-  /** The open tabs on item `itemId`, whichever binder each was opened from (its file may have moved since). */
-  itemTabs: (itemId: string) => TabRef[];
-  /**
-   * Switches to the Desk and shows the binder in its sidebar on its view `view` (else its first), else as a list of its
-   * items. `reveal` (a proposal id or an item id) reaches the Desk's sidebar.
-   */
-  openBinder: (binderId: string, reveal?: string, view?: string) => void;
-  /**
-   * Opens or focuses the item's tab. A `temporary` tab takes the place of its group's temporary tab and is replaced by
-   * the next one, until it's kept (`keepTab`); a tab opened again without it is kept.
-   */
-  openItem: (binderId: string, itemId: string, options?: OpenOptions) => void;
-  /**
-   * Shows the item (`ref`: its id or a handle) where it sits: the Desk's sidebar on its binder's first view, the item's
-   * row revealed, and the item in a temporary tab. For a ref that names no item, opens nothing and tells the user.
-   */
-  followItem: (ref: string) => void;
-  /** Opens a new tab on an item not written yet in the binder, starting with `context`'s values (`viewContext`). */
-  openNewItem: (binderId: string, context: Record<string, unknown>) => void;
   /**
    * Opens tab `to` where tab `from` is (same group, same position) and closes `from` without asking its close guard;
    * with `from` not open, opens `to` as openTab does.
@@ -85,6 +66,15 @@ export const useDesk = (): DeskState => {
   const state = useContext(DeskContext);
   if (state === undefined) throw new Error("useDesk is used outside the Workbench; render the panel inside it.");
   return state;
+};
+
+/** The Desk's change function alone: its identity outlives every Desk change, so a reader doesn't re-render on one. */
+export const ChangeDeskContext = createContext<DeskState["changeDesk"] | undefined>(undefined);
+
+export const useChangeDesk = (): DeskState["changeDesk"] => {
+  const changeDesk = useContext(ChangeDeskContext);
+  if (changeDesk === undefined) throw new Error("useChangeDesk is used outside the Workbench; render the panel inside it.");
+  return changeDesk;
 };
 
 /** While `ask` is given, a close of the tab (its X, Close, Ctrl+W) runs `ask` instead; the panel closes it itself. */

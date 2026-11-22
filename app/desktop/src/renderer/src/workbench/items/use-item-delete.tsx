@@ -8,6 +8,7 @@ import { useWorkbench } from "../workbench-context.ts";
 import { DeleteItemDialog } from "./DeleteItemDialog/DeleteItemDialog.tsx";
 import { asked, closed, confirmable, type DeletableItem, type DeleteQuestion, refused, sending } from "./item-delete.ts";
 import { itemTitle } from "./item-params.ts";
+import { useItemNavigation } from "./navigation/item-navigation.ts";
 
 /**
  * Deletes an item from the UI: `ask` opens the question (`dialog`, to be rendered by the caller), and Delete there
@@ -16,7 +17,8 @@ import { itemTitle } from "./item-params.ts";
  */
 export const useItemDelete = (): { ask: (item: DeletableItem) => void; dialog: ReactNode } => {
   const remove = useDeleteItem();
-  const { closeTab, itemTabs } = useWorkbench();
+  const { closeTab } = useWorkbench();
+  const { itemTabs } = useItemNavigation();
   const [question, setQuestion] = useState<DeleteQuestion>();
 
   const confirm = () => {

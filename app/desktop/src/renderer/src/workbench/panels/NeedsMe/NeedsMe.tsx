@@ -11,7 +11,7 @@ import { proposalShows } from "../../proposals/proposal-actions.ts";
 import { PathText } from "../../proposals/PathText/PathText.tsx";
 import { OutsideWorkspace } from "../../proposals/OutsideWorkspace/OutsideWorkspace.tsx";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
-import { useWorkbench } from "../../workbench-context.ts";
+import { useItemNavigation } from "../../items/navigation/item-navigation.ts";
 import { useOpenAgentChat } from "../../agents/open-agent-chat.ts";
 import { useOpenProposal } from "../../proposals/use-open-proposal.ts";
 import { AgentsError } from "../../approvals/LogError/LogError.tsx";
@@ -70,7 +70,7 @@ const ProposalRowView = ({ row, onOpen }: { row: ProposalRow; onOpen: () => void
  */
 export const NeedsMe = () => {
   const agents = useAgents();
-  const { openBinder } = useWorkbench();
+  const { openBinder } = useItemNavigation();
   const openAgentChat = useOpenAgentChat();
   const openProposal = useOpenProposal();
   const queryClient = useQueryClient();

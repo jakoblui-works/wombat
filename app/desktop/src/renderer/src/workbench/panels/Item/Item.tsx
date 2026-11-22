@@ -26,6 +26,7 @@ import { Conflict } from "./Conflict/Conflict.tsx";
 import { FileName } from "./FileName/FileName.tsx";
 import { type FieldValue, linkTarget, valueText } from "../../items/field-input.ts";
 import { draftStart } from "../../items/draft-start.ts";
+import { useItemNavigation } from "../../items/navigation/item-navigation.ts";
 import { Fields } from "./fields/Fields.tsx";
 import { ItemActions } from "./ItemActions/ItemActions.tsx";
 import { ItemNotice } from "./ItemNotice/ItemNotice.tsx";
@@ -73,7 +74,7 @@ type Editing = { kind: "saved"; tab: SavedItemParams } | { kind: "draft"; tab: D
  * the tab closes, so my edits and the close guard outlive an item or binder that can't be shown for a while.
  */
 const ItemTabBody = ({ shown, editing, proposals = [] }: { shown: ItemShown; editing: Editing; proposals?: readonly ItemChange<ItemProposal>[] }) => {
-  const { followItem } = useWorkbench();
+  const { followItem } = useItemNavigation();
   const form = itemForm(shown, useLastListed(listedBinder(shown)), editing.kind === "draft");
   const properties = form?.binder?.properties ?? NO_PROPERTIES;
   const links = useLinkLists(properties);
