@@ -6,6 +6,7 @@ import { AGENT, atFor } from "../../shared/test/log-entries.ts";
 /** An agent summary as GET /agents lists it. */
 export const summary = (id: string, fields: Partial<AgentSummary> = {}): AgentSummary => ({
   id,
+  workspace: "ws-bakery0001",
   harness: "fake-reply",
   repo: "bakery-site",
   state: "done",

@@ -44,6 +44,8 @@ export type ServerOptions = {
   harnesses: readonly Harness[];
   /** The workspace's root, for `GET /repos`. */
   workspaceRoot: string;
+  /** That workspace's id, which new proposals belong to. */
+  workspaceId: string;
   /** The bearer token every request must carry. */
   token: string;
   /** 0 (the default) picks a free port. */
@@ -81,6 +83,7 @@ export const startServer = async ({
   store,
   harnesses,
   workspaceRoot,
+  workspaceId,
   token,
   port = 0,
   heartbeatMs = HEARTBEAT_MS,
@@ -113,6 +116,7 @@ export const startServer = async ({
   const { access, proposals, notes } = openProposals({
     store,
     workspace: workspaceRoot,
+    workspaceId,
     agentFolder: (agentId) => folderOf(workspaceRoot, requireAgent(agentId, findAgent).repo),
     onProposal,
     log,

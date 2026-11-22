@@ -11,7 +11,7 @@ import type { Writer } from "../items/write.ts";
 import { errorName, type Log } from "../log.ts";
 import { currentVersion } from "../store/proposal-rules.ts";
 import { fieldsOf, textOf } from "../store/proposals.ts";
-import type { ApplyOutcome, NewProposal, ProposalChange, ProposalContent, ProposalVersionHead, Store, StoredProposal } from "../store/store.ts";
+import type { ApplyOutcome, ProposalChange, ProposalContent, ProposalForInsert, ProposalVersionHead, Store, StoredProposal } from "../store/store.ts";
 import { announcer } from "./announce.ts";
 import type { Applied, ApplyTarget, ApproveStep, Written } from "./apply.ts";
 import { baseChanged, currentFile, workspaceMark, writeProposed, written } from "./file-target.ts";
@@ -60,6 +60,8 @@ type ProposalsOptions = {
   store: Store;
   /** The workspace root; a file outside its real path is marked. */
   workspace: string;
+  /** The id of that workspace, which every new proposal belongs to. */
+  workspaceId: string;
   /** The folder an agent runs in: a relative path it proposes starts there. Throws AgentError when it's gone. */
   agentFolder: (agentId: string) => string;
   /** Called once per committed proposal change, with the seq it took. */
@@ -73,7 +75,7 @@ type ProposalsOptions = {
   onApproveStep?: ((step: ApproveStep) => void) | undefined;
 };
 
-export const createProposals = ({ store, workspace, agentFolder, onProposal, log, items, holds, onApproveStep }: ProposalsOptions) => {
+export const createProposals = ({ store, workspace, workspaceId, agentFolder, onProposal, log, items, holds, onApproveStep }: ProposalsOptions) => {
   const announce = announcer(onProposal, log);
 
   /** Announces a committed change; a refused one here means another change got there first. */
@@ -164,10 +166,10 @@ export const createProposals = ({ store, workspace, agentFolder, onProposal, log
   };
 
   /** Stores a proposal, unless its agent is at the cap, and announces it. Synchronous, so no other call stores between the count and the insert. */
-  const insert = (proposal: NewProposal, firstVersion: ProposalContent): ProposalResult => {
+  const insert = (proposal: ProposalForInsert, firstVersion: ProposalContent): ProposalResult => {
     const refusal = capRefusal(store.countOpen(proposal.agentId));
     if (refusal !== undefined) throw new ProposalRefused(refusal);
-    const { proposal: stored, seq } = store.insertProposal(proposal, firstVersion);
+    const { proposal: stored, seq } = store.insertProposal({ ...proposal, workspace: workspaceId }, firstVersion);
     announce(stored.id, seq);
     return { proposed: stored.id };
   };

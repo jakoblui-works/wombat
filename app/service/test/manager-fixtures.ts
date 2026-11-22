@@ -18,6 +18,7 @@ import { openStore, type Store, type StoreOptions } from "../src/store/store.ts"
 import { SCENARIOS, type FakeScenario } from "./fake-agent.ts";
 import { fakeHarness, type FakeHarnessOptions } from "./fake-harness.ts";
 import { fakeSystemd, type FakeSystemd, type FakeSystemdOptions } from "./fake-systemd.ts";
+import { WORKSPACE } from "./store-fixtures.ts";
 
 /** Per-test timeout and how long a test waits for an agent to get somewhere, in one place. */
 export const TEST_TIMEOUT_MS = 15_000;
@@ -168,6 +169,7 @@ export const setup = ({ systemd = "none", fake, storeOptions = {}, configSetTime
     const manager = createManager({
       store,
       workspaceRoot: root,
+      workspace: WORKSPACE,
       harnesses,
       log: (event: string, fields: LogLine["fields"]) => logs.push({ event, fields }),
       env,

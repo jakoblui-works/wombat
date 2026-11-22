@@ -35,7 +35,11 @@ export const open = (options: StoreOptions): Store => {
   return store;
 };
 
-export const summary = (id: string, overrides: Partial<AgentSummary> = {}): AgentSummary => ({
+/** The workspace id the fixtures' agents, proposals and items belong to; not in any store's workspace list. */
+export const WORKSPACE = "ws-test000001";
+
+/** A summary without a workspace, as a store before schema 6 kept it, unless `overrides` gives one. */
+export const summary = <O extends Partial<AgentSummary> = Record<never, never>>(id: string, overrides: O = {} as O): Omit<AgentSummary, "workspace"> & O => ({
   id,
   harness: "claude-code",
   repo: "site-web",

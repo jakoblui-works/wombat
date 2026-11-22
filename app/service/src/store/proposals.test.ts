@@ -7,9 +7,10 @@ import { DatabaseSync } from "node:sqlite";
 import { FileProposalKind, ItemProposalKind, ProposalStatus, ProposalVersion } from "@wombat/shared/proposals";
 import { describe, expect, test } from "vitest";
 
-import { open, tempStorePath } from "../../test/store-fixtures.ts";
+import { open, tempStorePath, WORKSPACE } from "../../test/store-fixtures.ts";
 
 const NEW = {
+  workspace: WORKSPACE,
   target: "item" as const,
   path: null,
   binder: "bugs",
@@ -22,6 +23,7 @@ const NEW = {
 };
 const FIELDS = { fields: { note: "Seen again" } };
 const NEW_FILE = {
+  workspace: WORKSPACE,
   target: "file" as const,
   path: "/home/sam/work/site-web/docs/install.md",
   binder: null,

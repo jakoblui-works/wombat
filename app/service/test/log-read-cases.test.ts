@@ -4,7 +4,7 @@
 import { describe, expect, test } from "vitest";
 
 import { LOG_READ_CASES } from "../../shared/test/log-read-cases.ts";
-import { open, summary, tempStorePath } from "./store-fixtures.ts";
+import { open, summary, tempStorePath, WORKSPACE } from "./store-fixtures.ts";
 import type { NewLogEntry } from "../src/store/store.ts";
 
 const AGENT = "agent-hours-1";
@@ -17,7 +17,7 @@ const size = (position: number): number => Buffer.byteLength(JSON.stringify(entr
 describe("log read cases: the real store", () => {
   test.each(LOG_READ_CASES)("$name", ({ stored, capKeepsNewest, after, limit, expected, truncated }) => {
     const store = open({ path: tempStorePath(), ...(capKeepsNewest === undefined ? {} : { maxLogBytesPerAgent: capKeepsNewest * size(1) }) });
-    store.putAgent(summary(AGENT));
+    store.putAgent(summary(AGENT, { workspace: WORKSPACE }));
     const seqs = Array.from({ length: stored }, (_, i) => store.append(AGENT, [entry(i + 1)])).flat();
     const seqOf = (position: number): number => (position === 0 ? 0 : (seqs[position - 1] ?? Number.NaN));
 

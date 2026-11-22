@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 
 import { describe, expect, onTestFinished, test } from "vitest";
 
-import { open, summary, tempStorePath, textChunk } from "../../test/store-fixtures.ts";
+import { open, summary, tempStorePath, textChunk, WORKSPACE } from "../../test/store-fixtures.ts";
 
 const modeOf = (path: string) => statSync(path).mode & 0o777;
 
@@ -28,7 +28,7 @@ const expectPrivate = (path: string) => {
 
 /** Writes something, so SQLite has its -wal and -shm files open. */
 const write = (store: ReturnType<typeof open>) => {
-  store.putAgent(summary("a1"));
+  store.putAgent(summary("a1", { workspace: WORKSPACE }));
   store.append("a1", [textChunk("Hello")]);
 };
 
@@ -94,7 +94,7 @@ const crashMidSession = async (path: string) => {
       script,
       join(import.meta.dirname, "store.ts"),
       path,
-      JSON.stringify(summary("a1")),
+      JSON.stringify(summary("a1", { workspace: WORKSPACE })),
       JSON.stringify(textChunk("Written before the crash.")),
     ],
     { stdio: ["ignore", "pipe", "pipe"] },

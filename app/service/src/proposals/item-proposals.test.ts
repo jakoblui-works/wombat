@@ -3,6 +3,7 @@
 // delete as done while its item lives on.
 import { expect, test } from "vitest";
 
+import { WORKSPACE } from "../../test/store-fixtures.ts";
 import type { LoadedItem } from "../items/catalog.ts";
 import { itemWritten, type StoredItemProposal } from "./item-proposals.ts";
 
@@ -27,6 +28,7 @@ const item = (id: string, version: string): LoadedItem => ({
 /** A proposal being applied: a create has no item yet, an update and a delete name ITEM_ID. */
 const applying = (kind: StoredItemProposal["kind"], intent: unknown): StoredItemProposal => ({
   id: "0196f3c2-1a00-7000-8000-0000000000aa",
+  workspace: WORKSPACE,
   target: "item",
   path: null,
   binder: "bugs",

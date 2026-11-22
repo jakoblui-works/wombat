@@ -265,6 +265,33 @@ export type ListHarnessesResponse = z.infer<typeof ListHarnessesResponse>;
 export const ListReposResponse = z.object({ repos: z.array(z.object({ path: z.string(), name: z.string() })) });
 export type ListReposResponse = z.infer<typeof ListReposResponse>;
 
+const WORKSPACE_ID = /^ws-[a-z0-9]{10}$/;
+const WORKSPACE_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
+
+/** A workspace's id: `ws-` and ten lowercase letters and digits, made by `newWorkspaceId`. */
+export const WorkspaceId = z.string().regex(WORKSPACE_ID);
+export type WorkspaceId = z.infer<typeof WorkspaceId>;
+
+export const isWorkspaceId = (value: unknown): value is WorkspaceId => WorkspaceId.safeParse(value).success;
+
+export const newWorkspaceId = (): WorkspaceId => {
+  let id = "";
+  while (id.length < 10) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(16))) {
+      // 252 is the largest multiple of 36 a byte holds; the bytes above it would make the first letters likelier.
+      if (byte < 252 && id.length < 10) id += WORKSPACE_ID_ALPHABET[byte % WORKSPACE_ID_ALPHABET.length];
+    }
+  }
+  return `ws-${id}`;
+};
+
+/**
+ * A folder in the service's list. `root` is its real path; `name` the root's last segment; `missing` is true while the
+ * root isn't an existing folder.
+ */
+export const Workspace = z.object({ id: WorkspaceId, name: z.string(), root: z.string(), itemsRoot: z.string().exactOptional(), missing: z.boolean() });
+export type Workspace = z.infer<typeof Workspace>;
+
 // Newer ACP tool kinds read as "other".
 const ToolKind = z
   .enum(["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other"])
@@ -283,7 +310,9 @@ export type Activity = z.infer<typeof Activity>;
 
 const AgentSummaryFields = z.object({
   id: z.string(),
+  workspace: WorkspaceId,
   harness: z.string(),
+  /** Relative to the root of the agent's workspace. */
   repo: z.string(),
   state: z.enum(["working", "waiting", "done", "error", "stopped"]),
   sessionId: z.string(),

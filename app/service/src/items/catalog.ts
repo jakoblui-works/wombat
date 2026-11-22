@@ -71,7 +71,10 @@ export type Catalog = {
   holds(path: string): Promise<boolean>;
 };
 
-export type CatalogOptions = { root: string; store: Store; log?: Log };
+/** `workspace`: the id of the workspace whose items folder `root` is; its handle counters are the workspace's. */
+export type CatalogOptions = { root: string; store: Store; workspace: string; log?: Log };
+
+type NextHandle = (binder: string, floor: number) => number;
 
 export type ValidBinder = Extract<LoadedBinder, { id: string }>;
 
@@ -417,7 +420,7 @@ const checkedEdit = (parsed: ParsedItemFile, added: { id?: string; handle?: stri
  * edit is checked with stand-in values before the handle number is taken, so a skipped or refused write takes
  * no number.
  */
-const assign = (root: string, store: Store, log: Log | undefined, floors: Map<string, number>, assignment: Assignment): Promise<Outcome> => {
+const assign = (root: string, nextHandle: NextHandle, log: Log | undefined, floors: Map<string, number>, assignment: Assignment): Promise<Outcome> => {
   const { entry, needsId, needsHandle, rewrites } = assignment;
   const { settings } = entry.binder;
   const field = fieldOf(assignment);
@@ -432,7 +435,7 @@ const assign = (root: string, store: Store, log: Log | undefined, floors: Map<st
       };
     }
     const id = randomUUIDv7();
-    const handle = needsHandle ? formatHandle(settings.prefix, store.nextHandleNumber(settings.id, floors.get(settings.prefix) ?? 0)) : "";
+    const handle = needsHandle ? formatHandle(settings.prefix, nextHandle(settings.id, floors.get(settings.prefix) ?? 0)) : "";
     const text = checkedEdit(entry.parsed, keys(id, handle), rewrites);
     if (text === undefined) throw new Error(`The first-sight edit of ${entry.item.path} passed its check with stand-in values but not with the real ones.`);
     await writeAtomic(entry.file, text, { expectedVersion: entry.item.version });
@@ -452,7 +455,8 @@ const assign = (root: string, store: Store, log: Log | undefined, floors: Map<st
 /** Enough for one pass of writes and one to read back what a parallel read wrote; then the read stands. */
 const MAX_PASSES = 3;
 
-export const openCatalog = ({ root, store, log }: CatalogOptions): Catalog => {
+export const openCatalog = ({ root, store, workspace, log }: CatalogOptions): Catalog => {
+  const nextHandle: NextHandle = (binder, floor) => store.nextHandleNumber(workspace, binder, floor);
   const snapshot = async () => {
     /** Root-relative path → why its write failed; not retried within this read. */
     const failed = new Map<string, Problem>();
@@ -470,7 +474,7 @@ export const openCatalog = ({ root, store, log }: CatalogOptions): Catalog => {
         }
         return read;
       }
-      const outcomes = await Promise.all(pending.map((assignment) => assign(root, store, log, floors, assignment)));
+      const outcomes = await Promise.all(pending.map((assignment) => assign(root, nextHandle, log, floors, assignment)));
       outcomes.forEach((outcome, index) => {
         const path = pending[index]?.entry.item.path;
         if (outcome.kind === "failed" && path !== undefined) failed.set(path, outcome.problem);

@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 
 import { OUTCOMES } from "./proposal-rules.ts";
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 // The seq counter lives in `meta` rather than coming from a rowid, which would reuse seqs after deletes.
 // `dropped_through` is the highest seq of the agent's entries the cap removed, which answers `truncated`.
@@ -106,6 +106,29 @@ const SCHEMA_V5 = `
   ALTER TABLE proposals RENAME COLUMN structure TO binder;
 `;
 
+// Rows written before workspaces existed have none (no `workspace` in an agent's summary, NULL in the columns) until
+// `adoptUnassigned` gives them one; reads leave them out until then. The counters' key is UNIQUE, not PRIMARY KEY,
+// since a STRICT table's primary key refuses the NULL workspace; a NULL is distinct in it, so it never answers for a
+// workspace's binder.
+const SCHEMA_V6 = `
+  CREATE TABLE workspaces (
+    id TEXT PRIMARY KEY,
+    root TEXT NOT NULL UNIQUE,
+    items_root TEXT,
+    added_at TEXT NOT NULL
+  ) STRICT;
+  ALTER TABLE proposals ADD COLUMN workspace TEXT;
+  ALTER TABLE item_counters RENAME TO item_counters_v5;
+  CREATE TABLE item_counters (
+    workspace TEXT,
+    binder TEXT NOT NULL,
+    last INTEGER NOT NULL,
+    UNIQUE (workspace, binder)
+  ) STRICT;
+  INSERT INTO item_counters (workspace, binder, last) SELECT NULL, binder, last FROM item_counters_v5 ORDER BY rowid;
+  DROP TABLE item_counters_v5;
+`;
+
 /** Brings a database at `version` to SCHEMA_VERSION; the caller runs it inside one transaction. Takes no seq. */
 export const upgradeSchema = (db: DatabaseSync, version: number, newDbId: () => string) => {
   if (version < 1) {
@@ -123,5 +146,6 @@ export const upgradeSchema = (db: DatabaseSync, version: number, newDbId: () => 
     db.prepare("UPDATE proposals SET noted_seq = 0 WHERE status IN (SELECT value FROM json_each(?))").run(JSON.stringify(OUTCOMES));
   }
   if (version < 5) db.exec(SCHEMA_V5);
+  if (version < 6) db.exec(SCHEMA_V6);
   db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 };

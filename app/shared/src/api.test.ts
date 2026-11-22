@@ -18,6 +18,7 @@ import type { LogEntry } from "./api.ts";
 
 const doneAgent = {
   id: "agt_7f3c2a",
+  workspace: "ws-site000001",
   harness: "claude-code",
   repo: "site-web",
   state: "done",

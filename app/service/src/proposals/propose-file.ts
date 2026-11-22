@@ -8,7 +8,7 @@ import { AgentError } from "../agents/errors.ts";
 import { TOOL } from "../items/tools.ts";
 import { awaitsNewVersion } from "../store/proposal-rules.ts";
 import { textOf, type TextContent } from "../store/proposals.ts";
-import type { FileEdit, NewProposal, ProposalContent, ProposalVersionRecord, StoredProposal } from "../store/store.ts";
+import type { FileEdit, ProposalContent, ProposalForInsert, ProposalVersionRecord, StoredProposal } from "../store/store.ts";
 import { applyEdits, type EditProblem } from "./edits.ts";
 import { checkText, isThere, movedSince, readTarget, resolveTarget, textRefusal } from "./file-target.ts";
 import type { ProposalResult } from "./item-proposals.ts";
@@ -127,7 +127,7 @@ type FileProposerOptions = {
   /** Whether the items catalog holds a file (the item tools change it, never a file proposal); undefined without items. */
   holds?: ((realPath: string) => Promise<boolean>) | undefined;
   /** Stores a checked proposal; throws ProposalRefused at the cap. */
-  insert: (proposal: NewProposal, firstVersion: ProposalContent) => ProposalResult;
+  insert: (proposal: ProposalForInsert, firstVersion: ProposalContent) => ProposalResult;
 };
 
 /** `proposeFile(agentId, path, reason, change)`: runs a file change's checks, then stores it; throws ProposalRefused. */

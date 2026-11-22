@@ -9,7 +9,7 @@ import fc from "fast-check";
 import { expect, test } from "vitest";
 
 import { openStore } from "./store.ts";
-import { summary, textChunk } from "../../test/store-fixtures.ts";
+import { summary, textChunk, WORKSPACE } from "../../test/store-fixtures.ts";
 
 /** A small cap so that truncation happens during the runs; the product's cap is irrelevant here. */
 const CAP = 2048;
@@ -52,7 +52,7 @@ test("seq never skips: one counter across agents, up by exactly one per change, 
           } else {
             const id = AGENTS[step.agent] ?? "a1";
             if (step.op === "put") {
-              expect(store.putAgent(summary(id))).toBe(seq + 1);
+              expect(store.putAgent(summary(id, { workspace: WORKSPACE }))).toBe(seq + 1);
               seq += 1;
               known.add(id);
             } else if (step.op === "delete") {

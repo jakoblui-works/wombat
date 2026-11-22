@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { AgentSummary, SERVICE_STOP_REASON, type LogEntry } from "@wombat/shared/api";
 import { describe, expect, onTestFinished, test } from "vitest";
 
-import { summary, textChunk } from "../../test/store-fixtures.ts";
+import { summary, textChunk, WORKSPACE } from "../../test/store-fixtures.ts";
 import { FAKE_CONFIG, NO_RESUME_CAPABILITY_FILE, RESUME_REFUSED_FILE } from "../../test/fake-agent.ts";
 import {
   childPidOf,
@@ -127,6 +127,7 @@ describe("start-up and shutdown", () => {
       for (const state of states) {
         t.store.putAgent(
           summary(state, {
+            workspace: WORKSPACE,
             state,
             // As a service that died left them: a process and an open request that no longer exist.
             hasProcess: true,

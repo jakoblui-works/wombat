@@ -17,12 +17,13 @@ import { writeRoot } from "./items-fixtures.ts";
 import { TEST_TIMEOUT_MS } from "./manager-fixtures.ts";
 import { callTool, type ToolAnswer } from "./mcp-fixtures.ts";
 import { serve, type Served } from "./server-fixtures.ts";
-import { open, tempDir, tempStorePath } from "./store-fixtures.ts";
+import { open, tempDir, tempStorePath, WORKSPACE } from "./store-fixtures.ts";
 
 const FULL = { token: "token-of-the-agent-at-the-cap", agent: "agent-at-the-cap" };
 const OTHER = { token: "token-of-another-agent", agent: "agent-with-room" };
 
 const fileProposal = (agentId: string, n: number): NewProposal => ({
+  workspace: WORKSPACE,
   target: "file",
   path: `/home/sam/work/site-web/docs/page-${String(n)}.md`,
   binder: null,
@@ -33,7 +34,7 @@ const fileProposal = (agentId: string, n: number): NewProposal => ({
   baseVersion: "4d5e6f",
   agentId,
 });
-const itemProposal = (agentId: string): NewProposal => ({ target: "item", path: null, binder: "bugs", itemId: VISIBLE_IDS.bug1, kind: "update", file: null, reason: "Seen again", baseVersion: "9f2c", agentId });
+const itemProposal = (agentId: string): NewProposal => ({ workspace: WORKSPACE, target: "item", path: null, binder: "bugs", itemId: VISIBLE_IDS.bug1, kind: "update", file: null, reason: "Seen again", baseVersion: "9f2c", agentId });
 
 /** Gives the agent MAX_OPEN_PROPOSALS proposals that count (file and item, pending and one conflict) and a rejected one. */
 const fill = (store: Store, agentId: string) => {
@@ -96,7 +97,7 @@ test(
 test("at the versions limit the agent's revise is refused and stores nothing, and my own version is still saved", async () => {
   const workspace = tempDir();
   const store = open({ path: tempStorePath() });
-  const proposals = createProposals({ store, workspace, agentFolder: () => workspace, onProposal: () => undefined, log: () => undefined });
+  const proposals = createProposals({ store, workspace, workspaceId: WORKSPACE, agentFolder: () => workspace, onProposal: () => undefined, log: () => undefined });
   const { proposed: id } = await proposals.proposeFile(FULL.agent, join(workspace, "notes.md"), "The notes need a file.", { content: "# Notes\n\nRevision 1.\n" });
   const revise = (n: number) => proposals.revise(FULL.agent, id, "Counted again.", { content: `# Notes\n\nRevision ${String(n)}.\n` });
   // Straight into the store up to one below the limit; the last one through the revise, which is still taken there.

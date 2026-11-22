@@ -147,10 +147,14 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
     }
     const identity = { startedAt, codeId };
     store = openStore({ path: config.storePath });
+    // Before the manager loads the agents: rows stored before workspaces existed are listed once adopted.
+    const workspace = store.addWorkspace(config.workspaceRoot, config.itemsRoot).workspace.id;
+    store.adoptUnassigned(workspace);
     const slice = options.slice === undefined ? {} : { slice: options.slice };
     manager = createManager({
       store,
       workspaceRoot: config.workspaceRoot,
+      workspace,
       harnesses,
       log,
       env,
@@ -159,7 +163,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
     });
     try {
       const { itemsRoot, workspaceRoot } = config;
-      const catalog = itemsRoot === undefined ? undefined : openCatalog({ root: itemsRoot, store, log });
+      const catalog = itemsRoot === undefined ? undefined : openCatalog({ root: itemsRoot, store, workspace, log });
       watch = itemsRoot === undefined ? undefined : openWatch({ root: itemsRoot, log });
       instructions = openInstructions({ catalog, workspaceRoot, ...(watch === undefined ? {} : { watch }), log });
       const { refresh } = instructions;
@@ -183,12 +187,13 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
       const items =
         itemsRoot === undefined || catalog === undefined
           ? {}
-          : { items: catalog, writer: refreshingWriter(openWriter({ root: itemsRoot, store, log }), afterWrite) };
+          : { items: catalog, writer: refreshingWriter(openWriter({ root: itemsRoot, store, workspace, log }), afterWrite) };
       server = await startServer({
         manager,
         store,
         harnesses,
         workspaceRoot: config.workspaceRoot,
+        workspaceId: workspace,
         token,
         port: config.port,
         log,

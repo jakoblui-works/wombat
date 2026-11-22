@@ -13,7 +13,7 @@ import { expect, onTestFinished, test } from "vitest";
 import { createProposals } from "../src/proposals/proposals.ts";
 import { ACCESS_FILES, openAccessRoot } from "./access-fixtures.ts";
 import { writeAt } from "./items-fixtures.ts";
-import { open, tempStorePath } from "./store-fixtures.ts";
+import { open, tempStorePath, WORKSPACE } from "./store-fixtures.ts";
 import { SETTINGS_FILE } from "../src/items/binders.ts";
 
 type Notes = { setup: string; rotation: string; review: string };
@@ -44,7 +44,7 @@ const tempFolder = () => {
 const bench = () => {
   const workspace = tempFolder();
   const store = open({ path: tempStorePath() });
-  const proposals = createProposals({ store, workspace, agentFolder: () => workspace, onProposal: () => undefined, log: () => undefined });
+  const proposals = createProposals({ store, workspace, workspaceId: WORKSPACE, agentFolder: () => workspace, onProposal: () => undefined, log: () => undefined });
   const path = join(workspace, "pairing-notes.md");
   const text = async (id: string) => ((await proposals.get(id)) as Extract<ProposalDetail, { target: "file" }>).text;
   return {

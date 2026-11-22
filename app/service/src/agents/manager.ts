@@ -28,6 +28,8 @@ export type ManagerOptions = {
   store: Store;
   /** Repo paths are relative to this folder, and must resolve inside it. */
   workspaceRoot: string;
+  /** That workspace's id, which every new agent belongs to. */
+  workspace: string;
   harnesses?: readonly Harness[];
   log?: Log;
   /** What each agent's environment is filtered from (see `agentEnv`). */
@@ -43,6 +45,7 @@ export type ManagerOptions = {
 export const createManager = ({
   store,
   workspaceRoot,
+  workspace,
   harnesses = defaultHarnesses,
   log = logToStderr,
   env = process.env,
@@ -227,6 +230,7 @@ export const createManager = ({
         const startedAt = now();
         const summary: Omit<AgentSummary, "hasProcess"> = {
           id: agentId,
+          workspace,
           harness: harness.id,
           repo,
           state: "done",

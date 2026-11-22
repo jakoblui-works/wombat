@@ -13,6 +13,7 @@ import { openCatalog } from "../src/items/catalog.ts";
 import { openWriter } from "../src/items/write.ts";
 import { startServer } from "../src/server/server.ts";
 import { fixtureHarnesses, type LogLine, REPO, setup, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
+import { WORKSPACE } from "./store-fixtures.ts";
 
 export { APP_ORIGIN };
 
@@ -305,6 +306,7 @@ export const serve = async ({ heartbeatMs, sendFails, itemsRoot, agentTokens = {
     store: t.store,
     harnesses,
     workspaceRoot: t.root,
+    workspaceId: WORKSPACE,
     token,
     log,
     onShutdown: () => {
@@ -313,7 +315,10 @@ export const serve = async ({ heartbeatMs, sendFails, itemsRoot, agentTokens = {
     ...(heartbeatMs === undefined ? {} : { heartbeatMs }),
     ...(itemsRoot === undefined
       ? {}
-      : { items: openCatalog({ root: itemsRoot, store: t.store }), writer: openWriter({ root: itemsRoot, store: t.store, log }) }),
+      : {
+          items: openCatalog({ root: itemsRoot, store: t.store, workspace: WORKSPACE }),
+          writer: openWriter({ root: itemsRoot, store: t.store, workspace: WORKSPACE, log }),
+        }),
   });
   let closed: Promise<void> | undefined;
   const close = () => (closed ??= server.close());

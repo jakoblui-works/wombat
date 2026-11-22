@@ -12,6 +12,7 @@ import {
   tempDir,
   tempStorePath,
   textChunk,
+  WORKSPACE,
 } from "../../test/store-fixtures.ts";
 
 const textOf = (entry: LogEntry) =>
@@ -24,7 +25,7 @@ describe("append", () => {
   test("a batch that fails stores nothing: no entries, no seq taken", () => {
     const path = tempStorePath();
     const store = open({ path });
-    store.putAgent(summary("a1"));
+    store.putAgent(summary("a1", { workspace: WORKSPACE }));
     store.append("a1", [textChunk("kept")]);
     const seqBefore = store.currentSeq();
     const logBefore = store.readLog("a1");
@@ -52,7 +53,7 @@ describe("persistence", () => {
   test("a new database file gets a new dbId and starts empty", () => {
     const dir = tempDir();
     const first = open({ path: tempStorePath(dir) });
-    first.putAgent(summary("a1"));
+    first.putAgent(summary("a1", { workspace: WORKSPACE }));
     const second = open({ path: `${dir}/other/service.db` });
 
     expect(typeof second.dbId).toBe("string");
@@ -68,7 +69,7 @@ describe("readLog", () => {
   test("come back as valid shared log entries, unchanged, with at defaulting to now", () => {
     const now = new Date("2026-11-09T12:34:56.000Z");
     const store = open({ path: tempStorePath(), now: () => now });
-    store.putAgent(summary("a1"));
+    store.putAgent(summary("a1", { workspace: WORKSPACE }));
     const withoutAt = textChunk("No timestamp given.");
 
     const seqs = store.append("a1", [...realisticTurn, withoutAt]);
@@ -91,8 +92,8 @@ describe("the per-agent size cap", () => {
 
   test("past the cap the oldest entries go, the newest stay, other agents are untouched, and truncated says so", () => {
     const store = open({ path: tempStorePath(), maxLogBytesPerAgent: CAP });
-    store.putAgent(summary("big"));
-    store.putAgent(summary("small"));
+    store.putAgent(summary("big", { workspace: WORKSPACE }));
+    store.putAgent(summary("small", { workspace: WORKSPACE }));
     const smallChunks = ["one", "two", "three", "four"].map((word) => textChunk(`${word} ${"s".repeat(CAP / 16)}`));
     const smallSeqs = [...store.append("small", smallChunks.slice(0, 2))];
 
@@ -121,7 +122,7 @@ describe("the per-agent size cap", () => {
 
   test("the newest entry survives even when it alone is over the cap", () => {
     const store = open({ path: tempStorePath(), maxLogBytesPerAgent: CAP });
-    store.putAgent(summary("a1"));
+    store.putAgent(summary("a1", { workspace: WORKSPACE }));
     store.append("a1", [textChunk("first"), textChunk("second")]);
     const [hugeSeq] = store.append("a1", [textChunk(`huge ${"h".repeat(CAP * 2)}`)]);
 
@@ -135,8 +136,8 @@ describe("deleteAgent", () => {
   test("removes the summary and every entry of that agent, for good, and leaves the others", () => {
     const path = tempStorePath();
     const store = open({ path });
-    store.putAgent(summary("gone"));
-    store.putAgent(summary("stays"));
+    store.putAgent(summary("gone", { workspace: WORKSPACE }));
+    store.putAgent(summary("stays", { workspace: WORKSPACE }));
     store.append("gone", realisticTurn);
     store.append("stays", [textChunk("Still here.")]);
     const stays = store.readLog("stays");
@@ -152,7 +153,7 @@ describe("deleteAgent", () => {
     const reopened = open({ path });
     expect(reopened.listAgents().map((agent) => agent.id)).toEqual(["stays"]);
     // The same id added again starts with no history.
-    reopened.putAgent(summary("gone"));
+    reopened.putAgent(summary("gone", { workspace: WORKSPACE }));
     expect(reopened.readLog("gone")).toEqual({ entries: [], truncated: false });
   });
 });

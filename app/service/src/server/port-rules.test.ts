@@ -8,6 +8,7 @@ import { describe, expect, test } from "vitest";
 
 import { ALL_SCENARIOS, REPO, setup, TEST_TIMEOUT_MS, trackedHarness, WAIT_MS } from "../../test/manager-fixtures.ts";
 import { APP_ORIGIN, appRoutes as routes, expectError, serve } from "../../test/server-fixtures.ts";
+import { WORKSPACE } from "../../test/store-fixtures.ts";
 import { startServer } from "./server.ts";
 
 
@@ -203,6 +204,7 @@ describe("port rules", () => {
         store: t.store,
         harnesses: ALL_SCENARIOS.map((scenario) => trackedHarness(scenario, t.pidDir)),
         workspaceRoot: t.root,
+        workspaceId: WORKSPACE,
       };
       for (const token of ["", "short-token-15c"]) {
         const outcome = await startServer({ ...options, token }).then(

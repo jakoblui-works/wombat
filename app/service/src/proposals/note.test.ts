@@ -6,6 +6,7 @@ import type { NoteOutcome, NoteReference } from "@wombat/shared/api";
 import { MAX_PROPOSAL_BYTES, type ProposalStatus } from "@wombat/shared/proposals";
 import { expect, test } from "vitest";
 
+import { WORKSPACE } from "../../test/store-fixtures.ts";
 import type { ProposalContent, ProposalVersionRecord, StoredProposal } from "../store/store.ts";
 import { NOTE_DIFF_LIMITS, noteFor, type NoteSubject } from "./note.ts";
 
@@ -25,7 +26,7 @@ const texts = (...given: [By, string][]) => versions(...given.map(([by, text]): 
 
 /** A file proposal in `status` with `given` versions, as the note is built from it. */
 const subject = (status: ProposalStatus, given: ProposalVersionRecord[], target: "file" | "item" = "file"): NoteSubject => {
-  const common = { id: "0196f3c2-1a00-7000-8000-0000000000aa", file: null, reason: "The rotation rule changed.", baseVersion: "4d5e6f", status, agentId: "agent-1", at: AT };
+  const common = { id: "0196f3c2-1a00-7000-8000-0000000000aa", workspace: WORKSPACE, file: null, reason: "The rotation rule changed.", baseVersion: "4d5e6f", status, agentId: "agent-1", at: AT };
   const stored: StoredProposal =
     target === "file"
       ? { ...common, target, itemId: null, path: PATH, binder: null, kind: "edit" }

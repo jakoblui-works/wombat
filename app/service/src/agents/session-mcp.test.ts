@@ -8,6 +8,7 @@ import { describe, expect, onTestFinished, test } from "vitest";
 
 import { fakeHarness } from "../../test/fake-harness.ts";
 import { TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
+import { WORKSPACE } from "../../test/store-fixtures.ts";
 import { claudeCode } from "../harness/claude-code.ts";
 import type { Harness } from "../harness/harness.ts";
 import { startServer } from "../server/server.ts";
@@ -43,13 +44,14 @@ const startResumable = async () => {
   const manager = createManager({
     store,
     workspaceRoot: workspace,
+    workspace: WORKSPACE,
     harnesses: [harness],
     log: () => undefined,
     env: { ...process.env, PATH: join(base, "bin") },
     readInstructions: () => Promise.resolve(instructions.now),
     slice: `wombattest${randomUUID().replaceAll("-", "")}.slice`,
   });
-  const server = await startServer({ manager, store, harnesses: [harness], workspaceRoot: workspace, token: randomBytes(24).toString("base64url"), log: () => undefined });
+  const server = await startServer({ manager, store, harnesses: [harness], workspaceRoot: workspace, workspaceId: WORKSPACE, token: randomBytes(24).toString("base64url"), log: () => undefined });
   onTestFinished(async () => {
     await server.close();
     await manager.shutdown();

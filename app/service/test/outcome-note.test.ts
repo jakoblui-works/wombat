@@ -19,6 +19,7 @@ import { ACCESS_FILES, VISIBLE_IDS } from "./access-fixtures.ts";
 import { writeRoot } from "./items-fixtures.ts";
 import { chunkTexts, REPO, setup, TEST_TIMEOUT_MS, waitFor } from "./manager-fixtures.ts";
 import { serve } from "./server-fixtures.ts";
+import { WORKSPACE } from "./store-fixtures.ts";
 
 const LIMITS = '{ "maxFiles": 12 }\n';
 const POLICY = "export const RETRY = { attempts: 3, backoffMs: 250 };\n";
@@ -32,7 +33,7 @@ const open = async () => {
   const t = setup();
   const { id: agentId } = await t.manager.start("fake-echo", REPO);
   const folder = join(t.root, REPO);
-  const proposals = createProposals({ store: t.store, workspace: t.root, agentFolder: () => folder, onProposal: () => undefined, log: () => undefined });
+  const proposals = createProposals({ store: t.store, workspace: t.root, workspaceId: WORKSPACE, agentFolder: () => folder, onProposal: () => undefined, log: () => undefined });
   const notes = () => t.entries(agentId).filter((entry): entry is ProposalNoteEntry => entry.type === "proposal_note");
 
   /** The turn of the message stored as `seq`: the agent's reply, and the entry right before the message. */
@@ -234,7 +235,7 @@ test(
     const s = await serve({ itemsRoot: writeRoot(ACCESS_FILES) });
     const { id: agentId } = await s.manager.start("fake-echo", REPO);
     const { proposal } = s.store.insertProposal(
-      { target: "item", path: null, binder: "bugs", itemId: VISIBLE_IDS.bug2, kind: "update", file: null, reason: "Seen again", baseVersion: "9f2c", agentId },
+      { workspace: WORKSPACE, target: "item", path: null, binder: "bugs", itemId: VISIBLE_IDS.bug2, kind: "update", file: null, reason: "Seen again", baseVersion: "9f2c", agentId },
       { fields: { note: "Also in Chromium" } },
     );
     const rejected = await s.api("POST", `/proposals/${proposal.id}/reject`, { reason: "Not a duplicate." });

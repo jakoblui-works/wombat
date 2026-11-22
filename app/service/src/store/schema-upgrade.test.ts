@@ -11,7 +11,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { describe, expect, test } from "vitest";
 
-import { open, summary, tempStorePath } from "../../test/store-fixtures.ts";
+import { open, summary, tempDir, tempStorePath } from "../../test/store-fixtures.ts";
 import { SCHEMA_VERSION } from "./schema.ts";
 
 /** Schema 1 and the schema 2 additions, exactly as that store wrote them; schema 3 changed no table. */
@@ -147,6 +147,14 @@ const raw = <T>(path: string, read: (db: DatabaseSync) => T): T => {
 };
 
 const version = (path: string) => raw(path, (db) => db.prepare("PRAGMA user_version").get()?.user_version);
+
+/** Opens the upgraded store with its rows given a workspace, as the service does at start; returns that workspace's id. */
+const openAdopted = (path: string) => {
+  const store = open({ path });
+  const { id } = store.addWorkspace(tempDir()).workspace;
+  store.adoptUnassigned(id);
+  return { store, workspace: id };
+};
 
 type V3Row = Omit<typeof PROPOSAL, "kind" | "status" | "itemId" | "fields" | "file" | "baseVersion"> & {
   itemId: string | null;
@@ -410,21 +418,21 @@ describe("opening a store an older version wrote", () => {
     mkdirSync(dirname(path), { recursive: true });
     writeV2Store(path);
 
-    const store = open({ path });
+    const { store, workspace } = openAdopted(path);
 
     expect(store.dbId).toBe(DB_ID);
     expect(store.currentSeq()).toBe(LAST_SEQ);
     // Strict: branch, lastText and lastUserAt must be absent, not present as undefined or null.
-    expect(store.listAgents()).toStrictEqual(V2_AGENTS.map((agent) => ({ ...agent, pendingPermissions: [] })));
+    expect(store.listAgents()).toStrictEqual(V2_AGENTS.map((agent) => ({ ...agent, pendingPermissions: [], workspace })));
     expect(store.readLog("a1").entries.map(({ seq, type }) => ({ seq, type }))).toEqual([
       { seq: 2, type: "user_message" },
       { seq: 3, type: "session_update" },
     ]);
     expect(store.readLog("a2").entries.map((entry) => entry.seq)).toEqual([6]);
     const { fields, ...stored } = PROPOSAL;
-    expect(store.getProposal(PROPOSAL.id)).toEqual({ ...stored, target: "item", path: null });
+    expect(store.getProposal(PROPOSAL.id)).toEqual({ ...stored, target: "item", path: null, workspace });
     expect(store.listVersions(PROPOSAL.id).map((version) => version.content)).toEqual([{ fields }]);
-    expect(store.nextHandleNumber(COUNTER.binder, 0), "the handle counter carries on").toBe(COUNTER.last + 1);
+    expect(store.nextHandleNumber(workspace, COUNTER.binder, 0), "the handle counter carries on").toBe(COUNTER.last + 1);
     store.close();
     expect(version(path)).toBe(SCHEMA_VERSION);
   });
@@ -433,11 +441,11 @@ describe("opening a store an older version wrote", () => {
     const path = tempStorePath();
     writeV3Store(path);
 
-    const store = open({ path });
+    const { store, workspace } = openAdopted(path);
 
     expect(store.listProposals().map((proposal) => proposal.id)).toEqual(V3_ROWS.map((row) => row.id));
     for (const { fields, ...row } of V3_ROWS) {
-      expect(store.getProposal(row.id), `the ${row.status} proposal`).toStrictEqual({ ...row, target: "item", path: null });
+      expect(store.getProposal(row.id), `the ${row.status} proposal`).toStrictEqual({ ...row, target: "item", path: null, workspace });
       expect(store.listVersions(row.id), `the ${row.status} proposal's versions`).toEqual([{ n: 1, by: "agent", content: { fields }, reason: row.reason, at: row.at }]);
     }
     expect(store.currentSeq(), "the upgrade takes no seq").toBe(LAST_SEQ);
@@ -448,7 +456,7 @@ describe("opening a store an older version wrote", () => {
   test("outcomes a v3 store already held aren't undelivered after the upgrade; one reached after it is", () => {
     const path = tempStorePath();
     writeV3Store(path);
-    const store = open({ path });
+    const { store } = openAdopted(path);
     const pending = V3_ROWS.find((row) => row.agentId === "a2" && row.status === "pending");
 
     expect(store.undeliveredOutcomes("a2")).toEqual([]);
@@ -461,14 +469,14 @@ describe("opening a store an older version wrote", () => {
     const path = tempStorePath();
     writeV4Store(path);
 
-    const store = open({ path });
+    const { store, workspace } = openAdopted(path);
 
     expect(store.dbId).toBe(DB_ID);
     expect(store.currentSeq(), "the upgrade takes no seq").toBe(LAST_SEQ);
-    for (const { binder, last } of V4_COUNTERS) expect(store.nextHandleNumber(binder, 0), `${binder}'s counter carries on`).toBe(last + 1);
+    for (const { binder, last } of V4_COUNTERS) expect(store.nextHandleNumber(workspace, binder, 0), `${binder}'s counter carries on`).toBe(last + 1);
     expect(store.listProposals().map((proposal) => proposal.id)).toEqual(V4_ROWS.map((row) => row.id));
     for (const { versions, ...row } of V4_ROWS) {
-      expect(store.getProposal(row.id), `the ${row.target} proposal ${row.id}`).toStrictEqual(row);
+      expect(store.getProposal(row.id), `the ${row.target} proposal ${row.id}`).toStrictEqual({ ...row, workspace });
       expect(store.listVersions(row.id), `the versions of ${row.id}`).toEqual(versions);
     }
     store.close();
