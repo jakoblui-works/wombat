@@ -27,6 +27,7 @@ Wombat is an agentic development environment (ADE) for multi-repo projects. It s
 - The service runs git through simple-git (the real `git` CLI).
 - The desktop app has context isolation on and no Node in the renderer; everything goes through the service.
 - Tool-specific behaviour lives in the service's harness. A tool's desktop UI lives in `app/desktop/src/renderer/src/harnesses/<id>/`, registered once from `workbench/activities.ts` and reached only through the footer slots (`footerSlot`); panels never import it.
+- Renderer code that more than one panel uses goes in `app/desktop/src/renderer/src/workbench/<topic>/` (as `workbench/proposals/`), never in one panel's folder.
 - Items: Markdown in git is the source of truth; the app edits the files, never a copy beside them.
 
 ## Releases and docs
@@ -42,5 +43,6 @@ Wombat is an agentic development environment (ADE) for multi-repo projects. It s
 
 ## Naming
 
+- Use the glossary's terms, and no synonym for them: @../platform-docs/wombat/glossary.md
 - "The app" is the desktop app and its agent service together; "the core" is the sandbox and the index.
 - A project's items live in a docs repo of their own, outside its code repos.
