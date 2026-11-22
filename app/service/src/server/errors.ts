@@ -1,4 +1,4 @@
-import type { AgentErrorCode, ErrorBody, ErrorCode, ItemsErrorCode, ItemWriteErrorCode, ServerErrorCode } from "@wombat/shared/api";
+import type { AgentErrorCode, ErrorBody, ErrorCode, ItemsErrorCode, ItemWriteErrorCode, ServerErrorCode, WorkspaceErrorCode } from "@wombat/shared/api";
 import { Problem } from "@wombat/shared/items";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -29,6 +29,11 @@ export const AGENT_STATUS: Record<AgentErrorCode, ContentfulStatusCode> = {
   agent_failed: 502,
   agent_error: 502,
   unsupported: 409,
+};
+
+export const WORKSPACE_STATUS: Record<WorkspaceErrorCode, ContentfulStatusCode> = {
+  workspace_not_found: 404,
+  invalid_folder: 400,
 };
 
 export const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {

@@ -12,7 +12,8 @@ export const DEFAULT_PORT = 14900;
 export type Config = {
   /** 0 picks a free port. */
   port: number;
-  workspaceRoot: string;
+  /** Unset: the service starts with no default workspace. */
+  workspaceRoot?: string;
   /** The folder of binders and item files; unset when the items aren't configured. */
   itemsRoot?: string;
   storePath: string;
@@ -32,10 +33,11 @@ const readPort = (value: string | undefined): number => {
   return port;
 };
 
-const readWorkspace = (value: string | undefined): string => {
+const readWorkspace = (value: string | undefined): string | undefined => {
+  if (value === undefined) return undefined;
   const name = SERVICE_ENV.workspace;
-  const fix = `Set ${name} to the absolute path of the folder that holds the project's repos.`;
-  if (value === undefined || value === "") throw new Error(`${name} isn't set. ${fix}`);
+  const fix = `Set ${name} to the absolute path of the folder that holds the project's repos, or unset it to start without one.`;
+  if (value === "") throw new Error(`${name} is empty. ${fix}`);
   if (!isAbsolute(value)) throw new Error(`${name} is ${JSON.stringify(value)}, which isn't an absolute path. ${fix}`);
   let isDir: boolean;
   try {
@@ -80,9 +82,16 @@ const readStore = (env: NodeJS.ProcessEnv): string => {
 /** The service's config from `env`; throws with a message naming the variable that's wrong and what to set. */
 export const readConfig = (env: NodeJS.ProcessEnv): Config => {
   const itemsRoot = readItems(env[SERVICE_ENV.items]);
+  const workspaceRoot = readWorkspace(env[SERVICE_ENV.workspace]);
+  if (itemsRoot !== undefined && workspaceRoot === undefined) {
+    throw new Error(
+      `${SERVICE_ENV.items} is set but ${SERVICE_ENV.workspace} isn't, and an items folder belongs to a workspace. ` +
+        `Set ${SERVICE_ENV.workspace} to the workspace's absolute path too, or unset ${SERVICE_ENV.items}.`,
+    );
+  }
   return {
     port: readPort(env.WOMBAT_PORT),
-    workspaceRoot: readWorkspace(env[SERVICE_ENV.workspace]),
+    ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
     ...(itemsRoot === undefined ? {} : { itemsRoot }),
     storePath: readStore(env),
     discoveryPath: discoveryPath(env),

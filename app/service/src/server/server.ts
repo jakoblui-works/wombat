@@ -37,15 +37,17 @@ import { mcpRoutes } from "./mcp.ts";
 import { portRules } from "./port-rules.ts";
 import { proposalRoutes } from "./proposal-routes.ts";
 import { checked, InvalidRequest, readBody, readQuery } from "./request.ts";
+import { NO_WORKSPACE, noWorkspace, workspaceRoutes } from "./workspace-routes.ts";
 
 export type ServerOptions = {
   manager: Manager;
   store: Store;
   harnesses: readonly Harness[];
-  /** The workspace's root, for `GET /repos`. */
-  workspaceRoot: string;
-  /** That workspace's id, which new proposals belong to. */
-  workspaceId: string;
+  /**
+   * The one workspace agents start in and new proposals belong to; `root` for `GET /repos`. Without it, those routes
+   * and the items routes answer that the service has no workspace.
+   */
+  workspace?: { id: string; root: string };
   /** The bearer token every request must carry. */
   token: string;
   /** 0 (the default) picks a free port. */
@@ -82,8 +84,7 @@ export const startServer = async ({
   manager,
   store,
   harnesses,
-  workspaceRoot,
-  workspaceId,
+  workspace,
   token,
   port = 0,
   heartbeatMs = HEARTBEAT_MS,
@@ -113,6 +114,7 @@ export const startServer = async ({
   // Proposal changes reach the alert stream through the manager's listeners, like agent changes.
   const onProposal = (id: string, seq: number) => manager.proposalCommitted(id, seq);
   const findAgent = (id: string) => store.listAgents().find((agent) => agent.id === id);
+  const { id: workspaceId, root: workspaceRoot } = workspace ?? NO_WORKSPACE;
   const { access, proposals, notes } = openProposals({
     store,
     workspace: workspaceRoot,
@@ -153,7 +155,12 @@ export const startServer = async ({
     c.json(harnesses.map((harness) => ({ id: harness.id, name: harness.name, features: harnessFeatures(harness) })) satisfies ResponseOf<typeof ROUTES.listHarnesses>),
   );
 
-  app.get("/repos", (c) => c.json({ repos: listRepos(workspaceRoot) } satisfies ResponseOf<typeof ROUTES.listRepos>));
+  workspaceRoutes(app, { store, workspacesCommitted: manager.workspacesCommitted });
+
+  app.get("/repos", (c) => {
+    if (!workspace) return noWorkspace(c);
+    return c.json({ repos: listRepos(workspace.root) } satisfies ResponseOf<typeof ROUTES.listRepos>);
+  });
 
   app.get("/agents", (c) =>
     c.json({ dbId: store.dbId, seq: store.currentSeq(), agents: store.listAgents().map(withLiveCache) } satisfies ResponseOf<typeof ROUTES.listAgents>),
@@ -161,6 +168,7 @@ export const startServer = async ({
 
   app.post("/agents", async (c) => {
     const { harness, repo } = await readBody(c, ROUTES.startAgent.body);
+    if (!workspace) return noWorkspace(c);
     return c.json(await manager.start(harness, repo) satisfies ResponseOf<typeof ROUTES.startAgent>, 201);
   });
 
@@ -224,12 +232,9 @@ export const startServer = async ({
   });
 
   const notConfigured = (c: Context) =>
-    errorResponse(
-      c,
-      ITEMS_STATUS.items_not_configured,
-      ItemsErrorCode.enum.items_not_configured,
-      ITEMS_NOT_CONFIGURED,
-    );
+    workspace
+      ? errorResponse(c, ITEMS_STATUS.items_not_configured, ItemsErrorCode.enum.items_not_configured, ITEMS_NOT_CONFIGURED)
+      : noWorkspace(c);
 
   app.get("/binders", async (c) => {
     if (!items) return notConfigured(c);

@@ -1,4 +1,4 @@
-import { ITEMS_ALERT, PROPOSAL_ALERT, type Alert } from "@wombat/shared/api";
+import { ITEMS_ALERT, PROPOSAL_ALERT, WORKSPACES_ALERT, type Alert } from "@wombat/shared/api";
 
 import type { Committed, Manager } from "../agents/manager.ts";
 
@@ -15,7 +15,7 @@ export const MAX_QUEUED_ALERTS = 1_000;
 /** The alert as sent: only the fields its type names, so nothing else a committed change holds can reach the stream. */
 const alertOf = (event: Committed, dbId: string): Alert => {
   if (event.type === PROPOSAL_ALERT) return { seq: event.seq, dbId, type: event.type, proposalId: event.proposalId };
-  if (event.type === ITEMS_ALERT) return { seq: event.seq, dbId, type: event.type };
+  if (event.type === ITEMS_ALERT || event.type === WORKSPACES_ALERT) return { seq: event.seq, dbId, type: event.type };
   return { seq: event.seq, dbId, type: event.type, agentId: event.agentId };
 };
 

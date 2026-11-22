@@ -51,7 +51,7 @@ const startResumable = async () => {
     readInstructions: () => Promise.resolve(instructions.now),
     slice: `wombattest${randomUUID().replaceAll("-", "")}.slice`,
   });
-  const server = await startServer({ manager, store, harnesses: [harness], workspaceRoot: workspace, workspaceId: WORKSPACE, token: randomBytes(24).toString("base64url"), log: () => undefined });
+  const server = await startServer({ manager, store, harnesses: [harness], workspace: { id: WORKSPACE, root: workspace }, token: randomBytes(24).toString("base64url"), log: () => undefined });
   onTestFinished(async () => {
     await server.close();
     await manager.shutdown();

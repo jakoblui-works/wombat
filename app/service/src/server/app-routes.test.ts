@@ -3,7 +3,7 @@
 // size. Types can't see either side of this, so it's checked here, both directions:
 // - every APP_ROUTES entry is a route the running server serves (it never answers the unknown-route error);
 // - every app route registered in the server's source is in APP_ROUTES, except the ones the page never calls: /mcp
-//   (agents' tokens), and /shutdown and /events (main calls them itself), which APP_ROUTES must not list;
+//   (agents' tokens), and MAIN_ONLY_ROUTES (main calls them itself), which APP_ROUTES must not list;
 // - the server's body limit is MAX_BODY_BYTES exactly.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -15,7 +15,12 @@ import { appRoutes } from "../../test/server-fixtures.ts";
 
 const SERVER_DIR = import.meta.dirname;
 // Served for agents (/mcp) or called by main itself; never in the page's allow-list.
-const NOT_FOR_THE_PAGE = ["/mcp", ...MAIN_ONLY_ROUTES.map(({ pattern }) => pattern)];
+// By method and path: GET /workspaces is the page's, POST /workspaces main's.
+const notForThePage = (method: string, path: string) =>
+  path === "/mcp" ||
+  MAIN_ONLY_ROUTES.some(
+    (route) => route.method === method.toUpperCase() && new RegExp(`^${route.pattern.replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "[^/]+")}$`).test(path),
+  );
 
 /** `:id`, `:requestId`… all read as one parameter, so names don't matter. */
 const shape = (pattern: string) => pattern.replace(/:[A-Za-z_][A-Za-z0-9_]*/g, ":");
@@ -38,9 +43,9 @@ const registeredRoutes = (): string[] => {
 test("APP_ROUTES and the server's app routes are the same set", () => {
   const registered = registeredRoutes();
   const listed = APP_ROUTES.map(({ method, pattern }) => key(method, pattern)).sort();
-  const pathOf = (route: string) => route.slice(route.indexOf(" ") + 1);
-  const forThePage = registered.filter((route) => !NOT_FOR_THE_PAGE.includes(pathOf(route)));
-  expect(listed.filter((route) => NOT_FOR_THE_PAGE.includes(pathOf(route))), "APP_ROUTES lists a route the page must not call").toEqual([]);
+  const excluded = (route: string) => notForThePage(route.slice(0, route.indexOf(" ")), route.slice(route.indexOf(" ") + 1));
+  const forThePage = registered.filter((route) => !excluded(route));
+  expect(listed.filter(excluded), "APP_ROUTES lists a route the page must not call").toEqual([]);
   expect(listed.filter((route) => !registered.includes(route)), "APP_ROUTES entries the server doesn't register").toEqual([]);
   expect(forThePage.filter((route) => !listed.includes(route)), "server routes missing from APP_ROUTES").toEqual([]);
   expect(new Set(listed).size, "APP_ROUTES lists a route twice").toBe(listed.length);
@@ -51,7 +56,7 @@ test("APP_ROUTES and the server's app routes are the same set", () => {
 // option can be the agent's permission mode), so an agent's own token must be refused on each.
 test("the port-rules and agent-token fixture lists exactly the APP_ROUTES entries, besides the routes the page never calls", () => {
   const fixture = appRoutes("3f2b9c1e-7a4d-4e1b-9c55-0d6e2a8f4b71");
-  const forThePage = fixture.filter(({ path }) => !NOT_FOR_THE_PAGE.includes(path) && path !== "/no-such-route");
+  const forThePage = fixture.filter(({ method, path }) => !notForThePage(method, path) && path !== "/no-such-route");
   const covered = new Set(forThePage.map(({ method, path }) => appRoute(method, path)));
   expect(
     APP_ROUTES.filter((route) => !covered.has(route)).map(({ method, pattern }) => `${method} ${pattern}`),

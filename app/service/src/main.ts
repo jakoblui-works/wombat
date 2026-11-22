@@ -18,6 +18,7 @@ import { openWriter } from "./items/write.ts";
 import { logToStderr } from "./log.ts";
 import type { ApproveStep } from "./proposals/apply.ts";
 import { startServer } from "./server/server.ts";
+import { NO_WORKSPACE } from "./server/workspace-routes.ts";
 import { LockHeld, takeStartLock } from "./start-lock.ts";
 import { openStore, type Store } from "./store/store.ts";
 
@@ -147,29 +148,35 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
     }
     const identity = { startedAt, codeId };
     store = openStore({ path: config.storePath });
-    // Before the manager loads the agents: rows stored before workspaces existed are listed once adopted.
-    const workspace = store.addWorkspace(config.workspaceRoot, config.itemsRoot).workspace.id;
-    store.adoptUnassigned(workspace);
+    const { workspaceRoot: configuredRoot, itemsRoot } = config;
+    let configured: { id: string; root: string } | undefined;
+    if (configuredRoot !== undefined) {
+      // Before the manager loads the agents: rows stored before workspaces existed are listed once adopted.
+      configured = { id: store.addWorkspace(configuredRoot, itemsRoot).workspace.id, root: configuredRoot };
+      store.adoptUnassigned(configured.id);
+    }
+    const { id: workspace, root: workspaceRoot } = configured ?? NO_WORKSPACE;
     const slice = options.slice === undefined ? {} : { slice: options.slice };
     manager = createManager({
       store,
-      workspaceRoot: config.workspaceRoot,
+      workspaceRoot,
       workspace,
       harnesses,
       log,
       env,
-      readInstructions: () => readInstructions(config.workspaceRoot, log),
+      readInstructions: async () => (configured === undefined ? undefined : readInstructions(configured.root, log)),
       ...slice,
     });
     try {
-      const { itemsRoot, workspaceRoot } = config;
       const catalog = itemsRoot === undefined ? undefined : openCatalog({ root: itemsRoot, store, workspace, log });
       watch = itemsRoot === undefined ? undefined : openWatch({ root: itemsRoot, log });
-      instructions = openInstructions({ catalog, workspaceRoot, ...(watch === undefined ? {} : { watch }), log });
-      const { refresh } = instructions;
-      // Written (or a stale one removed) before the server takes POST /agents, so the first agent gets it.
-      await refresh();
-      instructions.watch();
+      if (configured !== undefined) {
+        instructions = openInstructions({ catalog, workspaceRoot: configured.root, ...(watch === undefined ? {} : { watch }), log });
+        // Written (or a stale one removed) before the server takes POST /agents, so the first agent gets it.
+        await instructions.refresh();
+        instructions.watch();
+      }
+      const refresh = async () => instructions?.refresh();
       const { itemsCommitted } = manager;
       const { takeSeq } = store;
       const itemsChanged = () => itemsCommitted(takeSeq());
@@ -192,8 +199,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
         manager,
         store,
         harnesses,
-        workspaceRoot: config.workspaceRoot,
-        workspaceId: workspace,
+        ...(configured === undefined ? {} : { workspace: configured }),
         token,
         port: config.port,
         log,
@@ -224,7 +230,8 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
         // The start lock has already read it (and refuses to run without it).
         processStart: startTimeOf(process.pid),
         token,
-        workspace: config.workspaceRoot,
+        // The app still finds its one workspace here; a service with none configured leaves it out.
+        ...(configured === undefined ? {} : { workspace: configured.root }),
       });
     } catch (error) {
       throw new StartRefused(
@@ -273,7 +280,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
       };
       await step("discovery", () => removeDiscovery(discoveryPath, process.pid));
       await step("server", () => openedServer.close());
-      await step("instructions", () => openedInstructions.close());
+      await step("instructions", () => openedInstructions?.close());
       await step("watch", () => openedWatch?.close());
       await step("manager", () => openedManager.shutdown());
       await step("store", () => openedStore.close());

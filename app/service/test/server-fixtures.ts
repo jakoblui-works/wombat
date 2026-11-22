@@ -24,6 +24,9 @@ export { APP_ORIGIN };
 export const appRoutes = (agentId: string): { method: string; path: string; body?: unknown }[] => [
   { method: "GET", path: "/version" },
   { method: "GET", path: "/harnesses" },
+  { method: "GET", path: "/workspaces" },
+  { method: "POST", path: "/workspaces", body: { root: "/refused/workspace" } },
+  { method: "PUT", path: "/workspaces/ws-a1b2c3d4e5/items-root", body: { itemsRoot: "/refused/items" } },
   { method: "GET", path: "/repos" },
   { method: "GET", path: "/agents" },
   { method: "POST", path: "/agents", body: { harness: "fake-reply", repo: REPO } },
@@ -305,8 +308,7 @@ export const serve = async ({ heartbeatMs, sendFails, itemsRoot, agentTokens = {
     manager,
     store: t.store,
     harnesses,
-    workspaceRoot: t.root,
-    workspaceId: WORKSPACE,
+    workspace: { id: WORKSPACE, root: t.root },
     token,
     log,
     onShutdown: () => {

@@ -5,6 +5,7 @@ import {
   parseLogEntry,
   PROPOSAL_ALERT,
   SERVICE_STOP_REASON,
+  WORKSPACES_ALERT,
   type AgentSummary,
   type Alert,
   type ErrorBody,
@@ -59,7 +60,11 @@ export const createAgentRecord = (deps: AgentRecordDeps) => {
         listener(event);
       } catch {
         const subject =
-          event.type === PROPOSAL_ALERT ? { proposalId: event.proposalId } : event.type === ITEMS_ALERT ? {} : { agentId: event.agentId };
+          event.type === PROPOSAL_ALERT
+            ? { proposalId: event.proposalId }
+            : event.type === ITEMS_ALERT || event.type === WORKSPACES_ALERT
+              ? {}
+              : { agentId: event.agentId };
         log("listener_failed", { ...subject, seq: event.seq, type: event.type });
       }
     }

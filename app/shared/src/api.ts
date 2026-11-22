@@ -87,6 +87,18 @@ export type CreateItemRequest = z.infer<typeof CreateItemRequest>;
 export const NewBinderRequest = z.strictObject({ path: z.string(), name: z.string(), prefix: z.string(), adopt: z.boolean().optional() });
 export type NewBinderRequest = z.infer<typeof NewBinderRequest>;
 
+/**
+ * `POST /workspaces`, main only: `root` and `itemsRoot` absolute paths of existing folders. A root already in the list
+ * answers its workspace unchanged. `adopt` gives the workspace every stored agent, proposal and handle counter that has
+ * none yet.
+ */
+export const AddWorkspaceRequest = z.strictObject({ root: z.string().min(1), itemsRoot: z.string().min(1).exactOptional(), adopt: z.boolean().exactOptional() });
+export type AddWorkspaceRequest = z.infer<typeof AddWorkspaceRequest>;
+
+/** `PUT /workspaces/:ws/items-root`, main only: `itemsRoot` the absolute path of an existing folder. */
+export const SetItemsRootRequest = z.strictObject({ itemsRoot: z.string().min(1) });
+export type SetItemsRootRequest = z.infer<typeof SetItemsRootRequest>;
+
 /** `PATCH /items/:ref`: only the changed fields among title, body and property names; null clears a property. */
 export const UpdateItemRequest = z.strictObject({ version: ItemVersion, fields: z.record(z.string(), z.unknown()) });
 export type UpdateItemRequest = z.infer<typeof UpdateItemRequest>;
@@ -147,6 +159,14 @@ export const BODY_OVER_CAP_MESSAGE = `The request body is over ${String(MAX_BODY
  */
 export const RepoErrorCode = z.enum(["repo_not_found", "repo_outside_workspace"]);
 export type RepoErrorCode = z.infer<typeof RepoErrorCode>;
+
+/**
+ * The workspace routes' error codes: `workspace_not_found` for an id the list doesn't hold, or a route that needs a
+ * workspace when the service has none (the app reads the list again); `invalid_folder` for a path that isn't the
+ * absolute path of an existing folder (main shows the message and offers the folder picker again).
+ */
+export const WorkspaceErrorCode = z.enum(["workspace_not_found", "invalid_folder"]);
+export type WorkspaceErrorCode = z.infer<typeof WorkspaceErrorCode>;
 
 /**
  * The agent routes' error codes, and an agent summary's `error.code`:
@@ -235,6 +255,7 @@ export type AccessErrorCode = z.infer<typeof AccessErrorCode>;
 export const ErrorCode = z.union([
   ServerErrorCode,
   AgentErrorCode,
+  WorkspaceErrorCode,
   ItemsErrorCode,
   ItemWriteErrorCode,
   AccessErrorCode,
@@ -291,6 +312,10 @@ export const newWorkspaceId = (): WorkspaceId => {
  */
 export const Workspace = z.object({ id: WorkspaceId, name: z.string(), root: z.string(), itemsRoot: z.string().exactOptional(), missing: z.boolean() });
 export type Workspace = z.infer<typeof Workspace>;
+
+/** `GET /workspaces`: in the order they were added. */
+export const ListWorkspacesResponse = z.object({ workspaces: z.array(Workspace) });
+export type ListWorkspacesResponse = z.infer<typeof ListWorkspacesResponse>;
 
 // Newer ACP tool kinds read as "other".
 const ToolKind = z
@@ -801,13 +826,16 @@ export const HEARTBEAT_MS = 15_000;
 export const PROPOSAL_ALERT = "proposal";
 /** The alert type of a change to any item or binder settings, by the service or by hand. */
 export const ITEMS_ALERT = "items";
+/** The alert type of a workspace added, or its items folder changed. */
+export const WORKSPACES_ALERT = "workspaces";
 
 const AgentAlertType = z.enum(["agent_added", "agent_changed", "agent_removed", "log"]);
 
 /**
  * Says that something changed, up to `seq`; the app fetches the change. An agent alert names the agent, a
- * `proposal` alert the proposal; an `items` alert names nothing, so the app reads its items again. Alerts carry ids only: unknown fields are stripped, so an alert never carries
- * agent or item content even if one is sent.
+ * `proposal` alert the proposal; an `items` or `workspaces` alert names nothing, so the app reads its items or the
+ * workspace list again. Alerts carry ids only: unknown fields are stripped, so an alert never carries agent or item
+ * content even if one is sent.
  */
 export const Alert = z.discriminatedUnion("type", [
   z.object({
@@ -818,10 +846,11 @@ export const Alert = z.discriminatedUnion("type", [
   }),
   z.object({ seq: Seq, dbId: DbId, type: z.literal(PROPOSAL_ALERT), proposalId: z.string() }),
   z.object({ seq: Seq, dbId: DbId, type: z.literal(ITEMS_ALERT) }),
+  z.object({ seq: Seq, dbId: DbId, type: z.literal(WORKSPACES_ALERT) }),
 ]);
 export type Alert = z.infer<typeof Alert>;
 
-const alertTypes = new Set<unknown>([...AgentAlertType.options, PROPOSAL_ALERT, ITEMS_ALERT]);
+const alertTypes = new Set<unknown>([...AgentAlertType.options, PROPOSAL_ALERT, ITEMS_ALERT, WORKSPACES_ALERT]);
 
 /** Parses one alert. Returns undefined for alert types this app doesn't know (newer service); throws on a malformed known alert. */
 export const parseAlert = (data: unknown): Alert | undefined => {
