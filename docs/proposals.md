@@ -2,11 +2,11 @@
 
 A proposal is a change an agent suggests and you decide on. The agent sends it, the service keeps it, and nothing changes until you approve it. You can approve it, reject it, or adjust it first with your own version.
 
-There are two kinds. A file proposal changes a plain text file. An item proposal changes an [item](items.md) in a structure with `access: propose`. Both are listed, read and decided through the same routes, and both use `revise_proposal`.
+There are two kinds. A file proposal changes a plain text file. An item proposal changes an [item](items.md) in a binder with `access: propose`. Both are listed, read and decided through the same routes, and both use `revise_proposal`. In the app, an item proposal is decided in place, in the Desk's views, and Needs me only points to it: its row has no buttons, and a click opens the binder's first view with the proposal revealed (the proposal's tab when the binder is gone or broken). A file proposal's row keeps Approve and Reject.
 
 ## Agent tools
 
-An agent gets all of these tools over `/mcp`. `propose_change` and `revise_proposal` work with or without `WOMBAT_ITEMS`; the item tools need it. Every refusal is a tool error that says what went wrong and what to do next. A refused call stores nothing: a refused propose makes no proposal, and a refused revise leaves the proposal as it was. For a refused `propose_change` or `revise_proposal` the service logs one `tool_refused` line with the agent and the tool, nothing of the call. A `reason` longer than the reason limit (see [Limits](#limits)) is refused by the tool's input check, for every propose tool and `revise_proposal`.
+An agent gets all of these tools over `/mcp`. `propose_change` and `revise_proposal` work with or without an items root (chosen in the app, or `WOMBAT_ITEMS` when the service runs on its own); the item tools need one. Every refusal is a tool error that says what went wrong and what to do next. A refused call stores nothing: a refused propose makes no proposal, and a refused revise leaves the proposal as it was. For a refused `propose_change` or `revise_proposal` the service logs one `tool_refused` line with the agent and the tool, nothing of the call. A `reason` longer than the reason limit (see [Limits](#limits)) is refused by the tool's input check, for every propose tool and `revise_proposal`.
 
 ### `propose_change`
 
@@ -23,7 +23,7 @@ Send `edits` or `content`, never both. The answer is `{ "proposed": id }`.
 
 The path can be anywhere, also outside the workspace. A proposal outside the workspace carries `outsideWorkspace: true`, so the app can mark it. The mark is a warning, not a boundary: you decide every proposal either way.
 
-A path the items own, an item's file or a structure's `_structure.yaml`, is refused. The agent changes those with the item tools.
+A path the items own, an item's file or a binder's `_binder.yaml`, is refused. The agent changes those with the item tools.
 
 Refusals:
 
@@ -46,15 +46,15 @@ Refusals:
 
 ### `propose_create`, `propose_update`, `propose_delete`
 
-Propose a change to an item in a structure open to proposals. The answer is `{ "proposed": id }`.
+Propose a change to an item in a binder open to proposals. The answer is `{ "proposed": id }`.
 
 | Tool | Inputs |
 |---|---|
-| `propose_create` | `structure` (its id), `title`, `reason`; optional `body`, `properties` (name → value, links as handles) and `file` (only for a structure with free naming: the new file's path, relative to the structure's folder) |
+| `propose_create` | `binder` (its id), `title`, `reason`; optional `body`, `properties` (name → value, links as handles) and `file` (only for a binder with free naming: the new file's path, relative to the binder's folder) |
 | `propose_update` | `handle`, `fields` (only the fields to change: `title`, `body` or property names), `version` (from the agent's last `get_item`), `reason` |
 | `propose_delete` | `handle`, `version`, `reason` |
 
-The checks are the ones a direct change runs, in the same order, so a proposal that is stored can be approved unless something changes first. The refusals are the item tools': an unknown or hidden structure or handle (both read as not found), a structure that is `read` only or open to direct changes (use `create_item`, `update_item` or `delete_item` instead), a locked field, a `version` that is no longer the item's (read it again), invalid fields, a file or structure with problems, and an item without an id yet (it can't be deleted). The same cap applies.
+The checks are the ones a direct change runs, in the same order, so a proposal that is stored can be approved unless something changes first. The refusals are the item tools': an unknown or hidden binder or handle (both read as not found), a binder that is `read` only or open to direct changes (use `create_item`, `update_item` or `delete_item` instead), a locked field, a `version` that is no longer the item's (read it again), invalid fields, a file or binder with problems, and an item without an id yet (it can't be deleted). The same cap applies.
 
 ### `revise_proposal`
 
@@ -84,10 +84,10 @@ A refused revise stores nothing and leaves the proposal as it was.
 | The content, edits or fields equal what the proposal holds | change something, or leave it |
 | The text isn't UTF-8 or is over the size limit (also a text the edits pass through on the way) | send a smaller text |
 | A delete proposal: it has no fields | to keep the item, ask the user to reject the proposal; to still delete it after a conflict, read the item and propose the delete again |
-| An item proposal: the item is gone, or moved to another structure | read it again and propose anew |
-| An item proposal: its structure can't be reached anymore (hidden from the agent now, gone, or its settings broke) | the refusal names neither the item nor the structure: ask the user to reject the proposal |
-| An item proposal: the structure's level, a locked field or an invalid field refuses the fields | the refusal is the one of the item tools: fix the fields, or ask the user |
-| An item proposal: a revised create whose fields or file no longer fit the structure | fix them as the refusal says |
+| An item proposal: the item is gone, or moved to another binder | read it again and propose anew |
+| An item proposal: its binder can't be reached anymore (hidden from the agent now, gone, or its settings broke) | the refusal names neither the item nor the binder: ask the user to reject the proposal |
+| An item proposal: the binder's level, a locked field or an invalid field refuses the fields | the refusal is the one of the item tools: fix the fields, or ask the user |
+| An item proposal: a revised create whose fields or file no longer fit the binder | fix them as the refusal says |
 | An item proposal while the service has no items | tell the user |
 | On a conflict: the file is an item's file now | use the item tools, and ask the user to reject this proposal |
 | On a conflict: the path leads somewhere else now than when it was proposed (a folder on it, or the file, became a symlink) | the refusal doesn't say where: propose the change again on the path you mean, and ask the user to reject this proposal |
@@ -133,14 +133,14 @@ You can save a draft only on a `pending` proposal. It is refused when:
 - it is the same as the agent's version: there is nothing to save (if your edit is current, drop it to show the agent's version again);
 - it has the wrong shape for the kind (`text` for an item, `fields` for a file);
 - a file's text isn't UTF-8 or is over the size limit;
-- an item's fields don't pass the writer's checks (the error then carries `problems`, see Routes), or the item is gone or moved to another structure (reject the proposal);
+- an item's fields don't pass the writer's checks (the error then carries `problems`, see Routes), or the item is gone or moved to another binder (reject the proposal);
 - the proposal is a delete, which has no fields.
 
 Approving a draft writes your version. The agent's locks on an item's fields don't bind it.
 
 ## Approving a changed file or item
 
-Approving never overwrites what changed since the proposal. The service writes only onto the file as the proposal read it, or onto the item at the version the agent read, and under the structure's settings as they are now.
+Approving never overwrites what changed since the proposal. The service writes only onto the file as the proposal read it, or onto the item at the version the agent read, and under the binder's settings as they are now.
 
 For a file:
 
@@ -150,7 +150,7 @@ For a file:
 - A proposal to create a file never replaces one that appeared meanwhile: it becomes `conflict`.
 - The path leads somewhere else now than when it was proposed: the file, or for a new file its folder, is no longer its own real path (a folder on the way, or the file, was replaced by a symlink). The proposal becomes `conflict` and nothing is written; reject it, or ask the agent to propose it again. This is checked right before the file is read and again before a re-read; a swap in the moment between the last check and the write itself can't be caught.
 
-For an item, a change since the agent read it (edited, renamed, deleted, moved) makes the proposal a `conflict` with a `problem`. So does its structure becoming `hidden` or `read` (agents' changes no longer apply to it; one opened to direct changes still takes the proposal), its settings being gone or broken, or a field the agent's version sets becoming locked; your own version isn't bound by the agent's locks.
+For an item, a change since the agent read it (edited, renamed, deleted, moved) makes the proposal a `conflict` with a `problem`. So does its binder becoming `hidden` or `read` (agents' changes no longer apply to it; one opened to direct changes still takes the proposal), its settings being gone or broken, or a field the agent's version sets becoming locked; your own version isn't bound by the agent's locks.
 
 The write is atomic and happens exactly once. It replaces the file's directory entry with a new file: a second hard link to the old file keeps the old content. A symlink at the path is never written through: for an edit the path then leads somewhere else (the conflict above), and a new file finds something already there. The new file keeps the old one's mode, but not its owner, ACLs or extended attributes. If the service dies while a proposal is `applying`, it checks at the next start what the target holds: a write that landed is `approved`, any other is `pending` again.
 
@@ -183,7 +183,7 @@ Every route needs the service's token, like the rest of the API. An error answer
 | `PUT /proposals/:id/draft` | `{ onVersion, text }` for a file, `{ onVersion, fields }` for an item | the proposal with your version current. Item fields that don't pass the writer's checks answer `invalid_request` with `problems`: `[{ field?, line?, message }]`, the problems the [items](items.md) API lists, one per problem: `field` the field it is about (`title`, `body` or a property's name) and `line` the file's line, when it has them; the message lists the same problems. Your version saved before stays current |
 | `DELETE /proposals/:id/draft` | | the proposal with the agent's version current |
 
-Every proposal has `target` (`file` or `item`), `id`, `status`, `agentId`, `reason`, `version`, `editedByMe`, `at`, and when set `decidedAt`, `rejectReason` and `problem`. A file proposal adds `path` (its real path, symlinks resolved), `outsideWorkspace` and `kind` (`edit` or `create`). An item proposal adds `structure` (its id), `kind` (`create`, `update` or `delete`), `handle` (`null` for a create until it is approved) and `file` (a create's file path in a free-named structure, else `null`). Every change to a proposal sends a `proposal` alert.
+Every proposal has `target` (`file` or `item`), `id`, `status`, `agentId`, `reason`, `version`, `editedByMe`, `at`, and when set `decidedAt`, `rejectReason` and `problem`. A file proposal adds `path` (its real path, symlinks resolved), `outsideWorkspace` and `kind` (`edit` or `create`). An item proposal adds `binder` (its id), `kind` (`create`, `update` or `delete`), `handle` (`null` for a create until it is approved) and `file` (a create's file path in a free-named binder, else `null`). Every change to a proposal sends a `proposal` alert.
 
 Error codes:
 

@@ -109,6 +109,12 @@ export const loadSettings = (file: string, log: (line: string) => void = console
 export const saveSettings = (file: string, settings: z.input<typeof Settings>): void =>
   writePrivateFile(file, `${JSON.stringify(Settings.parse(settings), null, 2)}\n`);
 
+/** `settings` with `itemsRoot` as the items root of `workspace` alone; its other fields and other workspaces are kept. */
+export const withItemsRoot = (settings: Settings, workspace: string, itemsRoot: string): Settings => ({
+  ...settings,
+  workspaces: { ...settings.workspaces, [workspace]: { ...settings.workspaces[workspace], itemsRoot } },
+});
+
 /** What the page may change: the patch `settings.set` takes. */
 export const RendererSettingsPatch = z.strictObject({
   askOnQuit: Settings.shape.askOnQuit.unwrap().exactOptional(),

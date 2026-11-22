@@ -1,23 +1,25 @@
 // The saved layout: a saved
-// layout with unknown views or deleted agents restores without them, and one that can't be read gives the default.
+// layout with unknown panels or deleted agents restores without them, and one that can't be read gives the default.
+// A new item's draft tab is never saved, and never restored from a layout that holds one.
 import type { SerializedDockview } from "dockview-react";
 import fc from "fast-check";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import "./activities.ts";
 import { defaultLayout, type IsKnown, pruneLayout, restoreLayout, SavedLayout } from "./layout.ts";
-import { activities, isKnown as registryIsKnown } from "./registry.ts";
+import { ITEM_PANEL } from "./panels/Item/item-params.ts";
+import { activities, isKnown as registryIsKnown, isRestorable, isSaved } from "./registry.ts";
 import { summary } from "../../../../test/summaries.ts";
 
 type Leaf = { type: "leaf"; data: { id: string; views: string[]; activeView?: string }; size: number };
 type Branch = { type: "branch"; data: (Leaf | Branch)[]; size: number };
-type Panel = { id: string; contentComponent: string; title: string; params: { viewId: string; params: unknown } };
+type Panel = { id: string; contentComponent: string; title: string; params: { panelId: string; params: unknown } };
 
-const panel = (viewId: string, params: Record<string, unknown> = {}): Panel => ({
-  id: `${viewId}:${JSON.stringify(params)}`,
-  contentComponent: "view",
-  title: viewId,
-  params: { viewId, params },
+const panel = (panelId: string, params: Record<string, unknown> = {}): Panel => ({
+  id: `${panelId}:${JSON.stringify(params)}`,
+  contentComponent: "panel",
+  title: panelId,
+  params: { panelId, params },
 });
 const leaf = (id: string, panels: Panel[], activeView = panels[0]?.id): Leaf => ({
   type: "leaf",
@@ -43,22 +45,23 @@ const otherActivity = (): string => activities()[1]?.id ?? "missing";
 const chatA1 = panel("chat", { agentId: "a1" });
 const chatA2 = panel("chat", { agentId: "a2" });
 const chatGone = panel("chat", { agentId: "a-gone" });
-const oldView = panel("old-view-from-a-newer-app", { id: 7 });
+const oldPanel = panel("old-panel-from-a-newer-app", { id: 7 });
 
-/** Two groups side by side: [chatA1, oldView (active)] and [chatGone] (active group), with a nested split [chatA2]. */
+/** Two groups side by side: [chatA1, oldPanel (active)] and [chatGone] (active group), with a nested split [chatA2]; the Desk showing a binder's view with two drawers open. */
 const savedSplit = (): SavedLayout => ({
-  version: 1,
+  version: 2,
   dockview: dockview(
     {
       type: "branch",
       size: 800,
-      data: [leaf("g1", [chatA1, oldView], oldView.id), leaf("g2", [chatGone]), { type: "branch", size: 400, data: [leaf("g3", [chatA2])] }],
+      data: [leaf("g1", [chatA1, oldPanel], oldPanel.id), leaf("g2", [chatGone]), { type: "branch", size: 400, data: [leaf("g3", [chatA2])] }],
     },
-    [chatA1, oldView, chatGone, chatA2],
+    [chatA1, oldPanel, chatGone, chatA2],
     "g2",
   ),
   sidebars: { left: 280, right: 320, rightCollapsed: true },
   activity: otherActivity(),
+  desk: { binderId: "backlog", view: "By owner", openDrawers: ["work", "work/archive"] },
 });
 
 /** What a restore asks: the registry, with the agents that exist now (a1, a2). */
@@ -72,7 +75,7 @@ const panelIds = (layout: SavedLayout): string[] => Object.keys(layout.dockview.
 
 describe("pruneLayout", () => {
 
-  test("an unknown view and a deleted agent's tab are dropped, with the group they leave empty; active panel, group and activity are fixed", () => {
+  test("an unknown panel and a deleted agent's tab are dropped, with the group they leave empty; active panel, group and activity are fixed", () => {
     const pruned = pruneLayout({ ...savedSplit(), activity: "an-activity-that-is-gone" }, isKnown());
     expect(panelIds(pruned)).toEqual([chatA1.id, chatA2.id].sort());
     const groups = leaves(rootOf(pruned));
@@ -88,16 +91,16 @@ describe("pruneLayout", () => {
 
   // Random layouts (nested splits, several tabs per group) and any set of tabs that still apply.
   test("whatever is dropped, what's left is consistent: kept tabs in their groups in order, no empty leftovers, valid actives", () => {
-    const viewIds = ["chat", "files-empty", "old-view"];
+    const panelChoices = ["chat", "files-empty", "old-panel"];
     const layout = fc
-      .array(fc.array(fc.tuple(fc.constantFrom(...viewIds), fc.constantFrom("a1", "a2", "a3", "a4")), { minLength: 1, maxLength: 4 }), {
+      .array(fc.array(fc.tuple(fc.constantFrom(...panelChoices), fc.constantFrom("a1", "a2", "a3", "a4")), { minLength: 1, maxLength: 4 }), {
         minLength: 1,
         maxLength: 4,
       })
       .chain((groups) => {
         const seen = new Set<string>();
         const panelsPerGroup = groups
-          .map((tabs) => tabs.map(([viewId, agentId]) => panel(viewId, { agentId })).filter((p) => !seen.has(p.id) && Boolean(seen.add(p.id))))
+          .map((tabs) => tabs.map(([panelId, agentId]) => panel(panelId, { agentId })).filter((p) => !seen.has(p.id) && Boolean(seen.add(p.id))))
           .filter((tabs) => tabs.length > 0);
         const all = panelsPerGroup.flat();
         return fc.record({
@@ -116,13 +119,13 @@ describe("pruneLayout", () => {
         const children: (Leaf | Branch)[] =
           nest && groupLeaves.length > 1 ? [groupLeaves[0] as Leaf, { type: "branch", size: 400, data: groupLeaves.slice(1) }] : groupLeaves;
         const saved: SavedLayout = {
-          version: 1,
+          version: 2,
           dockview: dockview({ type: "branch", size: 800, data: children }, all, `g${String(activeGroup)}`),
           sidebars: { left: 250, right: 300, rightCollapsed: false },
           activity: agentsActivity(),
         };
         const kept = new Set(all.filter((_, i) => keep[i]).map((p) => p.id));
-        const known: IsKnown = (viewId, params) => kept.has(panel(viewId, params as Record<string, unknown>).id);
+        const known: IsKnown = (panelId, params) => kept.has(panel(panelId, params as Record<string, unknown>).id);
 
         const pruned = pruneLayout(structuredClone(saved), known);
 
@@ -178,7 +181,7 @@ describe("restoreLayout", () => {
     return lines;
   };
 
-  test("a saved layout read back from settings restores to the same panes, tabs, sidebars and activity", () => {
+  test("a saved layout read back from settings restores to the same panes, tabs, sidebars, activity and Desk", () => {
     const saved = savedSplit();
     const applied: SerializedDockview[] = [];
     let restored: SavedLayout | undefined;
@@ -201,7 +204,7 @@ describe("restoreLayout", () => {
   test.each<[string, () => unknown]>([
     ["nothing saved yet", () => undefined],
     ["not JSON-shaped", () => `{"version":1,"dockview":"${MARKER}`],
-    ["another version", () => ({ ...marked(), version: 2 })],
+    ["another version", () => ({ ...marked(), version: 3 })],
   ])("a layout that can't be read gives the default, with one warning that holds no layout content: %s", (_name, raw) => {
     const applied: SerializedDockview[] = [];
     let restored: SavedLayout | undefined;
@@ -228,5 +231,23 @@ describe("restoreLayout", () => {
     expect(restored).toEqual(defaultLayout());
     expect(warned).toHaveLength(1);
     expect(warned.join("\n")).not.toContain(MARKER);
+  });
+});
+
+describe("a draft item tab", () => {
+  const item = panel(ITEM_PANEL, { binderId: "tasks", itemId: "0196f3c2-3f00-7000-8000-000000000001" });
+  const draft = panel(ITEM_PANEL, { binderId: "tasks", draft: "draft-1", context: { status: "todo" } });
+  const withDraft = (): SavedLayout => ({
+    ...savedSplit(),
+    dockview: dockview({ type: "branch", size: 800, data: [leaf("g1", [chatA1, item, draft], draft.id)] }, [chatA1, item, draft], "g1"),
+  });
+
+  test("is left out of the layout the workbench saves", () => {
+    expect(panelIds(pruneLayout(withDraft(), isSaved))).toEqual([chatA1.id, item.id].sort());
+  });
+
+  test("is left out when a layout holding one is restored", () => {
+    const restored = restoreLayout(JSON.parse(JSON.stringify(withDraft())), isRestorable({ agents: [summary("a1")] }), () => undefined);
+    expect(panelIds(restored)).toEqual([chatA1.id, item.id].sort());
   });
 });

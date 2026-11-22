@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 
 import { findByHandle } from "./catalog.ts";
 import { VALID_FILES, handleNumber, openItems, writeRoot } from "../../test/items-fixtures.ts";
+import { ME } from "./write.ts";
 
 const idea = (title: string) => ({ title, body: "\nInvented for the test.\n", properties: { project: "wombat" } });
 
@@ -16,19 +17,19 @@ describe("handle numbers", () => {
     const first = openItems(root);
     const given: number[] = [];
 
-    const a = await first.writer.createItem("backlog", idea("First idea"));
+    const a = await first.writer.createItem(ME, "backlog", idea("First idea"));
     given.push(handleNumber(a.handle));
-    await first.writer.deleteItem(a.handle ?? "", a.version);
+    await first.writer.deleteItem(ME, a.handle ?? "", a.version);
     expect(existsSync(join(root, a.path))).toBe(false);
     expect(findByHandle((await first.catalog.snapshot()).items, a.handle ?? "")).toBeUndefined();
 
-    const b = await first.writer.createItem("backlog", idea("Second idea"));
+    const b = await first.writer.createItem(ME, "backlog", idea("Second idea"));
     given.push(handleNumber(b.handle));
-    await first.writer.deleteItem(b.handle ?? "", b.version);
+    await first.writer.deleteItem(ME, b.handle ?? "", b.version);
 
     // The deleted ones were the highest numbers; only the store remembers them now.
     const restarted = first.reopen();
-    const c = await restarted.writer.createItem("backlog", idea("Third idea"));
+    const c = await restarted.writer.createItem(ME, "backlog", idea("Third idea"));
 
     expect(handleNumber(b.handle)).toBeGreaterThan(handleNumber(a.handle));
     expect(handleNumber(c.handle)).toBeGreaterThan(Math.max(...given));

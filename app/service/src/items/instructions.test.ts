@@ -1,4 +1,4 @@
-// The instructions file itself: nothing of a hidden structure is ever in it
+// The instructions file itself: nothing of a hidden binder is ever in it
 // (a link to a hidden item reads like a missing one), it carries handles and never ids; an item that is invalid on
 // disk neither breaks it nor brings problem text into it, nor leaves an empty heading; it is written atomically,
 // read-only, rewritable, and kept as it was when a render fails; and an approved create or delete is in it before
@@ -14,6 +14,7 @@ import { INSTRUCTIONS_FILE, openInstructions, refreshingWriter, renderInstructio
 import { AGENT, leaks, withProposals } from "../../test/access-fixtures.ts";
 import { HIDDEN_STRINGS, INSTRUCTIONS_FILES, UUID, itemBlock } from "../../test/instructions-fixtures.ts";
 import { openItems, writeRoot } from "../../test/items-fixtures.ts";
+import { SETTINGS_FILE } from "./binders.ts";
 
 const workspace = () => {
   const dir = mkdtempSync(join(tmpdir(), "wombat-workspace-"));
@@ -22,12 +23,12 @@ const workspace = () => {
 };
 
 describe("the instructions file", () => {
-  test("carries nothing of a hidden structure and no ids, and a link to a hidden item reads like a link to a missing one", async () => {
+  test("carries nothing of a hidden binder and no ids, and a link to a hidden item reads like a link to a missing one", async () => {
     const { catalog } = openItems(writeRoot(INSTRUCTIONS_FILES));
 
     const text = (await renderInstructions(catalog)) ?? "";
 
-    // It rendered the visible instructions structures, so the checks below look at a real file.
+    // It rendered the visible instructions binders, so the checks below look at a real file.
     for (const visible of ["BUG-1", "Login times out after 30 seconds", "BL-1", "BL-3", "BL-4", "DOC-1"]) expect(text).toContain(visible);
     expect(leaks(text, HIDDEN_STRINGS), "hidden strings in the file").toEqual([]);
     expect(UUID.exec(text)?.[0], "an id in the file").toBeUndefined();
@@ -101,10 +102,10 @@ describe("the instructions file", () => {
     expect(readFileSync(path, "utf8"), "right after the approved delete").not.toContain("The hero caption overlaps the image");
   });
 
-  test("a file over the cap is sent as an index of every structure, and one under it in full", async () => {
+  test("a file over the cap is sent as an index of every binder, and one under it in full", async () => {
     const catalog = openItems(
       writeRoot({
-        "rules/_structure.yaml": "version: 1\nid: rules\nname: Rules\nprefix: RUL\naccess: propose\ninstructions: full\n",
+        [`rules/${SETTINGS_FILE}`]: "version: 1\nid: rules\nname: Rules\nprefix: RUL\naccess: propose\ninstructions: full\n",
         "rules/RUL-1-a.md": "---\nid: 0196f3c2-9e00-7000-8000-000000000001\nhandle: RUL-1\n---\n# Rule one\nFirst line of rule one.\n\nA second paragraph only the full text has.\n",
       }),
     ).catalog;

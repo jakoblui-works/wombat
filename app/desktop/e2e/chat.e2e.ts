@@ -1,6 +1,6 @@
 // The chat, against the built app and the fake agents (app-fixtures.ts).
 // What these checks rely on in the page (roles and names, not looks; the approved design's structure):
-// - a chat tab's content is the active panel of its editor group (agent-views.ts `groupWithTab`);
+// - a chat tab's content is the active panel of its editor group (agent-panels.ts `groupWithTab`);
 // - collapsed parts (reasoning, a tool call) are buttons with `aria-expanded="false"`; expanding shows their text (a
 //   tool call's text content through Markdown, the same rules as agent text);
 // - a clipped text says how many characters were left out, in digits (group separators allowed);
@@ -13,9 +13,9 @@
 import type { ElectronApplication, Page } from "@playwright/test";
 
 import { FAKE_CONFIG, fakeConfigOptions, HOSTILE } from "../../service/test/fake-agent.ts";
-import { MAX_SHOWN_CHARS } from "../src/renderer/src/workbench/views/Chat/clip-text.ts";
-import { agentSummary, click, current, expect, layoutOf, openAgent, REPO, type Sandbox, startAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
-import { groupWithTab, logOf, prompt, waitForState } from "./agent-views.ts";
+import { MAX_SHOWN_CHARS } from "../src/renderer/src/workbench/panels/Chat/clip-text.ts";
+import { agentSummary, click, current, expect, layoutOf, openAgent, REPO, type Sandbox, startAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS, wheelPastEnd } from "./app-fixtures.ts";
+import { groupWithTab, logOf, prompt, waitForState } from "./agent-panels.ts";
 
 // Main hands https links to the host's browser through `shell.openExternal`; the check records those calls instead
 // (as trust-boundary.e2e.ts does), so a test never opens the real browser.
@@ -163,6 +163,33 @@ test.describe("chat", () => {
     expect(await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 200)))).toBeUndefined();
     expect(await openedExternally(app), "the click opened more than its URL once").toEqual(["https://example.invalid/docs"]);
     await expect.poll(() => page.url()).toBe(startUrl);
+    expect(problems).toEqual([]);
+  });
+
+  // The hostile agent's chat, expanded, is long and ends with an edit whose diff marks its lines for screen readers
+  // (visually hidden text): scrolled to the top, that diff is below the fold.
+  test("a wheel past either end of the chat scrolls nothing around it", async ({ sandbox }) => {
+    test.setTimeout(90_000);
+    await sandbox.startService(sandbox.workspace);
+    const agentId = await startAgent(sandbox, "fake-hostile");
+    await prompt(sandbox, agentId, "Show me everything.");
+    await waitUntil("the hostile agent to wait on its two requests", WAIT_MS, async () => {
+      const agent = await agentSummary(sandbox, agentId);
+      return agent?.state === "waiting" && agent.pendingPermissions?.length === 2 ? true : undefined;
+    });
+    const launched = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
+    const { page } = launched;
+    const problems: string[] = [];
+    page.on("pageerror", (error) => problems.push(`page error: ${error.message}`));
+    await waitForConnection(page, "connected");
+    await openAgent(launched, agentId, 1);
+    const chat = groupWithTab(page, REPO);
+    await expect(chat.getByRole("region", { name: "Edit approval" })).toBeVisible({ timeout: WAIT_MS });
+    await expandAll(chat);
+
+    const conversation = chat.getByRole("log", { name: "Conversation" });
+    expect(await wheelPastEnd(conversation, "up"), "scrolled or overflowing around the chat, past its top").toEqual([]);
+    expect(await wheelPastEnd(conversation, "down"), "scrolled or overflowing around the chat, past its end").toEqual([]);
     expect(problems).toEqual([]);
   });
 

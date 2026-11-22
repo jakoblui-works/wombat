@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { INSTRUCTIONS_DEBOUNCE_MS } from "./instructions.ts";
+import { WATCH_DEBOUNCE_MS } from "./watch.ts";
 import { ACCESS_FILES } from "../../test/access-fixtures.ts";
 import { INSTRUCTIONS_FILES } from "../../test/instructions-fixtures.ts";
 import { TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
@@ -21,13 +21,14 @@ import {
   startService,
   type RunningService,
 } from "../../test/service-fixtures.ts";
+import { SETTINGS_FILE } from "./binders.ts";
 
 /** Tolerance on top of the debounce for fs.watch to report a change and the render to finish; not a tuning value. */
 const SETTLE_MS = 1_000;
 
 /** Waits until the instructions file passes `check`, for at most the debounce plus the settle tolerance. */
 const untilFile = async (service: RunningService, what: string, check: (text: string) => boolean) => {
-  const deadline = Date.now() + INSTRUCTIONS_DEBOUNCE_MS + SETTLE_MS;
+  const deadline = Date.now() + WATCH_DEBOUNCE_MS + SETTLE_MS;
   for (;;) {
     const text = readInstructions(service) ?? "";
     if (check(text)) return text;
@@ -81,7 +82,7 @@ describe("the instructions file in the service", () => {
       const edit = (path: string, from: string, to: string) => writeFileSync(join(root, path), readFileSync(join(root, path), "utf8").replace(from, to));
       await untilFile(service, "the first write", (text) => text.includes("BL-1"));
 
-      edit("backlog/BL-1-items.md", "The plan for structures and proposals.", "The plan for structures, proposals and reviews.");
+      edit("backlog/BL-1-items.md", "The plan for binders and proposals.", "The plan for binders, proposals and reviews.");
       await untilFile(service, "an edited body", (text) => text.includes("proposals and reviews"));
 
       writeFileSync(join(root, "bugs/BUG-3-accents.md"), "---\nid: 0196f3c2-9b00-7000-8000-000000000003\nhandle: BUG-3\nrepo: api\n---\n# Search ignores accents\n\nInvented.\n");
@@ -90,16 +91,16 @@ describe("the instructions file in the service", () => {
       rmSync(join(root, "docs/DOC-1-architecture.md"));
       await untilFile(service, "a deleted item gone", (text) => !text.includes("DOC-1"));
 
-      edit("backlog/_structure.yaml", "instructions: full", "instructions: off");
-      const settled = await untilFile(service, "a structure switched off", (text) => text.includes("BUG-1") && !text.includes("BL-1"));
+      edit(`backlog/${SETTINGS_FILE}`, "instructions: full", "instructions: off");
+      const settled = await untilFile(service, "a binder switched off", (text) => text.includes("BUG-1") && !text.includes("BL-1"));
 
       // No rewrite without a change (the watcher doesn't feed on its own writes): a hand-made file in the
-      // switched-off structure makes a read of the root, which gives the file an id on first sight, but renders the
+      // switched-off binder makes a read of the root, which gives the file an id on first sight, but renders the
       // same text, so it doesn't write; the visible edit after that read writes once.
       const before = await untilLogged(service, settled);
       const offFile = join(root, "backlog/a-note-while-off.md");
       writeFileSync(offFile, "# A note while the backlog is off\n\nInvented.\n");
-      await expect.poll(() => readFileSync(offFile, "utf8"), { message: "the id first sight gives", timeout: INSTRUCTIONS_DEBOUNCE_MS + SETTLE_MS }).toMatch(/^id: /m);
+      await expect.poll(() => readFileSync(offFile, "utf8"), { message: "the id first sight gives", timeout: WATCH_DEBOUNCE_MS + SETTLE_MS }).toMatch(/^id: /m);
       edit("bugs/BUG-3-accents.md", "# Search ignores accents", "# Search ignores accents and case");
       const current = await untilFile(service, "an edited title", (text) => text.includes("ignores accents and case"));
       expect(current.replace("ignores accents and case", "ignores accents"), "the switched-off file changed nothing").toBe(settled);
@@ -112,7 +113,7 @@ describe("the instructions file in the service", () => {
   );
 
   test.each([
-    { what: "with items but no structure marked as instructions", items: ACCESS_FILES },
+    { what: "with items but no binder marked as instructions", items: ACCESS_FILES },
   ])(
     "$what, a stale AGENTS.md is removed and agents get no system prompt",
     async ({ items }) => {

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarSeparator, MenubarShortcut, MenubarTrigger } from "@/components/ui/menubar";
 import { runLogged } from "../commands/registry.ts";
 import { type MenuModel, MENUS, menuItems } from "./menus.ts";
-import { WombatSymbol } from "../views/EmptyState/WombatSymbol.tsx";
+import { WombatSymbol } from "../panels/EmptyState/WombatSymbol.tsx";
 
 /**
  * A menu's items. A component of its own, so they resolve against the registry when the popup opens: the workbench
@@ -27,7 +27,7 @@ const MenuEntries = ({ menu, choose }: { menu: MenuModel; choose: (id: string) =
 
 /**
  * The window's title bar, in place of the system's: the menus on the left, the symbol and workspace as the drag strip
- * in the middle, the right sidebar's toggle (named after its view) on the right, then the room the window controls
+ * in the middle, the right sidebar's toggle (named after its panel) on the right, then the room the window controls
  * (Electron's overlay) take. The bar drags the window, so each control opts out of it with `no-drag`.
  */
 export const TitleBar = ({

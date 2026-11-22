@@ -52,11 +52,10 @@ export const refresh = (queryClient: QueryClient, queryKey: QueryKey): Promise<v
   return entry.done;
 };
 
-/**
- * Reads the structures and every cached structure's items again: nothing announces an item or structure change, so
- * a proposal's change, a reconnect and a proposal tab brought to the front stand in for it.
- */
+/** Reads the binders, every cached binder's items and every cached single item again. */
 export const refreshItems = (queryClient: QueryClient): void => {
-  void refresh(queryClient, keys.structures);
-  for (const query of queryClient.getQueryCache().findAll({ queryKey: keys.structureItemLists })) void refresh(queryClient, query.queryKey);
+  void refresh(queryClient, keys.binders);
+  for (const prefix of [keys.binderItemLists, keys.itemDetails]) {
+    for (const query of queryClient.getQueryCache().findAll({ queryKey: prefix })) void refresh(queryClient, query.queryKey);
+  }
 };

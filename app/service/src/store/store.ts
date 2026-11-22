@@ -37,6 +37,8 @@ export type Store = ProposalStore & {
   readonly dbId: string;
   /** The last seq handed out; 0 for a fresh database. */
   currentSeq: () => number;
+  /** Takes the next seq for a change stored elsewhere (the items, on disk), so its alert joins the sequence. */
+  takeSeq: () => number;
   /** Stores the entries as one transaction and returns their seqs; throws, storing nothing, on failure. */
   append: (agentId: string, entries: NewLogEntry[]) => number[];
   putAgent: (summary: AgentSummary) => number;
@@ -46,10 +48,10 @@ export type Store = ProposalStore & {
   /** `truncated` is true exactly when an entry of this agent after `after` was dropped by the cap. */
   readLog: (agentId: string, after?: number, limit?: number) => { entries: LogEntry[]; truncated: boolean };
   /**
-   * The next handle number of a structure: one above both the last number it gave and `floor` (the highest
+   * The next handle number of a binder: one above both the last number it gave and `floor` (the highest
    * number on disk), remembered so a deleted item's number is never given again.
    */
-  nextHandleNumber: (structure: string, floor: number) => number;
+  nextHandleNumber: (binder: string, floor: number) => number;
   /**
    * Runs `fn` as one transaction; store writes called inside it join it instead of committing on their own. `fn` must
    * be synchronous. There's no savepoint: catching a store error inside `fn` keeps that call's earlier writes.
@@ -138,8 +140,8 @@ export const openStore = ({
     logEntries: db.prepare("SELECT seq, body FROM log_entries WHERE agent_id = ? AND seq > ? ORDER BY seq LIMIT ?"),
     droppedThrough: db.prepare("SELECT dropped_through FROM agents WHERE id = ?"),
     nextHandleNumber: db.prepare(
-      `INSERT INTO item_counters (structure, last) VALUES (?, ? + 1)
-       ON CONFLICT (structure) DO UPDATE SET last = max(last, excluded.last - 1) + 1 RETURNING last`,
+      `INSERT INTO item_counters (binder, last) VALUES (?, ? + 1)
+       ON CONFLICT (binder) DO UPDATE SET last = max(last, excluded.last - 1) + 1 RETURNING last`,
     ),
   };
 
@@ -225,19 +227,22 @@ export const openStore = ({
     };
   };
 
-  const nextHandleNumber = (structure: string, floor: number) =>
-    transaction(() => asNumber(statements.nextHandleNumber.get(structure, floor)?.last));
+  const takeSeq = () => transaction(() => takeSeqs(1)[0] ?? 0);
+
+  const nextHandleNumber = (binder: string, floor: number) =>
+    transaction(() => asNumber(statements.nextHandleNumber.get(binder, floor)?.last));
 
   return {
     dbId,
     currentSeq,
+    takeSeq,
     append,
     putAgent,
     listAgents,
     deleteAgent,
     readLog,
     nextHandleNumber,
-    ...openProposalStore(db, transaction, () => takeSeqs(1)[0] ?? 0, now),
+    ...openProposalStore(db, transaction, takeSeq, now),
     transaction,
     close: () => db.close(),
   };

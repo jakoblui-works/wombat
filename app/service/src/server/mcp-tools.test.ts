@@ -1,6 +1,6 @@
 // The /mcp tools' shapes: each answer is JSON in one text block, the version from get_item is what update_item takes
-// (and a stale one is refused), describe_structure works without an argument, only POST is answered, and the tool
-// list (descriptions and input schemas) carries nothing of a hidden structure. The list offers exactly the tool names
+// (and a stale one is refused), describe_binder works without an argument, only POST is answered, and the tool
+// list (descriptions and input schemas) carries nothing of a hidden binder. The list offers exactly the tool names
 // the rest of the service tells agents to call, and propose_change works without items.
 import { join } from "node:path";
 
@@ -30,14 +30,14 @@ describe("the /mcp tools", () => {
     },
   );
 
-  test("tools/list carries nothing of a hidden structure in its descriptions or input schemas", async () => {
+  test("tools/list carries nothing of a hidden binder in its descriptions or input schemas", async () => {
     const s = openMcp();
 
     const response = await mcpRequest(s, s.token, "tools/list");
 
     const tools = (response.json as { result?: { tools?: unknown[] } }).result?.tools ?? [];
     expect(tools.length, response.text).toBeGreaterThan(0);
-    expect(leaks(JSON.stringify(tools), [MARKER, HIDDEN.structure, HIDDEN.name, ...HIDDEN.ids, ...HIDDEN.handles])).toEqual([]);
+    expect(leaks(JSON.stringify(tools), [MARKER, HIDDEN.binder, HIDDEN.name, ...HIDDEN.ids, ...HIDDEN.handles])).toEqual([]);
   });
 
   // The refusals and the instructions file name tools and fields by these names: an agent must find each on the list.
@@ -62,7 +62,7 @@ describe("the /mcp tools", () => {
       const s = await serve({ agentTokens: { [STUB_TOKEN]: STUB_AGENT } });
 
       const proposed = await callTool(s, STUB_TOKEN, TOOL.proposeChange, { path: join(s.root, "notes.md"), reason: "Notes for the next session.", content: "# Notes\n" });
-      const listed = await callTool(s, STUB_TOKEN, TOOL.listItems, { structure: "bugs" });
+      const listed = await callTool(s, STUB_TOKEN, TOOL.listItems, { binder: "bugs" });
 
       expect(proposed.isError, proposed.text).toBe(false);
       expect(s.store.listProposals().map((proposal) => proposal.id)).toEqual([(proposed.json as { proposed: string }).proposed]);

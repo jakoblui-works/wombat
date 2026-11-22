@@ -9,6 +9,8 @@ export type StopAnswer = "stop" | "cancel";
 export type E2eSwitches = {
   /** The answer to the workspace folder dialog, which then never opens; undefined is a cancelled dialog. */
   workspace: string | undefined;
+  /** The answer to the items folder picker, which then never opens; undefined is a cancelled picker. */
+  itemsFolder: string | undefined;
   /** Replaces the service's entry file (the checks' fake-agent entry). */
   serviceEntry: string | undefined;
   /** The answer to "Restart the service for …?"; unset is Cancel. */
@@ -52,6 +54,7 @@ export const readE2eSwitches = (env: NodeJS.ProcessEnv): E2eSwitches | undefined
   const quitAnswer = env[SWITCH.quitAnswer] ?? "";
   return {
     workspace: nonEmpty(env[SWITCH.workspace]),
+    itemsFolder: nonEmpty(env[SWITCH.itemsFolder]),
     serviceEntry: nonEmpty(env[SWITCH.serviceEntry]),
     restartAnswer: env[SWITCH.restartAnswer] === "restart" ? "restart" : "cancel",
     quitAnswer: QUIT_ANSWERS.includes(quitAnswer) ? (quitAnswer as QuitAnswer) : "cancel",

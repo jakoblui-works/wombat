@@ -2,20 +2,12 @@
 import { type FetchQueryOptions, hashKey, QueryClient, type QueryKey, queryOptions } from "@tanstack/react-query";
 import { z } from "zod";
 
-import {
-  ListAgentsResponse,
-  ListHarnessesResponse,
-  ListItemsResponse,
-  ListLogResponse,
-  ListReposResponse,
-  ListStructuresResponse,
-  parseLogEntry,
-} from "@wombat/shared/api";
+import { parseLogEntry } from "@wombat/shared/api";
 import type { FoldEntry } from "@wombat/shared/log-fold";
-import { ListProposalsResponse, ProposalDetail } from "@wombat/shared/proposals";
+import { ROUTES } from "@wombat/shared/routes";
 import { bySeq } from "./by-seq.ts";
-import { call } from "./client.ts";
-import { keys, logAgentId, proposalIdOf, structureIdOf } from "./keys.ts";
+import { callRoute, callRouteWith } from "./client.ts";
+import { keys, logAgentId, proposalIdOf, binderIdOf, itemRefOf } from "./keys.ts";
 
 /** A parsed entry, or an unreadable one kept in its place (the log fold's entry). */
 export type AgentLogEntry = FoldEntry;
@@ -33,28 +25,28 @@ export const createQueryClient = (): QueryClient =>
     },
   });
 
-const readAgents = () => call("GET", "/agents", ListAgentsResponse);
-const readHarnesses = () => call("GET", "/harnesses", ListHarnessesResponse);
-const readRepos = () => call("GET", "/repos", ListReposResponse);
-const readProposals = () => call("GET", "/proposals", ListProposalsResponse);
-const readStructures = () => call("GET", "/structures", ListStructuresResponse);
-const readStructureItems = (structureId: string) => () => call("GET", `/structures/${encodeURIComponent(structureId)}/items`, ListItemsResponse);
-
-/** A proposal's route: its detail, and the prefix of its commands. */
-export const proposalPath = (proposalId: string): string => `/proposals/${encodeURIComponent(proposalId)}`;
+const readAgents = () => callRoute(ROUTES.listAgents);
+const readHarnesses = () => callRoute(ROUTES.listHarnesses);
+const readRepos = () => callRoute(ROUTES.listRepos);
+const readProposals = () => callRoute(ROUTES.listProposals);
+const readBinders = () => callRoute(ROUTES.listBinders);
+const readBinderItems = (binderId: string) => () => callRoute(ROUTES.binderItems, { params: { id: binderId } });
+const readItem = (ref: string) => () => callRoute(ROUTES.getItem, { params: { ref } });
 
 const readProposal = (proposalId: string, version?: number) => () =>
-  call("GET", version === undefined ? proposalPath(proposalId) : `${proposalPath(proposalId)}?version=${String(version)}`, ProposalDetail);
+  callRoute(ROUTES.getProposal, { params: { id: proposalId }, query: version === undefined ? {} : { version } });
 
 export const agentsQuery = () => queryOptions({ queryKey: keys.agents, queryFn: readAgents });
 export const harnessesQuery = () => queryOptions({ queryKey: keys.harnesses, queryFn: readHarnesses });
 export const reposQuery = () => queryOptions({ queryKey: keys.repos, queryFn: readRepos });
 export const proposalsQuery = () => queryOptions({ queryKey: keys.proposals, queryFn: readProposals });
 export const proposalQuery = (proposalId: string) => queryOptions({ queryKey: keys.proposal(proposalId), queryFn: readProposal(proposalId) });
-/** The items' structures, hidden ones included. */
-export const structuresQuery = () => queryOptions({ queryKey: keys.structures, queryFn: readStructures });
-/** One structure's items, without their bodies. */
-export const structureItemsQuery = (structureId: string) => queryOptions({ queryKey: keys.structureItems(structureId), queryFn: readStructureItems(structureId) });
+/** The items' binders, hidden ones included. */
+export const bindersQuery = () => queryOptions({ queryKey: keys.binders, queryFn: readBinders });
+/** One binder's items, without their bodies. */
+export const binderItemsQuery = (binderId: string) => queryOptions({ queryKey: keys.binderItems(binderId), queryFn: readBinderItems(binderId) });
+/** One item with its body, by id, handle or old handle. */
+export const itemQuery = (ref: string) => queryOptions({ queryKey: keys.item(ref), queryFn: readItem(ref) });
 /** One version of a proposal (`?version=`); its `current` is the target as it was at the read. */
 export const proposalVersionQuery = (proposalId: string, version: number) =>
   queryOptions({ queryKey: keys.proposalVersion(proposalId, version), queryFn: readProposal(proposalId, version) });
@@ -64,10 +56,10 @@ export const LOG_PAGE_LIMIT = 500;
 
 // Entries are parsed one by one (readEntry), so one bad entry doesn't fail the page; the raw seqs decide paging, since
 // entries this app doesn't know are dropped.
-const LogPage = ListLogResponse.extend({ entries: z.array(z.looseObject({ seq: z.int().nonnegative(), at: z.unknown() })) });
+const LogPage = ROUTES.agentLog.response.extend({ entries: z.array(z.looseObject({ seq: z.int().nonnegative(), at: z.unknown() })) });
 
 const readPage = (agentId: string, after: number) =>
-  call("GET", `/agents/${encodeURIComponent(agentId)}/log?after=${String(after)}&limit=${String(LOG_PAGE_LIMIT)}`, LogPage);
+  callRouteWith(ROUTES.agentLog, { params: { id: agentId }, query: { after, limit: LOG_PAGE_LIMIT } }, LogPage);
 
 const readEntry = (raw: { seq: number; at: unknown }): AgentLogEntry | undefined => {
   try {
@@ -124,9 +116,11 @@ export const queryFor = (queryClient: QueryClient, key: QueryKey): (() => Promis
   if (agentId !== undefined) return again(agentLogQuery(queryClient, agentId)).read;
   const proposalId = proposalIdOf(key);
   if (proposalId !== undefined) return again(proposalQuery(proposalId)).read;
-  const structureId = structureIdOf(key);
-  if (structureId !== undefined) return again(structureItemsQuery(structureId)).read;
-  const lists = [again(agentsQuery()), again(harnessesQuery()), again(reposQuery()), again(proposalsQuery()), again(structuresQuery())];
+  const binderId = binderIdOf(key);
+  if (binderId !== undefined) return again(binderItemsQuery(binderId)).read;
+  const itemRef = itemRefOf(key);
+  if (itemRef !== undefined) return again(itemQuery(itemRef)).read;
+  const lists = [again(agentsQuery()), again(harnessesQuery()), again(reposQuery()), again(proposalsQuery()), again(bindersQuery())];
   return lists.find((list) => hashKey(list.queryKey) === hashKey(key))?.read;
 };
 

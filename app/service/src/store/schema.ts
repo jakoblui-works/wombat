@@ -2,7 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 
 import { OUTCOMES } from "./proposal-rules.ts";
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 // The seq counter lives in `meta` rather than coming from a rowid, which would reuse seqs after deletes.
 // `dropped_through` is the highest seq of the agent's entries the cap removed, which answers `truncated`.
@@ -24,7 +24,7 @@ const SCHEMA_V1 = `
   CREATE INDEX log_entries_by_agent ON log_entries (agent_id, seq);
 `;
 
-// Items: `item_counters.last` is the last handle number given per structure id.
+// Items: `item_counters.last` is the last handle number given per binder id.
 const SCHEMA_V2 = `
   CREATE TABLE item_counters (structure TEXT PRIMARY KEY, last INTEGER NOT NULL) STRICT;
   CREATE TABLE proposals (
@@ -101,6 +101,11 @@ const SCHEMA_V4 = `
   CREATE INDEX proposals_by_agent ON proposals (agent_id, status);
 `;
 
+const SCHEMA_V5 = `
+  ALTER TABLE item_counters RENAME COLUMN structure TO binder;
+  ALTER TABLE proposals RENAME COLUMN structure TO binder;
+`;
+
 /** Brings a database at `version` to SCHEMA_VERSION; the caller runs it inside one transaction. Takes no seq. */
 export const upgradeSchema = (db: DatabaseSync, version: number, newDbId: () => string) => {
   if (version < 1) {
@@ -117,5 +122,6 @@ export const upgradeSchema = (db: DatabaseSync, version: number, newDbId: () => 
     // the whole history.
     db.prepare("UPDATE proposals SET noted_seq = 0 WHERE status IN (SELECT value FROM json_each(?))").run(JSON.stringify(OUTCOMES));
   }
+  if (version < 5) db.exec(SCHEMA_V5);
   db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 };

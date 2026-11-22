@@ -496,6 +496,80 @@ export const click = async (locator: Locator): Promise<void> => {
   await locator.page().mouse.click(at.x, at.y);
 };
 
+type WheelWindow = { __e2eWheels?: number };
+const WHEELED = "data-e2e-wheeled";
+
+/**
+ * Wheels over the scroller holding `inside` (it, or its nearest ancestor whose overflow-y is auto or scroll) until
+ * that scroller is at its top or end, then once more past it, and returns what around it scrolled or overflows
+ * vertically, described: each element from the scroller's parent up to the document, every sidebar (<aside>) and
+ * dockview view (`.dv-view`), and the document's scrolling element. Empty when only the scroller moved. Throws when
+ * the scroller has nothing to scroll, or something covers it.
+ */
+export const wheelPastEnd = async (inside: Locator, way: "up" | "down"): Promise<string[]> => {
+  const page = inside.page();
+  const at = await inside.evaluate(
+    (element, mark) => {
+      const w = window as unknown as WheelWindow;
+      if (w.__e2eWheels === undefined) {
+        w.__e2eWheels = 0;
+        window.addEventListener("wheel", () => (w.__e2eWheels = (w.__e2eWheels ?? 0) + 1), { capture: true, passive: true });
+      }
+      let scroller: Element | null = element;
+      while (scroller !== null && !["auto", "scroll"].includes(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
+      if (scroller === null) throw new Error("nothing holding the element scrolls vertically");
+      if (scroller.scrollHeight <= scroller.clientHeight + 1) throw new Error("the scroller has nothing to scroll: give it more content");
+      for (const old of document.querySelectorAll(`[${mark}]`)) old.removeAttribute(mark);
+      scroller.setAttribute(mark, "");
+      // The leftmost point across its middle where the mouse hits the scroller itself or what it holds, and no
+      // vertical scroller nested in it (that one would take the wheel first).
+      const box = scroller.getBoundingClientRect();
+      const y = (Math.max(box.top, 0) + Math.min(box.bottom, window.innerHeight)) / 2;
+      const nested = (hit: Element): boolean => {
+        for (let el: Element | null = hit; el !== null && el !== scroller; el = el.parentElement) {
+          if (["auto", "scroll"].includes(getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight + 1) return true;
+        }
+        return false;
+      };
+      for (let x = box.left + 4; x < box.right - 4; x += 8) {
+        const hit = document.elementFromPoint(x, y);
+        if (hit !== null && scroller.contains(hit) && !nested(hit)) return { x, y };
+      }
+      throw new Error("no point across the scroller's middle hits it: something covers it");
+    },
+    WHEELED,
+  );
+  const scroller = page.locator(`[${WHEELED}]`);
+  const wheels = () => page.evaluate(() => (window as unknown as WheelWindow).__e2eWheels ?? 0);
+  const wheel = async (): Promise<void> => {
+    const before = await wheels();
+    await page.mouse.wheel(0, way === "up" ? -600 : 600);
+    await until("the page to get the wheel", WAIT_MS, async () => ((await wheels()) > before ? true : undefined));
+  };
+  const atEnd = () => scroller.evaluate((element, up) => (up ? element.scrollTop <= 0 : element.scrollTop >= element.scrollHeight - element.clientHeight - 1), way === "up");
+  await page.mouse.move(at.x, at.y);
+  await until(`the scroller to reach its ${way === "up" ? "top" : "end"}`, WAIT_MS, async () => {
+    if (await atEnd()) return true;
+    await wheel();
+    return undefined;
+  });
+  await wheel();
+  return scroller.evaluate((element) => {
+    const around = new Set<Element>();
+    for (let up = element.parentElement; up !== null; up = up.parentElement) around.add(up);
+    for (const other of document.querySelectorAll("aside, .dv-view")) around.add(other);
+    if (document.scrollingElement !== null) around.add(document.scrollingElement);
+    const name = (el: Element) =>
+      `<${el.tagName.toLowerCase()}${el.getAttribute("aria-label") === null ? "" : ` "${el.getAttribute("aria-label") ?? ""}"`}${typeof el.className === "string" && el.className !== "" ? ` .${el.className.split(/\s+/).slice(0, 4).join(".")}` : ""}>`;
+    return [...around].flatMap((el) => {
+      const found: string[] = [];
+      if (el.scrollTop !== 0) found.push(`scrolled ${String(el.scrollTop)}px`);
+      if (el.scrollHeight > el.clientHeight + 1) found.push(`${String(el.scrollHeight - el.clientHeight)}px taller than it shows`);
+      return found.length === 0 ? [] : [`${name(el)}: ${found.join(", ")}`];
+    });
+  });
+};
+
 /** The element marking a select's current value in `dialog`, holding `name`. */
 export const current = (dialog: Locator, name: string): Locator =>
   dialog.locator('[aria-checked="true"], [aria-selected="true"], [aria-current="true"]').filter({ hasText: name });

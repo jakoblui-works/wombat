@@ -20,7 +20,8 @@ const item = (id: string, version: string): LoadedItem => ({
   version,
   problems: [],
   body: "",
-  structure: "bugs",
+  excerpt: null,
+  binder: "bugs",
 });
 
 /** A proposal being applied: a create has no item yet, an update and a delete name ITEM_ID. */
@@ -28,7 +29,7 @@ const applying = (kind: StoredItemProposal["kind"], intent: unknown): StoredItem
   id: "0196f3c2-1a00-7000-8000-0000000000aa",
   target: "item",
   path: null,
-  structure: "bugs",
+  binder: "bugs",
   itemId: kind === "create" ? null : ITEM_ID,
   kind,
   file: null,
@@ -58,10 +59,10 @@ const cases: [string, StoredItemProposal["kind"], unknown, LoadedItem[], boolean
 ];
 
 test.each(cases)("written: %s", (_what, kind, intent, items, fileMissing, written) => {
-  const answer = itemWritten(applying(kind, intent), { items, structureRead: true, fileMissing });
+  const answer = itemWritten(applying(kind, intent), { items, binderRead: true, fileMissing });
 
   expect(answer?.written ?? false).toBe(written);
   if (kind === "create" && written) expect(answer?.itemId, "the created item's id").toBe(ITEM_ID);
-  // A structure that wasn't read whole can't tell: an answer either way could be wrong.
-  expect(() => itemWritten(applying(kind, intent), { items, structureRead: false, fileMissing })).toThrow();
+  // A binder that wasn't read whole can't tell: an answer either way could be wrong.
+  expect(() => itemWritten(applying(kind, intent), { items, binderRead: false, fileMissing })).toThrow();
 });

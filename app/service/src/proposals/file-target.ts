@@ -228,7 +228,7 @@ export const baseChanged = (
   now: TargetText | null,
 ): boolean | undefined => (proposal.kind === "edit" && canRevise(proposal.status) ? !atBase(now, proposal.baseVersion) : undefined);
 
-const CATALOG_FILE = conflict(`The file is an item's file or a structure's settings, which only the item tools change, ${NOTHING_WRITTEN}. ${BY_HAND}`);
+const CATALOG_FILE = conflict(`The file is an item's file or a binder's settings, which only the item tools change, ${NOTHING_WRITTEN}. ${BY_HAND}`);
 const MOVED = conflict(
   `The file's path leads somewhere else now than when the agent proposed the change (a folder on it, or the file, was replaced by a symlink), ${NOTHING_WRITTEN}. Reject the proposal, or ask the agent to propose it again.`,
 );

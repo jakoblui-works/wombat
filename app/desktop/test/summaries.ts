@@ -22,7 +22,7 @@ export const summary = (id: string, fields: Partial<AgentSummary> = {}): AgentSu
 export const proposal = (id: string, agentId = AGENT): Proposal => ({
   id,
   target: "item",
-  structure: "pages",
+  binder: "pages",
   kind: "update",
   handle: "PAGE-3",
   file: null,

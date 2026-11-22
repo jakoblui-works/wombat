@@ -1,6 +1,6 @@
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
 import { cn } from "../../lib/utils"
-import { POPUP_MOTION, useOpenInput, useOpenTracking } from "./popup-motion"
+import { HOVER_POPUP_LAYER, POPUP_MOTION, useOpenInput, useOpenTracking } from "./popup-motion"
 
 function Tooltip({ onOpenChange, ...props }: TooltipPrimitive.Root.Props) {
   const tracking = useOpenTracking(onOpenChange)
@@ -15,7 +15,7 @@ function TooltipContent({ className, children, ...props }: TooltipPrimitive.Popu
   const input = useOpenInput()
   return (
     <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Positioner sideOffset={6} className="isolate z-[70]">
+      <TooltipPrimitive.Positioner sideOffset={6} className={HOVER_POPUP_LAYER}>
         <TooltipPrimitive.Popup
           data-slot="tooltip-content"
           data-input={input}

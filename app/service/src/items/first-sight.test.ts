@@ -21,6 +21,7 @@ import {
   withoutAssigned,
   writeRoot,
 } from "../../test/items-fixtures.ts";
+import { SETTINGS_FILE } from "./binders.ts";
 
 const word = fc.stringMatching(/^[A-Za-z][a-z]{1,9}$/);
 /** One body line: any graphemes but line breaks. */
@@ -66,19 +67,19 @@ const handMadeText = (file: HandMade) => {
   );
 };
 
-const BUGS_ROOT = { "bugs/_structure.yaml": BUGS_SETTINGS, "backlog/_structure.yaml": BACKLOG_SETTINGS };
+const BUGS_ROOT = { [`bugs/${SETTINGS_FILE}`]: BUGS_SETTINGS, [`backlog/${SETTINGS_FILE}`]: BACKLOG_SETTINGS };
 
 /**
  * Reads `file` once and checks what a read may leave behind: either the file as it was, or a file a fresh
  * catalog (after a restart) reads as valid with the same id. Returns the first read's item and the bytes after it.
  */
-const readOnce = async (files: Record<string, string>, structure: string, file: string) => {
+const readOnce = async (files: Record<string, string>, binder: string, file: string) => {
   const root = writeRoot(files);
   const opened = openItems(root);
-  const item = itemAt((await opened.catalog.snapshot()).items.filter((item) => item.structure === structure), file);
+  const item = itemAt((await opened.catalog.snapshot()).items.filter((item) => item.binder === binder), file);
   const written = readAt(root, file);
   if (written !== files[file]) {
-    const reread = itemAt((await opened.reopen().catalog.snapshot()).items.filter((item) => item.structure === structure), file);
+    const reread = itemAt((await opened.reopen().catalog.snapshot()).items.filter((item) => item.binder === binder), file);
     expect(reread.problems, `the written file reads back valid:\n${JSON.stringify(written)}`).toEqual([]);
     expect(reread.id).toBe(item.id);
   }
@@ -124,9 +125,9 @@ describe("first sight", () => {
   });
 
   test.each([
-    { what: "frontmatter and an H2 first", structure: "bugs", file: "bugs/no-title.md", text: "---\nrepo: api\n---\n## Steps\n\nNo H1 anywhere.\n" },
-  ])("a file without a valid title ($what) is never written and is listed invalid", async ({ structure, file, text }) => {
-    const { item, written } = await readOnce({ ...BUGS_ROOT, "_structure.yaml": DOCS_SETTINGS, [file]: text }, structure, file);
+    { what: "frontmatter and an H2 first", binder: "bugs", file: "bugs/no-title.md", text: "---\nrepo: api\n---\n## Steps\n\nNo H1 anywhere.\n" },
+  ])("a file without a valid title ($what) is never written and is listed invalid", async ({ binder, file, text }) => {
+    const { item, written } = await readOnce({ ...BUGS_ROOT, [SETTINGS_FILE]: DOCS_SETTINGS, [file]: text }, binder, file);
 
     expect(written).toBe(text);
     expect(item.problems.length).toBeGreaterThan(0);
@@ -148,7 +149,7 @@ describe("first sight", () => {
     const root = writeRoot({ ...VALID_FILES, "bugs/BUG-5-by-handle.md": byHandle, "bugs/BUG-6-by-alias.md": byAlias });
     const { catalog } = openItems(root);
 
-    const bugs = (await catalog.snapshot()).items.filter((item) => item.structure === "bugs");
+    const bugs = (await catalog.snapshot()).items.filter((item) => item.binder === "bugs");
 
     expect(itemAt(bugs, "bugs/BUG-5-by-handle.md").properties.blocks).toBe(IDS.bl2);
     expect(itemAt(bugs, "bugs/BUG-6-by-alias.md").properties.blocks).toBe(IDS.bl1);

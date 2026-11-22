@@ -1,6 +1,6 @@
 // Approving never overwrites. A proposal applies only to the item as the agent
-// read it and under the structure's settings as they are now: when the file changed (edited, its handle changed,
-// or deleted by hand) or the settings changed (the structure became read or hidden, the field became locked),
+// read it and under the binder's settings as they are now: when the file changed (edited, its handle changed,
+// or deleted by hand) or the settings changed (the binder became read or hidden, the field became locked),
 // approving marks the proposal `conflict` with a problem and leaves every file as it is. A proposal sent with a
 // version older than the file is refused at once and stores nothing.
 
@@ -8,25 +8,40 @@ import { describe, expect, test } from "vitest";
 
 import { AGENT, openAccessRoot, snapshotFiles } from "../../test/access-fixtures.ts";
 import { readAt, writeAt } from "../../test/items-fixtures.ts";
+import { SETTINGS_FILE } from "./binders.ts";
 
 const BUG = "bugs/BUG-2-hero-caption.md";
 
 const HAND_CHANGES: { what: string; change: (root: string) => void }[] = [
   { what: "the item was edited by hand", change: (root) => writeAt(root, BUG, `${readAt(root, BUG)}\nAlso seen in Chromium.\n`) },
   {
-    what: "the structure became read",
-    // A read structure can't have locks, so they go too.
+    what: "the binder became read",
+    // A read binder can't have locks, so they go too.
     change: (root) =>
-      writeAt(root, "bugs/_structure.yaml", readAt(root, "bugs/_structure.yaml").replace("access: propose", "access: read").replace("locked: [repo, body]\n", "")),
+      writeAt(root, `bugs/${SETTINGS_FILE}`, readAt(root, `bugs/${SETTINGS_FILE}`).replace("access: propose", "access: read").replace("locked: [repo, body]\n", "")),
   },
   {
-    what: "the structure became hidden",
+    what: "the binder became hidden",
     change: (root) =>
-      writeAt(root, "bugs/_structure.yaml", readAt(root, "bugs/_structure.yaml").replace("access: propose", "access: hidden").replace("locked: [repo, body]\n", "")),
+      writeAt(root, `bugs/${SETTINGS_FILE}`, readAt(root, `bugs/${SETTINGS_FILE}`).replace("access: propose", "access: hidden").replace("locked: [repo, body]\n", "")),
   },
   {
     what: "the field became locked",
-    change: (root) => writeAt(root, "bugs/_structure.yaml", readAt(root, "bugs/_structure.yaml").replace("locked: [repo, body]", "locked: [repo, body, note]")),
+    change: (root) => writeAt(root, `bugs/${SETTINGS_FILE}`, readAt(root, `bugs/${SETTINGS_FILE}`).replace("locked: [repo, body]", "locked: [repo, body, note]")),
+  },
+];
+
+// Identity problems only a fix by hand clears; the conflict names the field to fix, unlike a filesystem failure.
+const IDENTITY_CHANGES: { what: string; change: (root: string) => void; field: string }[] = [
+  {
+    what: "a file added by hand shares its handle",
+    change: (root) => writeAt(root, "bugs/BUG-2-copy.md", "---\nid: 0196f3c2-b100-7000-8000-000000000099\nhandle: BUG-2\nrepo: api\n---\n# A copy made by hand\n\nInvented.\n"),
+    field: "handle",
+  },
+  {
+    what: "its binder's settings broke",
+    change: (root) => writeAt(root, `bugs/${SETTINGS_FILE}`, `${readAt(root, `bugs/${SETTINGS_FILE}`)}  parent: { type: link, to: nowhere }\n`),
+    field: "properties.parent.to",
   },
 ];
 
@@ -42,6 +57,21 @@ describe("approve never overwrites", () => {
 
     expect(decided.status).toBe("conflict");
     expect(decided.problem?.message.trim().length, "the problem says what changed").toBeGreaterThan(0);
+    expect(snapshotFiles(root)).toEqual(before);
+  });
+
+  test.each(IDENTITY_CHANGES)("approving an update after $what marks it conflict naming the field to fix by hand", async ({ change, field }) => {
+    const { access, root } = openAccessRoot();
+    const { version } = await access.get("BUG-2");
+    const { proposed } = await access.proposeUpdate(AGENT, "BUG-2", { note: "Overlap fixed by the new layout" }, version, "Seen again");
+    change(root);
+    const before = snapshotFiles(root);
+
+    const decided = await access.approve(proposed, 1);
+
+    expect(decided.status).toBe("conflict");
+    expect(decided.problem?.field).toBe(field);
+    expect(decided.problem?.message, "not the filesystem's advice").not.toMatch(/filesystem/i);
     expect(snapshotFiles(root)).toEqual(before);
   });
 

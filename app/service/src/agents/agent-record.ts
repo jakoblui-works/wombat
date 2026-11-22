@@ -1,5 +1,6 @@
 import {
   AgentErrorCode,
+  ITEMS_ALERT,
   LogEntry,
   parseLogEntry,
   PROPOSAL_ALERT,
@@ -57,7 +58,8 @@ export const createAgentRecord = (deps: AgentRecordDeps) => {
       try {
         listener(event);
       } catch {
-        const subject = event.type === PROPOSAL_ALERT ? { proposalId: event.proposalId } : { agentId: event.agentId };
+        const subject =
+          event.type === PROPOSAL_ALERT ? { proposalId: event.proposalId } : event.type === ITEMS_ALERT ? {} : { agentId: event.agentId };
         log("listener_failed", { ...subject, seq: event.seq, type: event.type });
       }
     }

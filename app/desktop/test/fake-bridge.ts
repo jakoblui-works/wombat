@@ -9,6 +9,7 @@
 // from a full reload. A test can also make it misbehave the ways the page must survive: refuse while not connected
 // (as main does), or ignore `after` for one agent; a log read past MAX_LOG_READS for one agent answers 500, so a
 // client that loops fails its test instead of hanging it.
+import { API_VERSION } from "@wombat/shared";
 import { type AgentSummary, type Alert, ListLogQuery, type LogEntry } from "@wombat/shared/api";
 import type { Proposal } from "@wombat/shared/proposals";
 import type { ConnectionState, WombatBridge } from "../src/shared/bridge.ts";
@@ -118,7 +119,7 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
   };
 
   const bridge: WombatBridge = {
-    apiVersion: 1,
+    apiVersion: API_VERSION,
     command: () => Promise.resolve(),
     onZoom: () => () => undefined,
     service: {

@@ -18,7 +18,7 @@ describe("/mcp failures", () => {
     // What the writer or catalog might throw: a file system error naming a hidden file, and one naming a hidden id.
     const errors = [
       Object.assign(new Error(`EACCES: permission denied, open '${path}'`), { code: "EACCES", path }),
-      new CatalogReadError(`${HIDDEN.ids[0]} in ${HIDDEN.structure} could not be read from ${path}`),
+      new CatalogReadError(`${HIDDEN.ids[0]} in ${HIDDEN.binder} could not be read from ${path}`),
     ];
 
     let failing: Error = new Error("unset");
@@ -39,7 +39,7 @@ describe("/mcp failures", () => {
         expect(answer.isError, `${tool}, ${error.name}: a tool error`).toBe(true);
         expect(answer.text, `${tool}, ${error.name}: says what to do`).not.toBe("");
         expect(answer.text).not.toContain(error.message);
-        expect(leaks(answer.text, [MARKER, path, ...HIDDEN.ids, HIDDEN.structure]), `${tool}, ${error.name}: the answer`).toEqual([]);
+        expect(leaks(answer.text, [MARKER, path, ...HIDDEN.ids, HIDDEN.binder]), `${tool}, ${error.name}: the answer`).toEqual([]);
         answers.push(answer.text);
 
         const failed = logs.slice(before).filter((line) => line.event === "tool_failed");
@@ -49,6 +49,6 @@ describe("/mcp failures", () => {
       // Generic: the answer doesn't depend on what went wrong.
       expect(new Set(answers).size, `${tool}: the same answer for every error`).toBe(1);
     }
-    expect(leaks(JSON.stringify(logs), [MARKER, path, ...HIDDEN.ids, HIDDEN.structure, token, "permission denied"]), "the log").toEqual([]);
+    expect(leaks(JSON.stringify(logs), [MARKER, path, ...HIDDEN.ids, HIDDEN.binder, token, "permission denied"]), "the log").toEqual([]);
   });
 });

@@ -13,6 +13,7 @@ import { openCatalog } from "./items/catalog.ts";
 import { openInstructions, readInstructions, refreshingWriter, type Instructions } from "./items/instructions.ts";
 import type { Harness } from "./harness/harness.ts";
 import { defaultHarnesses } from "./harness/registry.ts";
+import { openWatch, type Watch } from "./items/watch.ts";
 import { openWriter } from "./items/write.ts";
 import { logToStderr } from "./log.ts";
 import type { ApproveStep } from "./proposals/apply.ts";
@@ -133,6 +134,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   let manager: Manager | undefined;
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let instructions: Instructions | undefined;
+  let watch: Watch | undefined;
   const token = newToken();
   try {
     let codeId: string;
@@ -158,15 +160,30 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
     try {
       const { itemsRoot, workspaceRoot } = config;
       const catalog = itemsRoot === undefined ? undefined : openCatalog({ root: itemsRoot, store, log });
-      instructions = openInstructions({ catalog, workspaceRoot, itemsRoot, log });
+      watch = itemsRoot === undefined ? undefined : openWatch({ root: itemsRoot, log });
+      instructions = openInstructions({ catalog, workspaceRoot, ...(watch === undefined ? {} : { watch }), log });
       const { refresh } = instructions;
       // Written (or a stale one removed) before the server takes POST /agents, so the first agent gets it.
       await refresh();
       instructions.watch();
+      const { itemsCommitted } = manager;
+      const { takeSeq } = store;
+      const itemsChanged = () => itemsCommitted(takeSeq());
+      watch?.on(itemsChanged);
+      const afterWrite = async () => {
+        await refresh();
+        // The file is written by now: a failed alert mustn't fail the write, and the watch alerts for it anyway.
+        try {
+          itemsChanged();
+        } catch (error) {
+          log("items_alert_failed", { error: errorCode(error) });
+        }
+      };
+      // Approvals write through this writer too, so they alert here.
       const items =
         itemsRoot === undefined || catalog === undefined
           ? {}
-          : { items: catalog, writer: refreshingWriter(openWriter({ root: itemsRoot, store, log }), refresh) };
+          : { items: catalog, writer: refreshingWriter(openWriter({ root: itemsRoot, store, log }), afterWrite) };
       server = await startServer({
         manager,
         store,
@@ -214,6 +231,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
     // Best effort: the start failure is what the user needs to see, not a follow-on error from cleaning up.
     await server?.close().catch(() => undefined);
     await instructions?.close().catch(() => undefined);
+    watch?.close();
     await manager?.shutdown().catch(() => undefined);
     try {
       store?.close();
@@ -231,6 +249,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   const openedManager = manager;
   const openedServer = server;
   const openedInstructions = instructions;
+  const openedWatch = watch;
   const heldLock = lock;
   let stopping: Promise<void> | undefined;
   /** The one stop path, for SIGINT, SIGTERM and POST /shutdown. */
@@ -250,6 +269,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
       await step("discovery", () => removeDiscovery(discoveryPath, process.pid));
       await step("server", () => openedServer.close());
       await step("instructions", () => openedInstructions.close());
+      await step("watch", () => openedWatch?.close());
       await step("manager", () => openedManager.shutdown());
       await step("store", () => openedStore.close());
       // Last: a start waiting on the lock may open the store as soon as it's gone.

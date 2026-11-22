@@ -1,5 +1,5 @@
-import { ContextDialog, defaultSwatch } from "../../../workbench/views/Chat/Composer/ComposerFooter/ContextDialog/ContextDialog.tsx";
-import type { ContextDialogProps } from "../../../workbench/views/Chat/Composer/ComposerFooter/slots.ts";
+import { ContextDialog, defaultSwatch } from "../../../workbench/panels/Chat/Composer/ComposerFooter/ContextDialog/ContextDialog.tsx";
+import type { ContextDialogProps } from "../../../workbench/panels/Chat/Composer/ComposerFooter/slots.ts";
 
 /** The colours of Claude's VS Code extension, by the category name Claude sends; a name not listed gets the default. */
 const CLAUDE_SWATCH = new Map([

@@ -8,11 +8,10 @@
 // the stream open and isn't an alert.
 import { z } from "zod";
 
-import { Item, ItemSummary, knownItems, Problem, StructureSummary } from "./items.ts";
+import { Item, ItemSummary, knownItems, Problem, BinderSummary } from "./items.ts";
 import { DiffLine } from "./line-diff.ts";
 import { ProposalErrorCode, Timestamp } from "./proposals.ts";
 import { queryInt } from "./query.ts";
-import { MAX_BODY_BYTES } from "./routes.ts";
 
 const Seq = z.int().nonnegative();
 const DbId = z.string().min(1);
@@ -69,6 +68,36 @@ export const ListLogQuery = z.strictObject(
 );
 export type ListLogQuery = z.infer<typeof ListLogQuery>;
 
+const ItemVersion = z.string().regex(/^[0-9a-f]{64}$/, { message: "version must be the item's version as you read it (64 hex characters)" });
+
+/** `POST /binders/:id/items`: the service checks the values against the binder, as for an agent's create. */
+export const CreateItemRequest = z.strictObject({
+  title: z.string(),
+  body: z.string(),
+  properties: z.record(z.string(), z.unknown()),
+  /** Free naming only: the file's path relative to the binder's folder. */
+  file: z.string().exactOptional(),
+});
+export type CreateItemRequest = z.infer<typeof CreateItemRequest>;
+
+/**
+ * `POST /binders`: a new binder in `path` (its folder relative to the items root, with `/`; missing parent folders
+ * are created), with a starter `_binder.yaml` whose id is the name's slug. Answers the BinderSummary GET /binders lists.
+ */
+export const NewBinderRequest = z.strictObject({ path: z.string(), name: z.string(), prefix: z.string(), adopt: z.boolean().optional() });
+export type NewBinderRequest = z.infer<typeof NewBinderRequest>;
+
+/** `PATCH /items/:ref`: only the changed fields among title, body and property names; null clears a property. */
+export const UpdateItemRequest = z.strictObject({ version: ItemVersion, fields: z.record(z.string(), z.unknown()) });
+export type UpdateItemRequest = z.infer<typeof UpdateItemRequest>;
+
+/** `DELETE /items/:ref?version=`: the version the delete is based on. */
+export const DeleteItemQuery = z.strictObject(
+  { version: ItemVersion },
+  { error: (issue) => (issue.code === "unrecognized_keys" ? "unknown query parameter; send only version" : undefined) },
+);
+export type DeleteItemQuery = z.infer<typeof DeleteItemQuery>;
+
 // Responses (lenient)
 
 const ErrorDetail = z.object({
@@ -105,6 +134,9 @@ export const ServerErrorCode = z.enum([
   "internal_error",
 ]);
 export type ServerErrorCode = z.infer<typeof ServerErrorCode>;
+
+/** The largest request body the service takes, and main lets through. */
+export const MAX_BODY_BYTES = 1024 * 1024;
 
 /** The message for a body over MAX_BODY_BYTES: the service's `payload_too_large`, and the app's refusal before sending. */
 export const BODY_OVER_CAP_MESSAGE = `The request body is over ${String(MAX_BODY_BYTES / 1024 / 1024)} MiB, more than the service takes. Send a shorter one.`;
@@ -149,14 +181,15 @@ export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 
 /**
  * The items routes' error codes: `items_not_configured` when the service runs without an items root (the app hides
- * the items views), `structure_not_found` and `item_not_found` for an unknown structure id or handle (the app
- * refetches the structures). The proposal routes add the ProposalErrorCode codes. `items_not_writable` is reserved
- * for a write the items root's filesystem can't take; no route sends it yet: such a failure on approve settles the
- * proposal as a conflict.
+ * the items views), `binder_not_found` and `item_not_found` for an unknown binder id or handle (the app
+ * refetches the binders). The proposal routes add the ProposalErrorCode codes. `items_not_writable`: my write to
+ * an item or binder to fix by hand first (a shared handle, problems on disk, broken binder settings), sent with its
+ * `problems`; or one the items root's filesystem can't take, sent without. On approve either settles the proposal as
+ * a conflict instead.
  */
 export const ItemsErrorCode = z.enum([
   "items_not_configured",
-  "structure_not_found",
+  "binder_not_found",
   "item_not_found",
   "items_not_writable",
   ...ProposalErrorCode.options,
@@ -164,25 +197,27 @@ export const ItemsErrorCode = z.enum([
 export type ItemsErrorCode = z.infer<typeof ItemsErrorCode>;
 
 /**
- * Why the item writer refused a write; nothing on disk changed. Internal to the service, never sent. On /mcp the
- * access module turns each one but `items_not_writable` into an AccessErrorCode refusal (the agent gets its message);
- * approving a proposal turns every one of them into a `conflict` proposal. `items_not_writable` fails an /mcp call:
- * the agent gets a generic failure.
+ * Why the item writer refused a write; nothing on disk changed. The item write routes send it as is:
+ * `invalid_fields` for values that don't fit, `items_not_writable` with `problems` for an item or binder to fix by
+ * hand first, or without them when the items root's filesystem can't take the write. On /mcp the access module turns
+ * each one into an AccessErrorCode refusal (an item or binder to fix by hand reads as `invalid_fields`), except the
+ * filesystem's `items_not_writable`, which fails the call: the agent gets a generic failure. Approving a proposal
+ * turns every one of them into a `conflict` proposal.
  */
 export const ItemWriteErrorCode = z.enum([
   "stale_version",
   "invalid_fields",
   "item_not_found",
-  "structure_not_found",
+  "binder_not_found",
   "field_not_writable",
   "items_not_writable",
 ]);
 export type ItemWriteErrorCode = z.infer<typeof ItemWriteErrorCode>;
 
 /**
- * Why /mcp refused an agent's items tool call: `not_found` (no such item or structure the agent may see),
- * `read_only`, `use_propose` or `use_edit` (the structure's level calls for another tool), `locked` (a locked field),
- * `stale_version` (the item changed since the agent read it), `invalid_fields` (the values don't fit the structure).
+ * Why /mcp refused an agent's items tool call: `not_found` (no such item or binder the agent may see),
+ * `read_only`, `use_propose` or `use_edit` (the binder's level calls for another tool), `locked` (a locked field),
+ * `stale_version` (the item changed since the agent read it), `invalid_fields` (the values don't fit the binder).
  * The agent gets only the message, which says what to do next; the app never sees these.
  */
 export const AccessErrorCode = z.enum([
@@ -350,6 +385,16 @@ export const permissionTitle = (own: string | null | undefined, toolTitle: strin
 
 export const ListAgentsResponse = z.object({ dbId: DbId, seq: Seq, agents: z.array(AgentSummary) });
 export type ListAgentsResponse = z.infer<typeof ListAgentsResponse>;
+
+/** `POST /agents/:id/messages` (202): the seq of the stored message. */
+export const SendMessageResponse = z.object({ seq: Seq });
+export type SendMessageResponse = z.infer<typeof SendMessageResponse>;
+
+/** A 204, or a 202 that carries nothing: no body. */
+export const NoContent = z.undefined();
+
+/** `POST /shutdown` (202, once the agents have stopped). */
+export const ShutdownResponse = z.object({});
 
 // ACP session updates we render: a subset of the fields of ACP v1's `SessionUpdate`.
 
@@ -562,15 +607,15 @@ export type SessionUpdate = z.infer<typeof SessionUpdate>;
 
 // Items (lenient), read by the app; the shapes live in `items.ts`, the proposals' in `proposals.ts`.
 
-/** `GET /structures`: every structure under the items root, hidden ones and broken settings included. */
-export const ListStructuresResponse = z.object({ structures: z.array(StructureSummary) });
-export type ListStructuresResponse = z.infer<typeof ListStructuresResponse>;
+/** `GET /binders`: every binder under the items root, hidden ones and broken settings included. */
+export const ListBindersResponse = z.object({ binders: z.array(BinderSummary) });
+export type ListBindersResponse = z.infer<typeof ListBindersResponse>;
 
-/** `GET /structures/:id/items`: every file of the structure, invalid ones included. */
+/** `GET /binders/:id/items`: every file of the binder, invalid ones included. */
 export const ListItemsResponse = z.object({ items: z.array(ItemSummary) });
 export type ListItemsResponse = z.infer<typeof ListItemsResponse>;
 
-/** `GET /items/:handle`: one item by handle or alias, with its body. */
+/** `GET /items/:ref`: one item by id, handle or alias, with its body. */
 export const GetItemResponse = Item;
 export type GetItemResponse = z.infer<typeof GetItemResponse>;
 
@@ -723,14 +768,16 @@ export type ListLogResponse = z.infer<typeof ListLogResponse>;
 /** How often the service writes the heartbeat on every open `GET /events` stream; a client may drop a stream silent for longer. */
 export const HEARTBEAT_MS = 15_000;
 
-/** The alert type of a proposal change; the other alert types are the agent ones. */
+/** The alert type of a proposal change. */
 export const PROPOSAL_ALERT = "proposal";
+/** The alert type of a change to any item or binder settings, by the service or by hand. */
+export const ITEMS_ALERT = "items";
 
 const AgentAlertType = z.enum(["agent_added", "agent_changed", "agent_removed", "log"]);
 
 /**
  * Says that something changed, up to `seq`; the app fetches the change. An agent alert names the agent, a
- * `proposal` alert the proposal. Alerts carry ids only: unknown fields are stripped, so an alert never carries
+ * `proposal` alert the proposal; an `items` alert names nothing, so the app reads its items again. Alerts carry ids only: unknown fields are stripped, so an alert never carries
  * agent or item content even if one is sent.
  */
 export const Alert = z.discriminatedUnion("type", [
@@ -741,10 +788,11 @@ export const Alert = z.discriminatedUnion("type", [
     agentId: z.string(),
   }),
   z.object({ seq: Seq, dbId: DbId, type: z.literal(PROPOSAL_ALERT), proposalId: z.string() }),
+  z.object({ seq: Seq, dbId: DbId, type: z.literal(ITEMS_ALERT) }),
 ]);
 export type Alert = z.infer<typeof Alert>;
 
-const alertTypes = new Set<unknown>([...AgentAlertType.options, PROPOSAL_ALERT]);
+const alertTypes = new Set<unknown>([...AgentAlertType.options, PROPOSAL_ALERT, ITEMS_ALERT]);
 
 /** Parses one alert. Returns undefined for alert types this app doesn't know (newer service); throws on a malformed known alert. */
 export const parseAlert = (data: unknown): Alert | undefined => {

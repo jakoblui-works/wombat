@@ -102,12 +102,12 @@ test(
   async () => {
     const s = await serve({ itemsRoot: writeRoot(VALID_FILES) });
     const { proposal } = s.store.insertProposal(
-      { target: "item", path: null, structure: "bugs", itemId: IDS.bug1, kind: "update", file: null, reason: "Seen again on staging.", baseVersion: "9f2c", agentId: STUB_AGENT },
+      { target: "item", path: null, binder: "bugs", itemId: IDS.bug1, kind: "update", file: null, reason: "Seen again on staging.", baseVersion: "9f2c", agentId: STUB_AGENT },
       { fields: { note: "Also seen in Firefox" } },
     );
     const before = stateOf(s, proposal.id);
 
-    // A link to an item outside the property's structure: the writer's problem for it names that item inside the service.
+    // A link to an item outside the property's binder: the writer's problem for it names that item inside the service.
     const refused = await putDraft(s, proposal.id, { onVersion: 1, fields: { order: "twelve", blocks: IDS.bug2 } });
 
     expectError(refused, 400, "invalid_request", "a draft with a number property set to text");

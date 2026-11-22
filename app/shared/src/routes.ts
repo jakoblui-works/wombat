@@ -1,42 +1,159 @@
-// The routes the desktop app's page may call on the service, and the largest body the service takes. The service's
-// side is checked by service/src/server/app-routes.test.ts: every route here is served, every app route the
-// service serves is here (except the ones only the app's main process calls: /events, /shutdown; and /mcp).
-/** One route the app may call; path parameters as `:name`. `query`: the route takes a query string. */
-export type AppRoute = { method: "GET" | "POST" | "PUT" | "DELETE"; pattern: string; query?: true };
+// The service's routes the app calls, each with its schemas, and the page's allow-list among them. The service's
+// side is checked by service/src/server/app-routes.test.ts: every route on the allow-list is served, every app route
+// the service serves is on it (except the ones only the app's main process calls: /events, /shutdown; and /mcp).
+import type { z } from "zod";
+
+import {
+  AgentSummary,
+  AnswerPermissionRequest,
+  ContextBreakdown,
+  CreateItemRequest,
+  DeleteItemQuery,
+  GetItemResponse,
+  ListAgentsResponse,
+  ListBindersResponse,
+  ListHarnessesResponse,
+  ListItemsResponse,
+  ListLogQuery,
+  ListLogResponse,
+  ListReposResponse,
+  NewBinderRequest,
+  NoContent,
+  SendMessageRequest,
+  SendMessageResponse,
+  SetConfigRequest,
+  ShutdownResponse,
+  StartAgentRequest,
+  UpdateItemRequest,
+  VersionResponse,
+} from "./api.ts";
+import { BinderSummary } from "./items.ts";
+import {
+  ApproveRequest,
+  DraftRequest,
+  ListProposalsQuery,
+  ListProposalsResponse,
+  ProposalDetail,
+  ProposalDetailQuery,
+  Proposal,
+  RejectRequest,
+} from "./proposals.ts";
+
+export { MAX_BODY_BYTES } from "./api.ts";
+
+/**
+ * One route of the service; path parameters as `:name`. `query`, `body`: the schemas of the query string and the
+ * request body it takes, if any. `response`: the schema of a 2xx body, or "stream" for an event stream.
+ */
+export type AppRoute = {
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  pattern: string;
+  query?: z.ZodType;
+  body?: z.ZodType;
+  response: z.ZodType | "stream";
+};
+
+const PAGE_ROUTES = {
+  version: { method: "GET", pattern: "/version", response: VersionResponse },
+  listHarnesses: { method: "GET", pattern: "/harnesses", response: ListHarnessesResponse },
+  listRepos: { method: "GET", pattern: "/repos", response: ListReposResponse },
+  listAgents: { method: "GET", pattern: "/agents", response: ListAgentsResponse },
+  startAgent: { method: "POST", pattern: "/agents", body: StartAgentRequest, response: AgentSummary },
+  agentLog: { method: "GET", pattern: "/agents/:id/log", query: ListLogQuery, response: ListLogResponse },
+  sendMessage: { method: "POST", pattern: "/agents/:id/messages", body: SendMessageRequest, response: SendMessageResponse },
+  answerPermission: { method: "POST", pattern: "/agents/:id/permissions/:requestId", body: AnswerPermissionRequest, response: NoContent },
+  setConfig: { method: "POST", pattern: "/agents/:id/config", body: SetConfigRequest, response: NoContent },
+  contextBreakdown: { method: "POST", pattern: "/agents/:id/context", response: ContextBreakdown },
+  cancelTurn: { method: "POST", pattern: "/agents/:id/cancel", response: NoContent },
+  stopAgent: { method: "POST", pattern: "/agents/:id/stop", response: NoContent },
+  deleteAgent: { method: "DELETE", pattern: "/agents/:id", response: NoContent },
+  listBinders: { method: "GET", pattern: "/binders", response: ListBindersResponse },
+  createBinder: { method: "POST", pattern: "/binders", body: NewBinderRequest, response: BinderSummary },
+  binderItems: { method: "GET", pattern: "/binders/:id/items", response: ListItemsResponse },
+  getItem: { method: "GET", pattern: "/items/:ref", response: GetItemResponse },
+  createItem: { method: "POST", pattern: "/binders/:id/items", body: CreateItemRequest, response: GetItemResponse },
+  updateItem: { method: "PATCH", pattern: "/items/:ref", body: UpdateItemRequest, response: GetItemResponse },
+  deleteItem: { method: "DELETE", pattern: "/items/:ref", query: DeleteItemQuery, response: NoContent },
+  listProposals: { method: "GET", pattern: "/proposals", query: ListProposalsQuery, response: ListProposalsResponse },
+  getProposal: { method: "GET", pattern: "/proposals/:id", query: ProposalDetailQuery, response: ProposalDetail },
+  saveDraft: { method: "PUT", pattern: "/proposals/:id/draft", body: DraftRequest, response: Proposal },
+  clearDraft: { method: "DELETE", pattern: "/proposals/:id/draft", response: Proposal },
+  approveProposal: { method: "POST", pattern: "/proposals/:id/approve", body: ApproveRequest, response: Proposal },
+  rejectProposal: { method: "POST", pattern: "/proposals/:id/reject", body: RejectRequest, response: Proposal },
+} as const satisfies Record<string, AppRoute>;
+
+const MAIN_ROUTES = {
+  events: { method: "GET", pattern: "/events", response: "stream" },
+  shutdown: { method: "POST", pattern: "/shutdown", response: ShutdownResponse },
+} as const satisfies Record<string, AppRoute>;
+
+const disjoint = <A extends object, B extends object>(a: A, b: B & Partial<Record<keyof A, never>>): A & B => ({ ...a, ...b });
+
+/** Every route the app calls, by name: build its path with pathOf. */
+export const ROUTES = disjoint(PAGE_ROUTES, MAIN_ROUTES);
+
+/** The routes only main calls, never on the page's allow-list. */
+export const MAIN_ONLY_ROUTES: readonly AppRoute[] = Object.values(MAIN_ROUTES);
 
 /** Every route the app's page may call (the bridge's allow-list, checked in main). */
-export const APP_ROUTES: readonly AppRoute[] = [
-  { method: "GET", pattern: "/version" },
-  { method: "GET", pattern: "/harnesses" },
-  { method: "GET", pattern: "/repos" },
-  { method: "GET", pattern: "/agents" },
-  { method: "POST", pattern: "/agents" },
-  { method: "GET", pattern: "/agents/:id/log", query: true },
-  { method: "POST", pattern: "/agents/:id/messages" },
-  { method: "POST", pattern: "/agents/:id/permissions/:requestId" },
-  { method: "POST", pattern: "/agents/:id/config" },
-  { method: "POST", pattern: "/agents/:id/context" },
-  { method: "POST", pattern: "/agents/:id/cancel" },
-  { method: "POST", pattern: "/agents/:id/stop" },
-  { method: "DELETE", pattern: "/agents/:id" },
-  { method: "GET", pattern: "/structures" },
-  { method: "GET", pattern: "/structures/:id/items" },
-  { method: "GET", pattern: "/items/:handle" },
-  { method: "GET", pattern: "/proposals", query: true },
-  { method: "GET", pattern: "/proposals/:id", query: true },
-  { method: "PUT", pattern: "/proposals/:id/draft" },
-  { method: "DELETE", pattern: "/proposals/:id/draft" },
-  { method: "POST", pattern: "/proposals/:id/approve" },
-  { method: "POST", pattern: "/proposals/:id/reject" },
-];
+export const APP_ROUTES: readonly AppRoute[] = Object.values(PAGE_ROUTES);
 
-/** The largest request body the service takes, and main lets through. */
-export const MAX_BODY_BYTES = 1024 * 1024;
+type ParamNames<P extends string> = P extends `${string}:${infer Name}/${infer Rest}`
+  ? Name | ParamNames<Rest>
+  : P extends `${string}:${infer Name}`
+    ? Name
+    : never;
+
+export type PathParams<P extends string> = { readonly [Name in ParamNames<P>]: string };
+
+export type QueryOf<R extends AppRoute> = R extends { query: infer Q extends z.ZodType } ? z.input<Q> : never;
+
+export type ResponseOf<R extends AppRoute> = R["response"] extends z.ZodType ? z.output<R["response"]> : never;
+
+export type PathArgs<R extends AppRoute> = [ParamNames<R["pattern"]>] extends [never]
+  ? [params?: Record<string, never>, query?: QueryOf<R>]
+  : [params: PathParams<R["pattern"]>, query?: QueryOf<R>];
 
 // A path parameter is one plain segment: no percent-encoding (so no encoded `/` or `.`), and never `.` or `..`.
 const PARAM = /^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/;
 // Plain `key=value&…` pairs; the service checks the keys and values themselves.
 const QUERY = /^[A-Za-z0-9._~-]+=[A-Za-z0-9._~-]*(&[A-Za-z0-9._~-]+=[A-Za-z0-9._~-]*)*$/;
+
+/**
+ * `route`'s path with `params` in its `:name` segments and `query` (its undefined values left out) after it, as
+ * appRoute takes it. Throws when a parameter isn't one plain segment or a query value isn't plain: nothing encodes them.
+ */
+export const pathOf = <R extends AppRoute>(route: R, ...[params, query]: PathArgs<R>): string => {
+  const values: Readonly<Record<string, string>> = params ?? {};
+  const pathname = route.pattern
+    .split("/")
+    .map((part) => {
+      if (!part.startsWith(":")) return part;
+      const value = values[part.slice(1)] ?? "";
+      if (!PARAM.test(value)) {
+        throw new Error(
+          `${route.method} ${route.pattern} wasn't sent: its ${part.slice(1)} "${value}" isn't one plain path segment (letters, digits, ., _, ~ or -, and not "." or ".."). Use the ${part.slice(1)} as the service listed it.`,
+        );
+      }
+      return value;
+    })
+    .join("/");
+  const pairs = Object.entries((query ?? {}) as Record<string, unknown>)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join("&");
+  if (pairs === "") return pathname;
+  if (!QUERY.test(pairs)) {
+    throw new Error(`${route.method} ${route.pattern} can't be called with the query ${pairs}: its keys and values must be letters, digits, ., _, ~ or -. Send plain values.`);
+  }
+  return `${pathname}?${pairs}`;
+};
+
+/** The method and path of a call to `route`, its path built with pathOf (and throwing as it does). */
+export const requestTo = <R extends AppRoute>(route: R, ...args: PathArgs<R>): { method: R["method"]; path: string } => ({
+  method: route.method,
+  path: pathOf(route, ...args),
+});
 
 const matches = (pattern: string, pathname: string): boolean => {
   const want = pattern.split("/");
@@ -55,6 +172,8 @@ export const appRoute = (method: string, path: string): AppRoute | undefined => 
   const query = queryAt === -1 ? undefined : path.slice(queryAt + 1);
   return APP_ROUTES.find(
     (route) =>
-      route.method === method && matches(route.pattern, pathname) && (query === undefined || (route.query === true && QUERY.test(query))),
+      route.method === method &&
+      matches(route.pattern, pathname) &&
+      (query === undefined || (route.query !== undefined && QUERY.test(query))),
   );
 };

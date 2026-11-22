@@ -1,5 +1,5 @@
 // Needs me, against the built app and the fake-permission agent (asks "Edit notes.txt" and waits).
-// What this check relies on in the page (roles and names, plus the dockview selectors agent-views.ts uses):
+// What this check relies on in the page (roles and names, plus the dockview selectors agent-panels.ts uses):
 // - the toggle: a `button` whose name starts with "Needs me", followed by the count while it's above 0;
 // - the right sidebar `complementary` "Needs me" lists one `button` per row, naming what the agent asks; empty, it
 //   says "Nothing needs you";
@@ -8,7 +8,7 @@
 import type { Locator, Page } from "@playwright/test";
 
 import { click, expect, layoutOf, REPO, sendOpenAgent, startWaitingAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
-import { groupWithTab } from "./agent-views.ts";
+import { groupWithTab } from "./agent-panels.ts";
 
 const toggle = (page: Page): Locator => page.getByRole("button", { name: /^Needs me\b/ });
 const needsMe = (page: Page): Locator => page.getByRole("complementary", { name: "Needs me", exact: true });

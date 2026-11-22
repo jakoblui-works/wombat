@@ -53,8 +53,8 @@ export type StoredProposal = {
   /** What the write in progress will produce; only while it's being applied. */
   intent?: unknown;
 } & (
-  | { target: "file"; path: string; structure: null; kind: FileProposalKind }
-  | { target: "item"; path: null; structure: string; kind: ItemProposalKind }
+  | { target: "file"; path: string; binder: null; kind: FileProposalKind }
+  | { target: "item"; path: null; binder: string; kind: ItemProposalKind }
 );
 
 /** A proposal as handed to `insertProposal`: the store adds the id, `at` and the status. */
@@ -143,8 +143,8 @@ const proposalOf = (row: Record<string, unknown>): StoredProposal => {
     ...(intent === null ? {} : { intent: JSON.parse(asString(intent)) as unknown }),
   };
   const target = asString(row.target);
-  if (target === "file") return { ...common, target, path: asString(row.path), structure: null, kind: asString(row.kind) as FileProposalKind };
-  if (target === "item") return { ...common, target, path: null, structure: asString(row.structure), kind: asString(row.kind) as ItemProposalKind };
+  if (target === "file") return { ...common, target, path: asString(row.path), binder: null, kind: asString(row.kind) as FileProposalKind };
+  if (target === "item") return { ...common, target, path: null, binder: asString(row.binder), kind: asString(row.kind) as ItemProposalKind };
   throw new Error(`Unknown proposal target ${target} in the database.`);
 };
 
@@ -154,7 +154,7 @@ type MoveColumns = { problem: string | null; rejectReason: string | null; intent
 export const openProposalStore = (db: DatabaseSync, transaction: Transaction, takeSeq: () => number, now: () => Date): ProposalStore => {
   const statements = {
     insert: db.prepare(
-      `INSERT INTO proposals (id, target, path, structure, item_id, kind, file, reason, base_version, status, agent_id, at, last_version)
+      `INSERT INTO proposals (id, target, path, binder, item_id, kind, file, reason, base_version, status, agent_id, at, last_version)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     ),
     insertVersion: db.prepare("INSERT INTO proposal_versions (proposal_id, n, by, content, reason, at) VALUES (?, ?, ?, ?, ?, ?)"),
@@ -245,7 +245,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
         id,
         proposal.target,
         proposal.path,
-        proposal.structure,
+        proposal.binder,
         proposal.itemId,
         proposal.kind,
         proposal.file,

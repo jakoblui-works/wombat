@@ -4,8 +4,10 @@ import { dirname, join, relative } from "node:path";
 
 import { describe, expect, test, onTestFinished } from "vitest";
 
-import { BROKEN_STRUCTURE_FILES, DOCS_SETTINGS, IDS, VALID_FILES, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
-import { SETTINGS_FILE } from "./structures.ts";
+import { ACCESS_FILES, AGENT, openAccessRoot } from "../../test/access-fixtures.ts";
+import { BROKEN_BINDER_FILES, DOCS_SETTINGS, IDS, VALID_FILES, isOldSettingsProblem, itemAt, openItems, readAt, writeRoot } from "../../test/items-fixtures.ts";
+import { OLD_SETTINGS_FILE, SETTINGS_FILE } from "./binders.ts";
+import { ME } from "./write.ts";
 
 const UNASSIGNED = "---\nproject: wombat\n---\n# Typed by hand\n";
 
@@ -14,27 +16,27 @@ describe("next handle number", () => {
     // BL-1 has the alias BL-3, the highest number on disk.
     const { catalog } = openItems(writeRoot({ ...VALID_FILES, "backlog/typed.md": UNASSIGNED }));
 
-    const item = itemAt((await catalog.snapshot()).items.filter((item) => item.structure === "backlog"), "backlog/typed.md");
+    const item = itemAt((await catalog.snapshot()).items.filter((item) => item.binder === "backlog"), "backlog/typed.md");
 
     expect(item.handle).toBe("BL-4");
   });
 });
 
-describe("structure problems", () => {
-  const structure = (id: string, prefix: string, extra = "") => `version: 1\nid: ${id}\nname: ${id}\nprefix: ${prefix}\naccess: edit\n${extra}`;
+describe("binder problems", () => {
+  const binder = (id: string, prefix: string, extra = "") => `version: 1\nid: ${id}\nname: ${id}\nprefix: ${prefix}\naccess: edit\n${extra}`;
 
-  test("a duplicate structure id or prefix is a problem of both structures, whose files aren't written", async () => {
+  test("a duplicate binder id or prefix is a problem of both binders, whose files aren't written", async () => {
     const root = writeRoot({
       ...VALID_FILES,
-      "old-bugs/_structure.yaml": structure("bugs", "OLD"),
+      [`old-bugs/${SETTINGS_FILE}`]: binder("bugs", "OLD"),
       "old-bugs/typed.md": "# Typed by hand\n",
-      "ideas/_structure.yaml": structure("ideas", "BL"),
+      [`ideas/${SETTINGS_FILE}`]: binder("ideas", "BL"),
     });
     const { catalog } = openItems(root);
 
-    const structures = (await catalog.snapshot()).structures;
+    const binders = (await catalog.snapshot()).binders;
 
-    const at = (path: string) => structures.find((loaded) => loaded.path === path);
+    const at = (path: string) => binders.find((loaded) => loaded.path === path);
     expect(at("bugs")?.problems.map((problem) => problem.field)).toEqual(["id"]);
     expect(at("old-bugs")?.problems.map((problem) => problem.field)).toEqual(["id"]);
     expect(at("backlog")?.problems.map((problem) => problem.field)).toEqual(["prefix"]);
@@ -42,39 +44,65 @@ describe("structure problems", () => {
     expect(readAt(root, "old-bugs/typed.md")).toBe("# Typed by hand\n");
     // The docs at the root are unaffected.
     expect(at("")?.problems).toEqual([]);
-    expect((await catalog.snapshot()).items.filter((item) => item.structure === "docs").map((item) => item.problems)).toEqual([[], []]);
+    expect((await catalog.snapshot()).items.filter((item) => item.binder === "docs").map((item) => item.problems)).toEqual([[], []]);
   });
 
   test("settings failing the schema are listed with id null, the zod path and message as written, while the others load", async () => {
     const root = writeRoot({
       ...VALID_FILES,
-      "tasks/_structure.yaml": structure("tasks", "TSK", "properties:\n  size: { type: select }\n"),
+      [`tasks/${SETTINGS_FILE}`]: binder("tasks", "TSK", "properties:\n  size: { type: select }\n"),
       "tasks/TSK-1.md": "# Never loaded\n",
     });
     const { catalog } = openItems(root);
 
-    const { structures, items } = await catalog.snapshot();
+    const { binders, items } = await catalog.snapshot();
 
-    const tasks = structures.find((loaded) => loaded.path === "tasks");
+    const tasks = binders.find((loaded) => loaded.path === "tasks");
     expect(tasks?.id).toBeNull();
     expect(tasks?.problems.map(({ field, line }) => ({ field, line }))).toEqual([{ field: "properties.size.options", line: 7 }]);
     expect(tasks?.problems[0]?.message).toMatch(/^options\b/);
     expect(items.some((item) => item.path.startsWith("tasks/"))).toBe(false);
     expect(readAt(root, "tasks/TSK-1.md")).toBe("# Never loaded\n");
-    expect(structures.filter((loaded) => loaded.id !== null).map((loaded) => loaded.id).sort()).toEqual(["backlog", "bugs", "docs"]);
+    expect(binders.filter((loaded) => loaded.id !== null).map((loaded) => loaded.id).sort()).toEqual(["backlog", "bugs", "docs"]);
     expect(itemAt(items, "bugs/BUG-1-login-times-out.md").problems).toEqual([]);
+  });
+  test("an unknown key in a binder's settings is reported as not a key of the settings file", async () => {
+    const root = writeRoot({ ...VALID_FILES, [`tasks/${SETTINGS_FILE}`]: binder("tasks", "TSK", "colour: teal\n") });
+    const { catalog } = openItems(root);
+
+    const tasks = (await catalog.snapshot()).binders.find((loaded) => loaded.path === "tasks");
+
+    expect(tasks?.id).toBeNull();
+    expect(tasks?.problems.map((problem) => problem.message)).toEqual([expect.stringContaining(`not a key of ${SETTINGS_FILE}`)]);
+  });
+
+  test("a leftover old settings file beside the settings file is listed as a problem but blocks no write, the writer's or an edit-level agent's", async () => {
+    const { access, catalog, writer } = openAccessRoot({ ...ACCESS_FILES, [`backlog/${OLD_SETTINGS_FILE}`]: ACCESS_FILES[`backlog/${SETTINGS_FILE}`] ?? "" });
+    const version = async (handle: string) => (await access.get(handle)).version;
+
+    const backlog = (await catalog.snapshot()).binders.find((loaded) => loaded.path === "backlog");
+    expect(backlog?.id).toBe("backlog");
+    expect(backlog?.problems.map((problem) => isOldSettingsProblem(problem, "delete")), JSON.stringify(backlog?.problems)).toEqual([true]);
+
+    const created = await writer.createItem(ME, "backlog", { title: "Export as CSV", body: "From the binder's list.\n", properties: { project: "wombat" } });
+    expect(created.handle).toMatch(/^BL-\d+$/);
+    expect((await writer.updateItem(ME, "BL-1", { owner: "Kim" }, await version("BL-1"))).properties.owner).toBe("Kim");
+    const byAgent = await access.create(AGENT, "backlog", { title: "Import from CSV", body: "The other way round.\n" });
+    expect("written" in byAgent ? (await access.get(byAgent.written)).title : undefined).toBe("Import from CSV");
+    await access.update(AGENT, "BL-2", { owner: "Sam" }, await version("BL-2"));
+    expect((await access.get("BL-2")).properties.owner).toBe("Sam");
   });
 });
 
-describe("free structure membership", () => {
-  test("an include match through a symlink out of the structure's folder is neither listed nor written", async () => {
+describe("free binder membership", () => {
+  test("an include match through a symlink out of the binder's folder is neither listed nor written", async () => {
     const outside = mkdtempSync(join(tmpdir(), "wombat-outside-"));
     onTestFinished(() => rmSync(outside, { recursive: true, force: true }));
     writeFileSync(join(outside, "secret.md"), "# Outside the items root\n");
-    const root = writeRoot({ "_structure.yaml": DOCS_SETTINGS, "architecture.md": "# Architecture\n" });
+    const root = writeRoot({ [SETTINGS_FILE]: DOCS_SETTINGS, "architecture.md": "# Architecture\n" });
     symlinkSync(outside, join(root, "guides"));
 
-    const docs = (await openItems(root).catalog.snapshot()).items.filter((item) => item.structure === "docs");
+    const docs = (await openItems(root).catalog.snapshot()).items.filter((item) => item.binder === "docs");
 
     expect(docs.map((item) => item.path)).toEqual(["architecture.md"]);
     expect(readAt(outside, "secret.md")).toBe("# Outside the items root\n");
@@ -92,7 +120,7 @@ describe("links rewritten on first sight", () => {
       "bugs/BUG-5-linked.md": linking,
     });
 
-    const item = itemAt((await openItems(root).catalog.snapshot()).items.filter((item) => item.structure === "bugs"), "bugs/BUG-5-linked.md");
+    const item = itemAt((await openItems(root).catalog.snapshot()).items.filter((item) => item.binder === "bugs"), "bugs/BUG-5-linked.md");
 
     expect(readAt(root, "bugs/BUG-5-linked.md")).toBe(linking);
     expect(item.problems.map((problem) => problem.field)).toEqual(["blocks"]);
@@ -110,30 +138,38 @@ describe("the files the catalog holds", () => {
       return lstatSync(path).isDirectory() ? filesUnder(root, path) : [relative(root, path)];
     });
 
-  test("holds every file it reads as an item and every structure's settings, no other file, and answers alike for a file not written yet", async () => {
+  test("holds every file it reads as an item and every binder's settings, no other file, and answers alike for a file not written yet", async () => {
     const outside = mkdtempSync(join(tmpdir(), "wombat-outside-"));
     onTestFinished(() => rmSync(outside, { recursive: true, force: true }));
     writeFileSync(join(outside, "elsewhere.md"), "# Outside the items root\n");
-    // Handle-named structures (Bugs, Backlog), one nested in Bugs, a free-named one at the root (Docs, with
-    // `include`), a structure whose settings don't load, and around them files no structure reads.
+    // Handle-named binders (Bugs, Backlog), one nested in Bugs, a free-named one at the root (Docs, with
+    // `include`), a binder whose settings don't load, old settings files (beside the settings and alone), and
+    // around them files no binder reads.
     const root = realpathSync(
       writeRoot({
         ...VALID_FILES,
-        ...BROKEN_STRUCTURE_FILES,
-        "bugs/archive/_structure.yaml": "version: 1\nid: archive\nname: Archive\nprefix: ARC\naccess: edit\n",
+        ...BROKEN_BINDER_FILES,
+        [`bugs/archive/${SETTINGS_FILE}`]: "version: 1\nid: archive\nname: Archive\nprefix: ARC\naccess: edit\n",
         "bugs/archive/ARC-1-old-login.md": "# Login failed on the old site\n",
         "bugs/notes/idea.md": "# In a folder of Bugs, not directly in it\n",
         "bugs/screenshot.json": "{}\n",
         "bugs/.draft.md": "# A dot file\n",
         ".obsidian/workspace.md": "# In a dot folder\n",
         "guides/deep/more.md": "# Deeper than Docs includes\n",
+        [`backlog/${OLD_SETTINGS_FILE}`]: "version: 1\nid: backlog\nname: Backlog\nprefix: BL\naccess: edit\n",
+        [`guides/old/${OLD_SETTINGS_FILE}`]: "version: 1\nid: old-guides\nname: Old guides\nprefix: OG\naccess: edit\n",
+        "guides/old/OG-1-install.md": "# Installing the old way\n",
       }),
     );
     symlinkSync(join(outside, "elsewhere.md"), join(root, "bugs", "linked.md"));
     const { catalog } = openItems(root);
-    const { structures, items } = await catalog.snapshot();
-    const read = new Set([...items.map((item) => item.path), ...structures.map((structure) => join(structure.path, SETTINGS_FILE))]);
-    expect([...read].filter((path) => path.endsWith(".md")).length, "the fixture has items in every structure that loads").toBeGreaterThanOrEqual(7);
+    const { binders, items } = await catalog.snapshot();
+    const read = new Set([
+      ...items.map((item) => item.path),
+      ...binders.map((binder) => join(binder.path, SETTINGS_FILE)),
+      ...binders.map((binder) => join(binder.path, OLD_SETTINGS_FILE)),
+    ]);
+    expect([...read].filter((path) => path.endsWith(".md")).length, "the fixture has items in every binder that loads").toBeGreaterThanOrEqual(7);
 
     const held: Record<string, boolean> = {};
     for (const file of filesUnder(root)) held[file] = await catalog.holds(realpathSync(join(root, file)));
@@ -148,6 +184,8 @@ describe("the files the catalog holds", () => {
       "bugs/notes/new.md": false,
       "new.md": false,
       "broken/BRK-2-new.md": false,
+      [`bugs/${OLD_SETTINGS_FILE}`]: true,
+      [`bugs/notes/${OLD_SETTINGS_FILE}`]: true,
     };
     for (const [file, expected] of Object.entries(notWritten)) expect(await catalog.holds(join(root, file)), `a new ${file}`).toBe(expected);
     expect(await catalog.holds(join(dirname(root), "BUG-31-new.md")), "a new file outside the root").toBe(false);

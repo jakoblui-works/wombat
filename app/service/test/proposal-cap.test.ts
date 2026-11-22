@@ -1,5 +1,5 @@
 // One cap for every way an agent proposes: at MAX_OPEN_PROPOSALS open proposals each propose tool is refused alike
-// with nothing stored, another agent isn't affected, and the cap never tells a hidden structure from a missing one.
+// with nothing stored, another agent isn't affected, and the cap never tells a hidden binder from a missing one.
 // And one limit on a proposal's versions: at MAX_PROPOSAL_VERSIONS the agent's revise is refused with nothing stored,
 // so a revise loop can't fill the database, while my own version is still saved.
 import { writeFileSync } from "node:fs";
@@ -25,7 +25,7 @@ const OTHER = { token: "token-of-another-agent", agent: "agent-with-room" };
 const fileProposal = (agentId: string, n: number): NewProposal => ({
   target: "file",
   path: `/home/sam/work/site-web/docs/page-${String(n)}.md`,
-  structure: null,
+  binder: null,
   itemId: null,
   kind: "edit",
   file: null,
@@ -33,7 +33,7 @@ const fileProposal = (agentId: string, n: number): NewProposal => ({
   baseVersion: "4d5e6f",
   agentId,
 });
-const itemProposal = (agentId: string): NewProposal => ({ target: "item", path: null, structure: "bugs", itemId: VISIBLE_IDS.bug1, kind: "update", file: null, reason: "Seen again", baseVersion: "9f2c", agentId });
+const itemProposal = (agentId: string): NewProposal => ({ target: "item", path: null, binder: "bugs", itemId: VISIBLE_IDS.bug1, kind: "update", file: null, reason: "Seen again", baseVersion: "9f2c", agentId });
 
 /** Gives the agent MAX_OPEN_PROPOSALS proposals that count (file and item, pending and one conflict) and a rejected one. */
 const fill = (store: Store, agentId: string) => {
@@ -58,15 +58,15 @@ test(
     /** One valid call per propose tool. */
     const propose = async (token: string): Promise<Record<string, ToolAnswer>> => ({
       [TOOL.proposeChange]: await callTool(s, token, TOOL.proposeChange, { path: notes, reason: "The rule changed.", edits: [{ old: "half hour", new: "hour" }] }),
-      [TOOL.proposeCreate]: await callTool(s, token, TOOL.proposeCreate, { structure: "bugs", title: "Seed script hangs", reason: "Seen twice." }),
+      [TOOL.proposeCreate]: await callTool(s, token, TOOL.proposeCreate, { binder: "bugs", title: "Seed script hangs", reason: "Seen twice." }),
       [TOOL.proposeUpdate]: await callTool(s, token, TOOL.proposeUpdate, { handle: "BUG-2", fields: { note: "Seen in Zen" }, version: await versionOf(token, "BUG-2"), reason: "Seen again." }),
       [TOOL.proposeDelete]: await callTool(s, token, TOOL.proposeDelete, { handle: "BUG-2", version: await versionOf(token, "BUG-2"), reason: "A duplicate." }),
     });
-    /** Calls aimed at the hidden structure and at one that doesn't exist. */
+    /** Calls aimed at the hidden binder and at one that doesn't exist. */
     const aimedAtHidden = async (token: string) =>
       Promise.all([
-        callTool(s, token, TOOL.proposeCreate, { structure: HIDDEN.structure, title: "A plan", reason: "Why not." }),
-        callTool(s, token, TOOL.proposeCreate, { structure: "no-such-structure", title: "A plan", reason: "Why not." }),
+        callTool(s, token, TOOL.proposeCreate, { binder: HIDDEN.binder, title: "A plan", reason: "Why not." }),
+        callTool(s, token, TOOL.proposeCreate, { binder: "no-such-binder", title: "A plan", reason: "Why not." }),
         callTool(s, token, TOOL.proposeUpdate, { handle: HIDDEN.handles[0], fields: { codename: "x" }, version: "9f2c", reason: "Why not." }),
         callTool(s, token, TOOL.proposeDelete, { handle: HIDDEN.handles[0], version: "9f2c", reason: "Why not." }),
       ]);

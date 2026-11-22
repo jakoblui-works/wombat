@@ -1,7 +1,9 @@
-import type { AgentErrorCode, ErrorBody, ErrorCode, ItemsErrorCode, ServerErrorCode } from "@wombat/shared/api";
+import type { AgentErrorCode, ErrorBody, ErrorCode, ItemsErrorCode, ItemWriteErrorCode, ServerErrorCode } from "@wombat/shared/api";
 import { Problem } from "@wombat/shared/items";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+
+import type { ItemWriteError } from "../items/write.ts";
 
 /** The HTTP status each code family's codes are sent with; routes look a status up here, never spell one. */
 export const SERVER_STATUS: Record<ServerErrorCode, ContentfulStatusCode> = {
@@ -29,15 +31,23 @@ export const AGENT_STATUS: Record<AgentErrorCode, ContentfulStatusCode> = {
   unsupported: 409,
 };
 
-/** No route sends `items_not_writable` yet: a writer failure on approve settles the proposal as a conflict. */
 export const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {
   items_not_configured: 409,
-  structure_not_found: 404,
+  binder_not_found: 404,
   item_not_found: 404,
-  items_not_writable: 500,
+  items_not_writable: 409,
   proposal_not_found: 404,
   proposal_not_pending: 409,
   proposal_changed: 409,
+};
+
+const ITEM_WRITE_STATUS: Record<ItemWriteErrorCode, ContentfulStatusCode> = {
+  stale_version: 409,
+  invalid_fields: 400,
+  item_not_found: ITEMS_STATUS.item_not_found,
+  binder_not_found: ITEMS_STATUS.binder_not_found,
+  field_not_writable: 400,
+  items_not_writable: ITEMS_STATUS.items_not_writable,
 };
 
 /** An ErrorBody response: every refusal and failure the service sends has this shape. Problems go out with only the shared Problem's keys. */
@@ -59,3 +69,7 @@ export const errorResponse = (
   };
   return c.json(body, status);
 };
+
+/** The Writer's refusal as a response, its message and problems verbatim: every route that writes items answers with this. */
+export const itemWriteResponse = (c: Context, error: ItemWriteError) =>
+  errorResponse(c, ITEM_WRITE_STATUS[error.code], error.code, error.message, undefined, error.problems.length > 0 ? error.problems : undefined);

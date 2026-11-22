@@ -1,5 +1,5 @@
 // Proposals refuse what writes refuse. Each change runs twice on twin
-// structures that differ only in their access level: through the edit tools (create, update, remove) on the
+// binders that differ only in their access level: through the edit tools (create, update, remove) on the
 // `edit` twin, and through propose_* on the `propose` twin. A proposal must be refused exactly when the direct
 // write is, with the same code and problems on the same fields; otherwise a proposal is stored that can only
 // conflict at approval. Messages aren't compared: proposals refuse in the writer's words.
@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 
 import { AccessError } from "./refusals.ts";
 import { AGENT, openAccessRoot, type TestAccess } from "../../test/access-fixtures.ts";
+import { SETTINGS_FILE } from "./binders.ts";
 
 /** The twins of each kind: `edit` is written directly, `propose` takes proposals; ids, prefixes and folders differ. */
 const TWINS = {
@@ -47,7 +48,7 @@ const files = (): Record<string, string> => {
   const root: Record<string, string> = {};
   for (const [twin, level] of [[1, "edit"], [2, "propose"]] as const) {
     const { id, prefix } = TWINS.named[level];
-    root[`${id}/_structure.yaml`] = settings(id, prefix, level);
+    root[`${id}/${SETTINGS_FILE}`] = settings(id, prefix, level);
     for (const [n, item] of Object.entries(ITEMS)) {
       root[`${id}/${prefix}-${n}-${item.file}.md`] = `---\nid: ${idOf(twin, Number(n))}\nhandle: ${prefix}-${n}\n${item.frontmatter}---\n${item.text}`;
     }
@@ -55,19 +56,19 @@ const files = (): Record<string, string> => {
     root[`${id}/${prefix}-3-shared-b.md`] = `---\nid: ${idOf(twin, 4)}\nhandle: ${prefix}-3\nstatus: done\n---\n# The other with this handle\n\nInvented.\n`;
 
     const free = TWINS.free[level];
-    root[`${free.id}/_structure.yaml`] = freeSettings(free.id, free.prefix, level);
+    root[`${free.id}/${SETTINGS_FILE}`] = freeSettings(free.id, free.prefix, level);
     root[`${free.id}/existing.md`] = `---\nid: ${idOf(twin, 9)}\nhandle: ${free.prefix}-1\n---\n# Existing\n\nInvented.\n`;
 
-    // A link to a structure that doesn't exist: a problem of the structure's settings, refusing every change.
+    // A link to a binder that doesn't exist: a problem of the binder's settings, refusing every change.
     const broken = TWINS.broken[level];
-    root[`${broken.id}/_structure.yaml`] = settings(broken.id, broken.prefix, level, "no-such-structure");
+    root[`${broken.id}/${SETTINGS_FILE}`] = settings(broken.id, broken.prefix, level, "no-such-binder");
   }
   return root;
 };
 
 const NEW = { title: "A new task", body: "\nInvented.\n" };
 
-/** What each twin is given: a structure kind and a create input, or an item number and update fields, or a delete. */
+/** What each twin is given: a binder kind and a create input, or an item number and update fields, or a delete. */
 type Change =
   | { kind: "create"; twin: keyof typeof TWINS; input: Record<string, unknown> }
   | { kind: "update"; item: number; fields: Record<string, unknown>; stale?: true }

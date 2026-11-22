@@ -1,6 +1,6 @@
 // Shared setup for the items tests: a temp items root written from invented but realistic files (a Bugs and a
-// Backlog structure in folders, a free-named Docs structure at the root, and, for the invalid-items checks, one
-// broken file per way a hand edit can break an item plus a broken `_structure.yaml`), and the catalog and writer
+// Backlog binder in folders, a free-named Docs binder at the root, and, for the invalid-items checks, one
+// broken file per way a hand edit can break an item plus a broken `_binder.yaml`), and the catalog and writer
 // opened on it with a temp store.
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +13,7 @@ import { openCatalog, type Catalog, type LoadedItem } from "../src/items/catalog
 import { ItemWriteError, openWriter, type Writer } from "../src/items/write.ts";
 import { openStore, type Store } from "../src/store/store.ts";
 import { tempStorePath } from "./store-fixtures.ts";
+import { OLD_SETTINGS_FILE, SETTINGS_FILE } from "../src/items/binders.ts";
 
 /** UUIDv7 ids for the hand-made fixture items (version nibble 7, variant 8). */
 export const IDS = {
@@ -75,7 +76,7 @@ include: ["architecture.md", "guides/*.md"]
 
 /** A valid root: two bugs, two backlog items (BL-1 was BL-3 once), two docs. */
 export const VALID_FILES: Record<string, string> = {
-  "_structure.yaml": DOCS_SETTINGS,
+  [SETTINGS_FILE]: DOCS_SETTINGS,
   "architecture.md": `---
 id: ${IDS.doc1}
 handle: DOC-1
@@ -93,8 +94,8 @@ handle: DOC-2
 1. Install pnpm.
 2. Run \`pnpm install\` in each repo.
 `,
-  "roadmap.md": "# Roadmap\n\nNot in any structure: Docs doesn't include it.\n",
-  "bugs/_structure.yaml": BUGS_SETTINGS,
+  "roadmap.md": "# Roadmap\n\nNot in any binder: Docs doesn't include it.\n",
+  [`bugs/${SETTINGS_FILE}`]: BUGS_SETTINGS,
   "bugs/BUG-1-login-times-out.md": `---
 id: ${IDS.bug1}
 handle: BUG-1
@@ -122,7 +123,7 @@ repo: site-web
 
 Seen in Zen and Chromium.
 `,
-  "backlog/_structure.yaml": BACKLOG_SETTINGS,
+  [`backlog/${SETTINGS_FILE}`]: BACKLOG_SETTINGS,
   "backlog/BL-1-items-in-wombat.md": `---
 id: ${IDS.bl1}
 handle: BL-1
@@ -131,7 +132,7 @@ project: wombat
 ---
 # Items in Wombat
 
-Structures, item files and proposals.
+Binders, item files and proposals.
 `,
   "backlog/BL-2-proposal-view.md": `---
 id: ${IDS.bl2}
@@ -227,18 +228,22 @@ export const INVALID_BUGS: { file: string; what: string; names: { fields: string
   },
 ];
 
-/** A structure whose settings don't parse; its file must not be loaded anywhere. */
-export const BROKEN_STRUCTURE_FILES: Record<string, string> = {
-  "broken/_structure.yaml": "version: 1\nid: broken\nname: [Broken\n",
-  "broken/BRK-1-orphan.md": "---\nhandle: BRK-1\n---\n# An item in a broken structure\n",
+/** A binder whose settings don't parse; its file must not be loaded anywhere. */
+export const BROKEN_BINDER_FILES: Record<string, string> = {
+  [`broken/${SETTINGS_FILE}`]: "version: 1\nid: broken\nname: [Broken\n",
+  "broken/BRK-1-orphan.md": "---\nhandle: BRK-1\n---\n# An item in a broken binder\n",
 };
 
-/** The valid root plus every invalid bug and the broken structure. */
+/** The valid root plus every invalid bug and the broken binder. */
 export const FIXTURE_FILES: Record<string, string> = {
   ...VALID_FILES,
   ...Object.fromEntries(INVALID_BUGS.map(({ file, text }) => [`bugs/${file}`, text])),
-  ...BROKEN_STRUCTURE_FILES,
+  ...BROKEN_BINDER_FILES,
 };
+
+/** Whether a problem is the old settings file's: it names both settings files and says to `action` the old one. */
+export const isOldSettingsProblem = (problem: { message: string }, action: "rename" | "delete") =>
+  problem.message.includes(OLD_SETTINGS_FILE) && problem.message.includes(SETTINGS_FILE) && problem.message.toLowerCase().includes(action);
 
 /** Writes `files` (paths relative to the root) into a fresh temp root, removed after the test. */
 export const writeRoot = (files: Record<string, string>): string => {

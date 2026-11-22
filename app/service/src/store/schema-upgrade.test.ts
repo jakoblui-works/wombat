@@ -1,7 +1,8 @@
 // A store written by an older version opens in place as the current schema, or stays exactly as it was. From
 // schema 2: every agent, log entry, seq, handle counter and proposal is kept; its agents read with
 // `pendingPermissions: []` and no branch, lastText or lastUserAt. From schema 3: every proposal becomes an item
-// proposal with one agent version, and the outcomes it already had aren't told to the agent again. Without it, an
+// proposal with one agent version, and the outcomes it already had aren't told to the agent again. From schema 4:
+// every handle counter, proposal (file and item) and proposal version is kept under its binder. Without it, an
 // upgrade would lose history or proposals, leave a half-upgraded file behind, or make the first message after an
 // update carry every old outcome.
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -87,7 +88,7 @@ const ENTRIES = [
 ];
 const PROPOSAL = {
   id: "0196f3c2-1a00-7000-8000-0000000000aa",
-  structure: "bugs",
+  binder: "bugs",
   itemId: "0196f3c2-1a00-7000-8000-000000000002",
   kind: "update" as const,
   fields: { note: "Seen again on mobile" },
@@ -98,7 +99,7 @@ const PROPOSAL = {
   agentId: "a1",
   at: "2026-11-08T09:03:00.000Z",
 };
-const COUNTER = { structure: "bugs", last: 41 };
+const COUNTER = { binder: "bugs", last: 41 };
 const LAST_SEQ = 9;
 
 /** Writes a schema 2 database with two agents, their log, a handle counter and a pending proposal. */
@@ -114,13 +115,13 @@ const writeV2Store = (path: string) => {
     db.prepare("INSERT INTO log_entries (seq, agent_id, bytes, body) VALUES (?, ?, ?, ?)").run(seq, agentId, Buffer.byteLength(text), text);
     db.prepare("UPDATE agents SET log_bytes = log_bytes + ? WHERE id = ?").run(Buffer.byteLength(text), agentId);
   }
-  db.prepare("INSERT INTO item_counters (structure, last) VALUES (?, ?)").run(COUNTER.structure, COUNTER.last);
+  db.prepare("INSERT INTO item_counters (structure, last) VALUES (?, ?)").run(COUNTER.binder, COUNTER.last);
   db.prepare(
     `INSERT INTO proposals (id, structure, item_id, kind, fields, file, reason, base_version, status, agent_id, at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     PROPOSAL.id,
-    PROPOSAL.structure,
+    PROPOSAL.binder,
     PROPOSAL.itemId,
     PROPOSAL.kind,
     JSON.stringify(PROPOSAL.fields),
@@ -163,7 +164,7 @@ const V3_ROWS: V3Row[] = [
   { ...PROPOSAL, id: "0196f3c2-1a00-7000-8000-0000000000a1" },
   {
     id: "0196f3c2-1a00-7000-8000-0000000000a2",
-    structure: "bugs",
+    binder: "bugs",
     itemId: "0196f3c2-1a00-7000-8000-000000000012",
     kind: "create",
     fields: { title: "Search returns stale results", repo: "api" },
@@ -177,7 +178,7 @@ const V3_ROWS: V3Row[] = [
   },
   {
     id: "0196f3c2-1a00-7000-8000-0000000000a3",
-    structure: "bugs",
+    binder: "bugs",
     itemId: "0196f3c2-1a00-7000-8000-000000000013",
     kind: "delete",
     fields: {},
@@ -191,7 +192,7 @@ const V3_ROWS: V3Row[] = [
   },
   {
     id: "0196f3c2-1a00-7000-8000-0000000000a4",
-    structure: "bugs",
+    binder: "bugs",
     itemId: "0196f3c2-1a00-7000-8000-000000000014",
     kind: "update",
     fields: { note: "klein – 2 Punkte" },
@@ -206,7 +207,7 @@ const V3_ROWS: V3Row[] = [
   },
   {
     id: "0196f3c2-1a00-7000-8000-0000000000a5",
-    structure: "backlog",
+    binder: "backlog",
     itemId: null,
     kind: "create",
     fields: { title: "Standup notes" },
@@ -239,7 +240,7 @@ const writeV3Store = (path: string, { damaged = false } = {}) => {
   const write = (row: V3Row) =>
     insert.run(
       row.id,
-      row.structure,
+      row.binder,
       row.itemId,
       row.kind,
       JSON.stringify(row.fields),
@@ -258,6 +259,148 @@ const writeV3Store = (path: string, { damaged = false } = {}) => {
     write({ ...PROPOSAL, id: "0196f3c2-1a00-7000-8000-0000000000ff", status: "archived" });
   }
   db.exec("PRAGMA user_version = 3");
+  db.close();
+};
+
+/** The proposals table and its versions as schema 4 rebuilt them; its other tables are schema 2's. */
+const V4_PROPOSALS = `
+  DROP TABLE proposals;
+  CREATE TABLE proposals (
+    id TEXT PRIMARY KEY,
+    target TEXT NOT NULL CHECK (target IN ('file', 'item')),
+    path TEXT,
+    structure TEXT,
+    item_id TEXT,
+    item_handle TEXT,
+    kind TEXT NOT NULL,
+    file TEXT,
+    reason TEXT NOT NULL,
+    base_version TEXT,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'applying', 'approved', 'rejected', 'conflict')),
+    agent_id TEXT NOT NULL,
+    at TEXT NOT NULL,
+    decided_at TEXT,
+    problem TEXT,
+    reject_reason TEXT,
+    intent TEXT,
+    noted_seq INTEGER,
+    last_version INTEGER NOT NULL CHECK (last_version >= 1),
+    CHECK (
+      (target = 'file' AND path IS NOT NULL AND structure IS NULL AND kind IN ('edit', 'create'))
+      OR (target = 'item' AND path IS NULL AND structure IS NOT NULL AND kind IN ('create', 'update', 'delete'))
+    )
+  ) STRICT;
+  CREATE TABLE proposal_versions (
+    proposal_id TEXT NOT NULL REFERENCES proposals (id),
+    n INTEGER NOT NULL CHECK (n >= 1),
+    by TEXT NOT NULL CHECK (by IN ('agent', 'me')),
+    content TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    at TEXT NOT NULL,
+    PRIMARY KEY (proposal_id, n)
+  ) STRICT;
+  CREATE INDEX proposals_by_status ON proposals (status, at);
+  CREATE INDEX proposals_by_agent ON proposals (agent_id, status);
+`;
+
+const V4_COUNTERS = [
+  { binder: "bugs", last: 41 },
+  { binder: "backlog", last: 7 },
+];
+
+type V4Version = { n: number; by: "agent" | "me"; content: unknown; reason: string; at: string };
+
+/** An item proposal with my draft on the agent's version, an approved create, and a file proposal, which has no binder. */
+const V4_ROWS = [
+  {
+    id: "0196f3c2-1a00-7000-8000-0000000000b1",
+    target: "item",
+    path: null,
+    binder: "bugs",
+    itemId: "0196f3c2-1a00-7000-8000-000000000021",
+    kind: "update",
+    file: null,
+    reason: "Seen again on mobile",
+    baseVersion: "a1b2c3",
+    status: "pending",
+    agentId: "a1",
+    at: "2026-11-12T09:00:00.000Z",
+    versions: [
+      { n: 1, by: "agent", content: { fields: { note: "Seen on mobile" } }, reason: "Seen again on mobile", at: "2026-11-12T09:00:00.000Z" },
+      { n: 2, by: "me", content: { fields: { note: "Seen on mobile Safari only" } }, reason: "Seen again on mobile", at: "2026-11-12T09:05:00.000Z" },
+    ] as V4Version[],
+  },
+  {
+    id: "0196f3c2-1a00-7000-8000-0000000000b2",
+    target: "item",
+    path: null,
+    binder: "backlog",
+    itemId: "0196f3c2-2b00-7000-8000-000000000031",
+    itemHandle: "BL-8",
+    kind: "create",
+    file: "backlog/BL-8-export-csv.md",
+    reason: "Asked for in the standup",
+    baseVersion: null,
+    status: "approved",
+    agentId: "a2",
+    at: "2026-11-12T10:00:00.000Z",
+    decidedAt: "2026-11-12T10:02:00.000Z",
+    versions: [{ n: 1, by: "agent", content: { fields: { title: "Export as CSV", project: "wombat" } }, reason: "Asked for in the standup", at: "2026-11-12T10:00:00.000Z" }] as V4Version[],
+  },
+  {
+    id: "0196f3c2-1a00-7000-8000-0000000000b4",
+    target: "file",
+    path: "site-web/src/Footer.tsx",
+    binder: null,
+    itemId: null,
+    kind: "edit",
+    file: null,
+    reason: "Rename the footer link",
+    baseVersion: "9e9e9e",
+    status: "pending",
+    agentId: "a1",
+    at: "2026-11-12T12:00:00.000Z",
+    versions: [{ n: 1, by: "agent", content: { text: "<a>Imprint</a>\n" }, reason: "Rename the footer link", at: "2026-11-12T12:00:00.000Z" }] as V4Version[],
+  },
+];
+
+/** Writes a schema 4 database with two handle counters and the proposals above with their versions. */
+const writeV4Store = (path: string) => {
+  mkdirSync(dirname(path), { recursive: true });
+  const db = new DatabaseSync(path);
+  db.exec(V2_SCHEMA);
+  db.exec(V4_PROPOSALS);
+  db.prepare("INSERT INTO meta (key, value) VALUES ('db_id', ?), ('seq', ?)").run(DB_ID, LAST_SEQ);
+  for (const agent of [summary("a1"), summary("a2")]) {
+    db.prepare("INSERT INTO agents (id, started_at, summary) VALUES (?, ?, ?)").run(agent.id, agent.startedAt, JSON.stringify(agent));
+  }
+  for (const { binder, last } of V4_COUNTERS) db.prepare("INSERT INTO item_counters (structure, last) VALUES (?, ?)").run(binder, last);
+  const insert = db.prepare(
+    `INSERT INTO proposals (id, target, path, structure, item_id, item_handle, kind, file, reason, base_version, status, agent_id, at, decided_at, noted_seq, last_version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+  );
+  const insertVersion = db.prepare("INSERT INTO proposal_versions (proposal_id, n, by, content, reason, at) VALUES (?, ?, ?, ?, ?, ?)");
+  for (const row of V4_ROWS) {
+    insert.run(
+      row.id,
+      row.target,
+      row.path,
+      row.binder,
+      row.itemId,
+      row.itemHandle ?? null,
+      row.kind,
+      row.file,
+      row.reason,
+      row.baseVersion,
+      row.status,
+      row.agentId,
+      row.at,
+      row.decidedAt ?? null,
+      row.versions.length,
+    );
+    for (const version of row.versions) insertVersion.run(row.id, version.n, version.by, JSON.stringify(version.content), version.reason, version.at);
+  }
+  db.exec("PRAGMA user_version = 4");
   db.close();
 };
 
@@ -281,9 +424,9 @@ describe("opening a store an older version wrote", () => {
     const { fields, ...stored } = PROPOSAL;
     expect(store.getProposal(PROPOSAL.id)).toEqual({ ...stored, target: "item", path: null });
     expect(store.listVersions(PROPOSAL.id).map((version) => version.content)).toEqual([{ fields }]);
-    expect(store.nextHandleNumber(COUNTER.structure, 0), "the handle counter carries on").toBe(COUNTER.last + 1);
+    expect(store.nextHandleNumber(COUNTER.binder, 0), "the handle counter carries on").toBe(COUNTER.last + 1);
     store.close();
-    expect(version(path)).toBe(4);
+    expect(version(path)).toBe(SCHEMA_VERSION);
   });
 
   test("a v3 store's proposals each become an item proposal with one agent version holding its fields, the rest intact", () => {
@@ -312,6 +455,24 @@ describe("opening a store an older version wrote", () => {
 
     store.rejectProposal(pending?.id ?? "", "Not needed");
     expect(store.undeliveredOutcomes("a2").map((proposal) => proposal.id)).toEqual([pending?.id]);
+  });
+
+  test("a v4 store keeps its handle counters, proposals and their versions under each binder, the rest intact", () => {
+    const path = tempStorePath();
+    writeV4Store(path);
+
+    const store = open({ path });
+
+    expect(store.dbId).toBe(DB_ID);
+    expect(store.currentSeq(), "the upgrade takes no seq").toBe(LAST_SEQ);
+    for (const { binder, last } of V4_COUNTERS) expect(store.nextHandleNumber(binder, 0), `${binder}'s counter carries on`).toBe(last + 1);
+    expect(store.listProposals().map((proposal) => proposal.id)).toEqual(V4_ROWS.map((row) => row.id));
+    for (const { versions, ...row } of V4_ROWS) {
+      expect(store.getProposal(row.id), `the ${row.target} proposal ${row.id}`).toStrictEqual(row);
+      expect(store.listVersions(row.id), `the versions of ${row.id}`).toEqual(versions);
+    }
+    store.close();
+    expect(version(path)).toBe(SCHEMA_VERSION);
   });
 
   test("an upgrade that fails midway leaves the file as it was, byte for byte", () => {

@@ -6,11 +6,12 @@
 // - one row per open proposal holding its file's path, with an open `button` holding the path and the buttons
 //   "Approve" and "Reject"; a click on the open button opens the proposal in an editor tab (dockview's
 //   `.dv-content-container`), which has "Reject", and then a `textbox` named with "reason", sent with Enter.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Locator, Page } from "@playwright/test";
 
-import { agentSummary, click, expect, REPO, type Sandbox, startAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import { agentSummary, click, expect, REPO, type Sandbox, startAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS, wheelPastEnd } from "./app-fixtures.ts";
+import { SETTINGS_FILE } from "../../service/src/items/binders.ts";
 
 type Listed = { id: string; status: string; path?: string; rejectReason?: string };
 
@@ -137,14 +138,16 @@ test("text typed on a proposal's right side is saved as my draft, and Approve wr
   expect(await violations(page), "CSP violations with the editable diff").toEqual([]);
 });
 
-// An item proposal in its tab, on an items root (WOMBAT_ITEMS) with one `bugs` structure open to proposals: each
+// An item proposal in its tab, on an items root (WOMBAT_ITEMS) with one `bugs` binder open to proposals: each
 // field the proposal changes is a `group` named by the field, with a "Drop" button; Approve writes only the fields I kept.
-test("dropping a field of an agent's item update and approving writes only the fields I kept", async ({ sandbox }) => {
+// Its row in Needs me reveals the item's row in the Desk sidebar (`complementary` "Desk", the row a `treeitem` named by
+// the item's title inside the row's element): that element is highlighted (`data-revealed`) and holds the focus.
+test("a Needs me click on an item update highlights its row in the Desk; dropping a field and approving writes only the fields I kept", async ({ sandbox }) => {
   const bug = { id: "0196f3c2-1a00-7000-8000-00000000c001", handle: "BUG-1", title: "Basket total ignores the coupon" };
   const items = path.join(sandbox.base, "items");
   mkdirSync(path.join(items, "bugs"), { recursive: true });
   writeFileSync(
-    path.join(items, "bugs", "_structure.yaml"),
+    path.join(items, "bugs", SETTINGS_FILE),
     "version: 1\nid: bugs\nname: Bugs\nprefix: BUG\naccess: propose\nproperties:\n  status: { type: select, options: [open, fixed], required: true }\n",
   );
   const file = path.join(items, "bugs", "basket-coupon.md");
@@ -164,7 +167,12 @@ test("dropping a field of an agent's item update and approving writes only the f
   await waitForConnection(page, "connected");
   const toggle = page.getByRole("button", { name: /^Needs me\b/ });
   if ((await toggle.getAttribute("aria-pressed")) !== "true") await click(toggle);
+  // An item proposal's row in Needs me opens the Desk on its binder; its mark there opens the proposal's tab.
   await click(needsMe(page).getByRole("button").filter({ hasText: `bugs/${bug.handle}` }));
+  const revealed = page.getByRole("complementary", { name: "Desk" }).getByRole("treeitem", { name: bug.title, exact: true }).locator("..");
+  await expect(revealed, "the item's row highlighted").toHaveAttribute("data-revealed", "", { timeout: WAIT_MS });
+  await expect(revealed.locator(":focus"), "the focus in the item's row").toHaveCount(1);
+  await click(page.getByRole("complementary", { name: "Desk" }).getByRole("button", { name: "Update proposed", exact: true }));
   const tab = page.locator(".dv-groupview .dv-content-container").filter({ hasText: `bugs/${bug.handle}` });
   await click(tab.getByRole("group", { name: "status", exact: true }).getByRole("button", { name: "Drop", exact: true }));
 
@@ -181,4 +189,92 @@ test("dropping a field of an agent's item update and approving writes only the f
   const after = await item();
   expect(after.properties["status"], "the dropped status stays").toBe("open");
   expect(after.body?.trim(), "the kept body is written").toBe(newBody.trim());
+});
+
+// Item proposals decided where they show in the Desk's list (the binder's plain list: no views): a proposed create is a
+// row (a `treeitem` named by its proposed title, its proposal lines beside it in the same parent), a proposed update
+// marks its item's row with a button "Update proposed"; each row holds "Approve" and "Reject", and Reject there sends
+// no reason.
+test("in the Desk's list, Approve on a proposed create writes its item's file, and Reject on an update's marked row leaves the file and drops the mark", async ({ sandbox }) => {
+  const items = path.join(sandbox.base, "items");
+  const folder = path.join(items, "chores");
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(
+    path.join(folder, SETTINGS_FILE),
+    "version: 1\nid: chores\nname: Chores\nprefix: CH\naccess: propose\nproperties:\n  stage: { type: select, options: [todo, doing, done], required: true }\n",
+  );
+  const water = { title: "Water the tomatoes", file: path.join(folder, "CH-1.md") };
+  const waterBytes = "---\nid: 0196f3c2-1b00-7000-8000-00000000c001\nhandle: CH-1\nstage: todo\n---\n# Water the tomatoes\n\nEvery other evening.\n";
+  writeFileSync(water.file, waterBytes);
+  await sandbox.startService(sandbox.workspace, { WOMBAT_ITEMS: items });
+
+  const agentId = await startAgent(sandbox, "fake-call-tool");
+  const proposeItem = async (tool: string, args: Record<string, unknown>): Promise<string> => {
+    const before = new Set((await listed(sandbox)).map(({ id }) => id));
+    await waitUntil(`agent ${agentId} between turns`, WAIT_MS, async () => ((await agentSummary(sandbox, agentId))?.state === "working" ? undefined : true));
+    expect((await sandbox.api("POST", `/agents/${agentId}/messages`, { text: JSON.stringify({ tool, arguments: args }) })).status).toBe(202);
+    return waitUntil(`the ${tool} proposal listed`, WAIT_MS, async () => (await listed(sandbox)).find(({ id }) => !before.has(id))?.id);
+  };
+  const mulch = "Mulch the raspberry bed";
+  const createId = await proposeItem("propose_create", { binder: "chores", title: mulch, reason: "The raspberries dried out.", properties: { stage: "doing" } });
+  const version = ((await sandbox.api("GET", "/items/CH-1")).json as { version: string }).version;
+  const updateId = await proposeItem("propose_update", { handle: "CH-1", fields: { stage: "done" }, version, reason: "Watered this morning." });
+  const statusOf = async (id: string): Promise<string | undefined> => (await listed(sandbox)).find((p) => p.id === id)?.status;
+
+  const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
+  await waitForConnection(page, "connected");
+  await recordViolations(page);
+  const desk = page.getByRole("navigation", { name: "Activities" }).getByRole("button", { name: "Desk", exact: true });
+  if ((await desk.getAttribute("aria-pressed")) !== "true") await click(desk);
+  const side = page.getByRole("complementary", { name: "Desk", exact: true });
+  await click(side.getByRole("treeitem", { name: /^Chores/ }));
+  const rowOfTitle = (title: string): Locator => side.getByRole("treeitem", { name: title, exact: true }).locator("..");
+
+  const before = new Set(readdirSync(folder));
+  await click(rowOfTitle(mulch).getByRole("button", { name: "Approve", exact: true }));
+  await waitUntil("the create approved", WAIT_MS, async () => ((await statusOf(createId)) === "approved" ? true : undefined));
+  const created = readdirSync(folder).filter((name) => !before.has(name));
+  expect(created, "one new file").toHaveLength(1);
+  const text = readFileSync(path.join(folder, created[0] ?? ""), "utf8");
+  expect(text, "the new file holds the proposed title").toContain(`# ${mulch}`);
+  expect(text, "the new file holds the proposed stage").toMatch(/^stage: doing$/m);
+
+  const waterRow = rowOfTitle(water.title);
+  await expect(waterRow.getByRole("button", { name: "Update proposed", exact: true }), "the update's mark").toBeVisible({ timeout: WAIT_MS });
+  await click(waterRow.getByRole("button", { name: "Reject", exact: true }));
+  await waitUntil("the update rejected", WAIT_MS, async () => ((await statusOf(updateId)) === "rejected" ? true : undefined));
+  await expect(waterRow.getByRole("button", { name: "Update proposed", exact: true }), "the mark gone").toHaveCount(0, { timeout: WAIT_MS });
+  await expect(waterRow, "the row still shows").toBeVisible();
+  expect(readFileSync(water.file, "utf8"), "the file byte for byte").toBe(waterBytes);
+  expect(await violations(page), "CSP violations in the Desk").toEqual([]);
+});
+
+// The Desk's list owns its scroll (the sidebar's `complementary` "Desk", each row showing its item's title): a wheel past
+// its end scrolls nothing around it.
+test("a wheel past the end of the Desk's list scrolls nothing around it", async ({ sandbox }) => {
+  test.setTimeout(90_000);
+  const items = path.join(sandbox.base, "items");
+  const folder = path.join(items, "rota");
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(path.join(folder, SETTINGS_FILE), "version: 1\nid: rota\nname: Rota\nprefix: RO\naccess: propose\n");
+  const titles = Array.from({ length: 30 }, (_, i) => `Review the alert rules of shard ${String(i + 1)}`);
+  for (const [i, title] of titles.entries()) {
+    const n = i + 1;
+    writeFileSync(path.join(folder, `RO-${String(n)}.md`), `---\nid: 0196f3c2-1c00-7000-8000-${n.toString(16).padStart(12, "0")}\nhandle: RO-${String(n)}\n---\n# ${title}\n\nCheck the runbook first.\n`);
+  }
+  await sandbox.startService(sandbox.workspace, { WOMBAT_ITEMS: items });
+
+  const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
+  const problems: string[] = [];
+  page.on("pageerror", (error) => problems.push(`page error: ${error.message}`));
+  await waitForConnection(page, "connected");
+  const desk = page.getByRole("navigation", { name: "Activities" }).getByRole("button", { name: "Desk", exact: true });
+  if ((await desk.getAttribute("aria-pressed")) !== "true") await click(desk);
+  const side = page.getByRole("complementary", { name: "Desk", exact: true });
+  await click(side.getByRole("treeitem", { name: /^Rota/ }));
+  const titled = (title: string): Locator => side.getByText(title, { exact: true });
+  await expect(titled(titles.at(-1) ?? ""), "the whole list loaded").toHaveCount(1, { timeout: WAIT_MS });
+
+  expect(await wheelPastEnd(titled(titles[0] ?? ""), "down"), "scrolled or overflowing around the list").toEqual([]);
+  expect(problems, "page errors").toEqual([]);
 });

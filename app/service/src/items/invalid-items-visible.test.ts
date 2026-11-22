@@ -20,7 +20,7 @@ describe("invalid items stay visible", () => {
     const root = writeRoot(FIXTURE_FILES);
     const { catalog } = openItems(root);
 
-    const bugs = (await catalog.snapshot()).items.filter((item) => item.structure === "bugs");
+    const bugs = (await catalog.snapshot()).items.filter((item) => item.binder === "bugs");
 
     // Nothing dropped: one listed item per file in the folder.
     expect(bugs.map((item) => item.path.split("/").at(-1)).sort()).toEqual(mdFilesIn(root, "bugs").sort());
@@ -40,8 +40,8 @@ describe("invalid items stay visible", () => {
     for (const file of ["bugs/BUG-1-login-times-out.md", "bugs/hero-caption.md"]) {
       expect(itemAt(bugs, file).problems, `${file} stays valid beside the broken ones`).toEqual([]);
     }
-    // The other structures are unaffected.
-    expect((await catalog.snapshot()).items.filter((item) => item.structure === "backlog").every((item) => item.problems.length === 0)).toBe(true);
+    // The other binders are unaffected.
+    expect((await catalog.snapshot()).items.filter((item) => item.binder === "backlog").every((item) => item.problems.length === 0)).toBe(true);
   });
 
   // Front matter keys are data: one named like a member every object has must read as an unknown key, not as
@@ -53,10 +53,10 @@ describe("invalid items stay visible", () => {
       const root = writeRoot({ ...FIXTURE_FILES, [file]: `---\nhandle: BUG-30\nrepo: api\n${key}: hi\n---\n# A key named ${key}\n\nInvented.\n` });
       const { catalog } = openItems(root);
 
-      const structures = (await catalog.snapshot()).structures;
-      const bugs = (await catalog.snapshot()).items.filter((item) => item.structure === "bugs");
+      const binders = (await catalog.snapshot()).binders;
+      const bugs = (await catalog.snapshot()).items.filter((item) => item.binder === "bugs");
 
-      expect(structures.length, "the structures still list").toBeGreaterThan(0);
+      expect(binders.length, "the binders still list").toBeGreaterThan(0);
       expect(bugs.map((item) => item.path.split("/").at(-1)).sort()).toEqual(mdFilesIn(root, "bugs").sort());
       const item = itemAt(bugs, file);
       expect(names(item.problems, [key]), `${key}: ${describeProblems(item)}`).toBe(true);

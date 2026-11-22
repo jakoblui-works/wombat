@@ -11,6 +11,9 @@ const OpenInputContext = createContext<OpenInput>("pointer")
 export const POPUP_MOTION =
   "transition-opacity duration-(--duration-exit) data-starting-style:opacity-0 data-ending-style:opacity-0 data-[input=keyboard]:transition-none"
 
+/** The layer of the popups a hover opens (tooltips, preview cards), above menus, popovers and dialogs (z-50). */
+export const HOVER_POPUP_LAYER = "isolate z-[70]"
+
 /** The input of the popup's last open, read from the root's open-change event. */
 export const useOpenInput = () => useContext(OpenInputContext)
 

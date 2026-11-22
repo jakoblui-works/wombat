@@ -234,7 +234,7 @@ test(
     const s = await serve({ itemsRoot: writeRoot(ACCESS_FILES) });
     const { id: agentId } = await s.manager.start("fake-echo", REPO);
     const { proposal } = s.store.insertProposal(
-      { target: "item", path: null, structure: "bugs", itemId: VISIBLE_IDS.bug2, kind: "update", file: null, reason: "Seen again", baseVersion: "9f2c", agentId },
+      { target: "item", path: null, binder: "bugs", itemId: VISIBLE_IDS.bug2, kind: "update", file: null, reason: "Seen again", baseVersion: "9f2c", agentId },
       { fields: { note: "Also in Chromium" } },
     );
     const rejected = await s.api("POST", `/proposals/${proposal.id}/reject`, { reason: "Not a duplicate." });

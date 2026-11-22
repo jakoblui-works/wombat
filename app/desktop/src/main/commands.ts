@@ -4,12 +4,14 @@
 import { BrowserWindow, Menu, type WebContents } from "electron";
 import { CHANNELS, isMainCommandId, type MainCommandId } from "../shared/bridge.ts";
 import { type TitleBarOverlay } from "./title-bar.ts";
-import { isUserInput, pageMayRun } from "./user-input.ts";
+import { isUserInput, pageMayRun, refusalWithoutInput } from "./user-input.ts";
 import { clampZoom, ZOOM_STEP } from "./zoom.ts";
 
 export type MainCommandDeps = {
-  /** The File menu's Switch Workspace: the folder picker, then the switch; reports its own errors. */
-  switchWorkspace: () => Promise<void>;
+  /** The File menu's Switch Workspace: the folder picker, modal to `parent`, then the switch; reports its own errors. */
+  switchWorkspace: (parent: BrowserWindow | undefined) => Promise<void>;
+  /** Choose Items Folder…: the folder picker, modal to `parent`, then the save and the service's restart; reports its own errors. */
+  chooseItemsFolder: (parent: BrowserWindow | undefined) => Promise<void>;
   /** The File menu's Stop Service and Agents: asks, then stops; reports its own errors. */
   stopService: () => Promise<void>;
   /** The app's quit, through its before-quit question. */
@@ -29,7 +31,7 @@ export type MainCommands = {
   runMainCommand: (id: MainCommandId, win: BrowserWindow | undefined) => Promise<void>;
   /**
    * The bridge's command(): `id` is the page's, so anything outside MAIN_COMMAND_IDS is refused and nothing runs, and
-   * so is a clipboard command without the user's input to `win` just before (`pageMayRun`).
+   * so is a clipboard command or the items folder picker without the user's input to `win` just before (`pageMayRun`).
    */
   fromPage: (id: unknown, win: BrowserWindow | undefined) => Promise<void>;
   /** The zoom level the windows show. */
@@ -43,7 +45,7 @@ export type MainCommands = {
   applicationMenu: () => Menu | null;
 };
 
-export const mainCommands = ({ switchWorkspace, stopService, quit, zoom, titleBarOverlay, log = console.error }: MainCommandDeps): MainCommands => {
+export const mainCommands = ({ switchWorkspace, chooseItemsFolder, stopService, quit, zoom, titleBarOverlay, log = console.error }: MainCommandDeps): MainCommands => {
   // The level the windows show; the saved one is only for the next start, so a failed save doesn't hold it back.
   let level = zoom.level();
   const lastInputAt = new WeakMap<WebContents, number>();
@@ -93,7 +95,9 @@ export const mainCommands = ({ switchWorkspace, stopService, quit, zoom, titleBa
       case "window.close":
         return win?.close();
       case "workspace.switch":
-        return switchWorkspace();
+        return switchWorkspace(win);
+      case "items.chooseFolder":
+        return chooseItemsFolder(win);
       case "service.stop":
         return stopService();
       case "app.quit":
@@ -108,9 +112,7 @@ export const mainCommands = ({ switchWorkspace, stopService, quit, zoom, titleBa
         return Promise.reject(new Error("Wombat's main process has no such command; send one of MAIN_COMMAND_IDS (src/shared/bridge.ts)."));
       }
       if (!pageMayRun(id, win === undefined ? undefined : lastInputAt.get(win.webContents), Date.now())) {
-        return Promise.reject(
-          new Error("Cut, copy and paste run only right after you click or press a key in the window. Use them from the Edit menu or with their keys."),
-        );
+        return Promise.reject(new Error(refusalWithoutInput(id)));
       }
       return runMainCommand(id, win);
     },

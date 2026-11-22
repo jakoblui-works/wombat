@@ -1,0 +1,210 @@
+// Whatever an agent
+// writes, the chat renders it as text. Raw HTML (scripts, frames, event handlers) shows as its own text; a link is an
+// <a> only for an https: URL, and opens in a new window without a referrer; any other URL, in any link syntax, shows
+// as its text with no href; an image never loads (no src anywhere) and shows its alt text.
+// Rendered with react-dom/server: React escapes every `<` in text, so each `<` in the markup starts a real element.
+import { renderToStaticMarkup } from "react-dom/server";
+import { expect, test } from "vitest";
+
+import { InlineMarkdown, Markdown } from "./Markdown.tsx";
+import { ReferenceProvider } from "./ReferenceProvider.tsx";
+
+type Element = { tag: string; attrs: Map<string, string> };
+
+const TAG = /<([a-zA-Z][\w:-]*)((?:\s+[^\s=>/]+(?:="[^"]*")?)*)\s*\/?>/g;
+const ATTR = /\s+([^\s=>/]+)(?:="([^"]*)")?/g;
+
+const decode = (text: string): string =>
+  text
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+
+const render = (text: string, inline = false): { html: string; elements: Element[]; visible: string } => {
+  const html = renderToStaticMarkup(inline ? <InlineMarkdown text={text} /> : <Markdown text={text} />);
+  const elements = [...html.matchAll(TAG)].map(([, tag = "", attrs = ""]) => ({
+    tag: tag.toLowerCase(),
+    attrs: new Map([...attrs.matchAll(ATTR)].map(([, name = "", value = ""]) => [name.toLowerCase(), decode(value)])),
+  }));
+  return { html, elements, visible: decode(html.replace(/<[^>]*>/g, "")) };
+};
+
+/** Elements that run, frame, load or style something; none may come out of agent text. */
+const ACTIVE_TAGS = ["script", "iframe", "frame", "object", "embed", "img", "image", "video", "audio", "source", "style", "link", "meta", "base", "form", "svg", "math"];
+/** Attributes that load or run something; `href` is checked on its own. */
+const LOADING_ATTRS = ["src", "srcset", "srcdoc", "action", "formaction", "poster", "data", "background", "xlink:href"];
+
+const expectInert = (text: string, inline = false): ReturnType<typeof render> => {
+  const out = render(text, inline);
+  for (const { tag, attrs } of out.elements) {
+    expect(ACTIVE_TAGS, `<${tag}> rendered from ${JSON.stringify(text)}`).not.toContain(tag);
+    for (const [name, value] of attrs) {
+      expect(name.startsWith("on"), `${name} on <${tag}> from ${JSON.stringify(text)}`).toBe(false);
+      expect(LOADING_ATTRS, `${name} on <${tag}> from ${JSON.stringify(text)}`).not.toContain(name);
+      if (name === "style") expect(value, `style on <${tag}> from ${JSON.stringify(text)}`).not.toMatch(/url\(|expression\(/i);
+      if (name === "href") expect(value, `href on <${tag}> from ${JSON.stringify(text)}`).toMatch(/^https:\/\//);
+    }
+    if (attrs.has("href")) expect(tag).toBe("a");
+  }
+  return out;
+};
+
+test("raw HTML shows as its own text: no element, handler or load comes from it", () => {
+  const samples = [
+    '<script>window.__wombatHostile = "script"</script>',
+    '<img src="x" onerror="window.__wombatHostile = 1">',
+    '<iframe src="https://example.invalid/frame"></iframe>',
+    "<style>body { background: url(https://example.invalid/track.png) }</style>",
+    '<a href="https://example.invalid/docs" onclick="window.__wombatHostile = 1">html link</a>',
+    '<div onmouseover="window.__wombatHostile = 1">Hover me</div>',
+    '<svg onload="window.__wombatHostile = 1"></svg>',
+    "<form action=\"https://example.invalid/post\"><button>Send</button></form>",
+    "Inline <span style=\"background:url(https://example.invalid/x.png)\">tag</span> in a sentence.",
+    "```html\n<script>window.__wombatHostile = 1</script>\n```",
+    "`<img src=x onerror=alert(1)>` as inline code",
+  ];
+  for (const sample of samples) {
+    const { visible } = expectInert(sample);
+    // The text is still there to read, markup and all.
+    const words = sample.match(/<[a-z]+/g) ?? [];
+    for (const word of words) expect(visible, `the text of ${JSON.stringify(sample)}`).toContain(word);
+  }
+});
+
+test("an image never loads: it shows its alt text", () => {
+  for (const sample of ["![a loaf of rye bread](https://example.invalid/bread.png)", "![oven photo][pic]\n\n[pic]: https://example.invalid/oven.png"]) {
+    const { visible } = expectInert(sample);
+    expect(visible).toContain(sample.includes("rye") ? "a loaf of rye bread" : "oven photo");
+  }
+});
+
+// Every URL that isn't https:, written in every way markdown makes a link.
+const NOT_HTTPS = [
+  "javascript:window.__wombatHostile=1",
+  "JaVaScRiPt:window.__wombatHostile=1",
+  "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
+  "file:///etc/hostname",
+  "app://wombat/index.html",
+  "http://example.invalid/plain",
+] as const;
+
+const SYNTAXES = {
+  inline: (url: string, label: string) => `[${label}](${url})`,
+  inlineAngle: (url: string, label: string) => `[${label}](<${url}>)`,
+  reference: (url: string, label: string) => `[${label}][ref]\n\n[ref]: ${url}`,
+  autolink: (url: string, label: string) => `${label} <${url}>`,
+  bare: (url: string, label: string) => `${label} ${url}`,
+  html: (url: string, label: string) => `<a href="${url}">${label}</a>`,
+} as const;
+
+test("a link is an <a> only for https:, in every link syntax; any other URL shows as text with no href", () => {
+  // Every pair, not a sample: the list is short and each pair is a different path through the parser.
+  for (const url of NOT_HTTPS) {
+    for (const syntax of Object.keys(SYNTAXES) as (keyof typeof SYNTAXES)[]) {
+      const label = "Open the menu";
+      const { elements, visible } = expectInert(SYNTAXES[syntax](url, label));
+      expect(elements.filter(({ attrs }) => attrs.has("href")), `${syntax} ${url}`).toEqual([]);
+      expect(visible, `${syntax} ${url}`).toContain(label);
+    }
+  }
+  // GFM's bare www. links become http: links: text too.
+  expect(expectInert("See www.example.invalid for hours").elements.filter(({ attrs }) => attrs.has("href"))).toEqual([]);
+});
+
+test("an https link is a link that opens in a new window without a referrer, in each markdown link syntax", () => {
+  const url = "https://example.invalid/opening-hours";
+  for (const syntax of ["inline", "inlineAngle", "reference", "autolink", "bare"] as const) {
+    const { elements } = expectInert(SYNTAXES[syntax](url, "Opening hours"));
+    const links = elements.filter(({ tag }) => tag === "a");
+    expect(links, syntax).toHaveLength(1);
+    const [link] = links;
+    expect(link?.attrs.get("href"), syntax).toBe(url);
+    expect(link?.attrs.get("target"), syntax).toBe("_blank");
+    expect(link?.attrs.get("rel")?.split(/\s+/), syntax).toContain("noreferrer");
+  }
+});
+
+// A title on a row is one line of agent-written text: it reads as written, never as a block, a link or an image.
+test("inline text shows as written: block markers stay text, a code span is code, a link is its text, an image is dropped", () => {
+  for (const title of ["1. Ship it", "- draft", "> quote", "# H", "---", "[a]: b"]) {
+    expect(expectInert(title, true).visible, JSON.stringify(title)).toBe(title);
+  }
+
+  const code = expectInert("`code`", true);
+  expect(code.elements.map(({ tag }) => tag)).toContain("code");
+  expect(code.visible).toBe("code");
+
+  const link = expectInert("[docs](https://a.b)", true);
+  expect(link.visible).toBe("docs");
+  expect(link.elements.filter(({ attrs }) => attrs.has("href"))).toEqual([]);
+
+  const image = expectInert("Before ![a loaf of rye bread](https://example.invalid/bread.png) after", true);
+  expect(image.elements.map(({ tag }) => tag)).not.toContain("img");
+});
+
+// ---- References to items ----
+// A reference is `<prefix>-<digits>` for a listed prefix, touching no letter, digit, `-` or `_` on either side (across
+// Markdown's own markup too); in text, or an inline code span that is the handle alone; never in a link or a code
+// block. It renders as the provider's `render` and never as a link.
+
+const PREFIXES = ["AP", "TSK"];
+
+/** The handles rendered as references in `text`'s Markdown under a provider, in order, and its markup. */
+const referencesIn = (text: string): { handles: string[]; html: string; visible: string } => {
+  const html = renderToStaticMarkup(
+    <ReferenceProvider prefixes={PREFIXES} render={(handle) => <button data-test-reference={handle}>{handle}</button>}>
+      <Markdown text={text} />
+    </ReferenceProvider>,
+  );
+  const handles = [...html.matchAll(/<button data-test-reference="([^"]*)"/g)].map(([, handle = ""]) => decode(handle));
+  return { handles, html, visible: decode(html.replace(/<[^>]*>/g, "")) };
+};
+
+test("a reference is a listed prefix's handle, numbered as the service numbers them, that touches no word character, in text or a code span of its own; never in a link or a code block", () => {
+  const cases: { text: string; references: string[] }[] = [
+    { text: "Blocked by AP-1 for now", references: ["AP-1"] },
+    { text: "Blocked by `AP-2` for now", references: ["AP-2"] },
+    { text: "Blocked (AP-7) for now", references: ["AP-7"] },
+    { text: "Blocked by **AP-8**.", references: ["AP-8"] },
+    { text: "Ask TSK-30, then AP-9", references: ["TSK-30", "AP-9"] },
+    { text: "Blocked `see AP-3` for now", references: [] },
+    { text: "Blocked by XX-1", references: [] },
+    { text: "Blocked by XAP-12", references: [] },
+    { text: "Blocked by AP-12x", references: [] },
+    { text: "Blocked by AP-12_b", references: [] },
+    { text: "Blocked by AP-12-3", references: [] },
+    { text: "Blocked by AP-0 and AP-007", references: [] },
+    { text: "Blocked by *x*AP-3", references: [] },
+    { text: "Blocked by AP-4*y*", references: [] },
+    { text: "Blocked by AP-1\u0301 for now", references: [] },
+    { text: "See [the AP-4 notes](https://example.invalid/notes)", references: [] },
+    { text: "Notes:\n\n```\nAP-4 holds the key\n```", references: [] },
+  ];
+  for (const { text, references } of cases) {
+    const { handles, html, visible } = referencesIn(text);
+    expect(handles, JSON.stringify(text)).toEqual(references);
+    if (references.length > 0) expect(html, `no link from ${JSON.stringify(text)}`).not.toMatch(/\shref=/);
+    for (const handle of ["AP-1", "AP-3", "AP-4", "XX-1"]) if (text.includes(handle)) expect(visible, `${handle} still reads in ${JSON.stringify(text)}`).toContain(handle);
+  }
+});
+
+test("raw HTML can't forge a reference: a literal reference span stays its own text", () => {
+  const text = 'Look at <span data-reference="AP-5">this</span> now';
+  const { handles, visible } = referencesIn(text);
+  expect(handles).toEqual([]);
+  expect(visible).toContain('<span data-reference="AP-5">');
+});
+
+test("without a ReferenceProvider nothing is a reference: the text renders as under a provider listing none of its prefixes", () => {
+  const text = "Blocked by AP-1 and `AP-2`";
+  const unlisted = renderToStaticMarkup(
+    <ReferenceProvider prefixes={["ZZ"]} render={(handle) => <button>{handle}</button>}>
+      <Markdown text={text} />
+    </ReferenceProvider>,
+  );
+  expect(renderToStaticMarkup(<Markdown text={text} />)).toBe(unlisted);
+  expect(referencesIn(text).handles, "the same text under its prefix").toEqual(["AP-1", "AP-2"]);
+});

@@ -9,6 +9,8 @@ import { zoomFactor } from "../shared/zoom-factor.ts";
 import { APP_INDEX_URL, APP_SCHEME, contentType, isAppUrl, isBridgeSender, resolveAppFile } from "./app-protocol.ts";
 import { mainCommands } from "./commands.ts";
 import { readE2eSwitches, recordE2eNotification } from "./e2e-switches.ts";
+import { pickFolder } from "./folder-picker.ts";
+import { itemsFolderChooser } from "./items-folder.ts";
 import { noticeSink } from "./notice-sink.ts";
 import { NONCE_PLACEHOLDER, newNonce, pageCsp, withNonce } from "./page-csp.ts";
 import { decideQuit, restartService, stopIfConfirmed, type QuitChoice } from "./quit.ts";
@@ -17,7 +19,7 @@ import { listAgents } from "./service-client.ts";
 import { serviceConnection } from "./service-connection.ts";
 import { ofThisApp, runningService } from "./service-start.ts";
 import { titleBarOverlayAt } from "./title-bar.ts";
-import { settingsPath } from "./settings.ts";
+import { settingsPath, withItemsRoot } from "./settings.ts";
 import { waitingNotices } from "./waiting-notice.ts";
 import { workspaceControl } from "./workspace.ts";
 
@@ -177,15 +179,13 @@ app.on("window-all-closed", () => {
   app.quit();
 });
 
-const chooseFolder = async (): Promise<string | undefined> => {
-  if (e2e !== undefined) return e2e.workspace;
-  const { canceled, filePaths } = await dialog.showOpenDialog({
+const chooseFolder = (parent?: BrowserWindow): Promise<string | undefined> =>
+  pickFolder({
     title: "Choose the workspace folder (the folder that holds the project's repos)",
     buttonLabel: "Open Workspace",
-    properties: ["openDirectory", "createDirectory"],
+    e2e: e2e === undefined ? undefined : { answer: e2e.workspace },
+    parent,
   });
-  return canceled ? undefined : filePaths[0];
-};
 
 /** A message box on the app's window when it has one (before the window opens, a box of its own). */
 const messageBox = (options: Electron.MessageBoxOptions): Promise<Electron.MessageBoxReturnValue> => {
@@ -217,7 +217,7 @@ const workspace = workspaceControl({
   env: process.env,
   settingsFile: settingsPath(app.getPath("userData")),
   serviceEntry: serviceEntryInUse,
-  chooseFolder,
+  chooseFolder: () => chooseFolder(),
   confirmRestart,
 });
 
@@ -294,8 +294,8 @@ handleBridge(CHANNELS.workspaceGet, (): WorkspaceInfo => ({ root: currentWorkspa
  * service). A switch that went ahead reloads the page: it holds the old workspace's settings, layout and data, and
  * would otherwise save its layout under the new workspace.
  */
-const switchWorkspace = async (): Promise<void> => {
-  const folder = await chooseFolder();
+const switchWorkspace = async (parent?: BrowserWindow): Promise<void> => {
+  const folder = await chooseFolder(parent);
   if (folder === undefined || !(await workspace.confirmSwitch(folder))) return;
   await connection.reconnect(async () => {
     await workspace.switchWorkspace(folder);
@@ -328,29 +328,56 @@ const confirmStop = async (running: number | undefined): Promise<boolean> => {
   return response === 0;
 };
 
+/**
+ * Restart Service: asks first when agents have a process (Cancel runs nothing, `beforeStop` included), then runs
+ * `beforeStop`, stops the service and starts it again for the saved workspace. False when cancelled.
+ */
+const restartServiceAfter = (beforeStop: () => void = () => undefined): Promise<boolean> =>
+  restartService({
+    agents: serviceAgents,
+    confirm: confirmStop,
+    stop: () => {
+      beforeStop();
+      return stopServiceAndAgents();
+    },
+    start: () => connection.reconnect(() => workspace.restart()),
+  });
+
 // A failed Restart is reported here, in any state, as the menu's Stop is: the page may show anything by then. It still
 // rejects, so the page's Restart settles as failed.
 handleBridge(CHANNELS.restart, async () => {
   try {
-    await restartService({
-      agents: serviceAgents,
-      confirm: confirmStop,
-      stop: stopServiceAndAgents,
-      start: () => connection.reconnect(() => workspace.restart()),
-    });
+    await restartServiceAfter();
   } catch (error) {
     reportError("Wombat couldn't restart the service", error);
     throw error;
   }
 });
-handleBridge(CHANNELS.workspaceSwitch, switchWorkspace);
+
+const chooseItemsFolder = itemsFolderChooser({
+  workspace: () => workspace.settings().workspace,
+  itemsRoot: (root) => workspace.settings().workspaces[root]?.itemsRoot,
+  pick: (current, parent) =>
+    pickFolder({
+      title: "Choose the items folder (the folder that holds your binders)",
+      buttonLabel: "Use Folder",
+      defaultPath: current,
+      e2e: e2e === undefined ? undefined : { answer: e2e.itemsFolder },
+      parent,
+    }),
+  restartAfter: restartServiceAfter,
+  saveItemsRoot: (root, folder) => workspace.updateSettings((current) => withItemsRoot(current, root, folder)),
+  report: reportError,
+});
+handleBridge(CHANNELS.workspaceSwitch, (event) => switchWorkspace(BrowserWindow.fromWebContents(event.sender) ?? undefined));
 handleBridge(CHANNELS.settingsGet, () => workspace.pageSettings());
 handleBridge(CHANNELS.settingsSet, (_event, patch) => {
   workspace.setPageSettings(patch);
 });
 
 const commands = mainCommands({
-  switchWorkspace: () => switchWorkspace().catch((error: unknown) => reportError("Wombat couldn't switch the workspace", error)),
+  switchWorkspace: (parent) => switchWorkspace(parent).catch((error: unknown) => reportError("Wombat couldn't switch the workspace", error)),
+  chooseItemsFolder,
   stopService: () =>
     stopIfConfirmed({ agents: serviceAgents, confirm: confirmStop, stop: stopServiceAndAgents }).then(
       () => undefined,

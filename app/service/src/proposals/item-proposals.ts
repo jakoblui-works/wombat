@@ -1,6 +1,6 @@
 // The item side of proposals: the checks a proposed item change runs before anything is stored (the direct change's,
 // in its order), the item target an approve writes through, and item proposals as people read them. Approving
-// applies a proposal through the writer on the version the agent read, under the structure's settings as they are
+// applies a proposal through the writer on the version the agent read, under the binder's settings as they are
 // now; anything changed since makes it a conflict, never an overwrite.
 import { randomUUIDv7 } from "node:crypto";
 import { lstat } from "node:fs/promises";
@@ -11,13 +11,13 @@ import { isMissing } from "@wombat/shared/errno";
 import type { Item } from "@wombat/shared/items";
 import type { ItemProposal, ProposalVersion } from "@wombat/shared/proposals";
 
-import { agentWriteError, itemFor, structureFor, viewOf, type View } from "../items/agent-view.ts";
+import { agentWriteError, itemFor, binderFor, viewOf, type View } from "../items/agent-view.ts";
 import { handlesById, withLinks } from "../items/api-view.ts";
-import type { Catalog, LoadedItem, LoadedStructure, ValidStructure } from "../items/catalog.ts";
+import { blockingProblems, type Catalog, type LoadedItem, type LoadedBinder, type ValidBinder } from "../items/catalog.ts";
 import { writeGuards, type WriteGuards } from "../items/guards.ts";
 import { lockedNames, newItem, type Change, type ItemInput } from "../items/refusals.ts";
-import { SETTINGS_FILE } from "../items/structures.ts";
-import { ItemWriteError, presentValues, type Writer } from "../items/write.ts";
+import { SETTINGS_FILE } from "../items/binders.ts";
+import { ItemIdentityError, ItemWriteError, presentValues, type Writer } from "../items/write.ts";
 import type { VersionAuthor } from "../store/proposal-rules.ts";
 import { fieldsOf } from "../store/proposals.ts";
 import type { NewProposal, ProposalVersionHead, Store, StoredProposal } from "../store/store.ts";
@@ -38,7 +38,7 @@ export type { StoredItemProposal };
 
 /** A proposed item change as the item tools take it. */
 export type ProposedItemChange =
-  | { kind: "create"; structure: string; input: ItemInput }
+  | { kind: "create"; binder: string; input: ItemInput }
   | { kind: "update"; handle: string; fields: Record<string, unknown>; version: string }
   | { kind: "delete"; handle: string; version: string };
 
@@ -54,7 +54,7 @@ export type ItemProposals = ItemRevisions & {
   itemProposalDetail(stored: StoredItemProposal, fields: Record<string, unknown>, heads: readonly ProposalVersionHead[]): Promise<ItemProposalDetail>;
   /**
    * For the agent: each stored item proposal's handle when its item is one the agent may see now; a gone item's the
-   * handle it had, while its structure is visible. Proposals left out have no handle the agent may be told.
+   * handle it had, while its binder is visible. Proposals left out have no handle the agent may be told.
    */
   agentHandlesOf(stored: readonly StoredItemProposal[]): Promise<Map<string, string>>;
   /** What an approve writes an item proposal through. */
@@ -69,26 +69,26 @@ export type ItemProposalsOptions = { catalog: Catalog; writer: Writer; store: St
  */
 type ItemIntent = { itemId?: string | null; version?: string | null; path?: string | null };
 
-/** What a written check reads of the items now: the items, whether the proposal's structure was read whole, whether a delete's file is missing on disk. */
-type ItemsNow = { items: readonly LoadedItem[]; structureRead: boolean; fileMissing: boolean };
+/** What a written check reads of the items now: the items, whether the proposal's binder was read whole, whether a delete's file is missing on disk. */
+type ItemsNow = { items: readonly LoadedItem[]; binderRead: boolean; fileMissing: boolean };
 
-/** Whether a structure was read whole: it has settings, and no folder of it failed to read (its only problems without a field). */
-export const structureRead = (structures: readonly LoadedStructure[], id: string) =>
-  structures.some((structure) => structure.id === id && structure.problems.every((problem) => problem.field !== undefined));
+/** Whether a binder was read whole: it has settings, and no folder of it failed to read (its only blocking problems without a field). */
+export const binderRead = (binders: readonly LoadedBinder[], id: string) =>
+  binders.some((binder) => binder.id === id && blockingProblems(binder).every((problem) => problem.field !== undefined));
 
 const itemOnly = (stored: StoredProposal): StoredItemProposal => {
   if (stored.target !== "item") throw new Error(`Proposal ${stored.id} isn't an item proposal; it can't be handled as one.`);
   return stored;
 };
 
-/** The fields of a version by `by` that are locked in `structure` now: the agent's locks never bind my version. */
-const bindingLocks = (structure: ValidStructure, kind: Change, names: string[], by: VersionAuthor) => (by === "me" ? [] : lockedNames(structure, kind, names));
+/** The fields of a version by `by` that are locked in `binder` now: the agent's locks never bind my version. */
+const bindingLocks = (binder: ValidBinder, kind: Change, names: string[], by: VersionAuthor) => (by === "me" ? [] : lockedNames(binder, kind, names));
 
 /** A stored item proposal as sent: its item's handle among `items` now, else the one the applying commit stored. */
 export const itemProposalOf = (stored: StoredItemProposal, heads: readonly ProposalVersionHead[], items: readonly LoadedItem[] = []): ItemProposalRecord => ({
   ...commonFields(stored, heads),
   target: "item",
-  structure: stored.structure,
+  binder: stored.binder,
   kind: stored.kind,
   handle: itemById(items, stored.itemId)?.handle ?? stored.itemHandle ?? null,
   file: stored.file,
@@ -97,12 +97,12 @@ export const itemProposalOf = (stored: StoredItemProposal, heads: readonly Propo
 
 /**
  * Whether the write `intent` describes is what the items hold now: the created item exists, the update's version is
- * there, the deleted item's file is gone and no item has its id. Throws when the structure wasn't read whole: an item
+ * there, the deleted item's file is gone and no item has its id. Throws when the binder wasn't read whole: an item
  * missing from it may still be there or have been made, and settling it pending would let a second approve write again.
  */
 export const itemWritten = (stored: StoredItemProposal, now: ItemsNow): Written | undefined => {
   const intent = (stored.intent ?? {}) as ItemIntent;
-  if (!now.structureRead) throw new Error(`Proposal ${stored.id}'s structure can't be read whole, so whether its ${stored.kind} was written can't be told.`);
+  if (!now.binderRead) throw new Error(`Proposal ${stored.id}'s binder can't be read whole, so whether its ${stored.kind} was written can't be told.`);
   if (stored.kind === "create") {
     const made = itemById(now.items, intent.itemId);
     return made?.id == null ? undefined : { written: true, itemId: made.id, ...(made.handle === null ? {} : { itemHandle: made.handle }) };
@@ -112,12 +112,12 @@ export const itemWritten = (stored: StoredItemProposal, now: ItemsNow): Written 
   return item !== undefined && intent.version != null && item.version === intent.version ? { written: true } : undefined;
 };
 
-/** The handle the agent may be told for an item proposal, by `view`: never one of an item or structure hidden from it. */
+/** The handle the agent may be told for an item proposal, by `view`: never one of an item or binder hidden from it. */
 const agentHandle = (view: View, stored: StoredItemProposal): string | undefined => {
   const visible = itemById(view.items, stored.itemId);
   if (visible !== undefined) return visible.handle ?? undefined;
   const exists = itemById(view.snapshot.items, stored.itemId) !== undefined;
-  return !exists && view.structures.has(stored.structure) ? stored.itemHandle : undefined;
+  return !exists && view.binders.has(stored.binder) ? stored.itemHandle : undefined;
 };
 
 /** Whether nothing is at `path` on disk; any other failure to tell throws. */
@@ -141,7 +141,7 @@ const ITEM_CHANGED = conflict(`The item changed (edited, renamed or deleted) sin
 const writeFailure = (error: unknown, stored: StoredItemProposal): Applied | undefined => {
   if (!(error instanceof ItemWriteError)) return failureOutcome(error, stored.kind === "create" ? "create" : "edit", "write");
   if (error.code === ItemWriteErrorCode.enum.stale_version || error.code === ItemWriteErrorCode.enum.item_not_found) return ITEM_CHANGED;
-  if (error.code === ItemWriteErrorCode.enum.items_not_writable) {
+  if (error.code === ItemWriteErrorCode.enum.items_not_writable && !(error instanceof ItemIdentityError)) {
     return conflict(`${error.message} Nothing was written: keep the items root on a local filesystem and ask the agent to propose again, or reject the proposal.`);
   }
   const [only] = error.problems;
@@ -153,23 +153,23 @@ const writeFailure = (error: unknown, stored: StoredItemProposal): Applied | und
  * the guards, then the writer's dry run. Each throws the agent's refusal and answers the fields to store (links as ids).
  */
 const itemChecks = (writer: Writer, guards: WriteGuards) => ({
-  checkedCreate: async (current: View, structure: ValidStructure, input: ItemInput): Promise<Record<string, unknown>> => {
-    const linked = presentValues(await guards.create(current, structure, input, "propose"));
+  checkedCreate: async (current: View, binder: ValidBinder, input: ItemInput): Promise<Record<string, unknown>> => {
+    const linked = presentValues(await guards.create(current, binder, input, "propose"));
     try {
-      await writer.check({ kind: "create", structureId: structure.id, item: newItem(input, linked), unseen: current.hiddenFolders });
+      await writer.check({ kind: "create", binderId: binder.id, item: newItem(input, linked), unseen: current.hiddenFolders });
     } catch (error) {
-      throw agentWriteError(current, error, { structure });
+      throw agentWriteError(current, error, { binder });
     }
     return createFields(input, linked);
   },
 
   /** `handle`, the item's; `named`, the handle the agent gave, which a refusal names. */
-  checkedUpdate: async (current: View, structure: ValidStructure, handle: string, fields: Record<string, unknown>, baseVersion: string, named = handle): Promise<Record<string, unknown>> => {
-    const linked = guards.update(current, structure, fields, "propose");
+  checkedUpdate: async (current: View, binder: ValidBinder, handle: string, fields: Record<string, unknown>, baseVersion: string, named = handle): Promise<Record<string, unknown>> => {
+    const linked = guards.update(current, binder, fields, "propose");
     try {
       await writer.check({ kind: "update", handle, fields: linked, baseVersion });
     } catch (error) {
-      throw agentWriteError(current, error, { handle: named, structure });
+      throw agentWriteError(current, error, { handle: named, binder });
     }
     return linked;
   },
@@ -182,35 +182,35 @@ export const openItemProposals = ({ catalog, writer, store }: ItemProposalsOptio
   const guards = writeGuards(writer);
   const checks = itemChecks(writer, guards);
 
-  const checkCreate = async (agentId: string, structureId: string, input: ItemInput, reason: string): Promise<CheckedItemProposal> => {
+  const checkCreate = async (agentId: string, binderId: string, input: ItemInput, reason: string): Promise<CheckedItemProposal> => {
     const current = await view();
-    const structure = structureFor(current, structureId);
+    const binder = binderFor(current, binderId);
     return {
-      proposal: { target: "item", path: null, structure: structure.id, itemId: null, kind: "create", file: input.file ?? null, reason, baseVersion: null, agentId },
-      fields: await checks.checkedCreate(current, structure, input),
+      proposal: { target: "item", path: null, binder: binder.id, itemId: null, kind: "create", file: input.file ?? null, reason, baseVersion: null, agentId },
+      fields: await checks.checkedCreate(current, binder, input),
     };
   };
 
   const checkUpdate = async (agentId: string, handle: string, fields: Record<string, unknown>, version: string, reason: string): Promise<CheckedItemProposal> => {
     const current = await view();
-    const { item, structure, handle: target } = itemFor(current, handle);
+    const { item, binder, handle: target } = itemFor(current, handle);
     return {
-      proposal: { target: "item", path: null, structure: structure.id, itemId: item.id, kind: "update", file: null, reason, baseVersion: version, agentId },
-      fields: await checks.checkedUpdate(current, structure, target, fields, version, handle),
+      proposal: { target: "item", path: null, binder: binder.id, itemId: item.id, kind: "update", file: null, reason, baseVersion: version, agentId },
+      fields: await checks.checkedUpdate(current, binder, target, fields, version, handle),
     };
   };
 
   const checkDelete = async (agentId: string, handle: string, version: string, reason: string): Promise<CheckedItemProposal> => {
     const current = await view();
-    const { item, structure, handle: target } = itemFor(current, handle);
-    guards.remove(current, structure, item, target, "propose");
+    const { item, binder, handle: target } = itemFor(current, handle);
+    guards.remove(current, binder, item, target, "propose");
     try {
       await writer.check({ kind: "delete", handle: target, baseVersion: version });
     } catch (error) {
-      throw agentWriteError(current, error, { handle, structure });
+      throw agentWriteError(current, error, { handle, binder });
     }
     return {
-      proposal: { target: "item", path: null, structure: structure.id, itemId: item.id, kind: "delete", file: null, reason, baseVersion: version, agentId },
+      proposal: { target: "item", path: null, binder: binder.id, itemId: item.id, kind: "delete", file: null, reason, baseVersion: version, agentId },
       fields: {},
     };
   };
@@ -219,32 +219,32 @@ export const openItemProposals = ({ catalog, writer, store }: ItemProposalsOptio
   const write = async (stored: StoredItemProposal, fields: Record<string, unknown>, by: VersionAuthor): Promise<Applied> => {
     const snapshot = await catalog.snapshot();
     const current = viewOf(snapshot);
-    const structure = current.structures.get(stored.structure);
-    const access = current.hiddenStructures.has(stored.structure) ? "hidden" : structure?.settings.access;
+    const binder = current.binders.get(stored.binder);
+    const access = current.hiddenBinders.has(stored.binder) ? "hidden" : binder?.settings.access;
     if (access === "hidden" || access === "read") {
-      return conflict(`${stored.structure} is now ${access}: agents' changes no longer apply to it, ${NOTHING_WRITTEN}. ${BY_HAND}`, "access");
+      return conflict(`${stored.binder} is now ${access}: agents' changes no longer apply to it, ${NOTHING_WRITTEN}. ${BY_HAND}`, "access");
     }
-    if (structure === undefined) {
-      return conflict(`The structure ${stored.structure} is gone, or its ${SETTINGS_FILE} is broken, ${NOTHING_WRITTEN}. Fix its settings and ask the agent again, or reject the proposal.`);
+    if (binder === undefined) {
+      return conflict(`The binder ${stored.binder} is gone, or its ${SETTINGS_FILE} is broken, ${NOTHING_WRITTEN}. Fix its settings and ask the agent again, or reject the proposal.`);
     }
-    const locked = bindingLocks(structure, stored.kind, Object.keys(fields), by);
+    const locked = bindingLocks(binder, stored.kind, Object.keys(fields), by);
     if (locked.length > 0) {
-      return conflict(`${locked.join(", ")} became locked in ${stored.structure}, ${NOTHING_WRITTEN}. ${BY_HAND}`, locked[0]);
+      return conflict(`${locked.join(", ")} became locked in ${stored.binder}, ${NOTHING_WRITTEN}. ${BY_HAND}`, locked[0]);
     }
 
     try {
       if (stored.kind === "create") {
         const { written } = createInputOf(fields, stored.file);
         const { itemId } = (stored.intent ?? {}) as ItemIntent;
-        const created = await writer.createItem(structure.id, newItem(written, written.properties), itemId ?? undefined);
+        const created = await writer.createItem(stored.agentId, binder.id, newItem(written, written.properties), itemId ?? undefined);
         return created.id === null ? { written: true } : { written: true, itemId: created.id, ...(created.handle === null ? {} : { itemHandle: created.handle }) };
       }
       const target = targetItem(snapshot.items, stored);
       if (target === "gone" || (stored.kind === "delete" && ((stored.intent ?? {}) as ItemIntent).path == null)) return ITEM_GONE;
       if ("movedTo" in target) return conflict(`The item moved to ${target.movedTo} since the agent read it, ${NOTHING_WRITTEN}. ${ASK_AGAIN}`);
       const baseVersion = stored.baseVersion ?? "";
-      if (stored.kind === "update") await writer.updateItem(target.handle, fields, baseVersion);
-      else await writer.deleteItem(target.handle, baseVersion);
+      if (stored.kind === "update") await writer.updateItem(stored.agentId, target.handle, fields, baseVersion);
+      else await writer.deleteItem(stored.agentId, target.handle, baseVersion);
       return { written: true };
     } catch (error) {
       const applied = writeFailure(error, stored);
@@ -272,7 +272,7 @@ export const openItemProposals = ({ catalog, writer, store }: ItemProposalsOptio
     ...itemRevisions({ catalog, writer, checks }),
 
     checkItemProposal: (agentId, change, reason) => {
-      if (change.kind === "create") return checkCreate(agentId, change.structure, change.input, reason);
+      if (change.kind === "create") return checkCreate(agentId, change.binder, change.input, reason);
       if (change.kind === "update") return checkUpdate(agentId, change.handle, change.fields, change.version, reason);
       return checkDelete(agentId, change.handle, change.version, reason);
     },
@@ -295,12 +295,12 @@ export const openItemProposals = ({ catalog, writer, store }: ItemProposalsOptio
     },
 
     itemProposalDetail: async (stored, fields, heads) => {
-      const { structures, items } = await catalog.snapshot();
+      const { binders, items } = await catalog.snapshot();
       const item = itemById(items, stored.itemId);
       return {
         ...itemProposalOf(stored, heads, items),
         fields,
-        current: item === undefined ? null : withLinks(item, structures, handlesById(items)),
+        current: item === undefined ? null : withLinks(item, binders, handlesById(items)),
         versions: [...heads],
       };
     },
@@ -310,9 +310,9 @@ export const openItemProposals = ({ catalog, writer, store }: ItemProposalsOptio
       write: (stored, content, by) => write(itemOnly(stored), fieldsOf(content), by),
       written: async (stored) => {
         const item = itemOnly(stored);
-        const { structures, items } = await catalog.snapshot();
+        const { binders, items } = await catalog.snapshot();
         const { path } = (item.intent ?? {}) as ItemIntent;
-        return itemWritten(item, { items, structureRead: structureRead(structures, item.structure), fileMissing: item.kind === "delete" && path != null && (await missing(join(catalog.root, path))) });
+        return itemWritten(item, { items, binderRead: binderRead(binders, item.binder), fileMissing: item.kind === "delete" && path != null && (await missing(join(catalog.root, path))) });
       },
     },
   };

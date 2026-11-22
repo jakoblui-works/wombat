@@ -1,0 +1,314 @@
+import { chatAccess } from "@wombat/shared/api";
+import { memo, type ReactNode, useCallback, useEffect, useState, useLayoutEffect, useMemo, useRef } from "react";
+
+import { ScrollArea } from "../../../components/ui/scroll-area";
+import { type ChatItem, type ChatModel } from "../../../data/chat-model.ts";
+import { useSetConfig } from "../../../data/commands.ts";
+import { useConnection, useHarnesses } from "../../../data/hooks.ts";
+import type { Reveal, PanelProps } from "../../registry.ts";
+import { useWorkbench } from "../../workbench-context.ts";
+import { DIFF_PANEL } from "../Diff/diff-params.ts";
+import { type EditRequest, editRequest } from "../approvals/edit-request.ts";
+import { useAnswer } from "../approvals/answer.ts";
+import { usePlay } from "../../../lib/motion.ts";
+import { useReveal } from "../../../lib/use-reveal.ts";
+import { type Arrivals, NO_ARRIVALS, trackArrivals } from "./arrivals.ts";
+import { type ChatBlock, chatBlocks, streamingKey } from "./chat-blocks.ts";
+import { CHAT_PANEL, ChatParams } from "./chat-params.ts";
+import { featuresOrAssumed, useHarnessFeatures } from "../../../data/harness-features.ts";
+import { type LiveState, liveState } from "../approvals/live-state.ts";
+import { sameBlock } from "./same-item.ts";
+import { useChatModel } from "../approvals/use-chat-model.ts";
+import { caughtUp, followStreaming, NO_PACING, type Pacing, revealDone, stillReveals } from "./pacing.ts";
+import { ChatHeader } from "./ChatHeader/ChatHeader.tsx";
+import { ContextDialogHost } from "./ContextDialogHost/ContextDialogHost.tsx";
+import { Composer } from "./Composer/Composer.tsx";
+import { ComposerFooter } from "./Composer/ComposerFooter/ComposerFooter.tsx";
+import { LogError } from "../approvals/LogError/LogError.tsx";
+import { ClippedMarkdown } from "./ClippedMarkdown/ClippedMarkdown.tsx";
+import { safePrefix } from "./safe-prefix.ts";
+import { Permission } from "./Permission/Permission.tsx";
+import { Plan } from "./Plan/Plan.tsx";
+import { ProposalNote } from "./ProposalNote/ProposalNote.tsx";
+import { Reasoning } from "./Reasoning/Reasoning.tsx";
+import { ToolCalls } from "./ToolCall/ToolCall.tsx";
+import { WorkingLine } from "./WorkingLine/WorkingLine.tsx";
+
+/** How close to the end (px) still counts as "at the bottom": new content then scrolls into view. */
+const BOTTOM_SLACK_PX = 24;
+
+const atBottom = (element: HTMLElement): boolean => element.scrollHeight - element.scrollTop - element.clientHeight <= BOTTOM_SLACK_PX;
+
+/** How far to scroll a viewport so `target` sits in its middle (its top, when it's taller than the viewport). */
+const centreOffset = (viewport: DOMRect, target: DOMRect): number =>
+  target.top - viewport.top - Math.max(0, (viewport.height - target.height) / 2);
+
+/** The edit requests among the chat's permissions, by request id (`editRequest`: the one rule for what's an edit). */
+const editRequests = (model: ChatModel, blocks: readonly ChatBlock[]): Map<string, EditRequest> => {
+  const edits = new Map<string, EditRequest>();
+  for (const block of blocks) {
+    const edit = block.kind === "permission" ? editRequest(model, block.item.requestId) : undefined;
+    if (edit !== undefined) edits.set(edit.requestId, edit);
+  }
+  return edits;
+};
+
+const STOP_REASONS: Readonly<Record<string, string>> = {
+  cancelled: "Cancelled.",
+  max_tokens: "The agent stopped: it reached its output limit.",
+  max_turn_requests: "The agent stopped: it reached its limit of requests in one turn.",
+  refusal: "The agent refused to go on.",
+};
+
+/** What a turn's end says, or undefined for one that ended without a reason worth saying (it renders nothing). */
+const turnEndText = (item: { stopReason: string }): string | undefined => STOP_REASONS[item.stopReason];
+
+/** Whether a block renders nothing: there is nothing to animate. */
+const showsNothing = (block: ChatBlock): boolean => block.kind === "item" && block.item.kind === "turn_end" && turnEndText(block.item) === undefined;
+
+/** A sub-agent's item (another ACP session), marked apart from the agent's own. */
+const SubAgent = ({ children }: { children: ReactNode }) => (
+  <div className="flex flex-col gap-1 border-l-2 border-line pl-3">
+    <span className="text-xs text-fg-tertiary">Sub-agent</span>
+    {children}
+  </div>
+);
+
+type StaticItem = Extract<ChatBlock, { kind: "item" }>["item"];
+
+const AgentText = ({ text }: { text: string }) => <ClippedMarkdown text={text} className="text-base text-fg-primary" />;
+
+/**
+ * An agent message revealed at an even pace (`stillReveals`); only it renders again on each frame. Once it is no
+ * longer being written and shows all of its text it calls `onDone` with its block's key.
+ */
+const StreamingText = ({ blockKey, text, fresh, streaming, onDone }: { blockKey: string; text: string; fresh: boolean; streaming: boolean; onDone: (key: string) => void }) => {
+  const shown = useReveal(text, true, fresh);
+  const done = revealDone(streaming, shown, text);
+  useEffect(() => {
+    if (done) onDone(blockKey);
+  }, [done, onDone, blockKey]);
+  return <AgentText text={safePrefix(shown)} />;
+};
+
+/** An item that shows only what the log says (everything but a permission, whose state is live). */
+const StaticItemView = ({ item }: { item: StaticItem }): ReactNode => {
+  switch (item.kind) {
+    case "user":
+      return (
+        <div className="flex justify-end">
+          <ClippedMarkdown text={item.text} className="max-w-3/4 rounded-lg border border-line bg-surface-2 px-3.5 py-2 text-base text-fg-primary" />
+        </div>
+      );
+    case "proposal_note":
+      return <ProposalNote note={item} />;
+    case "agent":
+      return <AgentText text={item.text} />;
+    case "reasoning":
+      return <Reasoning text={item.text} />;
+    case "turn_end": {
+      const said = turnEndText(item);
+      return said === undefined ? null : <p className="text-sm text-fg-tertiary">{said}</p>;
+    }
+    case "unreadable":
+      return <p className="text-sm text-fg-tertiary">One entry of this log couldn't be read.</p>;
+  }
+};
+
+/** A block from the log alone, rendered again only when what it shows changed (`sameBlock`). */
+const StaticBlock = memo(
+  ({ block }: { block: Exclude<ChatBlock, { kind: "permission" }> }) => (block.kind === "tools" ? <ToolCalls items={block.items} /> : <StaticItemView item={block.item} />),
+  (before, after) => sameBlock(before.block, after.block),
+);
+StaticBlock.displayName = "StaticBlock";
+
+/** A block that arrived live: it fades and slides in once, if it is shown when it arrives (`usePlay`). */
+const Arrival = ({ children }: { children: ReactNode }) => {
+  const enter = usePlay<HTMLDivElement>("motion-enter", true, { onMount: true });
+  return <div ref={enter}>{children}</div>;
+};
+
+type BlockProps = {
+  block: ChatBlock;
+  live: LiveState;
+  edits: Map<string, EditRequest>;
+  connected: boolean;
+  onOpenSideBySide: (requestId: string) => void;
+  answers: ReturnType<typeof useAnswer>;
+  cards: Map<string, HTMLElement>;
+  /** The block arrived while the chat was open (`trackArrivals`): it fades and slides in. */
+  fresh: boolean;
+  /** The block is the agent message still being written (`streamingKey`). */
+  streaming: boolean;
+  /** The block reveals its text at a pace (`stillReveals`). */
+  paced: boolean;
+  onRevealDone: (key: string) => void;
+};
+
+const Block = ({ block, live, edits, connected, answers, cards, fresh, streaming, paced, onRevealDone, onOpenSideBySide }: BlockProps) => {
+  let shown: ReactNode;
+  if (block.kind === "permission") {
+    const item = block.item;
+    const { pending, error } = answers.stateOf(item.requestId);
+    const edit = edits.get(item.requestId);
+    shown = (
+      <Permission
+        item={item}
+        answer={live.answerOf(item)}
+        edit={edit ?? false}
+        tool={block.tool}
+        onOpenSideBySide={edit === undefined ? undefined : () => onOpenSideBySide(item.requestId)}
+        disabled={!live.answerable(item, { connected, pending })}
+        error={error}
+        onAnswer={(kind) => answers.answer(item.requestId, kind)}
+        cardRef={(element) => {
+          if (element === null) cards.delete(item.requestId);
+          else cards.set(item.requestId, element);
+        }}
+      />
+    );
+  } else if (paced && block.kind === "item" && block.item.kind === "agent") {
+    shown = <StreamingText blockKey={block.key} text={block.item.text} fresh={fresh} streaming={streaming} onDone={onRevealDone} />;
+  }
+  else shown = <StaticBlock block={block} />;
+  const session: ChatItem["sessionId"] = block.kind === "tools" ? block.items[0]?.sessionId : block.item.sessionId;
+  const placed = session === undefined ? shown : <SubAgent>{shown}</SubAgent>;
+  return fresh && !showsNothing(block) ? <Arrival>{placed}</Arrival> : placed;
+};
+
+/** One agent's chat: the plan pinned on top, the conversation, the message box at the bottom. */
+const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | undefined }) => {
+  const { model, agent, log } = useChatModel(agentId);
+  const connected = useConnection().state === "connected";
+  const answers = useAnswer(agentId);
+  const harnesses = useHarnesses();
+  const harness = harnesses.data?.find(({ id }) => id === agent?.harness);
+  const features = useHarnessFeatures(agent?.harness);
+  // While the agent is still loading it counts as running: only a known agent without a process isn't.
+  const access = agent === undefined ? "running" : chatAccess(agent, featuresOrAssumed(features));
+  const setConfig = useSetConfig();
+  const blocks = useMemo(() => (model === undefined ? [] : chatBlocks(model.items)), [model]);
+  const [arrivals, setArrivals] = useState<Arrivals>(NO_ARRIVALS);
+  const tracked = trackArrivals(arrivals, blocks.map((block) => block.key), { loaded: model !== undefined, connected, reading: log.isFetching, readAt: log.dataUpdatedAt });
+  if (tracked !== arrivals) setArrivals(tracked);
+  const edits = useMemo(() => (model === undefined ? new Map<string, EditRequest>() : editRequests(model, blocks)), [model, blocks]);
+  const [contextOpen, setContextOpen] = useState(false);
+  const workbench = useWorkbench();
+  const openSideBySide = (requestId: string) => workbench.openBeside(DIFF_PANEL, { agentId, requestId }, { panelId: CHAT_PANEL, params: { agentId } });
+  const live = useMemo(() => (model === undefined ? undefined : liveState(model, agent)), [model, agent]);
+  const streamingBlock = streamingKey(blocks, live?.turnActive ?? false);
+  const [pacingState, setPacing] = useState<Pacing>(NO_PACING);
+  const pacing = followStreaming(pacingState, streamingBlock);
+  if (pacing !== pacingState) setPacing(pacing);
+  const onRevealDone = useCallback((key: string) => setPacing((before) => caughtUp(before, key)), []);
+
+  const viewport = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  const cards = useRef(new Map<string, HTMLElement>());
+  const revealed = useRef<Reveal>(undefined);
+
+  // Scrolled to the bottom, the chat follows new content (new items, and parts that grow: an expanded tool call,
+  // a longer message); scrolled up, it stays where it is.
+  useEffect(() => {
+    const element = viewport.current;
+    const inner = content.current;
+    if (element === null || inner === null) return;
+    const onScroll = () => {
+      following.current = atBottom(element);
+    };
+    const follow = new ResizeObserver(() => {
+      if (following.current) element.scrollTop = element.scrollHeight;
+    });
+    element.addEventListener("scroll", onScroll, { passive: true });
+    follow.observe(inner);
+    // The viewport itself shrinks or grows too (the window, the plan, the message box).
+    follow.observe(element);
+    return () => {
+      element.removeEventListener("scroll", onScroll);
+      follow.disconnect();
+    };
+    // The viewport is there once the log has loaded.
+  }, [model === undefined]);
+  useLayoutEffect(() => {
+    const element = viewport.current;
+    if (element !== null && following.current) element.scrollTop = element.scrollHeight;
+  }, [model]);
+
+  // A reveal (a new object each time it's asked) scrolls its permission into view and moves the focus to its card,
+  // once the card is there.
+  useEffect(() => {
+    if (reveal === undefined || reveal === revealed.current) return;
+    const card = cards.current.get(reveal.target);
+    if (card === undefined) return;
+    revealed.current = reveal;
+    const element = viewport.current;
+    if (element !== null) {
+      // Only the chat's own viewport scrolls (scrollIntoView would also move dockview's clipped containers).
+      element.scrollTop += centreOffset(element.getBoundingClientRect(), card.getBoundingClientRect());
+      // Revealed above the end, the chat stays at the card until scrolled back down.
+      following.current = atBottom(element);
+    }
+    card.focus({ preventScroll: true });
+  }, [reveal, model]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <ChatHeader agentId={agentId} agent={agent} connected={connected} />
+      {model?.plan === undefined || model.plan.length === 0 ? null : <Plan entries={model.plan} />}
+      {log.error && model === undefined ? (
+        <LogError error={log.error} />
+      ) : model === undefined ? (
+        <p className="p-5 text-sm text-fg-tertiary">Loading…</p>
+      ) : (
+        <ScrollArea viewportRef={viewport} className="min-h-0 flex-1">
+          <div ref={content} role="log" aria-label="Conversation" className="mx-auto flex max-w-chat flex-col gap-3 px-5 pt-2 pb-4">
+            {log.data?.truncated ? <p className="text-sm text-fg-tertiary">Earlier history wasn't kept.</p> : null}
+            {blocks.map((block) => (
+              <Block
+                key={block.key}
+                block={block}
+                live={live ?? liveState(model, agent)}
+                edits={edits}
+                connected={connected}
+                answers={answers}
+                cards={cards.current}
+                fresh={tracked.fresh.has(block.key)}
+                streaming={block.key === streamingBlock}
+                paced={stillReveals(pacing, block.key)}
+                onRevealDone={onRevealDone}
+                onOpenSideBySide={openSideBySide}
+              />
+            ))}
+          </div>
+        </ScrollArea>
+      )}
+      {/* The summary says whether the agent works, the log what it does; both must agree before the line shows. */}
+      {agent?.state === "working" ? <WorkingLine activity={model?.activity ?? null} /> : null}
+      <Composer
+        agentId={agentId}
+        turnActive={live?.turnActive ?? false}
+        connected={connected && model !== undefined}
+        access={access}
+        features={features}
+        onOpenContext={() => setContextOpen(true)}
+      />
+      {agent === undefined ? null : (
+        <ComposerFooter
+          agent={agent}
+          toolName={harness?.name ?? agent.harness}
+          options={model?.config}
+          usage={model?.usage}
+          access={access}
+          onSet={(configId, value) => setConfig.mutateAsync({ agentId, configId, value })}
+        />
+      )}
+      {agent === undefined ? null : <ContextDialogHost agent={agent} features={features} featuresError={harnesses.isFetching ? null : harnesses.error} refetchFeatures={harnesses.refetch} open={contextOpen} onOpenChange={setContextOpen} />}
+    </div>
+  );
+};
+
+export const Chat = ({ params, reveal }: PanelProps) => {
+  const parsed = ChatParams.safeParse(params);
+  return parsed.success ? <AgentChat agentId={parsed.data.agentId} reveal={reveal} /> : <p className="p-5 text-sm">This tab names no agent; close it.</p>;
+};

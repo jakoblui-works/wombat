@@ -1,20 +1,19 @@
 import { APP_ORIGIN } from "@wombat/shared";
-import { BODY_OVER_CAP_MESSAGE, ListAgentsResponse, type AgentSummary } from "@wombat/shared/api";
+import { BODY_OVER_CAP_MESSAGE, type AgentSummary } from "@wombat/shared/api";
 import type { DiscoveryFile } from "@wombat/shared/discovery";
-import { appRoute, MAX_BODY_BYTES } from "@wombat/shared/routes";
+import { appRoute, MAX_BODY_BYTES, requestTo, ROUTES } from "@wombat/shared/routes";
 import type { ServiceAnswer } from "../shared/bridge.ts";
 
 /** `timeoutMs` bounds the whole call, body included; `signal` ends it early (a stream that's read until stopped). */
 export type ServiceCall = { body?: unknown; timeoutMs?: number; signal?: AbortSignal };
 
-/** The one place a call to the service gets the file's bearer token and the app's Origin. */
+/** The one place a call to the service gets the file's bearer token and the app's Origin. `path` as pathOf builds it. */
 export const callService = (
   file: DiscoveryFile,
-  method: string,
-  pathname: string,
+  { method, path }: { method: string; path: string },
   { body, timeoutMs, signal }: ServiceCall,
 ): Promise<Response> =>
-  fetch(`http://127.0.0.1:${String(file.port)}${pathname}`, {
+  fetch(`http://127.0.0.1:${String(file.port)}${path}`, {
     method,
     headers: {
       authorization: `Bearer ${file.token}`,
@@ -29,12 +28,13 @@ const LIST_TIMEOUT_MS = 5_000;
 
 /** The service's agents (GET /agents), for main's own use; rejects when the service doesn't answer with a list. */
 export const listAgents = async (file: DiscoveryFile): Promise<AgentSummary[]> => {
-  const response = await callService(file, "GET", "/agents", { timeoutMs: LIST_TIMEOUT_MS });
+  const route = ROUTES.listAgents;
+  const response = await callService(file, requestTo(route), { timeoutMs: LIST_TIMEOUT_MS });
   if (response.status !== 200) {
     await response.body?.cancel();
-    throw new Error(`The service answered GET /agents with HTTP ${String(response.status)}.`);
+    throw new Error(`The service answered ${route.method} ${route.pattern} with HTTP ${String(response.status)}.`);
   }
-  return ListAgentsResponse.parse(await response.json()).agents;
+  return route.response.parse(await response.json()).agents;
 };
 
 /** Stopping an agent waits for it to exit, which can take a while. */
@@ -68,7 +68,7 @@ export const requestService = async (file: DiscoveryFile | undefined, method: un
   let status: number;
   let text: string;
   try {
-    const response = await callService(file, request.method, request.path, { body: request.body, timeoutMs: REQUEST_TIMEOUT_MS });
+    const response = await callService(file, request, { body: request.body, timeoutMs: REQUEST_TIMEOUT_MS });
     status = response.status;
     text = await response.text();
   } catch (error) {

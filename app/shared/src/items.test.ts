@@ -1,11 +1,11 @@
-// A structure's settings: what the service enforces on agents, so a contradiction must be refused, not guessed at.
+// A binder's settings: what the service enforces on agents, so a contradiction must be refused, not guessed at.
 import { expect, test } from "vitest";
 
 import type { z } from "zod";
 
-import { Item, StructureSettings, StructureSummary } from "./items.ts";
+import { Item, BinderSettings, BinderSummary } from "./items.ts";
 
-/** Every property type and view kind, in a propose structure with handle naming. */
+/** Every property type and view kind, in a propose binder with handle naming. */
 const full = {
   version: 1,
   id: "bugs",
@@ -24,8 +24,8 @@ const full = {
     blocks: { type: "link", to: "backlog" },
   },
   views: [
-    { name: "Open", kind: "list", filter: { repo: "api" }, group: "repo", sort: ["noted", "order"] },
-    { name: "Board", kind: "board", column: "repo" },
+    { name: "Open", kind: "list", filter: { repo: "api" }, group: "repo", sort: ["noted", "order"], excerpt: false },
+    { name: "Board", kind: "board", column: "repo", excerpt: false },
     { name: "Tree", kind: "tree", parent: "parent" },
   ],
 };
@@ -40,11 +40,13 @@ type Path = (string | number)[];
 const cases: [string, object, null | [Path, string]][] = [
   ["the full example", full, null],
   ["an unknown key", { ...full, colour: "red" }, [["colour"], "colour"]],
-  ["instructions on an edit structure", { ...full, access: "edit", instructions: "full" }, [["instructions"], "without your approval"]],
+  ["instructions on an edit binder", { ...full, access: "edit", instructions: "full" }, [["instructions"], "without your approval"]],
   ["locked naming an unknown field", { ...full, locked: ["title", "status"] }, [["locked", 1], "status"]],
   ["an include glob that leaves the folder", free(["{guides,..}/*.md"]), [["include", 0], "include"]],
   ["a property named id", withProperties({ id: { type: "text" } }), [["properties", "id"], '"id"']],
   ["a board column that isn't a select", withView({ name: "B", kind: "board", column: "note" }), [["views", 0, "column"], "column"]],
+  ["a view with show", withView({ name: "L", kind: "list", show: [] }), [["views", 0, "show"], "show: not a key"]],
+  ["a tree view with excerpt", withView({ name: "T", kind: "tree", parent: "parent", excerpt: false }), [["views", 0, "excerpt"], "excerpt: not a key"]],
 ];
 
 /** Where an issue is: its path, and for an unknown key the key itself. */
@@ -54,7 +56,7 @@ const location = (issue: z.core.$ZodIssue): Path => [
 ];
 
 test.each(cases)("settings: %s", (_case, settings, refusal) => {
-  const result = StructureSettings.safeParse(settings);
+  const result = BinderSettings.safeParse(settings);
   if (refusal === null) {
     expect(result.error?.issues).toBeUndefined();
     return;
@@ -68,7 +70,7 @@ test.each(cases)("settings: %s", (_case, settings, refusal) => {
 // older app must still show the rest instead of failing the whole response.
 test("API shapes stay lenient: unknown fields stripped, unknown view kinds dropped, unknown property types kept", () => {
   const listing = { path: "bugs", itemCount: 2, invalidCount: 1, problems: [{ field: "repo", message: "repo: not an option" }] };
-  const structure = {
+  const binder = {
     id: "bugs",
     name: "Bugs",
     prefix: "BUG",
@@ -79,12 +81,12 @@ test("API shapes stay lenient: unknown fields stripped, unknown view kinds dropp
     views: [...full.views, { name: "Calendar", kind: "calendar", date: "noted" }],
     ...listing,
   };
-  expect(StructureSummary.parse({ ...structure, colour: "red" })).toEqual({
-    ...structure,
+  expect(BinderSummary.parse({ ...binder, colour: "red" })).toEqual({
+    ...binder,
     properties: { repo: full.properties.repo, rank: { type: "unknown", original: "rating", max: 5 } },
     views: full.views,
   });
-  expect(StructureSummary.parse({ id: null, ...listing, colour: "red" })).toEqual({ id: null, ...listing });
+  expect(BinderSummary.parse({ id: null, ...listing, colour: "red" })).toEqual({ id: null, ...listing });
 
   const item = {
     id: "0196f3c2-1a00-7000-8000-000000000001",
@@ -94,6 +96,8 @@ test("API shapes stay lenient: unknown fields stripped, unknown view kinds dropp
     properties: { repo: "api", blocks: { id: "0196f3c2-2b00-7000-8000-000000000001", handle: "BL-1" } },
     path: "bugs/BUG-1-login-times-out.md",
     version: "9f2c",
+    excerpt: "Steps: sign in.",
+    binder: "bugs",
     problems: [],
     body: "\nSteps: sign in.\n",
   };

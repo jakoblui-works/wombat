@@ -1,6 +1,6 @@
-// An item's frontmatter checked against its structure's settings: only `id`, `handle`, `aliases` and the declared
+// An item's frontmatter checked against its binder's settings: only `id`, `handle`, `aliases` and the declared
 // properties, each value of its property's type. Links are checked through `links`, which knows every item.
-import { HANDLE_PREFIX_PATTERN, OWN_KEYS, type Property, type StructureSettings } from "@wombat/shared/items";
+import { HANDLE_NUMBER_PATTERN, HANDLE_PREFIX_PATTERN, isItemId, OWN_KEYS, type Property, type BinderSettings } from "@wombat/shared/items";
 
 import type { NamedProblem, ProblemNames } from "./catalog.ts";
 
@@ -8,7 +8,7 @@ import type { NamedProblem, ProblemNames } from "./catalog.ts";
 export const ownValue = (record: Record<string, unknown>, key: string): unknown => (Object.hasOwn(record, key) ? record[key] : undefined);
 
 /** The declared property `name`, by own key only: a key named like `constructor` is no property. */
-export const propertyOf = (settings: StructureSettings, name: string): Property | undefined =>
+export const propertyOf = (settings: BinderSettings, name: string): Property | undefined =>
   Object.hasOwn(settings.properties, name) ? settings.properties[name] : undefined;
 
 /** Sets `key` as an own key, so a key named `__proto__` is data and never sets the record's prototype. */
@@ -16,10 +16,7 @@ export const setOwn = (record: Record<string, unknown>, key: string, value: unkn
   Object.defineProperty(record, key, { value, writable: true, enumerable: true, configurable: true });
 };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export const isUuid = (value: unknown): value is string => typeof value === "string" && UUID.test(value);
-const HANDLE = new RegExp(`^(${HANDLE_PREFIX_PATTERN})-([1-9][0-9]*)$`);
+const HANDLE = new RegExp(`^(${HANDLE_PREFIX_PATTERN})-(${HANDLE_NUMBER_PATTERN})$`);
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /** The prefix and number of a handle like `BUG-14`; undefined for anything else. */
@@ -29,16 +26,16 @@ export const parseHandle = (value: unknown): { prefix: string; number: number } 
   return { prefix: match[1] ?? "", number: Number(match[2]) };
 };
 
-/** The handle numbered `number` in a structure with `prefix`, like `BUG-14`; what parseHandle reads back. */
+/** The handle numbered `number` in a binder with `prefix`, like `BUG-14`; what parseHandle reads back. */
 export const formatHandle = (prefix: string, number: number) => `${prefix}-${number}`;
 
 /** What a link value names, as `links` finds it. */
 export type LinkTarget =
-  /** The raw id of an item in the target structure. */
+  /** The raw id of an item in the target binder. */
   | { kind: "id" }
-  /** A handle or alias of exactly one item in the target structure, which has an id: rewrite it to that id. */
+  /** A handle or alias of exactly one item in the target binder, which has an id: rewrite it to that id. */
   | { kind: "handle"; id: string }
-  /** No item of the target structure; `reason` says what the value names instead, and `names` what it names. */
+  /** No item of the target binder; `reason` says what the value names instead, and `names` what it names. */
   | { kind: "none"; reason: string; names?: ProblemNames };
 
 export type LinkLookup = (to: string, value: string) => LinkTarget;
@@ -70,8 +67,8 @@ const checkValue = (name: string, property: Property, value: unknown, links: Lin
     case "number":
       return typeof value === "number" && Number.isFinite(value) ? [] : problem(`takes a number, like ${name}: 3`);
     case "link": {
-      // Names the target structure, which may be hidden from the caller.
-      if (typeof value !== "string") return problem(`takes the handle of an item in ${property.to}, like ${name}: ${property.to.toUpperCase()}-1`, { structures: [property.to] });
+      // Names the target binder, which may be hidden from the caller.
+      if (typeof value !== "string") return problem(`takes the handle of an item in ${property.to}, like ${name}: ${property.to.toUpperCase()}-1`, { binders: [property.to] });
       const target = links(property.to, value);
       if (target.kind === "id") return [];
       if (target.kind === "handle") {
@@ -92,7 +89,7 @@ export type Validated = {
 };
 
 /** Checks the frontmatter's keys and property values; `id`, `handle` and `aliases` are the caller's. */
-export const validateProperties = (settings: StructureSettings, data: Record<string, unknown>, links: LinkLookup): Validated => {
+export const validateProperties = (settings: BinderSettings, data: Record<string, unknown>, links: LinkLookup): Validated => {
   const problems: NamedProblem[] = [];
   const properties: Record<string, unknown> = {};
   const rewrites = new Map<string, string>();
@@ -121,13 +118,13 @@ export const validateProperties = (settings: StructureSettings, data: Record<str
 
 /**
  * Problems of the item's own keys, apart from duplicates across files. They name only the item's own values and
- * its structure's prefix, never another structure: a handle with another structure's prefix is a mismatch with
- * this one's, so a prefix some hidden structure has reads like one no structure has.
+ * its binder's prefix, never another binder: a handle with another binder's prefix is a mismatch with
+ * this one's, so a prefix some hidden binder has reads like one no binder has.
  */
-export const validateOwnKeys = (settings: StructureSettings, data: Record<string, unknown>): NamedProblem[] => {
+export const validateOwnKeys = (settings: BinderSettings, data: Record<string, unknown>): NamedProblem[] => {
   const problems: NamedProblem[] = [];
   const { id, handle, aliases } = data;
-  if (id !== undefined && !isUuid(id)) {
+  if (id !== undefined && !isItemId(id)) {
     problems.push({ field: "id", message: "id: not a UUID; the service sets it, so remove the line to get a new one" });
   }
   if (handle !== undefined) {
@@ -137,7 +134,7 @@ export const validateOwnKeys = (settings: StructureSettings, data: Record<string
     } else if (parsed.prefix !== settings.prefix) {
       problems.push({
         field: "handle",
-        message: `handle: ${parsed.prefix}-${parsed.number} doesn't start with this structure's prefix ${settings.prefix}; keep it in aliases and remove the handle line to get a new one`,
+        message: `handle: ${parsed.prefix}-${parsed.number} doesn't start with this binder's prefix ${settings.prefix}; keep it in aliases and remove the handle line to get a new one`,
       });
     }
   }

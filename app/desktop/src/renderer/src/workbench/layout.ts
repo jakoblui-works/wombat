@@ -3,15 +3,24 @@ import type { SerializedDockview } from "dockview-react";
 import { z } from "zod";
 import { activityOrDefault } from "./registry.ts";
 
-/** Whether a saved tab still applies: its view is registered and its params pass paramsSchema and resolves. */
-export type IsKnown = (viewId: string, params: unknown) => boolean;
+/** Whether a saved tab still applies: its panel is registered and its params pass paramsSchema and resolves. */
+export type IsKnown = (panelId: string, params: unknown) => boolean;
 
 export type SavedLayout = {
-  version: 1;
+  version: 2;
   dockview: SerializedDockview;
   sidebars: { left: number; right: number; rightCollapsed: boolean };
   activity: string;
+  desk?: DeskLayout;
 };
+
+/** The Desk as the user left it: the binder (and view) shown in its sidebar, and the open drawers' folders. */
+export type DeskLayout = { binderId?: string; view?: string; openDrawers: string[] };
+
+/** The Desk until the user changes it: the tree, every drawer closed. */
+export const DEFAULT_DESK: Readonly<DeskLayout> = { openDrawers: [] };
+
+const DeskLayout = z.object({ binderId: z.string().exactOptional(), view: z.string().exactOptional(), openDrawers: z.array(z.string()) });
 
 /** The activity `id` names if it's registered, else the default (Agents). */
 const knownActivity = (id: string | undefined): string => activityOrDefault(id)?.id ?? "";
@@ -31,8 +40,8 @@ const GridNode: z.ZodType<GridNode> = z.lazy(() =>
   ]),
 );
 
-/** A tab's panel as the workbench saves it: dockview's panel state, its params the view and the view's params. */
-const SavedPanel = z.looseObject({ id: z.string(), params: z.looseObject({ viewId: z.string(), params: z.unknown() }) });
+/** A tab's panel as the workbench saves it: dockview's panel state, its params the panel and the panel's params. */
+const SavedPanel = z.looseObject({ id: z.string(), params: z.looseObject({ panelId: z.string(), params: z.unknown() }) });
 
 // Only the structure the restore relies on is checked; dockview checks the rest in fromJSON.
 const SerializedDockviewShape = z.looseObject({
@@ -44,10 +53,11 @@ const SerializedDockviewShape = z.looseObject({
 /** The saved layout's schema; `dockview` is checked for structure only (panels, grid). */
 export const SavedLayout: z.ZodType<SavedLayout> = z
   .object({
-    version: z.literal(1),
+    version: z.literal(2),
     dockview: SerializedDockviewShape,
     sidebars: z.object({ left: z.number(), right: z.number(), rightCollapsed: z.boolean() }),
     activity: z.string(),
+    desk: DeskLayout.exactOptional(),
   })
   .transform((layout) => layout as unknown as SavedLayout);
 
@@ -61,7 +71,7 @@ const defaultDockview = (): SerializedDockview =>
   }) as unknown as SerializedDockview;
 
 /** The default layout: one empty group, the Agents activity, default sidebar widths. */
-export const defaultLayout = (): SavedLayout => ({ version: 1, dockview: defaultDockview(), sidebars: { ...DEFAULT_SIDEBARS }, activity: knownActivity(undefined) });
+export const defaultLayout = (): SavedLayout => ({ version: 2, dockview: defaultDockview(), sidebars: { ...DEFAULT_SIDEBARS }, activity: knownActivity(undefined) });
 
 /** The grid without the dropped tabs; a group (or split) pruning emptied is removed, one that was empty stays. */
 const pruneNode = (node: GridNode, kept: (panelId: string) => boolean): GridNode | undefined => {
@@ -92,7 +102,7 @@ export const pruneLayout = (saved: SavedLayout, isKnown: IsKnown): SavedLayout =
   const keptPanels = Object.fromEntries(
     Object.entries(panels).filter(([, panel]) => {
       const parsed = SavedPanel.safeParse(panel);
-      return parsed.success && isKnown(parsed.data.params.viewId, parsed.data.params.params);
+      return parsed.success && isKnown(parsed.data.params.panelId, parsed.data.params.params);
     }),
   );
   const pruned = pruneNode(grid.root as GridNode, (id) => id in keptPanels);

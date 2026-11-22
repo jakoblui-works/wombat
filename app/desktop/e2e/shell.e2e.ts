@@ -80,7 +80,7 @@ const appWithOpenChat = async (sandbox: Sandbox): Promise<{ launched: LaunchedAp
 
 test.describe("workbench shell", () => {
 
-  test("disconnected: the views stay, with their data, inert under a banner; Restart brings the service back and the same tabs", async ({ sandbox }) => {
+  test("disconnected: the panels stay, with their data, inert under a banner; Restart brings the service back and the same tabs", async ({ sandbox }) => {
     test.setTimeout(90_000);
     const { launched } = await appWithOpenChat(sandbox);
     const { page } = launched;

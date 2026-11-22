@@ -8,6 +8,7 @@ import { SERVICE_ENV } from "@wombat/shared";
 import { discoveryPath, findRunningService, HOLDER_WAIT_MS, readDiscovery, type DiscoveryFile } from "@wombat/shared/discovery";
 import { ensurePrivateFile } from "@wombat/shared/private-file";
 import { startTimeOf } from "@wombat/shared/process-stat";
+import { requestTo, ROUTES } from "@wombat/shared/routes";
 import { stateDir } from "@wombat/shared/state-dir";
 import { callService } from "./service-client.ts";
 
@@ -221,7 +222,7 @@ export const startService = async ({
 export const stopService = async (file: DiscoveryFile): Promise<void> => {
   let status: number;
   try {
-    const response = await callService(file, "POST", "/shutdown", { timeoutMs: SHUTDOWN_TIMEOUT_MS });
+    const response = await callService(file, requestTo(ROUTES.shutdown), { timeoutMs: SHUTDOWN_TIMEOUT_MS });
     await response.body?.cancel();
     status = response.status;
   } catch (error) {

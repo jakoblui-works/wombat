@@ -130,7 +130,7 @@ const TARGETS: Record<string, Target> = {
     propose: (at, store) => {
       writeFileSync(join(at.repo, "pairing-notes.md"), NOTES);
       return store.insertProposal(
-        { target: "file", path: join(at.repo, "pairing-notes.md"), structure: null, itemId: null, file: null, kind: "edit", reason: "The rule changed.", baseVersion: versionOfText(NOTES), agentId: AGENT },
+        { target: "file", path: join(at.repo, "pairing-notes.md"), binder: null, itemId: null, file: null, kind: "edit", reason: "The rule changed.", baseVersion: versionOfText(NOTES), agentId: AGENT },
         fileRevision({ text: NOTES, source: "file", chain: [] }, { edits: [NOTES_EDIT] }).content,
       ).proposal.id;
     },
@@ -144,12 +144,12 @@ const TARGETS: Record<string, Target> = {
   "an item create": {
     propose: (_at, store) =>
       store.insertProposal(
-        { target: "item", path: null, structure: "bugs", itemId: null, file: null, kind: "create", reason: "Seen twice.", baseVersion: null, agentId: AGENT },
+        { target: "item", path: null, binder: "bugs", itemId: null, file: null, kind: "create", reason: "Seen twice.", baseVersion: null, agentId: AGENT },
         { fields: createFields({ title: NEW_BUG_TITLE }, { note: "Seen on a fresh checkout" }) },
       ).proposal.id,
     writes: (at) => newBugs(at).length,
     after: async (_at, api) => {
-      const listed = await api("GET", "/structures/bugs/items");
+      const listed = await api("GET", "/binders/bugs/items");
       const titles = (listed.json as { items: { title: string }[] }).items.map((item) => item.title);
       expect(titles.filter((title) => title === NEW_BUG_TITLE), "exactly one item was made").toHaveLength(1);
       expect(titles).toHaveLength(3);
@@ -158,7 +158,7 @@ const TARGETS: Record<string, Target> = {
   "an item delete": {
     propose: (_at, store) =>
       store.insertProposal(
-        { target: "item", path: null, structure: "bugs", itemId: BUG_2.id, file: null, kind: "delete", reason: "A duplicate.", baseVersion: versionOfText(ACCESS_FILES[BUG_2.file] ?? ""), agentId: AGENT },
+        { target: "item", path: null, binder: "bugs", itemId: BUG_2.id, file: null, kind: "delete", reason: "A duplicate.", baseVersion: versionOfText(ACCESS_FILES[BUG_2.file] ?? ""), agentId: AGENT },
         { fields: {} },
       ).proposal.id,
     writes: (at) => (existsSync(join(at.itemsRoot, BUG_2.file)) ? 0 : 1),

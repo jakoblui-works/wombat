@@ -5,9 +5,10 @@
 // the code on disk may change under a running service. It never starts a service by itself; only `reconnect` with a
 // start does.
 import { API_VERSION } from "@wombat/shared";
-import { HEARTBEAT_MS, parseAlert, VersionResponse, type AgentSummary, type Alert } from "@wombat/shared/api";
+import { HEARTBEAT_MS, parseAlert, type AgentSummary, type Alert } from "@wombat/shared/api";
 import { isStale } from "@wombat/shared/code-id";
 import { findRunningService, type DiscoveryFile } from "@wombat/shared/discovery";
+import { requestTo, ROUTES } from "@wombat/shared/routes";
 import type { ConnectionState, ConnectionUpdate, ServiceAnswer } from "../shared/bridge.ts";
 import { callService, listAgents, requestService } from "./service-client.ts";
 import { pageMessage, ServiceTooOld } from "./service-start.ts";
@@ -133,12 +134,12 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, codeIdOnDis
     if (codeIdOnDisk === undefined) return undefined;
     try {
       const onDisk = codeIdOnDisk();
-      const response = await callService(file, "GET", "/version", { timeoutMs: VERSION_TIMEOUT_MS });
+      const response = await callService(file, requestTo(ROUTES.version), { timeoutMs: VERSION_TIMEOUT_MS });
       if (response.status !== 200) {
         await response.body?.cancel();
         throw new Error(`HTTP ${String(response.status)}`);
       }
-      const version = VersionResponse.parse(await response.json());
+      const version = ROUTES.version.response.parse(await response.json());
       return {
         ...(version.startedAt === undefined ? {} : { startedAt: version.startedAt }),
         stale: isStale(version, onDisk),
@@ -219,7 +220,7 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, codeIdOnDis
     const headers = setTimeout(() => controller.abort(), HEADERS_TIMEOUT_MS);
     let body: ReadableStream<Uint8Array> | undefined;
     try {
-      const response = await callService(file, "GET", "/events", { signal: controller.signal });
+      const response = await callService(file, requestTo(ROUTES.events), { signal: controller.signal });
       if (response.status === 200 && response.body !== null) body = response.body;
       else await response.body?.cancel();
     } catch {

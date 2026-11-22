@@ -64,7 +64,7 @@ export const bannerTitle = (state: Connection): string => `${CONNECTION_STATES[s
 export const isSettled = (state: Connection): boolean => state === "failed" || state === "incompatible";
 
 /**
- * Whether the disconnected banner (and the dimmed, inert views under it) shows. The first `connecting` is the app
+ * Whether the disconnected banner (and the dimmed, inert panels under it) shows. The first `connecting` is the app
  * starting, not a loss; `failed` and `incompatible` show even before any connect (nothing works, and Restart is the
  * way out); once connected, any other state is a loss.
  */
