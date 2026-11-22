@@ -1,4 +1,4 @@
-import { HANDLE_PREFIX_PATTERN } from "@wombat/shared/items";
+import { HANDLE_NUMBER_PATTERN, HANDLE_PREFIX_PATTERN } from "@wombat/shared/items";
 import type { ExtraProps } from "react-markdown";
 
 export type ReferenceSpan = { start: number; end: number; handle: string };
@@ -13,7 +13,7 @@ const WORD = "[\\p{L}\\p{M}\\p{N}_-]";
 /** The regex of a reference to the binders with `prefixes` (any that isn't a handle prefix is dropped); none for none. */
 const referencePattern = (prefixes: readonly string[]): RegExp | undefined => {
   const valid = [...new Set(prefixes.filter((prefix) => PREFIX.test(prefix)))];
-  return valid.length === 0 ? undefined : new RegExp(`(?<!${WORD})(?:${valid.join("|")})-[0-9]+(?!${WORD})`, "gu");
+  return valid.length === 0 ? undefined : new RegExp(`(?<!${WORD})(?:${valid.join("|")})-${HANDLE_NUMBER_PATTERN}(?!${WORD})`, "gu");
 };
 
 /** The references in `text`, with `before` and `after` the text on either side of it, which no reference takes in. */
@@ -24,7 +24,7 @@ const matchReferences = (text: string, pattern: RegExp | undefined, before = "",
     .filter(({ start, end }) => start >= 0 && end <= text.length);
 };
 
-/** The references in `text`, in order: `<prefix>-<digits>` for one of `prefixes`, not touching a letter, digit, `-` or `_`. */
+/** The references in `text`, in order: a handle (`<prefix>-<number>`) for one of `prefixes`, not touching a letter, digit, `-` or `_`. */
 export const findReferences = (text: string, prefixes: readonly string[]): ReferenceSpan[] => matchReferences(text, referencePattern(prefixes));
 
 /** Every text inside a hast node, in order. */

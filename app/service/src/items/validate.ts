@@ -1,6 +1,6 @@
 // An item's frontmatter checked against its binder's settings: only `id`, `handle`, `aliases` and the declared
 // properties, each value of its property's type. Links are checked through `links`, which knows every item.
-import { HANDLE_PREFIX_PATTERN, isItemId, OWN_KEYS, type Property, type BinderSettings } from "@wombat/shared/items";
+import { HANDLE_NUMBER_PATTERN, HANDLE_PREFIX_PATTERN, isItemId, OWN_KEYS, type Property, type BinderSettings } from "@wombat/shared/items";
 
 import type { NamedProblem, ProblemNames } from "./catalog.ts";
 
@@ -16,7 +16,7 @@ export const setOwn = (record: Record<string, unknown>, key: string, value: unkn
   Object.defineProperty(record, key, { value, writable: true, enumerable: true, configurable: true });
 };
 
-const HANDLE = new RegExp(`^(${HANDLE_PREFIX_PATTERN})-([1-9][0-9]*)$`);
+const HANDLE = new RegExp(`^(${HANDLE_PREFIX_PATTERN})-(${HANDLE_NUMBER_PATTERN})$`);
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /** The prefix and number of a handle like `BUG-14`; undefined for anything else. */

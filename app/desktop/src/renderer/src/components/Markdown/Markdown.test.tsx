@@ -163,7 +163,7 @@ const referencesIn = (text: string): { handles: string[]; html: string; visible:
   return { handles, html, visible: decode(html.replace(/<[^>]*>/g, "")) };
 };
 
-test("a reference is a listed prefix's handle that touches no word character, in text or a code span of its own; never in a link or a code block", () => {
+test("a reference is a listed prefix's handle, numbered as the service numbers them, that touches no word character, in text or a code span of its own; never in a link or a code block", () => {
   const cases: { text: string; references: string[] }[] = [
     { text: "Blocked by AP-1 for now", references: ["AP-1"] },
     { text: "Blocked by `AP-2` for now", references: ["AP-2"] },
@@ -176,6 +176,7 @@ test("a reference is a listed prefix's handle that touches no word character, in
     { text: "Blocked by AP-12x", references: [] },
     { text: "Blocked by AP-12_b", references: [] },
     { text: "Blocked by AP-12-3", references: [] },
+    { text: "Blocked by AP-0 and AP-007", references: [] },
     { text: "Blocked by *x*AP-3", references: [] },
     { text: "Blocked by AP-4*y*", references: [] },
     { text: "Blocked by AP-1\u0301 for now", references: [] },

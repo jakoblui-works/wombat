@@ -83,6 +83,9 @@ export const HANDLE_PREFIX_MAX = 10;
 /** The pattern of a handle prefix (`BUG` in `BUG-14`), as regex source to build the prefix's and a handle's regex from. */
 export const HANDLE_PREFIX_PATTERN = `[A-Z][A-Z0-9]{0,${String(HANDLE_PREFIX_MAX - 1)}}`;
 
+/** The pattern of a handle's number (`14` in `BUG-14`): from 1, no leading zero; regex source like the prefix's. */
+export const HANDLE_NUMBER_PATTERN = "[1-9][0-9]*";
+
 /**
  * A glob relative to the binder's folder. Refuses the obvious escapes (absolute paths, `..`, backslashes)
  * and brace sets, which could hide them; the loader checks that what a glob matches stays inside the folder.
