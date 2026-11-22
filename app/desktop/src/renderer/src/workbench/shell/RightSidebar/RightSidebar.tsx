@@ -6,15 +6,20 @@ import { useAgents, useProposals } from "../../../data/hooks.ts";
 import { type ActivityDescriptor, activities, getPanel, isKnown, type NavigatorParams, type ResolveContext } from "../../registry.ts";
 import { closeGuards, type Reveals, sidebarRevealKey, tabKey } from "../../tabs.ts";
 import { ActiveTabContext } from "../../workbench-context.ts";
+import { ResizeHandle } from "../../ResizeHandle/ResizeHandle.tsx";
 import {
   allTabs,
+  dragShownRight,
+  fitShownRight,
   hideNavigator,
   keepTab,
   navigatorToggle,
   pruneTabs,
-  RIGHT_START_WIDTH,
+  rightBounds,
   rightView,
+  rightWanted,
   shownNavigator,
+  shownRightWidth,
   shownTab,
   tabWorkspace,
   type TabEntry,
@@ -70,7 +75,7 @@ const Navigator = ({ workspace, activity, visible, alone, shown, reveals }: Pick
     <aside
       aria-label={activity.title}
       hidden={!visible}
-      className={cn("flex min-h-0 min-w-0 flex-col bg-surface-0", alone ? "flex-1" : "w-60 shrink-0 border-l border-line")}
+      className={cn("flex min-h-0 min-w-0 flex-col bg-surface-0", alone ? "flex-1" : "w-60 max-w-1/2 shrink-0 border-l border-line")}
     >
       {Panel === undefined ? null : <Panel params={params} reveal={reveal} onRevealed={onRevealed} />}
     </aside>
@@ -154,19 +159,44 @@ const useTabUpkeep = (titles: TabTitles, ctx: ResolveContext): void => {
   useEffect(() => titles.keepOnly(new Set(allTabs(state).map((tab) => tabKey(tab.panelId, tab.params)))), [titles, state]);
 };
 
-/** The right sidebar: each workspace's tab strip, tabs and navigators, the shown workspace's alone visible. */
-export const RightSidebar = ({ shown, className, ...stores }: Stores & { shown: string | undefined; className: string }) => {
+/** The shown workspace's right sidebar width, fitted to what it shows and drawn within `available`, and its drag. */
+const useRightWidth = (shown: string | undefined, available: number) => {
+  const { state, change } = useShell();
+  const width = shown === undefined ? undefined : shownRightWidth(state, shown, rightBounds(available));
+  const wanted = rightWanted(rightView(state, shown));
+  const stored = shown === undefined ? undefined : state.workspaces[shown]?.right.width;
+  useEffect(() => {
+    if (shown !== undefined) change((current) => fitShownRight(current, shown));
+  }, [change, shown, wanted, stored]);
+  const drag = useCallback(
+    (dx: number) => {
+      if (shown !== undefined) change((current) => dragShownRight(current, shown, dx, rightBounds(available)));
+    },
+    [change, shown, available],
+  );
+  return { width, drag };
+};
+
+/**
+ * The right sidebar and its resize handle: each workspace's tab strip, tabs and navigators, the shown workspace's alone
+ * visible. `available` is the width it shares with the chat.
+ */
+export const RightSidebar = ({ shown, available, className, ...stores }: Stores & { shown: string | undefined; available: number; className: string }) => {
   const { state } = useShell();
   const agents = useAgents().data?.agents;
   const proposals = useProposals().data?.proposals;
   const ctx = useMemo<ResolveContext>(() => ({ agents, proposals }), [agents, proposals]);
   useTabUpkeep(stores.titles, ctx);
-  const open = rightView(state, shown).show !== "closed";
+  const { width, drag } = useRightWidth(shown, available);
+  const open = width !== undefined;
   return (
-    <aside aria-label="Tabs" hidden={!open} className={className} style={{ width: RIGHT_START_WIDTH }}>
-      {Object.entries(state.workspaces).map(([workspace, shell]) => (
-        <WorkspaceTabs key={workspace} workspace={workspace} shell={shell} shown={workspace === shown} open={open} ctx={ctx} {...stores} />
-      ))}
-    </aside>
+    <>
+      {open ? <ResizeHandle label="Resize the right sidebar" onDrag={drag} /> : null}
+      <aside aria-label="Tabs" hidden={!open} className={className} style={{ width }}>
+        {Object.entries(state.workspaces).map(([workspace, shell]) => (
+          <WorkspaceTabs key={workspace} workspace={workspace} shell={shell} shown={workspace === shown} open={open} ctx={ctx} {...stores} />
+        ))}
+      </aside>
+    </>
   );
 };

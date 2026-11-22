@@ -29,6 +29,7 @@ const register = (): void => {
     title: DIFF_TITLE,
     icon: Columns2,
     locations: ["tab"],
+    wants: 800,
     component: Diff,
     paramsSchema: DiffParams,
     resolves: diffResolves,
@@ -41,6 +42,7 @@ const register = (): void => {
     title: PROPOSAL_TITLE,
     icon: FilePen,
     locations: ["tab"],
+    wants: 800,
     component: Proposal,
     paramsSchema: ProposalParams,
     resolves: proposalResolves,
@@ -48,7 +50,7 @@ const register = (): void => {
   });
 
   registerActivity({ id: DESK_ACTIVITY, title: "Desk", icon: LibraryBig, navigator: DESK_PANEL });
-  registerPanel({ id: DESK_PANEL, title: "Desk", icon: LibraryBig, locations: ["navigator"], activity: DESK_ACTIVITY, component: Desk, paramsSchema: NavigatorParams });
+  registerPanel({ id: DESK_PANEL, title: "Desk", icon: LibraryBig, locations: ["navigator"], activity: DESK_ACTIVITY, wants: 280, component: Desk, paramsSchema: NavigatorParams });
   registerPanel({
     id: ITEM_PANEL,
     // The panel reports the item's handle and title once it has read the item.
@@ -56,6 +58,8 @@ const register = (): void => {
     icon: FileText,
     locations: ["tab"],
     activity: DESK_ACTIVITY,
+    // With the Desk's navigator beside it.
+    wants: 520,
     component: Item,
     paramsSchema: ItemParams,
     saves: itemTabSaved,

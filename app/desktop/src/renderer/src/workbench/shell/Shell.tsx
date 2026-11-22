@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { cn } from "@/lib/utils";
 import { useAgents, useProposals } from "../../data/hooks.ts";
@@ -16,7 +16,7 @@ import { EmptyState } from "../EmptyState/EmptyState.tsx";
 import { LiveLaunchNotice } from "../LaunchNotice/LaunchNotice.tsx";
 import type { OpenAgents } from "../open-agents.ts";
 import { activities, getPanel } from "../registry.ts";
-import { ResizeHandle } from "../ResizeHandle/ResizeHandle.tsx";
+import { RESIZE_HANDLE_WIDTH, ResizeHandle } from "../ResizeHandle/ResizeHandle.tsx";
 import { LiveStatusBar } from "../StatusBar/StatusBar.tsx";
 import { type Reveals, revealStore, tabKey } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
@@ -78,6 +78,20 @@ const OpenAgentRequests = ({ openAgents }: { openAgents: OpenAgents }) => {
   return null;
 };
 
+/** The element's width, followed as the window or a neighbour resizes it. */
+const useWidth = (ref: RefObject<HTMLElement | null>): number => {
+  const [width, setWidth] = useState(0);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (element === null) return;
+    setWidth(element.clientWidth);
+    const observer = new ResizeObserver(() => setWidth(element.clientWidth));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+  return width;
+};
+
 const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   const queryClient = useQueryClient();
   const agents = useAgents().data?.agents;
@@ -85,6 +99,8 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   const shown = useShownWorkspace();
   const { connection, blocked, attempt, restart, noticeShown, dismissNotice } = useServiceChrome();
   const [leftWidth, setLeftWidth] = useState(LEFT_START_WIDTH);
+  const beside = useRef<HTMLDivElement>(null);
+  const besideWidth = useWidth(beside);
 
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
@@ -164,14 +180,16 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
               <LeftPanel />
             </aside>
             <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => setLeftWidth((width) => clampWidth(width + dx, LEFT_WIDTH))} />
-            <main className="flex min-w-0 flex-1">
-              <div className="flex min-w-0 flex-1 flex-col">
-                <Middle reveals={reveals} />
-              </div>
-              <Toolbar workspace={shown?.id} />
-            </main>
+            <div ref={beside} className="flex min-w-0 flex-1">
+              <main className="flex min-w-0 flex-1">
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <Middle reveals={reveals} />
+                </div>
+                <Toolbar workspace={shown?.id} />
+              </main>
+              <RightSidebar className={SIDEBAR} shown={shown?.id} available={besideWidth - RESIZE_HANDLE_WIDTH} reveals={reveals} titles={titles} />
+            </div>
           </WorkspaceActivityStates>
-          <RightSidebar className={cn(SIDEBAR, "border-l border-line")} shown={shown?.id} reveals={reveals} titles={titles} />
           <div aria-hidden className={cn("pointer-events-none absolute inset-0 z-20 bg-scrim transition-opacity", blocked ? "opacity-100" : "opacity-0")} />
         </div>
         <LiveStatusBar connection={connection} agents={agents} />

@@ -1,4 +1,4 @@
-// Monaco's diff editor, side by side, read-only unless given `edit`. Loaded on demand by the diff tab (lib/monaco.ts pulls in Monaco),
+// Monaco's diff editor, side by side (inline when narrow), read-only unless given `edit`. Loaded on demand by the diff tab (lib/monaco.ts pulls in Monaco),
 // so the rest of the page, and the registry under node, never load it.
 import { useEffect, useRef } from "react";
 
@@ -62,7 +62,8 @@ export const MonacoDiff = ({ path, oldText, newText, className, lineNumbers = fa
       ...editOptions(editable),
       originalEditable: false,
       renderSideBySide: true,
-      useInlineViewWhenSpaceIsLimited: false,
+      useInlineViewWhenSpaceIsLimited: true,
+      renderSideBySideInlineBreakpoint: 640,
       renderOverviewRuler: false,
       minimap: { enabled: false },
       scrollBeyondLastLine: false,

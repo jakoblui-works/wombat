@@ -1,7 +1,7 @@
 // The shell's state: which agent is open, which workspace is shown, and each workspace's right sidebar.
 import type { AgentSummary, Workspace } from "@wombat/shared/api";
 
-import { getPanel } from "../registry.ts";
+import { getActivity, getPanel } from "../registry.ts";
 import { tabKey, tabToReplace } from "../tabs.ts";
 import type { TabRef } from "../workbench-context.ts";
 
@@ -38,7 +38,8 @@ export type WidthBounds = { min: number; max: number };
 export const LEFT_WIDTH: WidthBounds = { min: 160, max: 800 };
 export const LEFT_START_WIDTH = 280;
 export const RIGHT_WIDTH: WidthBounds = { min: 240, max: 1200 };
-export const RIGHT_START_WIDTH = 480;
+/** What a panel registered without `wants` wants. */
+export const RIGHT_DEFAULT_WANTS = 480;
 export const CHAT_MIN_WIDTH = 360;
 
 export const emptyShell: ShellState = { leftHidden: false, barCollapsed: false, workspaces: {} };
@@ -297,3 +298,35 @@ export const rightBounds = (available: number): WidthBounds => ({
   min: RIGHT_WIDTH.min,
   max: Math.max(RIGHT_WIDTH.min, Math.min(RIGHT_WIDTH.max, available - CHAT_MIN_WIDTH)),
 });
+
+/** The width the shown kind wants: the active tab's panel, else the navigator alone; undefined while closed. */
+export const rightWanted = (view: RightView): number | undefined => {
+  if (view.show === "closed") return undefined;
+  const panelId = view.show === "navigator" ? getActivity(view.activity)?.navigator : view.tab.panelId;
+  return (panelId === undefined ? undefined : getPanel(panelId)?.wants) ?? RIGHT_DEFAULT_WANTS;
+};
+
+/** `rightWidth` for what `workspace`'s right sidebar shows; undefined while it's closed. */
+export const shownRightWidth = (state: ShellState, workspace: string, bounds: WidthBounds): number | undefined => {
+  const wanted = rightWanted(rightView(state, workspace));
+  return wanted === undefined ? undefined : rightWidth(state, workspace, wanted, bounds);
+};
+
+/**
+ * `fitRight` for what `workspace`'s right sidebar shows, within `RIGHT_WIDTH` only: the window's bounds clamp the drawn
+ * width, never the evidence, so a window shrunk and regrown gets its width back. The same state while it's closed, so
+ * its evidence stays reset.
+ */
+export const fitShownRight = (state: ShellState, workspace: string): ShellState => {
+  const wanted = rightWanted(rightView(state, workspace));
+  return wanted === undefined ? state : fitRight(state, workspace, wanted, RIGHT_WIDTH);
+};
+
+/**
+ * Moves the open right sidebar's left edge `dx` pixels to the right, as a drag, from its drawn width; stores the width
+ * drawn after it (within `bounds`). The same state while it's closed.
+ */
+export const dragShownRight = (state: ShellState, workspace: string, dx: number, bounds: WidthBounds): ShellState => {
+  const width = shownRightWidth(state, workspace, bounds);
+  return width === undefined ? state : dragRight(state, workspace, width - dx, bounds);
+};

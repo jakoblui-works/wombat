@@ -39,6 +39,8 @@ export type PanelDescriptor = {
   icon: LucideIcon;
   locations: PanelLocation[];
   activity?: string;
+  /** The right sidebar's width, in pixels, this panel wants as the active tab, or as a navigator alone. */
+  wants?: number;
   component: ComponentType<PanelProps>;
   paramsSchema?: ZodType;
   resolves?: (params: unknown, ctx: KnownContext) => boolean;
