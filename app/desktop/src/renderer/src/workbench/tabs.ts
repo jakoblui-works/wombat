@@ -1,21 +1,18 @@
 // Tabs in the editor area: one dockview panel per (panel, params), its id the tab's key.
 import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
-import type { AgentSummary } from "@wombat/shared/api";
 import type { BinderSummary, Item } from "@wombat/shared/items";
 
 import { newCommandId } from "../data/commands.ts";
 import { asError, asSentence } from "../lib/errors.ts";
-import { AGENTS_ACTIVITY, DESK_ACTIVITY, DESK_PANEL } from "./activity-ids.ts";
+import { DESK_ACTIVITY, DESK_PANEL } from "./activity-ids.ts";
 import type { IsKnown } from "./layout.ts";
 import { getPanel, paramsFit, type ResolveContext, type Reveal, panelTitle } from "./registry.ts";
-import { CHAT_PANEL } from "./panels/Chat/chat-params.ts";
 import { binderPlace, followPlace } from "./panels/Desk/desk-place.ts";
 import { previewName } from "./items/ItemPreview/item-preview.ts";
 import { READ_FAILED } from "./items/notices/notices.tsx";
 import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE, showsItem } from "./items/item-params.ts";
 import { itemNotFound } from "./items/reads.ts";
-import { PROPOSAL_PANEL, type ProposalParams } from "./panels/Proposal/proposal-params.ts";
 import type { TabRef, WorkbenchActions } from "./workbench-context.ts";
 
 /** The dockview component every tab renders through; it looks the panel up from the panel's params. */
@@ -305,15 +302,6 @@ export const revealStore = (): Reveals & { set: (key: string, reveal: Reveal | u
   };
 };
 
-/** The agent's oldest open request: the smallest `at`, the first listed of equals. */
-const oldestPending = (agent: AgentSummary | undefined): string | undefined => {
-  let oldest: AgentSummary["pendingPermissions"][number] | undefined;
-  for (const request of agent?.pendingPermissions ?? []) {
-    if (oldest === undefined || Date.parse(request.at) < Date.parse(oldest.at)) oldest = request;
-  }
-  return oldest?.requestId;
-};
-
 /**
  * What openBinder and followItem need of the page: the binders (read when the page has none yet; undefined when they
  * can't be), an item read afresh by id or handle (undefined when the service finds none; rejects on any other failure),
@@ -329,8 +317,8 @@ export type DeskHost = {
 const itemUnread = (error: unknown): string => `${READ_FAILED.item}: ${asSentence(asError(error).message)} Try again once the service answers.`;
 
 /**
- * The workbench's actions on `host`; `ctx` gives the agents as the page knows them now (for titles and the oldest
- * request); `showActivity` switches the left sidebar to an activity.
+ * The workbench's actions on `host`; `ctx` gives the agents as the page knows them now (for titles);
+ * `showActivity` switches the left sidebar to an activity.
  */
 export const workbenchActions = (
   host: TabHost,
@@ -359,14 +347,6 @@ export const workbenchActions = (
       if (panel !== undefined) host.removePanel(panel);
     },
     itemTabs: (itemId) => itemTabs(host, itemId),
-    openAgentChat: (agentId, requestId) => {
-      showActivity(AGENTS_ACTIVITY);
-      const agent = ctx().agents?.find(({ id }) => id === agentId);
-      actions.openTab(CHAT_PANEL, { agentId }, requestId ?? oldestPending(agent));
-    },
-    openProposal: (proposalId) => {
-      actions.openTab(PROPOSAL_PANEL, { proposalId } satisfies ProposalParams);
-    },
     openBinder: (binderId, reveal, view) => {
       void desk.binders().then((binders) => {
         const place = binderPlace(binders?.find(({ id }) => id === binderId), view);

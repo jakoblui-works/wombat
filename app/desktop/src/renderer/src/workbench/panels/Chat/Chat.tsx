@@ -14,7 +14,7 @@ import { usePlay } from "../../../lib/motion.ts";
 import { useReveal } from "../../../lib/use-reveal.ts";
 import { type Arrivals, NO_ARRIVALS, trackArrivals } from "./arrivals.ts";
 import { type ChatBlock, chatBlocks, streamingKey } from "./chat-blocks.ts";
-import { CHAT_PANEL, ChatParams } from "./chat-params.ts";
+import { CHAT_PANEL, ChatParams } from "../../agents/chat-params.ts";
 import { featuresOrAssumed, useHarnessFeatures } from "../../../data/harness-features.ts";
 import { type LiveState, liveState } from "../../approvals/live-state.ts";
 import { sameBlock } from "./same-part.ts";

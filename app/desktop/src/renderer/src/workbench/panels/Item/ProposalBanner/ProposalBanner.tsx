@@ -4,7 +4,7 @@ import { Button } from "../../../../components/ui/button";
 import { useAgents } from "../../../../data/hooks.ts";
 import { DecideButtons } from "../../../proposals/DecideButtons/DecideButtons.tsx";
 import { markLabel, proposalAgentTitle, reasonFirstLine } from "../../../proposals/proposal-label.ts";
-import { useWorkbench } from "../../../workbench-context.ts";
+import { useOpenProposal } from "../../../proposals/use-open-proposal.ts";
 import type { ItemChange } from "../../../items/item-proposals.ts";
 
 const PROPOSES: Record<ItemChange<ItemProposal>["kind"], string> = { update: "proposes an update to this item", delete: "proposes to delete this item" };
@@ -15,7 +15,7 @@ const PROPOSES: Record<ItemChange<ItemProposal>["kind"], string> = { update: "pr
  */
 export const ProposalBanner = ({ proposal }: { proposal: ItemChange<ItemProposal> }) => {
   const agents = useAgents();
-  const { openProposal } = useWorkbench();
+  const openProposal = useOpenProposal();
   const by = agents.data === undefined ? undefined : proposalAgentTitle(proposal, agents.data.agents);
   return (
     <section aria-label={markLabel(proposal.kind)} className="flex flex-col gap-2 rounded-md border border-primary/30 bg-surface-2 px-3 py-2.5 text-sm text-fg-secondary">

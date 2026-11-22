@@ -2,7 +2,8 @@
 import { createContext, useContext, useEffect } from "react";
 
 import type { DeskLayout } from "./layout.ts";
-import { closeGuards, type OpenTabOptions, tabKey } from "./tabs.ts";
+import type { ResolveContext } from "./registry.ts";
+import { closeGuards, type OpenTabOptions, type revealStore, tabKey, type TabHost } from "./tabs.ts";
 
 /** A tab: the panel it shows and its params (its identity, with `tabKey`). */
 export type TabRef = { panelId: string; params: unknown };
@@ -25,13 +26,6 @@ export type WorkbenchActions = {
   closeTab: (panelId: string, params: unknown) => void;
   /** The open tabs on item `itemId`, whichever binder each was opened from (its file may have moved since). */
   itemTabs: (itemId: string) => TabRef[];
-  /**
-   * Switches to Agents, opens or focuses the agent's chat and reveals `requestId`; without one, the agent's oldest
-   * pending permission, if any. A Needs me click and a notification click both come here.
-   */
-  openAgentChat: (agentId: string, requestId?: string) => void;
-  /** Opens or focuses the proposal's tab (a Needs me row's click). */
-  openProposal: (proposalId: string) => void;
   /**
    * Switches to the Desk and shows the binder in its sidebar on its view `view` (else its first), else as a list of its
    * items. `reveal` (a proposal id or an item id) reaches the Desk's sidebar.
@@ -56,12 +50,22 @@ export type WorkbenchActions = {
   replaceTab: (from: TabRef, to: TabRef) => void;
 };
 
-export const WorkbenchContext = createContext<WorkbenchActions | undefined>(undefined);
+/** What a topic's navigation builds on, beside the actions. */
+export type WorkbenchContextValue = WorkbenchActions & {
+  /** Undefined until dockview is ready; a navigation does nothing until then. */
+  host: TabHost | undefined;
+  reveals: ReturnType<typeof revealStore>;
+  showActivity: (activityId: string) => void;
+  /** The tabs' titles' context as the page knows it now. */
+  titleContext: () => ResolveContext;
+};
 
-export const useWorkbench = (): WorkbenchActions => {
-  const actions = useContext(WorkbenchContext);
-  if (actions === undefined) throw new Error("useWorkbench is used outside the Workbench; render the panel inside it.");
-  return actions;
+export const WorkbenchContext = createContext<WorkbenchContextValue | undefined>(undefined);
+
+export const useWorkbench = (): WorkbenchContextValue => {
+  const workbench = useContext(WorkbenchContext);
+  if (workbench === undefined) throw new Error("useWorkbench is used outside the Workbench; render the panel inside it.");
+  return workbench;
 };
 
 /** The tab that's active in the editor area; undefined while no tab is open. */

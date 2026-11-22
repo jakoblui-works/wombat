@@ -6,7 +6,7 @@ import { expect, test } from "vitest";
 import { proposal, summary } from "../../../../test/summaries.ts";
 import "./activities.ts";
 import { isKnown, isRestorable, type ResolveContext } from "./registry.ts";
-import { PROPOSAL_PANEL } from "./panels/Proposal/proposal-params.ts";
+import { PROPOSAL_PANEL } from "./proposals/proposal-params.ts";
 
 test.each<[string, string, unknown, ResolveContext, boolean]>([
   ["a chat tab whose agent exists", "chat", { agentId: "a1" }, { agents: [summary("a1"), summary("a2")] }, true],

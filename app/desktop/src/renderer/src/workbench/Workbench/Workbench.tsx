@@ -48,7 +48,8 @@ import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { showBinder } from "../panels/Desk/desk-place.ts";
 import { isItemNotFound } from "../items/reads.ts";
 import { Reference, referencePrefixes } from "../items/Reference/Reference.tsx";
-import { type ActiveTab, ActiveTabContext, DeskContext, type DeskState, type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
+import { type ActiveTab, ActiveTabContext, DeskContext, type DeskState, type WorkbenchActions, WorkbenchContext, type WorkbenchContextValue } from "../workbench-context.ts";
+import { openAgentChat } from "../agents/open-agent-chat.ts";
 import { tell, Toast } from "../Toast/Toast.tsx";
 
 type Chrome = Pick<SavedLayout, "sidebars" | "activity"> & { desk: DeskLayout };
@@ -84,8 +85,6 @@ const NO_ACTIONS: WorkbenchActions = {
   openBeside: () => undefined,
   closeTab: () => undefined,
   itemTabs: () => [],
-  openAgentChat: () => undefined,
-  openProposal: () => undefined,
   openBinder: () => undefined,
   followItem: () => undefined,
   openItem: () => undefined,
@@ -277,11 +276,12 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     saver.current?.schedule("user");
   }, []);
   const deskState = useMemo<DeskState>(() => ({ desk: chrome.desk, changeDesk }), [chrome.desk, changeDesk]);
+  const titleContext = useCallback(() => ({ agents: agentsRef.current, proposals: proposalsRef.current }), []);
   const actions = useMemo<WorkbenchActions>(
     () =>
       api === undefined
         ? NO_ACTIONS
-        : workbenchActions(api, reveals, () => ({ agents: agentsRef.current, proposals: proposalsRef.current }), showActivity, {
+        : workbenchActions(api, reveals, titleContext, showActivity, {
             binders: () => queryClient.ensureQueryData(bindersQuery()).then(({ binders }) => binders, () => undefined),
             item: (ref) => queryClient.fetchQuery({ ...itemQuery(ref), staleTime: 0 }).catch((error: unknown) => {
                 if (isItemNotFound(error)) return undefined;
@@ -290,7 +290,11 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
             showBinder: (binderId, view) => changeDesk((desk) => showBinder(desk, binderId, view)),
             tell,
           }),
-    [api, reveals, showActivity, queryClient, changeDesk],
+    [api, reveals, titleContext, showActivity, queryClient, changeDesk],
+  );
+  const workbench = useMemo<WorkbenchContextValue>(
+    () => ({ ...actions, host: api, reveals, showActivity, titleContext }),
+    [actions, api, reveals, showActivity, titleContext],
   );
 
   // Requests wait for the restore (which would replace their tabs) and for the agents list, so an id the service
@@ -304,9 +308,9 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         console.warn("Wombat was asked to open an agent the service doesn't list; nothing was opened.");
         return;
       }
-      actions.openAgentChat(agentId);
+      openAgentChat(workbench, agentsRef.current, agentId);
     });
-  }, [ready, agentsKnown, openAgents, actions]);
+  }, [ready, agentsKnown, openAgents, workbench]);
 
   const rightPanels = panelsFor("right");
   const rightPanel = rightPanels[0] === undefined ? undefined : { title: panelTitle(rightPanels[0], {}, { agents: undefined }), icon: rightPanels[0].icon };
@@ -376,7 +380,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   };
 
   return (
-    <WorkbenchContext value={actions}>
+    <WorkbenchContext value={workbench}>
       <DeskContext value={deskState}>
         <ActiveTabContext value={activeTab}>
           <RevealsContext value={reveals}>

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import { agentTitle } from "../../../lib/agent-title.ts";
-import type { KnownContext, ResolveContext } from "../../registry.ts";
+import { agentTitle } from "../../lib/agent-title.ts";
+import type { KnownContext, ResolveContext } from "../registry.ts";
 
 export const ChatParams = z.object({ agentId: z.string() });
 

@@ -4,7 +4,7 @@ import type { CSSProperties } from "react";
 import { cn } from "../../../../lib/utils";
 import { DecideButtons } from "../../../proposals/DecideButtons/DecideButtons.tsx";
 import { markLabel } from "../../../proposals/proposal-label.ts";
-import { useWorkbench } from "../../../workbench-context.ts";
+import { useOpenProposal } from "../../../proposals/use-open-proposal.ts";
 import { isItemRow, isPending, type Row } from "../view-model/view-model.ts";
 import { OUTSIDE_FILTER, proposalLines } from "../view-model/with-proposals.ts";
 
@@ -22,7 +22,7 @@ type LineProps = Omit<Props, "row" | "outside"> & { proposal: ItemProposal; note
 
 /** One proposal: its mark (for an update or delete, a button that opens the proposal's tab), `note`, and Approve and Reject. */
 const ProposalLine = ({ proposal, note, className, style, tabIndex }: LineProps) => {
-  const { openProposal } = useWorkbench();
+  const openProposal = useOpenProposal();
   return (
     <div className={cn("flex flex-wrap items-center gap-x-2 gap-y-1", className)} style={style}>
       {proposal.kind === "create" ? (
