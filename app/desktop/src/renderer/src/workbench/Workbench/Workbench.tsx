@@ -10,11 +10,10 @@ import { cn } from "@/lib/utils";
 import { useAgents, useBinders, useConnection, useProposals } from "../../data/hooks.ts";
 import { ReferenceProvider } from "../../components/Markdown/ReferenceProvider.tsx";
 import { keys } from "../../data/keys.ts";
-import { bindersQuery, itemQuery } from "../../data/query-client.ts";
 // Registers the activities and their panels, which the workbench reads from the registry.
 import "../activities.ts";
 import { needsMeCount } from "../../data/needs-me.ts";
-import { DEFAULT_DESK, type DeskLayout, defaultLayout, pruneLayout, restoreLayout, type SavedLayout } from "../layout.ts";
+import { defaultLayout, layoutActivityStates, layoutToSave, pruneLayout, restoreLayout, type SavedLayout } from "../layout.ts";
 import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
 import { activities, activityOrDefault, getPanel, isKnown, isRestorable, isSaved, panelsFor, panelTitle } from "../registry.ts";
@@ -45,13 +44,22 @@ import {
   workbenchActions,
 } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
-import { showBinder } from "../panels/Desk/desk-place.ts";
-import { isItemNotFound } from "../panels/Item/item-state.ts";
-import { Reference, referencePrefixes } from "../panels/Desk/Reference/Reference.tsx";
-import { type ActiveTab, ActiveTabContext, DeskContext, type DeskState, type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
-import { tell, Toast } from "../Toast/Toast.tsx";
+import { Reference, referencePrefixes } from "../items/Reference/Reference.tsx";
+import {
+  type ActiveTab,
+  ActiveTabContext,
+  ActivityStateContext,
+  type ActivityStates,
+  ChangeActivityStateContext,
+  type ChangeActivityStates,
+  type WorkbenchActions,
+  WorkbenchContext,
+  type WorkbenchContextValue,
+} from "../workbench-context.ts";
+import { openAgentChat } from "../agents/open-agent-chat.ts";
+import { Toast } from "../Toast/Toast.tsx";
 
-type Chrome = Pick<SavedLayout, "sidebars" | "activity"> & { desk: DeskLayout };
+type Chrome = Pick<SavedLayout, "sidebars" | "activity">;
 
 const SIDEBAR_MIN = 160;
 const SIDEBAR_MAX = 800;
@@ -83,13 +91,6 @@ const NO_ACTIONS: WorkbenchActions = {
   openTab: () => undefined,
   openBeside: () => undefined,
   closeTab: () => undefined,
-  itemTabs: () => [],
-  openAgentChat: () => undefined,
-  openProposal: () => undefined,
-  openBinder: () => undefined,
-  followItem: () => undefined,
-  openItem: () => undefined,
-  openNewItem: () => undefined,
   replaceTab: () => undefined,
 };
 
@@ -153,11 +154,14 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const [saved, setSaved] = useState<SavedRead>();
   const [chrome, setChrome] = useState<Chrome>(() => {
     const { sidebars, activity } = defaultLayout();
-    return { sidebars, activity, desk: DEFAULT_DESK };
+    return { sidebars, activity };
   });
+  const [activityStates, setActivityStates] = useState<ActivityStates>(() => layoutActivityStates(defaultLayout()));
   const [restored, setRestored] = useState<DockviewApi>();
   const chromeRef = useRef(chrome);
   chromeRef.current = chrome;
+  const activityStatesRef = useRef(activityStates);
+  activityStatesRef.current = activityStates;
 
   useEffect(() => {
     let live = true;
@@ -194,7 +198,8 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     }, () => {
       fellBack.current = true;
     });
-    setChrome({ sidebars: layout.sidebars, activity: layout.activity, desk: layout.desk ?? DEFAULT_DESK });
+    setChrome({ sidebars: layout.sidebars, activity: layout.activity });
+    setActivityStates(layoutActivityStates(layout));
     setRestored(api);
   }, [api, saved, restored, queryClient, connection, agents.status, agents.fetchStatus, proposals.status, proposals.fetchStatus]);
 
@@ -207,7 +212,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   useEffect(() => {
     if (!ready || saved?.readable !== true) return;
     const current = layoutSaver(
-      () => pruneLayout({ version: 2, dockview: api.toJSON(), ...chromeRef.current }, isSaved),
+      () => pruneLayout(layoutToSave(api.toJSON(), chromeRef.current, activityStatesRef.current), isSaved),
       (layout) => {
         window.wombat.settings.set({ layout }).catch(() => {
           console.warn("Wombat couldn't save the layout.");
@@ -272,25 +277,15 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     setChrome((current) => ({ ...current, activity: id }));
     saver.current?.schedule("user");
   }, []);
-  const changeDesk = useCallback<DeskState["changeDesk"]>((change) => {
-    setChrome((current) => ({ ...current, desk: change(current.desk) }));
+  const changeActivityStates = useCallback<ChangeActivityStates>((activityId, change) => {
+    setActivityStates((current) => ({ ...current, [activityId]: change(current[activityId]) }));
     saver.current?.schedule("user");
   }, []);
-  const deskState = useMemo<DeskState>(() => ({ desk: chrome.desk, changeDesk }), [chrome.desk, changeDesk]);
-  const actions = useMemo<WorkbenchActions>(
-    () =>
-      api === undefined
-        ? NO_ACTIONS
-        : workbenchActions(api, reveals, () => ({ agents: agentsRef.current, proposals: proposalsRef.current }), showActivity, {
-            binders: () => queryClient.ensureQueryData(bindersQuery()).then(({ binders }) => binders, () => undefined),
-            item: (ref) => queryClient.fetchQuery({ ...itemQuery(ref), staleTime: 0 }).catch((error: unknown) => {
-                if (isItemNotFound(error)) return undefined;
-                throw error;
-              }),
-            showBinder: (binderId, view) => changeDesk((desk) => showBinder(desk, binderId, view)),
-            tell,
-          }),
-    [api, reveals, showActivity, queryClient, changeDesk],
+  const titleContext = useCallback(() => ({ agents: agentsRef.current, proposals: proposalsRef.current }), []);
+  const actions = useMemo<WorkbenchActions>(() => (api === undefined ? NO_ACTIONS : workbenchActions(api, reveals, titleContext)), [api, reveals, titleContext]);
+  const workbench = useMemo<WorkbenchContextValue>(
+    () => ({ ...actions, host: api, reveals, showActivity, titleContext }),
+    [actions, api, reveals, showActivity, titleContext],
   );
 
   // Requests wait for the restore (which would replace their tabs) and for the agents list, so an id the service
@@ -304,9 +299,9 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         console.warn("Wombat was asked to open an agent the service doesn't list; nothing was opened.");
         return;
       }
-      actions.openAgentChat(agentId);
+      openAgentChat(workbench, agentId);
     });
-  }, [ready, agentsKnown, openAgents, actions]);
+  }, [ready, agentsKnown, openAgents, workbench]);
 
   const rightPanels = panelsFor("right");
   const rightPanel = rightPanels[0] === undefined ? undefined : { title: panelTitle(rightPanels[0], {}, { agents: undefined }), icon: rightPanels[0].icon };
@@ -376,75 +371,77 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   };
 
   return (
-    <WorkbenchContext value={actions}>
-      <DeskContext value={deskState}>
-        <ActiveTabContext value={activeTab}>
-          <RevealsContext value={reveals}>
-            <TitlesContext value={titles}>
-              <ReferenceProvider prefixes={prefixes} render={renderReference}>
-                <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
-                  <TitleBar
-                    right={rightPanel}
-                    count={agentList === undefined ? 0 : needsMeCount(agentList, proposals.data?.proposals ?? [])}
-                    rightOpen={!chrome.sidebars.rightCollapsed}
-                    onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
-                  />
-                  {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
-                  {noticeDismissed || blocked ? null : (
-                    <LiveLaunchNotice connection={connectionState} onRestart={restart} onDismiss={dismissNotice} />
-                  )}
-                  <div className="flex min-h-0 flex-1">
-                    <ActivityBar
-                      activities={activities()}
-                      active={activity?.id}
-                      blocked={blocked}
-                      onSelect={(id) => runLogged(activityCommandId(id))}
+    <WorkbenchContext value={workbench}>
+      <ActivityStateContext value={activityStates}>
+        <ChangeActivityStateContext value={changeActivityStates}>
+          <ActiveTabContext value={activeTab}>
+            <RevealsContext value={reveals}>
+              <TitlesContext value={titles}>
+                <ReferenceProvider prefixes={prefixes} render={renderReference}>
+                  <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
+                    <TitleBar
+                      right={rightPanel}
+                      count={agentList === undefined ? 0 : needsMeCount(agentList, proposals.data?.proposals ?? [])}
+                      rightOpen={!chrome.sidebars.rightCollapsed}
+                      onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
                     />
-                    {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
-                    <div inert={blocked} className="relative flex min-w-0 flex-1">
-                      <aside aria-label={activity?.title} className={SIDEBAR} style={{ width: chrome.sidebars.left }}>
-                        {activity === undefined ? null : <SidebarContent panelId={activity.sidebarPanel} />}
-                      </aside>
-                      <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
-                      <main className="min-w-0 flex-1">
-                        <TabBarMenu api={api}>
-                          <DockviewReact
-                            className="dockview-theme-wombat"
-                            components={COMPONENTS}
-                            defaultTabComponent={Tab}
-                            rightHeaderActionsComponent={SplitButton}
-                            watermarkComponent={EmptyGroup}
-                            onReady={(event: DockviewReadyEvent) => setApi(event.api)}
-                          />
-                        </TabBarMenu>
-                      </main>
-                      {!chrome.sidebars.rightCollapsed && (
-                        <>
-                          <ResizeHandle label="Resize the right sidebar" onDrag={(dx) => resize("right", -dx)} />
-                          <aside aria-label={rightPanel?.title} className={SIDEBAR} style={{ width: chrome.sidebars.right }}>
-                            {rightPanels.map(({ id, component: Panel }) => (
-                              <Panel key={id} params={{}} />
-                            ))}
-                          </aside>
-                        </>
-                      )}
-                      <div
-                        aria-hidden
-                        className={cn("pointer-events-none absolute inset-0 z-20 bg-scrim transition-opacity", blocked ? "opacity-100" : "opacity-0")}
+                    {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
+                    {noticeDismissed || blocked ? null : (
+                      <LiveLaunchNotice connection={connectionState} onRestart={restart} onDismiss={dismissNotice} />
+                    )}
+                    <div className="flex min-h-0 flex-1">
+                      <ActivityBar
+                        activities={activities()}
+                        active={activity?.id}
+                        blocked={blocked}
+                        onSelect={(id) => runLogged(activityCommandId(id))}
                       />
+                      {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
+                      <div inert={blocked} className="relative flex min-w-0 flex-1">
+                        <aside aria-label={activity?.title} className={SIDEBAR} style={{ width: chrome.sidebars.left }}>
+                          {activity === undefined ? null : <SidebarContent panelId={activity.sidebarPanel} />}
+                        </aside>
+                        <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
+                        <main className="min-w-0 flex-1">
+                          <TabBarMenu api={api}>
+                            <DockviewReact
+                              className="dockview-theme-wombat"
+                              components={COMPONENTS}
+                              defaultTabComponent={Tab}
+                              rightHeaderActionsComponent={SplitButton}
+                              watermarkComponent={EmptyGroup}
+                              onReady={(event: DockviewReadyEvent) => setApi(event.api)}
+                            />
+                          </TabBarMenu>
+                        </main>
+                        {!chrome.sidebars.rightCollapsed && (
+                          <>
+                            <ResizeHandle label="Resize the right sidebar" onDrag={(dx) => resize("right", -dx)} />
+                            <aside aria-label={rightPanel?.title} className={SIDEBAR} style={{ width: chrome.sidebars.right }}>
+                              {rightPanels.map(({ id, component: Panel }) => (
+                                <Panel key={id} params={{}} />
+                              ))}
+                            </aside>
+                          </>
+                        )}
+                        <div
+                          aria-hidden
+                          className={cn("pointer-events-none absolute inset-0 z-20 bg-scrim transition-opacity", blocked ? "opacity-100" : "opacity-0")}
+                        />
+                      </div>
                     </div>
+                    <LiveStatusBar connection={connectionState} agents={agentList} />
+                    <Toast />
+                    <span className="sr-only">
+                      Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
+                    </span>
                   </div>
-                  <LiveStatusBar connection={connectionState} agents={agentList} />
-                  <Toast />
-                  <span className="sr-only">
-                    Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
-                  </span>
-                </div>
-              </ReferenceProvider>
-            </TitlesContext>
-          </RevealsContext>
-        </ActiveTabContext>
-      </DeskContext>
+                </ReferenceProvider>
+              </TitlesContext>
+            </RevealsContext>
+          </ActiveTabContext>
+        </ChangeActivityStateContext>
+      </ActivityStateContext>
     </WorkbenchContext>
   );
 };

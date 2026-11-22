@@ -1,4 +1,4 @@
-// The refusals an agent's call can get, and the checks of a change that need no view of the root: its level and
+// The refusals an agent's call can get, and the checks of a change that need no read of the root: its level and
 // its locked fields. The not_found texts name only what the agent typed, so a hidden name reads exactly like a
 // missing one.
 import { AccessErrorCode } from "@wombat/shared/api";

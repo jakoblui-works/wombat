@@ -1,4 +1,5 @@
-import { type OpenOptions, useWorkbench } from "../../workbench-context.ts";
+import type { OpenOptions } from "../../workbench-context.ts";
+import { useOpenProposal } from "../../proposals/use-open-proposal.ts";
 import { isItemRow, type Row, rowItemId } from "./view-model/view-model.ts";
 import { opensProposal } from "./view-model/with-proposals.ts";
 
@@ -10,7 +11,7 @@ export type OpenRowItem = (itemId: string, options: OpenOptions) => void;
  * one, its proposal (`opensProposal`).
  */
 export const useOpenRow = (onOpenItem: OpenRowItem | undefined): ((row: Row, options: OpenOptions) => void) => {
-  const { openProposal } = useWorkbench();
+  const openProposal = useOpenProposal();
   return (row, options) => {
     if (isItemRow(row)) {
       const itemId = rowItemId(row);

@@ -4,9 +4,9 @@ A proposal is a change an agent suggests and you decide on. The agent sends it, 
 
 There are two kinds. A file proposal changes a plain text file. An item proposal changes an [item](items.md) in a binder with `access: propose`. Both are listed, read and decided through the same routes, and both use `revise_proposal`. In the app, an item proposal is decided in place, in the Desk's views, and Needs me only points to it: its row has no buttons, and a click opens the binder's first view with the proposal revealed (the proposal's tab when the binder is gone or broken). A file proposal's row keeps Approve and Reject.
 
-## Agent tools
+## Wombat tools
 
-An agent gets all of these tools over `/mcp`. `propose_change` and `revise_proposal` work with or without an items root (chosen in the app, or `WOMBAT_ITEMS` when the service runs on its own); the item tools need one. Every refusal is a tool error that says what went wrong and what to do next. A refused call stores nothing: a refused propose makes no proposal, and a refused revise leaves the proposal as it was. For a refused `propose_change` or `revise_proposal` the service logs one `tool_refused` line with the agent and the tool, nothing of the call. A `reason` longer than the reason limit (see [Limits](#limits)) is refused by the tool's input check, for every propose tool and `revise_proposal`.
+An agent gets all of these tools over `/mcp`. `propose_change` and `revise_proposal` work with or without an items folder (chosen in the app, or `WOMBAT_ITEMS` when the service runs on its own); the item tools need one. Every refusal is a tool error that says what went wrong and what to do next. A refused call stores nothing: a refused propose makes no proposal, and a refused revise leaves the proposal as it was. For a refused `propose_change` or `revise_proposal` the service logs one `tool_refused` line with the agent and the tool, nothing of the call. A `reason` longer than the reason limit (see [Limits](#limits)) is refused by the tool's input check, for every propose tool and `revise_proposal`.
 
 ### `propose_change`
 

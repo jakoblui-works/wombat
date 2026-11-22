@@ -3,7 +3,7 @@ import { cloneElement, useMemo } from "react";
 
 import { cn } from "../../../../lib/utils";
 import type { Reveal } from "../../../registry.ts";
-import type { DeletableItem } from "../../Item/item-delete.ts";
+import type { DeletableItem } from "../../../items/item-delete.ts";
 import { rowPreview } from "../ItemPreview/item-preview.ts";
 import { ItemTree, ItemTreeRow } from "../ItemTree/ItemTree.tsx";
 import { RowAction } from "../RowAction/RowAction.tsx";

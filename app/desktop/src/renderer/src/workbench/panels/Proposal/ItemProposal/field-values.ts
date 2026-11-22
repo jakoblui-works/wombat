@@ -1,6 +1,6 @@
 import type { ItemSummary, LenientProperty } from "@wombat/shared/items";
 
-import { displayValue, numberOfText, proposedLink } from "../../Desk/view-model/values.ts";
+import { displayValue, numberOfText, proposedLink } from "../../../items/values.ts";
 
 type Fields = Readonly<Record<string, unknown>>;
 

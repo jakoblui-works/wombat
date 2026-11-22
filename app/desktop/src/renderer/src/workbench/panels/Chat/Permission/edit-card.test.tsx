@@ -3,10 +3,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 
-import { CONTEXT_LINES, MAX_DIFF_LINES } from "../../approvals/EditDiff/inline-diff.ts";
-import { type EditDiffData, Permission, type PermissionItem } from "./Permission.tsx";
+import { CONTEXT_LINES, MAX_DIFF_LINES } from "../../../approvals/EditDiff/inline-diff.ts";
+import { type EditDiffData, Permission, type PermissionPart } from "./Permission.tsx";
 
-const request: PermissionItem = {
+const request: PermissionPart = {
   kind: "permission",
   key: "permission:req-1",
   requestId: "req-1",
@@ -20,7 +20,7 @@ const request: PermissionItem = {
 };
 
 const render = (edit: EditDiffData): string =>
-  renderToStaticMarkup(<Permission item={request} answer={undefined} edit={edit} disabled={false} onAnswer={() => undefined} onOpenSideBySide={() => undefined} />);
+  renderToStaticMarkup(<Permission part={request} answer={undefined} edit={edit} disabled={false} onAnswer={() => undefined} onOpenSideBySide={() => undefined} />);
 
 const row = (n: number) => `row-${String(n).padStart(3, "0")}`;
 const textOf = (rows: string[]) => rows.map((line) => `${line}\n`).join("");

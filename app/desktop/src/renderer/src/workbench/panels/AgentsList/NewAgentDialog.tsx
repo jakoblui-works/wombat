@@ -7,7 +7,7 @@ import { startAgentVars, useStartAgent } from "../../../data/commands.ts";
 import { useHarnesses, useRepos } from "../../../data/hooks.ts";
 import { asError } from "../../../lib/errors.ts";
 import { useWorkbench } from "../../workbench-context.ts";
-import { CHAT_PANEL } from "../Chat/chat-params.ts";
+import { CHAT_PANEL } from "../../agents/chat-params.ts";
 import { handOverUnsent } from "../Chat/Composer/unsent.ts";
 
 /** The folder the pick starts on: the one used last if it's still listed, else the workspace root. */

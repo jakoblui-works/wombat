@@ -1,21 +1,8 @@
 // Tabs in the editor area: one dockview panel per (panel, params), its id the tab's key.
 import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
-import type { AgentSummary } from "@wombat/shared/api";
-import type { BinderSummary, Item } from "@wombat/shared/items";
-
-import { newCommandId } from "../data/commands.ts";
-import { asError, asSentence } from "../lib/errors.ts";
-import { AGENTS_ACTIVITY, DESK_ACTIVITY, DESK_PANEL } from "./activity-ids.ts";
 import type { IsKnown } from "./layout.ts";
 import { getPanel, paramsFit, type ResolveContext, type Reveal, panelTitle } from "./registry.ts";
-import { CHAT_PANEL } from "./panels/Chat/chat-params.ts";
-import { binderPlace, followPlace } from "./panels/Desk/desk-place.ts";
-import { previewName } from "./panels/Desk/ItemPreview/item-preview.ts";
-import { READ_FAILED } from "./panels/Item/ItemNotice/ItemNotice.tsx";
-import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE, showsItem } from "./panels/Item/item-params.ts";
-import { itemNotFound } from "./panels/Item/item-state.ts";
-import { PROPOSAL_PANEL, type ProposalParams } from "./panels/Proposal/proposal-params.ts";
 import type { TabRef, WorkbenchActions } from "./workbench-context.ts";
 
 /** The dockview component every tab renders through; it looks the panel up from the panel's params. */
@@ -91,8 +78,11 @@ const closeAsks = new Map<string, () => void>();
 
 type TabPosition = NonNullable<Parameters<TabHost["addPanel"]>[0]["position"]>;
 
-/** Adds the tab for (panel, params) at `position` (dockview's default place without one), temporary or kept. */
-const addTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveContext, position: TabPosition | undefined, temporary = false): void => {
+/**
+ * Adds the tab for (panel, params) at `position` (dockview's default place without one), temporary or kept, titled
+ * `title` (else its panel's title).
+ */
+const addTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveContext, position: TabPosition | undefined, temporary = false, title?: string): void => {
   const panel = getPanel(panelId);
   if (panel === undefined) throw new Error(`There's no panel "${panelId}" to open; register it in workbench/activities.ts.`);
   if (!paramsFit(panel, params)) {
@@ -104,27 +94,30 @@ const addTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveCon
   host.addPanel({
     id: key,
     component: TAB_COMPONENT,
-    title: panelTitle(panel, params, ctx),
+    title: title ?? panelTitle(panel, params, ctx),
     params: tab,
     ...(position === undefined ? {} : { position }),
   });
 };
 
 /** Adds the tab `to` where the open tab `old` is (same group, same position) and closes `old`. */
-const addInPlaceOf = (host: TabHost, old: IDockviewPanel, to: TabRef, ctx: ResolveContext, temporary: boolean): void => {
-  addTab(host, to.panelId, to.params, ctx, { referenceGroup: old.group, index: old.group.panels.indexOf(old) }, temporary);
+const addInPlaceOf = (host: TabHost, old: IDockviewPanel, to: TabRef, ctx: ResolveContext, temporary: boolean, title?: string): void => {
+  addTab(host, to.panelId, to.params, ctx, { referenceGroup: old.group, index: old.group.panels.indexOf(old) }, temporary, title);
   host.removePanel(old);
 };
 
-/** How a tab opens: `beside` another tab (its key, while that tab is open), and as a temporary tab. */
-export type OpenTabOptions = { beside?: string | undefined; temporary?: boolean | undefined };
+/**
+ * How a tab opens: `beside` another tab (its key, while that tab is open), as a temporary tab, and with the start
+ * `title` it has until its panel reports one (else its panel's title); a tab already open keeps its title.
+ */
+export type OpenTabOptions = { beside?: string | undefined; temporary?: boolean | undefined; title?: string | undefined };
 
 /**
  * Focuses the tab for (panel, params) if it's open (kept from now on unless opened as temporary); otherwise adds it to
  * the active group (or the first group). With `beside` it goes beside that tab instead: into the group to the right of
  * that tab's group, or a new group there. A temporary tab takes the place of the group's temporary tab (`tabToReplace`).
  */
-export const openTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveContext = { agents: undefined }, { beside, temporary = false }: OpenTabOptions = {}): void => {
+export const openTab = (host: TabHost, panelId: string, params: unknown, ctx: ResolveContext = { agents: undefined }, { beside, temporary = false, title }: OpenTabOptions = {}): void => {
   const key = tabKey(panelId, params);
   const open = host.getPanel(key);
   if (open !== undefined) {
@@ -138,12 +131,12 @@ export const openTab = (host: TabHost, panelId: string, params: unknown, ctx: Re
   const replaced = !temporary || group === undefined ? undefined : tabToReplace(group.panels.map(({ id }) => ({ key: id, temporary: isTemporaryTab(id), unsaved: pageCloseGuards.unsaved(id) })));
   const old = replaced === undefined ? undefined : host.getPanel(replaced);
   if (old !== undefined) {
-    addInPlaceOf(host, old, { panelId, params }, ctx, true);
+    addInPlaceOf(host, old, { panelId, params }, ctx, true, title);
     return;
   }
   const position =
     besideGroup !== undefined && right === undefined ? { referenceGroup: besideGroup, direction: "right" as const } : group === undefined ? undefined : { referenceGroup: group.id };
-  addTab(host, panelId, params, ctx, position, temporary);
+  addTab(host, panelId, params, ctx, position, temporary, title);
 };
 
 /** Puts the tab `to` where the open tab `from` is (same group, same position) and closes `from`. */
@@ -226,11 +219,11 @@ export const pruneTabs = (host: TabHost, isKnown: IsKnown): void => {
   }
 };
 
-/** The open tabs on item `itemId`, whichever binder each was opened from. */
-export const itemTabs = (host: Pick<TabHost, "panels">, itemId: string): TabRef[] =>
+/** The open tabs on panel `panelId`. */
+export const openTabs = (host: Pick<TabHost, "panels">, panelId: string): TabRef[] =>
   host.panels.flatMap((panel) => {
     const tab = tabOf(panel);
-    return tab !== undefined && tab.panelId === ITEM_PANEL && showsItem(tab.params, itemId) ? [tab] : [];
+    return tab !== undefined && tab.panelId === panelId ? [tab] : [];
   });
 
 /**
@@ -285,7 +278,7 @@ export type Reveals = {
   subscribe: (listener: () => void) => () => void;
 };
 
-/** The reveal requests, and the setter only the workbench's actions use. */
+/** The reveal requests, and their setter. */
 export const revealStore = (): Reveals & { set: (key: string, reveal: Reveal | undefined) => void } => {
   const reveals = new Map<string, Reveal>();
   const listeners = new Set<() => void>();
@@ -305,106 +298,35 @@ export const revealStore = (): Reveals & { set: (key: string, reveal: Reveal | u
   };
 };
 
-/** The agent's oldest open request: the smallest `at`, the first listed of equals. */
-const oldestPending = (agent: AgentSummary | undefined): string | undefined => {
-  let oldest: AgentSummary["pendingPermissions"][number] | undefined;
-  for (const request of agent?.pendingPermissions ?? []) {
-    if (oldest === undefined || Date.parse(request.at) < Date.parse(oldest.at)) oldest = request;
-  }
-  return oldest?.requestId;
-};
-
-/**
- * What openBinder and followItem need of the page: the binders (read when the page has none yet; undefined when they
- * can't be), an item read afresh by id or handle (undefined when the service finds none; rejects on any other failure),
- * the Desk's sidebar showing a binder, and a message for the user.
- */
-export type DeskHost = {
-  binders: () => Promise<readonly BinderSummary[] | undefined>;
-  item: (ref: string) => Promise<Item | undefined>;
-  showBinder: (binderId: string, view: string | undefined) => void;
-  tell: (message: string) => void;
-};
-
-const itemUnread = (error: unknown): string => `${READ_FAILED.item}: ${asSentence(asError(error).message)} Try again once the service answers.`;
-
-/**
- * The workbench's actions on `host`; `ctx` gives the agents as the page knows them now (for titles and the oldest
- * request); `showActivity` switches the left sidebar to an activity.
- */
-export const workbenchActions = (
+/** Opens or focuses the tab as `openTab` does, then sets what it reveals: `reveal`, or none on a tab opened anew. */
+export const showTab = (
   host: TabHost,
-  reveals: ReturnType<typeof revealStore>,
-  ctx: () => ResolveContext,
-  showActivity: (activity: string) => void,
-  desk: DeskHost,
-): WorkbenchActions => {
-  const show = (panelId: string, params: unknown, reveal: string | undefined, temporary: boolean): void => {
-    const key = tabKey(panelId, params);
-    const wasOpen = host.getPanel(key) !== undefined;
-    openTab(host, panelId, params, ctx(), { temporary });
-    // A new request each time, so the panel reveals again; a tab opened anew starts without an old one.
-    if (reveal !== undefined) reveals.set(key, { target: reveal });
-    else if (!wasOpen) reveals.set(key, undefined);
-  };
-  // Only the latest follow lands: one whose read comes back after a later follow's does nothing.
-  let follows = 0;
-  const actions: WorkbenchActions = {
-    openTab: (panelId, params, reveal) => show(panelId, params, reveal, false),
-    openBeside: (panelId, params, beside) => {
-      openTab(host, panelId, params, ctx(), { beside: tabKey(beside.panelId, beside.params) });
-    },
-    closeTab: (panelId, params) => {
-      const panel = host.getPanel(tabKey(panelId, params));
-      if (panel !== undefined) host.removePanel(panel);
-    },
-    itemTabs: (itemId) => itemTabs(host, itemId),
-    openAgentChat: (agentId, requestId) => {
-      showActivity(AGENTS_ACTIVITY);
-      const agent = ctx().agents?.find(({ id }) => id === agentId);
-      actions.openTab(CHAT_PANEL, { agentId }, requestId ?? oldestPending(agent));
-    },
-    openProposal: (proposalId) => {
-      actions.openTab(PROPOSAL_PANEL, { proposalId } satisfies ProposalParams);
-    },
-    openBinder: (binderId, reveal, view) => {
-      void desk.binders().then((binders) => {
-        const place = binderPlace(binders?.find(({ id }) => id === binderId), view);
-        reveals.set(sidebarRevealKey(DESK_PANEL), reveal === undefined ? undefined : { target: reveal });
-        desk.showBinder(binderId, place.sidebarView);
-        showActivity(DESK_ACTIVITY);
-      });
-    },
-    followItem: (ref) => {
-      follows += 1;
-      const follow = follows;
-      void desk.item(ref).then(
-        (item) => {
-          if (follow !== follows) return;
-          const place = followPlace(item);
-          if (place === undefined) {
-            desk.tell(itemNotFound(previewName(ref)));
-            return;
-          }
-          actions.openBinder(place.binderId, place.itemId);
-          actions.openItem(place.binderId, place.itemId, { temporary: true });
-        },
-        (error: unknown) => {
-          if (follow === follows) desk.tell(itemUnread(error));
-        },
-      );
-    },
-    openItem: (binderId, itemId, options) => {
-      show(ITEM_PANEL, { binderId, itemId } satisfies ItemParams, undefined, options?.temporary === true);
-    },
-    openNewItem: (binderId, context) => {
-      const params = { binderId, draft: newCommandId(), context } satisfies ItemParams;
-      actions.openTab(ITEM_PANEL, params);
-      host.getPanel(tabKey(ITEM_PANEL, params))?.api.setTitle(NEW_ITEM_TITLE);
-    },
-    replaceTab: (from, to) => {
-      replaceTab(host, tabKey(from.panelId, from.params), to, ctx());
-    },
-  };
-  return actions;
+  reveals: Pick<ReturnType<typeof revealStore>, "set">,
+  panelId: string,
+  params: unknown,
+  ctx: ResolveContext,
+  reveal: string | undefined,
+  options: Omit<OpenTabOptions, "beside"> = {},
+): void => {
+  const key = tabKey(panelId, params);
+  const wasOpen = host.getPanel(key) !== undefined;
+  openTab(host, panelId, params, ctx, options);
+  // A new request each time, so the panel reveals again; a tab opened anew starts without an old one.
+  if (reveal !== undefined) reveals.set(key, { target: reveal });
+  else if (!wasOpen) reveals.set(key, undefined);
 };
+
+/** The workbench's actions on `host`; `ctx` gives the agents as the page knows them now (for titles). */
+export const workbenchActions = (host: TabHost, reveals: ReturnType<typeof revealStore>, ctx: () => ResolveContext): WorkbenchActions => ({
+  openTab: (panelId, params, reveal) => showTab(host, reveals, panelId, params, ctx(), reveal),
+  openBeside: (panelId, params, beside) => {
+    openTab(host, panelId, params, ctx(), { beside: tabKey(beside.panelId, beside.params) });
+  },
+  closeTab: (panelId, params) => {
+    const panel = host.getPanel(tabKey(panelId, params));
+    if (panel !== undefined) host.removePanel(panel);
+  },
+  replaceTab: (from, to) => {
+    replaceTab(host, tabKey(from.panelId, from.params), to, ctx());
+  },
+});

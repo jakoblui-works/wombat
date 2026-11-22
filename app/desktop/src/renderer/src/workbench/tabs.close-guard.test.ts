@@ -1,75 +1,15 @@
 // A tab with unsaved work asks before it closes: the question a panel registers under its tab's key (the key
 // `useCloseGuard` makes) is found when the user closes the tab `openTab` opened. And a temporary tab never takes the
 // place of one with unsaved work or a kept one, and no group ever holds two temporary tabs, however tabs are opened,
-// edited, saved, moved and closed. An item's open tabs are found by its id, whatever binder its tabs were opened from
-// (its file may have moved since), so deleting it warns about their unsaved work and closes them.
+// edited, saved, moved and closed.
 import type { IDockviewPanel } from "dockview-react";
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
+import { fakeHost, item, itemTab } from "../../../../test/fake-tab-host.ts";
 import "./activities.ts";
-import { ITEM_PANEL } from "./panels/Item/item-params.ts";
-import { closeGuards, isTemporaryTab, itemTabs, keepAllTabs, openTab, settleMovedTab, type TabHost, tabKey, tabToReplace } from "./tabs.ts";
-
-type FakeGroup = { id: string; panels: FakePanel[] };
-type FakePanel = { id: string; params: unknown; group: FakeGroup; api: { setActive: () => void } };
-type Position = { referenceGroup?: FakeGroup | string; index?: number };
-
-/**
- * Just enough of dockview for openTab, a close and a move: `groupCount` groups of panels, the active one where a tab
- * opens, and the ids of the panels removed. `move` puts a tab at the end of another group and settles it as the
- * workbench does on dockview's move event.
- */
-const fakeHost = (groupCount = 1) => {
-  const groups: FakeGroup[] = Array.from({ length: groupCount }, (_, at) => ({ id: `group-${String(at)}`, panels: [] }));
-  let activeGroup = groups[0];
-  const removed: string[] = [];
-  const panels = (): FakePanel[] => groups.flatMap((group) => group.panels);
-  const getPanel = (id: string): FakePanel | undefined => panels().find((panel) => panel.id === id);
-  const detach = (panel: FakePanel): void => {
-    panel.group.panels.splice(panel.group.panels.indexOf(panel), 1);
-  };
-  const host = {
-    groups,
-    get activeGroup() {
-      return activeGroup;
-    },
-    get panels() {
-      return panels();
-    },
-    getPanel,
-    addPanel: ({ id, params, position }: { id: string; params?: unknown; position?: Position }) => {
-      const reference = position?.referenceGroup;
-      const group = (typeof reference === "string" ? groups.find((each) => each.id === reference) : reference) ?? activeGroup;
-      if (group === undefined) throw new Error("the fake host has no group to add to");
-      const panel: FakePanel = { id, params, group, api: { setActive: () => (activeGroup = panel.group) } };
-      group.panels.splice(position?.index ?? group.panels.length, 0, panel);
-      activeGroup = group;
-      return panel;
-    },
-    removePanel: (panel: FakePanel) => {
-      removed.push(panel.id);
-      detach(panel);
-    },
-  } as unknown as TabHost;
-  return {
-    host,
-    groups,
-    removed,
-    panels,
-    focus: (at: number) => (activeGroup = groups[at]),
-    move: (id: string, to: number) => {
-      const panel = getPanel(id);
-      const group = groups[to];
-      if (panel === undefined || group === undefined) return;
-      detach(panel);
-      group.panels.push(panel);
-      panel.group = group;
-      activeGroup = group;
-      settleMovedTab(panel as unknown as IDockviewPanel);
-    },
-  };
-};
+import { ITEM_PANEL } from "./items/item-params.ts";
+import { closeGuards, isTemporaryTab, keepAllTabs, openTab, tabKey, tabToReplace } from "./tabs.ts";
 
 test.each([
   { what: "an item's tab", params: { binderId: "tasks", itemId: "0196f3c2-3e00-7000-8000-000000000001" } },
@@ -107,15 +47,12 @@ test("the tab a temporary tab replaces never has unsaved edits, whatever else in
 });
 
 const GROUPS = 3;
-const ITEMS = 5;
-const itemTab = (n: number) => ({ binderId: "chores", itemId: `0196f3c2-5a00-7000-8000-${n.toString(16).padStart(12, "0")}` });
 
 type Step =
   | { kind: "open"; n: number; group: number; temporary: boolean }
   | { kind: "edit" | "save" | "close"; n: number }
   | { kind: "move"; n: number; group: number };
 
-const item = fc.nat({ max: ITEMS - 1 });
 const group = fc.nat({ max: GROUPS - 1 });
 const stepArb: fc.Arbitrary<Step> = fc.oneof(
   fc.record({ kind: fc.constant("open" as const), n: item, group, temporary: fc.boolean() }),
@@ -164,30 +101,6 @@ test("a temporary tab never replaces a kept or unsaved tab, and no group ever ho
         }
       } finally {
         for (const unguard of unguards.values()) unguard();
-        keepAllTabs();
-      }
-    }),
-    { numRuns: 300 },
-  );
-});
-
-test("an item's tabs are found by its id, whichever binder they were opened from, and no draft's or other item's tab", () => {
-  const binderArb = fc.constantFrom("tasks", "archive", "notes", "chores");
-  // Item tabs, each showing item 0..ITEMS-1 as opened from some binder; draft tabs, from some binder.
-  const openArb = fc.array(fc.oneof(fc.record({ n: item, binderId: binderArb }), fc.record({ draft: fc.nat({ max: 3 }), binderId: binderArb })), { maxLength: 12 });
-  fc.assert(
-    fc.property(openArb, item, (opened, wanted) => {
-      const { host } = fakeHost();
-      try {
-        const showing = new Set<string>();
-        for (const each of opened) {
-          const params = "n" in each ? { ...itemTab(each.n), binderId: each.binderId } : { binderId: each.binderId, draft: `draft-${String(each.draft)}`, context: {} };
-          openTab(host, ITEM_PANEL, params);
-          if ("n" in each && each.n === wanted) showing.add(tabKey(ITEM_PANEL, params));
-        }
-        const found = itemTabs(host, itemTab(wanted).itemId).map((tab) => tabKey(tab.panelId, tab.params));
-        expect(new Set(found), `item ${String(wanted)} among ${JSON.stringify(opened)}`).toEqual(showing);
-      } finally {
         keepAllTabs();
       }
     }),

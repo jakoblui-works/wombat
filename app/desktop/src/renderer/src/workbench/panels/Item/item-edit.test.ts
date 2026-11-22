@@ -1,21 +1,24 @@
 // An item tab's edits over generated sequences of edits, refreshes (hand edits, agents' writes) and saves: my unsaved
 // values never change on a refresh; a change is dropped only when the file as last read holds it (so a change back to
 // the value I read, after the file moved on, is kept); a save's answer clears what it sent unless I changed it again
-// meanwhile; a stale answer drops what the file now holds; Keep mine saves on the file's new version, never nothing.
+// meanwhile; a stale answer drops what the file now holds; Keep mine saves on the file's new version, never nothing;
+// Take theirs drops one change; Discard goes back to the changes the tab started with. The tab counts as edited exactly
+// when my changes differ from those it started with, and a draft's create sends every change to a property but a clear.
 // Each expectation is stated against the items fed in, never a value by name. And text typed into a number field
 // that isn't a number is never saved: it holds Save back as that field's problem until it's cleared or a number.
 import type { Item } from "@wombat/shared/items";
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
-import { numberDraft } from "./fields/field-input.ts";
+import { type FieldValue, numberDraft } from "../../items/field-input.ts";
 import {
   canSave,
   changedFields,
   conflicts,
+  createRequest,
   editEvent,
+  edited,
   type FieldEdit,
-  type FieldValue,
   initialEdit,
   itemEdit,
   type ItemEditState,
@@ -81,28 +84,42 @@ type Step =
   | { k: "refresh"; hand: (readonly [Field, FieldValue])[] }
   /** A save answered as written, or stale after the file changed meanwhile; with or without an edit of a sent field while it ran. */
   | { k: "save"; stale: boolean; hand: (readonly [Field, FieldValue])[]; reedit: boolean; pick: number }
-  | { k: "keepMine" };
+  | { k: "keepMine" }
+  | { k: "takeTheirs"; pick: number }
+  | { k: "discard" };
 
 const step: fc.Arbitrary<Step> = fc.oneof(
   { weight: 5, arbitrary: fieldValue.map(([field, value]): Step => ({ k: "edit", field, value })) },
   { weight: 3, arbitrary: handEdit.map((hand): Step => ({ k: "refresh", hand })) },
   { weight: 3, arbitrary: fc.record({ stale: fc.boolean(), hand: handEdit, reedit: fc.boolean(), pick: fc.nat(5) }).map((r): Step => ({ k: "save", ...r })) },
   { weight: 2, arbitrary: fc.constant<Step>({ k: "keepMine" }) },
+  { weight: 2, arbitrary: fc.nat(5).map((pick): Step => ({ k: "takeTheirs", pick })) },
+  { weight: 1, arbitrary: fc.constant<Step>({ k: "discard" }) },
 );
+
+const sameChanges = (a: Record<string, FieldValue>, b: Record<string, FieldValue>): boolean =>
+  Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([field, value]) => Object.hasOwn(b, field) && b[field] === value);
 
 // ---- The run ----
 
-const run = (start: (readonly [Field, FieldValue])[], steps: Step[]): void => {
+const run = (start: (readonly [Field, FieldValue])[], opening: (readonly [Field, FieldValue])[], steps: Step[]): void => {
   let latest = withValues(FIRST, start);
-  let state: ItemEditState = initialEdit(latest);
+  let state: ItemEditState = initialEdit(latest, Object.fromEntries(opening));
+  const startChanges = changedFields(state);
 
-  /** After every step: no change equals the file as last read, and every other field shows the file. */
+  /**
+   * After every step: no change equals the file as last read, and every other field shows the file; edited exactly
+   * when my changes differ from the start's; a create sends each property change but a clear, and nothing else.
+   */
   const holds = (at: string) => {
     const changed = changedFields(state);
     for (const field of FIELDS) {
       if (Object.hasOwn(changed, field)) expect(changed[field], `${at}: a change to ${field} the file already holds`).not.toEqual(fileOf(latest, field));
       else expect(valueOf(state, field), `${at}: ${field} shows the file`).toEqual(fileOf(latest, field));
     }
+    expect(edited(state), `${at}: edited exactly when my changes differ from the start's`).toBe(!sameChanges(changed, startChanges));
+    const sentProperties = Object.fromEntries(Object.entries(changed).filter(([field, value]) => field !== "title" && value !== null));
+    expect(createRequest(state, "").properties, `${at}: a create sends every property change but a clear`).toEqual(sentProperties);
   };
 
   /** Each unsaved value before a new read of the file: still shown, and still a change unless the file now holds it. */
@@ -169,15 +186,30 @@ const run = (start: (readonly [Field, FieldValue])[], steps: Step[]): void => {
         expect(Object.keys(request.fields).length, `${at}: Keep mine has something to save`).toBeGreaterThan(0);
         break;
       }
+      case "takeTheirs": {
+        const before = changedFields(state);
+        const field = Object.keys(before)[it.pick % Math.max(Object.keys(before).length, 1)];
+        if (field === undefined) break;
+        state = itemEdit(state, { type: "takeTheirs", field });
+        expect(changedFields(state), `${at}: Take theirs drops ${field} and only it`).toEqual(Object.fromEntries(Object.entries(before).filter(([name]) => name !== field)));
+        break;
+      }
+      case "discard": {
+        state = itemEdit(state, { type: "discard" });
+        const back = Object.fromEntries(Object.entries(startChanges).filter(([field, value]) => value !== fileOf(latest, field as Field)));
+        expect(changedFields(state), `${at}: Discard goes back to the changes the tab started with, but those the file now holds`).toEqual(back);
+        expect(conflicts(state), `${at}: Discard ends a conflict`).toEqual([]);
+        break;
+      }
     }
     holds(at);
   });
 };
 
-test("over edits, refreshes and saves, the tab keeps exactly my unsaved changes against the file as last read", () => {
+test("over edits, refreshes, saves, Take theirs and Discard, the tab keeps exactly my unsaved changes against the file as last read", () => {
   fc.assert(
-    fc.property(fc.array(fieldValue, { maxLength: 3 }), fc.array(step, { minLength: 1, maxLength: 25 }), (start, steps) => {
-      run(start, steps);
+    fc.property(fc.array(fieldValue, { maxLength: 3 }), fc.array(fieldValue, { maxLength: 3 }), fc.array(step, { minLength: 1, maxLength: 25 }), (start, opening, steps) => {
+      run(start, opening, steps);
     }),
     { numRuns: 300 },
   );

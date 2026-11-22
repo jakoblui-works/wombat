@@ -19,7 +19,7 @@ import { bodyLimit } from "hono/body-limit";
 import { requireAgent } from "../agents/errors.ts";
 import { AgentError, type Manager } from "../agents/manager.ts";
 import { folderOf } from "../agents/resume.ts";
-import { handlesById, summarize, withLinks } from "../items/api-view.ts";
+import { handlesById, summarize, withLinks } from "../items/api-shape.ts";
 import { findByRef, type Catalog } from "../items/catalog.ts";
 import type { Writer } from "../items/write.ts";
 import type { Harness } from "../harness/harness.ts";

@@ -26,7 +26,7 @@ export const joinRootPath = (folder: string, name: string) => (folder === "" ? n
 
 /** What makes a folder unreadable, as a problem of the binder the folder belongs to. */
 export const folderProblem = (folder: string, error: unknown): Problem => ({
-  message: `folder: ${folder === "" ? "the items root" : folder} can't be read (${errorCode(error)}); make it readable so its items load`,
+  message: `folder: ${folder === "" ? "the items folder" : folder} can't be read (${errorCode(error)}); make it readable so its items load`,
 });
 
 export const oldSettingsProblem = (besideSettings: boolean): Problem => ({
@@ -57,7 +57,7 @@ export const binderFolders = async (root: string): Promise<{ folders: BinderFold
     try {
       entries = await readdir(join(root, folder), { withFileTypes: true });
     } catch (error) {
-      if (folder === "") throw new Error(`The items root ${root} can't be read (${errorCode(error)}); make the folder readable, or choose another items folder in the app (Choose Items Folder… in the File menu), or set WOMBAT_ITEMS to another one when you run the service on its own.`, { cause: error });
+      if (folder === "") throw new Error(`The items folder ${root} can't be read (${errorCode(error)}); make the folder readable, or choose another items folder in the app (Choose Items Folder… in the File menu), or set WOMBAT_ITEMS to another one when you run the service on its own.`, { cause: error });
       if (!isMissing(error)) unreadable.push({ folder, error });
       return;
     }

@@ -5,9 +5,9 @@ import { Button } from "../../../../components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "../../../../components/ui/dialog";
 import { useCreateBinder } from "../../../../data/commands.ts";
 import { writeProblems } from "../../../../data/write-failure.ts";
-import { Field, FIELD_INPUT } from "../Field/Field.tsx";
-import { ProblemList } from "../ProblemList/ProblemList.tsx";
-import { problemsByField } from "../view-model/problems.ts";
+import { Field, FIELD_INPUT } from "../../../items/Field/Field.tsx";
+import { ProblemList } from "../../../items/ProblemList/ProblemList.tsx";
+import { problemsByField } from "../../../items/problems.ts";
 import { ADOPT, EMPTY_FORM, editForm, type NewBinderField, newBinderRequest } from "./new-binder.ts";
 
 type Props = {

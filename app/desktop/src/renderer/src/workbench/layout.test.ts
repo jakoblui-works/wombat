@@ -6,8 +6,9 @@ import fc from "fast-check";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import "./activities.ts";
-import { defaultLayout, type IsKnown, pruneLayout, restoreLayout, SavedLayout } from "./layout.ts";
-import { ITEM_PANEL } from "./panels/Item/item-params.ts";
+import { DESK_ACTIVITY } from "./activity-ids.ts";
+import { DEFAULT_DESK, defaultLayout, type DeskLayout, deskOf, type IsKnown, layoutActivityStates, layoutToSave, pruneLayout, restoreLayout, SavedLayout } from "./layout.ts";
+import { ITEM_PANEL } from "./items/item-params.ts";
 import { activities, isKnown as registryIsKnown, isRestorable, isSaved } from "./registry.ts";
 import { summary } from "../../../../test/summaries.ts";
 
@@ -231,6 +232,20 @@ describe("restoreLayout", () => {
     expect(restored).toEqual(defaultLayout());
     expect(warned).toHaveLength(1);
     expect(warned.join("\n")).not.toContain(MARKER);
+  });
+});
+
+describe("the Desk's state in a layout", () => {
+  test("reaches the Desk through its activity's slot and is saved back from it unchanged; a layout without one gives the default", () => {
+    const deskArb: fc.Arbitrary<DeskLayout> = fc.record({ binderId: fc.string(), view: fc.string(), openDrawers: fc.array(fc.string()) }, { requiredKeys: ["openDrawers"] });
+    fc.assert(
+      fc.property(fc.option(deskArb, { nil: undefined }), (desk) => {
+        const layout: SavedLayout = { ...defaultLayout(), ...(desk === undefined ? {} : { desk }) };
+        const states = layoutActivityStates(layout);
+        expect(deskOf(states[DESK_ACTIVITY]), "what the Desk reads").toEqual(desk ?? DEFAULT_DESK);
+        expect(layoutToSave(layout.dockview, layout, states).desk, "what the layout saves").toEqual(desk ?? DEFAULT_DESK);
+      }),
+    );
   });
 });
 

@@ -8,8 +8,9 @@ import { describe, expect, test } from "vitest";
 import type { BinderSummary, Item, ItemSummary } from "@wombat/shared/items";
 
 import { ServiceError } from "../../../data/client.ts";
-import { NO_FILE } from "./item-edit.ts";
-import { type Binder, draftShown, itemForm, itemShown } from "./item-state.ts";
+import type { Binder } from "../../items/binders.ts";
+import { NO_FILE } from "../../items/no-file.ts";
+import { draftShown, itemForm, itemShown } from "./item-state.ts";
 
 const ITEM_ID = "0196f3c2-0000-7000-8000-000000000001";
 

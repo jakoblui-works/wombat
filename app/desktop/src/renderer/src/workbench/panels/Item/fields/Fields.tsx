@@ -5,12 +5,12 @@ import { type ReactNode, useState } from "react";
 import { Button } from "../../../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../../components/ui/select";
 import { cn } from "../../../../lib/utils";
-import { useHoverPreview } from "../../Desk/ItemPreview/HoverPreview.tsx";
-import { Field as FieldFrame, FIELD_INPUT, type FieldControl } from "../../Desk/Field/Field.tsx";
-import type { Listed } from "../../Desk/use-link-lists.ts";
-import { clearable, displayValue, MISSING_ITEM, typesNumber } from "../../Desk/view-model/values.ts";
-import type { FieldEdit, FieldValue } from "../item-edit.ts";
-import { inputValue, type LinkOption, linkOptions, linkTarget, numberDraft, pickedByUser, shownNumber } from "./field-input.ts";
+import { useHoverPreview } from "../../../items/ItemPreview/HoverPreview.tsx";
+import { Field as FieldFrame, FIELD_INPUT, type FieldControl } from "../../../items/Field/Field.tsx";
+import type { Listed } from "../../../items/use-link-lists.ts";
+import { clearable, displayValue, MISSING_ITEM, typesNumber } from "../../../items/values.ts";
+import type { FieldEdit } from "../item-edit.ts";
+import { type FieldValue, inputValue, type LinkOption, linkOptions, linkTarget, numberDraft, pickedByUser, shownNumber } from "../../../items/field-input.ts";
 import type { PropertyRow } from "./property-rows.ts";
 
 /** The clear entry of an optional select or link. */

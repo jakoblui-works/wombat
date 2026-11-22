@@ -60,7 +60,7 @@ describe("items routes", () => {
       };
       const binders = await sent("/binders");
       const listings = (binders.json as { binders: { id: string | null }[] }).binders;
-      // The app reads the catalog itself, not an agent's view of it: the user sees hidden binders too.
+      // The app reads the catalog itself, not what an agent sees of it: the user sees hidden binders too.
       expect(JSON.stringify(listings)).toContain("secrets");
       const answers = [{ path: "/binders", ...binders }];
       for (const { id } of listings) {

@@ -1,5 +1,5 @@
 // Turns an agent's log into what the chat shows. Pure, and the same however the log arrived: entries are taken in
-// seq order, once each (chat-model.append-order.test.ts). How entries become items is the shared log fold's.
+// seq order, once each (chat-model.append-order.test.ts). How entries become parts is the shared log fold's.
 import type { Activity, ConfigOption } from "@wombat/shared/api";
 import {
   activityOf,
@@ -8,17 +8,17 @@ import {
   permissionOf,
   UNKNOWN_PERMISSION,
   usageOf,
-  type ChatItem,
+  type ChatPart,
   type PlanEntry,
   type Usage,
 } from "@wombat/shared/log-fold";
 import { bySeq } from "./by-seq.ts";
 import type { AgentLogEntry } from "./query-client.ts";
 
-export type { ChatItem, PlanEntry, ToolCallContent, ToolCallLocation, ToolCallStatus, ToolKind, Usage } from "@wombat/shared/log-fold";
+export type { ChatPart, PlanEntry, ToolCallContent, ToolCallLocation, ToolCallStatus, ToolKind, Usage } from "@wombat/shared/log-fold";
 
 export type ChatModel = {
-  items: ChatItem[];
+  parts: ChatPart[];
   plan?: PlanEntry[];
   turnActive: boolean;
   /** What the agent is doing this turn (`activityOf`); null outside a turn. */
@@ -37,16 +37,16 @@ export type ChatModelOptions = {
 export const chatModel = (entries: readonly AgentLogEntry[], { mainSessionId }: ChatModelOptions = {}): ChatModel => {
   const state = foldLog(bySeq(entries), mainSessionId);
 
-  for (const [requestId, { item, cancelled }] of state.permissions) {
-    item.title = (permissionOf(state, requestId) ?? UNKNOWN_PERMISSION).title;
+  for (const [requestId, { part, cancelled }] of state.permissions) {
+    part.title = (permissionOf(state, requestId) ?? UNKNOWN_PERMISSION).title;
     const answer = state.answers.get(requestId) ?? (cancelled ? "cancelled" : undefined);
-    if (answer !== undefined) item.answer = answer;
+    if (answer !== undefined) part.answer = answer;
   }
 
   const config = configOf(state);
   const usage = usageOf(state);
   return {
-    items: state.items,
+    parts: state.parts,
     ...(state.plan === undefined ? {} : { plan: state.plan }),
     turnActive: state.turnActive,
     activity: activityOf(state),

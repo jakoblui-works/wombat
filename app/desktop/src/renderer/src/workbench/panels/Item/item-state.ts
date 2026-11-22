@@ -1,13 +1,10 @@
 // What an item tab shows, from the read by id, the binders and the binder's list, pure. Each state claims only what
 // its evidence shows: when two explanations fit, the tab says both.
-import { ItemsErrorCode } from "@wombat/shared/api";
-import { type BinderSummary, type Item, type ItemSummary, SETTINGS_FILE } from "@wombat/shared/items";
+import type { BinderSummary, Item, ItemSummary } from "@wombat/shared/items";
 import { ServiceError } from "../../../data/client.ts";
-import { asError } from "../../../lib/errors.ts";
-import { NO_FILE } from "./item-edit.ts";
-
-export type Binder = Extract<BinderSummary, { id: string }>;
-export type BrokenBinder = Extract<BinderSummary, { id: null }>;
+import { type Binder, binderOf, type BrokenBinder, isBroken, withoutBinder } from "../../items/binders.ts";
+import { NO_FILE } from "../../items/no-file.ts";
+import { isItemNotFound, type Read, unshown, usable } from "../../items/reads.ts";
 
 export type ItemShown =
   | { kind: "loading" }
@@ -26,9 +23,6 @@ export type ItemShown =
   | { kind: "binder-gone"; last: Item | undefined }
   | { kind: "error"; what: "item" | "binders" | "binder-items"; message: string; last: Item | undefined };
 
-/** A query as TanStack gives it: `data` may be stale beside an `error`. */
-export type Read<T> = { data: T | undefined; error: unknown };
-
 type Reads = {
   item: Read<Item>;
   binders: Read<readonly BinderSummary[]>;
@@ -36,55 +30,16 @@ type Reads = {
   listed: Read<readonly ItemSummary[]>;
 };
 
-/** Whether the service answered that no item has the ref read. */
-export const isItemNotFound = (error: unknown): boolean => error instanceof ServiceError && error.code === ItemsErrorCode.enum.item_not_found;
-
-/** What the app says when no item has the ref read; `name` calls the item by its handle, never its id ("This item"). */
-export const itemNotFound = (name: string): string =>
-  `${name} can't be found: it may have been deleted or its handle changed. Check the link or handle that named it, or look for the item in its binder's views.`;
-
-/** Whether the service answered the read with an error (a read the bridge refused, while disconnected, didn't reach it). */
-const answeredWithError = (read: Read<unknown>): boolean => read.error instanceof ServiceError;
-
-/**
- * A query's data as the service last gave it: kept through a read the bridge refused (the panel dims meanwhile),
- * dropped once the service answered with an error.
- */
-export const usable = <T>(read: Read<T>): T | undefined => (answeredWithError(read) ? undefined : read.data);
-
-/** The read's error when it leaves no data to show; undefined while it's loading or has data. */
-export const unshown = (read: Read<unknown>): string | undefined =>
-  usable(read) === undefined && read.error !== null && read.error !== undefined ? asError(read.error).message : undefined;
-
-/** A broken binder's settings file, relative to the items root. */
-export const settingsPath = ({ path }: BrokenBinder): string => (path === "" || path === "." ? SETTINGS_FILE : `${path}/${SETTINGS_FILE}`);
-
 const inFolder = (path: string, folder: string): boolean => folder === "" || folder === "." || path.startsWith(`${folder}/`);
 
 /** The binder whose folder holds `path`, the deepest one when they nest. */
 const binderHolding = <B extends BinderSummary>(binders: readonly B[], path: string): B | undefined =>
   binders.filter((binder) => inFolder(path, binder.path)).sort((a, b) => b.path.length - a.path.length)[0];
 
-const isBroken = (binder: BinderSummary): binder is BrokenBinder => binder.id === null;
-
 /** The binder an item tab shows: the item's binder as read (a file moved by hand into another binder names that one), else the tab's binder. */
 const shownBinder = (binderId: string, binders: readonly BinderSummary[], item: Item | undefined): Binder | undefined => {
   const id = item?.binder ?? binderId;
   return binders.find((each): each is Binder => each.id === id);
-};
-
-/** Why a binder isn't listed by id: some binders are broken (one of them may be it), or none is. */
-export type NoBinder = { kind: "binder-missing"; broken: BrokenBinder[] } | { kind: "binder-gone" };
-
-const withoutBinder = (binders: readonly BinderSummary[]): NoBinder => {
-  const broken = binders.filter(isBroken);
-  return broken.length > 0 ? { kind: "binder-missing", broken } : { kind: "binder-gone" };
-};
-
-/** The binder listed with `binderId`, else why it isn't (`NoBinder`). */
-export const binderOf = (binderId: string, binders: readonly BinderSummary[]): { kind: "binder"; binder: Binder } | NoBinder => {
-  const binder = binders.find((each): each is Binder => each.id === binderId);
-  return binder === undefined ? withoutBinder(binders) : { kind: "binder", binder };
 };
 
 /**

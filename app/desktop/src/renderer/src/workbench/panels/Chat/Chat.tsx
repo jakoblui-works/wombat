@@ -2,29 +2,29 @@ import { chatAccess } from "@wombat/shared/api";
 import { memo, type ReactNode, useCallback, useEffect, useState, useLayoutEffect, useMemo, useRef } from "react";
 
 import { ScrollArea } from "../../../components/ui/scroll-area";
-import { type ChatItem, type ChatModel } from "../../../data/chat-model.ts";
+import { type ChatPart, type ChatModel } from "../../../data/chat-model.ts";
 import { useSetConfig } from "../../../data/commands.ts";
 import { useConnection, useHarnesses } from "../../../data/hooks.ts";
 import type { Reveal, PanelProps } from "../../registry.ts";
 import { useWorkbench } from "../../workbench-context.ts";
 import { DIFF_PANEL } from "../Diff/diff-params.ts";
-import { type EditRequest, editRequest } from "../approvals/edit-request.ts";
-import { useAnswer } from "../approvals/answer.ts";
+import { type EditRequest, editRequest } from "../../approvals/edit-request.ts";
+import { useAnswer } from "../../approvals/answer.ts";
 import { usePlay } from "../../../lib/motion.ts";
 import { useReveal } from "../../../lib/use-reveal.ts";
 import { type Arrivals, NO_ARRIVALS, trackArrivals } from "./arrivals.ts";
 import { type ChatBlock, chatBlocks, streamingKey } from "./chat-blocks.ts";
-import { CHAT_PANEL, ChatParams } from "./chat-params.ts";
+import { CHAT_PANEL, ChatParams } from "../../agents/chat-params.ts";
 import { featuresOrAssumed, useHarnessFeatures } from "../../../data/harness-features.ts";
-import { type LiveState, liveState } from "../approvals/live-state.ts";
-import { sameBlock } from "./same-item.ts";
-import { useChatModel } from "../approvals/use-chat-model.ts";
+import { type LiveState, liveState } from "../../approvals/live-state.ts";
+import { sameBlock } from "./same-part.ts";
+import { useChatModel } from "../../approvals/use-chat-model.ts";
 import { caughtUp, followStreaming, NO_PACING, type Pacing, revealDone, stillReveals } from "./pacing.ts";
 import { ChatHeader } from "./ChatHeader/ChatHeader.tsx";
 import { ContextDialogHost } from "./ContextDialogHost/ContextDialogHost.tsx";
 import { Composer } from "./Composer/Composer.tsx";
 import { ComposerFooter } from "./Composer/ComposerFooter/ComposerFooter.tsx";
-import { LogError } from "../approvals/LogError/LogError.tsx";
+import { LogError } from "../../approvals/LogError/LogError.tsx";
 import { ClippedMarkdown } from "./ClippedMarkdown/ClippedMarkdown.tsx";
 import { safePrefix } from "./safe-prefix.ts";
 import { Permission } from "./Permission/Permission.tsx";
@@ -47,7 +47,7 @@ const centreOffset = (viewport: DOMRect, target: DOMRect): number =>
 const editRequests = (model: ChatModel, blocks: readonly ChatBlock[]): Map<string, EditRequest> => {
   const edits = new Map<string, EditRequest>();
   for (const block of blocks) {
-    const edit = block.kind === "permission" ? editRequest(model, block.item.requestId) : undefined;
+    const edit = block.kind === "permission" ? editRequest(model, block.part.requestId) : undefined;
     if (edit !== undefined) edits.set(edit.requestId, edit);
   }
   return edits;
@@ -61,12 +61,12 @@ const STOP_REASONS: Readonly<Record<string, string>> = {
 };
 
 /** What a turn's end says, or undefined for one that ended without a reason worth saying (it renders nothing). */
-const turnEndText = (item: { stopReason: string }): string | undefined => STOP_REASONS[item.stopReason];
+const turnEndText = (part: { stopReason: string }): string | undefined => STOP_REASONS[part.stopReason];
 
 /** Whether a block renders nothing: there is nothing to animate. */
-const showsNothing = (block: ChatBlock): boolean => block.kind === "item" && block.item.kind === "turn_end" && turnEndText(block.item) === undefined;
+const showsNothing = (block: ChatBlock): boolean => block.kind === "part" && block.part.kind === "turn_end" && turnEndText(block.part) === undefined;
 
-/** A sub-agent's item (another ACP session), marked apart from the agent's own. */
+/** A sub-agent's part (another ACP session), marked apart from the agent's own. */
 const SubAgent = ({ children }: { children: ReactNode }) => (
   <div className="flex flex-col gap-1 border-l-2 border-line pl-3">
     <span className="text-xs text-fg-tertiary">Sub-agent</span>
@@ -74,7 +74,7 @@ const SubAgent = ({ children }: { children: ReactNode }) => (
   </div>
 );
 
-type StaticItem = Extract<ChatBlock, { kind: "item" }>["item"];
+type StaticPart = Extract<ChatBlock, { kind: "part" }>["part"];
 
 const AgentText = ({ text }: { text: string }) => <ClippedMarkdown text={text} className="text-base text-fg-primary" />;
 
@@ -91,23 +91,23 @@ const StreamingText = ({ blockKey, text, fresh, streaming, onDone }: { blockKey:
   return <AgentText text={safePrefix(shown)} />;
 };
 
-/** An item that shows only what the log says (everything but a permission, whose state is live). */
-const StaticItemView = ({ item }: { item: StaticItem }): ReactNode => {
-  switch (item.kind) {
+/** A part that shows only what the log says (everything but a permission, whose state is live). */
+const StaticPartContent = ({ part }: { part: StaticPart }): ReactNode => {
+  switch (part.kind) {
     case "user":
       return (
         <div className="flex justify-end">
-          <ClippedMarkdown text={item.text} className="max-w-3/4 rounded-lg border border-line bg-surface-2 px-3.5 py-2 text-base text-fg-primary" />
+          <ClippedMarkdown text={part.text} className="max-w-3/4 rounded-lg border border-line bg-surface-2 px-3.5 py-2 text-base text-fg-primary" />
         </div>
       );
     case "proposal_note":
-      return <ProposalNote note={item} />;
+      return <ProposalNote note={part} />;
     case "agent":
-      return <AgentText text={item.text} />;
+      return <AgentText text={part.text} />;
     case "reasoning":
-      return <Reasoning text={item.text} />;
+      return <Reasoning text={part.text} />;
     case "turn_end": {
-      const said = turnEndText(item);
+      const said = turnEndText(part);
       return said === undefined ? null : <p className="text-sm text-fg-tertiary">{said}</p>;
     }
     case "unreadable":
@@ -117,7 +117,7 @@ const StaticItemView = ({ item }: { item: StaticItem }): ReactNode => {
 
 /** A block from the log alone, rendered again only when what it shows changed (`sameBlock`). */
 const StaticBlock = memo(
-  ({ block }: { block: Exclude<ChatBlock, { kind: "permission" }> }) => (block.kind === "tools" ? <ToolCalls items={block.items} /> : <StaticItemView item={block.item} />),
+  ({ block }: { block: Exclude<ChatBlock, { kind: "permission" }> }) => (block.kind === "tools" ? <ToolCalls parts={block.parts} /> : <StaticPartContent part={block.part} />),
   (before, after) => sameBlock(before.block, after.block),
 );
 StaticBlock.displayName = "StaticBlock";
@@ -148,30 +148,30 @@ type BlockProps = {
 const Block = ({ block, live, edits, connected, answers, cards, fresh, streaming, paced, onRevealDone, onOpenSideBySide }: BlockProps) => {
   let shown: ReactNode;
   if (block.kind === "permission") {
-    const item = block.item;
-    const { pending, error } = answers.stateOf(item.requestId);
-    const edit = edits.get(item.requestId);
+    const part = block.part;
+    const { pending, error } = answers.stateOf(part.requestId);
+    const edit = edits.get(part.requestId);
     shown = (
       <Permission
-        item={item}
-        answer={live.answerOf(item)}
+        part={part}
+        answer={live.answerOf(part)}
         edit={edit ?? false}
         tool={block.tool}
-        onOpenSideBySide={edit === undefined ? undefined : () => onOpenSideBySide(item.requestId)}
-        disabled={!live.answerable(item, { connected, pending })}
+        onOpenSideBySide={edit === undefined ? undefined : () => onOpenSideBySide(part.requestId)}
+        disabled={!live.answerable(part, { connected, pending })}
         error={error}
-        onAnswer={(kind) => answers.answer(item.requestId, kind)}
+        onAnswer={(kind) => answers.answer(part.requestId, kind)}
         cardRef={(element) => {
-          if (element === null) cards.delete(item.requestId);
-          else cards.set(item.requestId, element);
+          if (element === null) cards.delete(part.requestId);
+          else cards.set(part.requestId, element);
         }}
       />
     );
-  } else if (paced && block.kind === "item" && block.item.kind === "agent") {
-    shown = <StreamingText blockKey={block.key} text={block.item.text} fresh={fresh} streaming={streaming} onDone={onRevealDone} />;
+  } else if (paced && block.kind === "part" && block.part.kind === "agent") {
+    shown = <StreamingText blockKey={block.key} text={block.part.text} fresh={fresh} streaming={streaming} onDone={onRevealDone} />;
   }
   else shown = <StaticBlock block={block} />;
-  const session: ChatItem["sessionId"] = block.kind === "tools" ? block.items[0]?.sessionId : block.item.sessionId;
+  const session: ChatPart["sessionId"] = block.kind === "tools" ? block.parts[0]?.sessionId : block.part.sessionId;
   const placed = session === undefined ? shown : <SubAgent>{shown}</SubAgent>;
   return fresh && !showsNothing(block) ? <Arrival>{placed}</Arrival> : placed;
 };
@@ -187,7 +187,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   // While the agent is still loading it counts as running: only a known agent without a process isn't.
   const access = agent === undefined ? "running" : chatAccess(agent, featuresOrAssumed(features));
   const setConfig = useSetConfig();
-  const blocks = useMemo(() => (model === undefined ? [] : chatBlocks(model.items)), [model]);
+  const blocks = useMemo(() => (model === undefined ? [] : chatBlocks(model.parts)), [model]);
   const [arrivals, setArrivals] = useState<Arrivals>(NO_ARRIVALS);
   const tracked = trackArrivals(arrivals, blocks.map((block) => block.key), { loaded: model !== undefined, connected, reading: log.isFetching, readAt: log.dataUpdatedAt });
   if (tracked !== arrivals) setArrivals(tracked);
@@ -208,7 +208,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const cards = useRef(new Map<string, HTMLElement>());
   const revealed = useRef<Reveal>(undefined);
 
-  // Scrolled to the bottom, the chat follows new content (new items, and parts that grow: an expanded tool call,
+  // Scrolled to the bottom, the chat follows new content (new parts, and parts that grow: an expanded tool call,
   // a longer message); scrolled up, it stays where it is.
   useEffect(() => {
     const element = viewport.current;

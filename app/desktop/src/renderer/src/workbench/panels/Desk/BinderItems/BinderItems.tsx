@@ -2,16 +2,16 @@ import type { LenientView } from "@wombat/shared/items";
 
 import { useBinderItems } from "../../../../data/hooks.ts";
 import type { Reveal } from "../../../registry.ts";
-import { EmptyState } from "../../EmptyState/EmptyState.tsx";
-import type { DeletableItem } from "../../Item/item-delete.ts";
-import { READ_FAILED } from "../../Item/ItemNotice/ItemNotice.tsx";
-import type { Binder } from "../../Item/item-state.ts";
-import { useItemDelete } from "../../Item/use-item-delete.tsx";
+import { EmptyState } from "../../../EmptyState/EmptyState.tsx";
+import type { DeletableItem } from "../../../items/item-delete.ts";
+import { READ_FAILED } from "../../../items/notices/notices.tsx";
+import type { Binder } from "../../../items/binders.ts";
+import { useItemDelete } from "../../../items/use-item-delete.tsx";
 import { ListView } from "../ListView/ListView.tsx";
 import { TreeView } from "../TreeView/TreeView.tsx";
 import type { OpenRowItem } from "../use-open-row.ts";
 import { useItemProposals } from "../use-item-proposals.ts";
-import { useItemsOf } from "../use-link-lists.ts";
+import { useItemsOf } from "../../../items/use-link-lists.ts";
 import { type NewItem, sidebarView } from "../view-model/view-model.ts";
 import { withProposals } from "../view-model/with-proposals.ts";
 

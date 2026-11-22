@@ -3,19 +3,19 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 import { Collapse } from "../../../../components/ui/collapse";
-import type { ChatItem } from "../../../../data/chat-model.ts";
-import { DiffRows } from "../../approvals/EditDiff/EditDiff.tsx";
-import { type StoredDiff, storedDiffRows } from "../../approvals/EditDiff/inline-diff.ts";
+import type { ChatPart } from "../../../../data/chat-model.ts";
+import { DiffRows } from "../../../approvals/EditDiff/EditDiff.tsx";
+import { type StoredDiff, storedDiffRows } from "../../../approvals/EditDiff/inline-diff.ts";
 import { noteLine, OUTCOME_WORDS } from "./note-line.ts";
 
-type NoteItem = Extract<ChatItem, { kind: "proposal_note" }>;
+type NotePart = Extract<ChatPart, { kind: "proposal_note" }>;
 
 // As the service words them to the agent: my reason for a reject, a file conflict's problem.
 const REASON_LABEL: Partial<Record<NoteOutcomeKind, string>> = { rejected: "Your reason", conflict: "The problem" };
 
 /** A stored diff: its changed lines as the approval card shows them, and the fixed lines that go with them. */
-const Diff = ({ part }: { part: StoredDiff }) => {
-  const { rows, says } = storedDiffRows(part);
+const Diff = ({ diff }: { diff: StoredDiff }) => {
+  const { rows, says } = storedDiffRows(diff);
   return (
     <>
       {rows.length === 0 ? null : <DiffRows diff={{ kind: "shown", parts: [rows], added: 0, removed: 0 }} />}
@@ -26,16 +26,16 @@ const Diff = ({ part }: { part: StoredDiff }) => {
   );
 };
 
-const Part = ({ title, part, reason }: { title: string | undefined; part: NoteOutcome | NonNullable<NoteItem["reference"]>; reason?: string | undefined }) => (
+const NoteDetail = ({ title, detail, reason }: { title: string | undefined; detail: NoteOutcome | NonNullable<NotePart["reference"]>; reason?: string | undefined }) => (
   <div className="flex flex-col gap-0.5">
     {title === undefined ? null : <span className="break-all">{title}</span>}
     {reason === undefined ? null : <span>{reason}</span>}
-    <Diff part={part} />
+    <Diff diff={detail} />
   </div>
 );
 
 /** What the agent was told with the message after it: one quiet line, expanding to the outcomes and diffs it carried. */
-export const ProposalNote = ({ note }: { note: NoteItem }) => {
+export const ProposalNote = ({ note }: { note: NotePart }) => {
   const [expanded, setExpanded] = useState(false);
   const Chevron = expanded ? ChevronDown : ChevronRight;
   return (
@@ -54,15 +54,15 @@ export const ProposalNote = ({ note }: { note: NoteItem }) => {
           {note.outcomes.map((outcome) => {
             const label = REASON_LABEL[outcome.outcome];
             return (
-              <Part
+              <NoteDetail
                 key={outcome.proposalId}
                 title={`${OUTCOME_WORDS[outcome.outcome].title}: ${outcome.label}`}
-                part={outcome}
+                detail={outcome}
                 reason={outcome.reason === undefined || label === undefined ? undefined : `${label}: ${outcome.reason}`}
               />
             );
           })}
-          {note.reference === undefined ? null : <Part title={note.outcomes.length === 0 ? undefined : "Your changes"} part={note.reference} />}
+          {note.reference === undefined ? null : <NoteDetail title={note.outcomes.length === 0 ? undefined : "Your changes"} detail={note.reference} />}
         </div>
       </Collapse>
     </div>

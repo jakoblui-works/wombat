@@ -13,16 +13,17 @@ import { keys } from "../../../data/keys.ts";
 import { refresh } from "../../../data/refresh.ts";
 import { useHarnessFeatures } from "../../../data/harness-features.ts";
 import { setReference } from "../Chat/Composer/unsent.ts";
-import { useActiveTab, useWorkbench } from "../../workbench-context.ts";
+import { useActiveTab } from "../../workbench-context.ts";
+import { useOpenAgentChat } from "../../agents/open-agent-chat.ts";
 import type { PanelProps } from "../../registry.ts";
-import { AnswerError, DecisionSlot, OutcomeMark, Waiting } from "../approvals/Answer/Answer.tsx";
-import { Note } from "../approvals/Note/Note.tsx";
+import { AnswerError, DecisionSlot, OutcomeMark, Waiting } from "../../approvals/Answer/Answer.tsx";
+import { Note } from "../../approvals/Note/Note.tsx";
 import { FileProposal } from "./FileProposal/FileProposal.tsx";
 import { ItemProposal } from "./ItemProposal/ItemProposal.tsx";
 import { proposalActions } from "../../proposals/proposal-actions.ts";
 import { isOutsideWorkspace, proposalAgentTitle, proposalKindWord, proposalTabLabel } from "../../proposals/proposal-label.ts";
 import { OutsideWorkspace } from "../../proposals/OutsideWorkspace/OutsideWorkspace.tsx";
-import { isProposalTab, ProposalParams } from "./proposal-params.ts";
+import { isProposalTab, ProposalParams } from "../../proposals/proposal-params.ts";
 import { PathText } from "../../proposals/PathText/PathText.tsx";
 import { proposalTabState, type ProposalTabState } from "./proposal-tab-state.ts";
 import type { ReviseNotice, SaveError } from "./draft-state.ts";
@@ -110,7 +111,7 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: Pane
   const connection = useConnection();
   const decide = useDecide();
   const features = useHarnessFeatures(agents.data?.agents.find(({ id }) => id === read.data?.agentId)?.harness);
-  const workbench = useWorkbench();
+  const openAgentChat = useOpenAgentChat();
   const [rejecting, setRejecting] = useState(false);
   const queryClient = useQueryClient();
   const active = isProposalTab(useActiveTab(), proposalId);
@@ -173,7 +174,7 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: Pane
   const askForChanges = () => {
     if (agent === undefined) return;
     setReference(agent.id, proposalId);
-    workbench.openAgentChat(agent.id);
+    openAgentChat(agent.id);
   };
   const Icon = proposal.target === "file" ? FilePen : SquarePen;
 

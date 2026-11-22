@@ -34,7 +34,7 @@ test.each<[string, Body[], { kind: string; title?: string } | null]>([
   ["thinking when the turn has only just started", [user("Fix the hours")], { kind: "thinking" }],
   ["writing after a message chunk", [user("Fix the hours"), thought("Checking"), message("The hours are")], { kind: "writing" }],
   [
-    "the tool item's title after an update that carries none",
+    "the tool part's title after an update that carries none",
     [user("Fix"), call("t1", "Read hours.md", { status: "pending" }), message("Reading."), toolUpdate("t1", { status: "in_progress" })],
     { kind: "tool", title: "Read hours.md" },
   ],

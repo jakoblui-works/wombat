@@ -2,7 +2,7 @@
 // in step with `api.ts`. A "body" is an entry without its seq, agent and time; `entries()` numbers a list of bodies
 // from seq 1 for one agent.
 import type { LogEntry, SessionUpdate } from "../src/api.ts";
-import type { ChatItem } from "../src/log-fold.ts";
+import type { ChatPart } from "../src/log-fold.ts";
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -106,7 +106,7 @@ const UNSHOWN_UPDATES: Record<SessionUpdate["sessionUpdate"], Body | "shown"> = 
 };
 
 /**
- * Entries the chat doesn't show: session updates it has no item for, and an entry type from a newer service (which
+ * Entries the chat doesn't show: session updates it has no part for, and an entry type from a newer service (which
  * the client's parse drops, but the chat model must ignore too).
  */
 export const UNSHOWN: Body[] = [
@@ -120,20 +120,20 @@ export const inSession = (body: Body, sessionId: string): Body => ({ ...body, se
 /** A known entry type that fails its schema (a user message whose text isn't a string), as a buggy service might store it. */
 export const MALFORMED: Body = { type: "user_message", text: { not: "a string" } } as unknown as Body;
 
-/** An item as [kind, its text or id], to compare item lists by what they show. */
-export const shape = (item: ChatItem): [string, string] => {
-  switch (item.kind) {
+/** A part as [kind, its text or id], to compare part lists by what they show. */
+export const shape = (part: ChatPart): [string, string] => {
+  switch (part.kind) {
     case "user":
     case "agent":
     case "reasoning":
-      return [item.kind, item.text];
+      return [part.kind, part.text];
     case "tool":
-      return [item.kind, item.toolCallId];
+      return [part.kind, part.toolCallId];
     case "permission":
-      return [item.kind, item.requestId];
+      return [part.kind, part.requestId];
     case "turn_end":
-      return [item.kind, item.stopReason];
+      return [part.kind, part.stopReason];
     default:
-      return [item.kind, ""];
+      return [part.kind, ""];
   }
 };
