@@ -1,5 +1,6 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
+import type { Workspace } from "@wombat/shared/api";
 import type { BrowserWindow } from "electron";
 
 const CHOOSE_ANOTHER = "Choose another folder for your items with Choose Items Folder… in the File menu.";
@@ -26,50 +27,51 @@ export const checkItemsFolder = async (folder: string): Promise<void> => {
   if (problem !== undefined) throw new Error(problem);
 };
 
+const UNLISTED =
+  "The service lists no workspace with that id, so there's none to choose an items folder for. Choose it from the workspace's Desk, or with Choose Items Folder… in the File menu.";
+
 export type ChooseItemsFolderDeps = {
-  /** The open workspace; undefined before one is chosen. */
-  workspace: () => string | undefined;
-  itemsRoot: (workspace: string) => string | undefined;
+  /** The workspace as the service lists it now (its items folder is where the picker opens); undefined when it isn't listed. */
+  workspaceOf: (workspace: string) => Promise<Pick<Workspace, "itemsRoot"> | undefined>;
   /** The folder picker, opening at `current`, modal to `parent`; undefined when it's cancelled. */
   pick: (current: string | undefined, parent: BrowserWindow | undefined) => Promise<string | undefined>;
   check?: (folder: string) => Promise<void>;
-  /** Restart Service, running `beforeStop` once the user has agreed and before the stop. False when cancelled. */
-  restartAfter: (beforeStop: () => void) => Promise<boolean>;
-  saveItemsRoot: (workspace: string, folder: string) => void;
+  /** Gives the service `folder` as the workspace's items folder (PUT /workspaces/:ws/items-root). */
+  setItemsRoot: (workspace: string, folder: string) => Promise<unknown>;
   report: (title: string, error: unknown) => void;
-  log?: (line: string) => void;
 };
 
 /**
- * Choose Items Folder…: the picker, the folder check, then Restart Service with the folder saved as the workspace's
- * items root just before the stop. A cancel, a refused folder, a cancelled restart question or a workspace switched
- * meanwhile leaves the setting and the service as they were. Reports its own errors.
+ * Choose Items Folder… for workspace `workspace`: the picker, the folder check, then the service takes the folder at
+ * once (no restart: its agents keep running). No picker opens for a workspace the service doesn't list. A cancel or a
+ * refused folder leaves the items folder as it was. Reports its own errors.
  */
 export const itemsFolderChooser =
-  ({ workspace, itemsRoot, pick, check = checkItemsFolder, restartAfter, saveItemsRoot, report, log = console.warn }: ChooseItemsFolderDeps) =>
-  async (parent: BrowserWindow | undefined): Promise<void> => {
-    const root = workspace();
-    if (root === undefined) {
-      report("Wombat can't choose an items folder yet", new Error("No workspace is open yet; choose one with Switch Workspace, then choose its items folder."));
+  ({ workspaceOf, pick, check = checkItemsFolder, setItemsRoot, report }: ChooseItemsFolderDeps) =>
+  async (workspace: string, parent: BrowserWindow | undefined): Promise<void> => {
+    let listed: Pick<Workspace, "itemsRoot"> | undefined;
+    try {
+      listed = await workspaceOf(workspace);
+    } catch (error) {
+      report("Wombat can't choose an items folder now", error);
+      return;
+    }
+    if (listed === undefined) {
+      report("Wombat can't choose an items folder", new Error(UNLISTED));
       return;
     }
     let folder: string | undefined;
     try {
-      folder = await pick(itemsRoot(root), parent);
+      folder = await pick(listed.itemsRoot, parent);
       if (folder === undefined) return;
       await check(folder);
     } catch (error) {
       report("Wombat can't use that items folder", error);
       return;
     }
-    if (workspace() !== root) {
-      log(`The workspace changed while the items folder was being chosen, so ${folder} wasn't saved. Choose it again for this workspace.`);
-      return;
-    }
-    const chosen = folder;
     try {
-      await restartAfter(() => saveItemsRoot(root, chosen));
+      await setItemsRoot(workspace, folder);
     } catch (error) {
-      report("Wombat couldn't restart the service with the new items folder", error);
+      report("Wombat couldn't change the items folder", error);
     }
   };

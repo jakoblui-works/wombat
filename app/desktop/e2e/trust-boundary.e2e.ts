@@ -2,7 +2,7 @@
 // `global-setup.ts` before every run). Each test launches its own app in its own sandbox
 // (app-fixtures.ts: display-less, `WOMBAT_E2E=1`, temp dirs, fake systemd and fake agents).
 import type { ElectronApplication, Page, Response } from "@playwright/test";
-import { bridgeCommand, bridgeRequest, expect, isAlive, REPO, test, waitForConnection, waitUntil, WAIT_MS, watchZoom, zoomLevel, zoomsHeard, type Sandbox } from "./app-fixtures.ts";
+import { bridgeCommand, bridgeRequest, expect, isAlive, REPO, test, waitForConnection, waitUntil, WAIT_MS, watchZoom, workspaceId, zoomLevel, zoomsHeard, type Sandbox } from "./app-fixtures.ts";
 
 // Everything the preload may expose to the page. Adding a global, a name or a function widens
 // what a page (and anything that gets into it) can reach in the host: each is a deliberate,
@@ -25,8 +25,8 @@ const ALLOWED_BRIDGE_FUNCTIONS: string[] = [
   "service.onAlert",
   "service.onConnection",
   "service.restart",
-  "workspace.get",
-  "workspace.switch",
+  "workspace.add",
+  "workspace.chooseItemsFolder",
   "settings.get",
   "settings.set",
   "onOpenAgent",
@@ -454,9 +454,11 @@ const pageHoldsNoToken = ({ sandbox }: { sandbox: Sandbox }): Promise<void> =>
   await waitForConnection(page, "connected");
   const file = await sandbox.waitForService();
   // Something for the bridge to answer with: an agent with a log.
-  const started = await bridgeRequest(page, "POST", "/agents", { harness: "fake-reply", repo: REPO });
+  const started = await bridgeRequest(page, "POST", "/agents", { workspace: await workspaceId(sandbox), harness: "fake-reply", repo: REPO });
   expect(started, "starting an agent through the bridge failed").toMatchObject({ ok: true, status: 201 });
   const agentId = (started as { body: { id: string } }).body.id;
+  // workspace.add() below runs only right after the user's input to the window.
+  await page.keyboard.press("Shift");
 
   const seen = await page.evaluate(async (id) => {
     const texts: string[] = [];
@@ -489,7 +491,7 @@ const pageHoldsNoToken = ({ sandbox }: { sandbox: Sandbox }): Promise<void> =>
     // Everything the bridge answers or sends.
     type Bridge = {
       settings: { get: () => Promise<unknown> };
-      workspace: { get: () => Promise<unknown> };
+      workspace: { add: () => Promise<unknown> };
       service: {
         request: (method: string, path: string) => Promise<unknown>;
         onConnection: (cb: (state: unknown) => void) => unknown;
@@ -498,7 +500,8 @@ const pageHoldsNoToken = ({ sandbox }: { sandbox: Sandbox }): Promise<void> =>
     const bridge = (window as unknown as { wombat: Bridge }).wombat;
     const calls: (() => Promise<unknown>)[] = [
       () => bridge.settings.get(),
-      () => bridge.workspace.get(),
+      // The picker answers the sandbox's workspace (WOMBAT_E2E_WORKSPACE), already listed: its id comes back.
+      () => bridge.workspace.add(),
       () => bridge.service.request("GET", "/version"),
       () => bridge.service.request("GET", "/agents"),
       () => bridge.service.request("GET", "/harnesses"),

@@ -1,7 +1,7 @@
-// A stand-in for the agent service that `node` runs in the main process's unit tests: it writes a discovery file for
-// WOMBAT_WORKSPACE, answers GET /version to its token, and on POST /shutdown removes the file, answers 202 and
-// exits FAKE_EXIT_DELAY_MS later (a real service still closes its store then). Each start appends
-// `{ pid, workspace, items }` to FAKE_SERVICE_RECORD, so a test can tell which services ran and kill them after.
+// A stand-in for the agent service that `node` runs in the main process's unit tests: it writes a discovery file,
+// answers GET /version to its token, and on POST /shutdown removes the file, answers 202 and exits
+// FAKE_EXIT_DELAY_MS later (a real service still closes its store then). Each start appends `{ pid }` to
+// FAKE_SERVICE_RECORD, so a test can tell which services ran and kill them after.
 //
 //   FAKE_START_DELAY_MS  how long it waits before listening and writing the discovery file
 //   FAKE_EXIT_DELAY_MS   how long it lives on after answering POST /shutdown
@@ -10,7 +10,7 @@ import { appendFileSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { API_VERSION, SERVICE_ENV } from "@wombat/shared";
+import { API_VERSION } from "@wombat/shared";
 import { discoveryPath, readDiscovery } from "@wombat/shared/discovery";
 import { writePrivateFile } from "@wombat/shared/private-file";
 
@@ -20,7 +20,7 @@ const token = randomBytes(16).toString("hex");
 const apiVersion = API_VERSION;
 const record = env["FAKE_SERVICE_RECORD"];
 if (record !== undefined) {
-  appendFileSync(record, `${JSON.stringify({ pid: process.pid, workspace: env[SERVICE_ENV.workspace], items: env[SERVICE_ENV.items] ?? null })}\n`);
+  appendFileSync(record, `${JSON.stringify({ pid: process.pid })}\n`);
 }
 // Never outlives a test that forgot it.
 setTimeout(() => process.exit(0), 60_000).unref();
@@ -41,5 +41,5 @@ const server = createServer((req, res) => {
 await new Promise((resolve) => setTimeout(resolve, Number(env["FAKE_START_DELAY_MS"] ?? "0")));
 server.listen(0, "127.0.0.1", () => {
   const { port } = server.address() as AddressInfo;
-  writePrivateFile(file, JSON.stringify({ apiVersion, port, pid: process.pid, token, workspace: env[SERVICE_ENV.workspace] }));
+  writePrivateFile(file, JSON.stringify({ apiVersion, port, pid: process.pid, token }));
 });

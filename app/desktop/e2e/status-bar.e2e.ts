@@ -12,7 +12,7 @@ const STALE_ITEM = /older than the app/;
 test("a stale service left running before the app started is announced at launch, and the status bar calls it older than the app", async ({ sandbox }) => {
   test.setTimeout(60_000);
   const copy = appCopy(sandbox);
-  await sandbox.startService(sandbox.workspace, {}, copy.entry);
+  await sandbox.startService(sandbox.workspace, { entry: copy.entry });
   copy.changeServiceCode();
 
   const { page } = await sandbox.launch({ env: { [SWITCH.serviceEntry]: copy.entry } });

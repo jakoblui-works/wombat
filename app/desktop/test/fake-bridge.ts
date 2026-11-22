@@ -18,7 +18,7 @@ import { summary } from "./summaries.ts";
 
 export type FakeRequest = { method: string; path: string };
 
-/** The one workspace GET /workspaces lists, whose root `workspace.get` answers. */
+/** The one workspace GET /workspaces lists. */
 export const FAKE_WORKSPACE = { id: "ws-fake000001", name: "bakery", root: "/fake/bakery", missing: false };
 
 export type FakeService = {
@@ -155,7 +155,7 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
       },
       restart: notImplemented("restart"),
     },
-    workspace: { get: () => Promise.resolve({ root: FAKE_WORKSPACE.root }), switch: notImplemented("workspace.switch") },
+    workspace: { add: notImplemented("workspace.add"), chooseItemsFolder: notImplemented("workspace.chooseItemsFolder") },
     settings: { get: notImplemented("settings.get"), set: notImplemented("settings.set") },
     onOpenAgent: () => () => undefined,
   };

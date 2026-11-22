@@ -1,5 +1,5 @@
 import { APP_ORIGIN } from "@wombat/shared";
-import { BODY_OVER_CAP_MESSAGE, type AgentSummary } from "@wombat/shared/api";
+import { type AddWorkspaceRequest, BODY_OVER_CAP_MESSAGE, ErrorBody, type AgentSummary, type Workspace } from "@wombat/shared/api";
 import type { DiscoveryFile } from "@wombat/shared/discovery";
 import { appRoute, MAX_BODY_BYTES, requestTo, ROUTES } from "@wombat/shared/routes";
 import type { ServiceAnswer } from "../shared/bridge.ts";
@@ -35,6 +35,42 @@ export const listAgents = async (file: DiscoveryFile): Promise<AgentSummary[]> =
     throw new Error(`The service answered ${route.method} ${route.pattern} with HTTP ${String(response.status)}.`);
   }
   return route.response.parse(await response.json()).agents;
+};
+
+/** Adding a workspace or changing its items folder opens its items (and loads adopted agents) before the answer. */
+const WORKSPACE_TIMEOUT_MS = 60_000;
+
+/** The service's own message from an error answer, or the status when it sent none. */
+const refusal = async (response: Response, what: string): Promise<Error> => {
+  const parsed = ErrorBody.safeParse(await response.json().catch(() => undefined));
+  return new Error(parsed.success ? parsed.data.error.message : `The service answered ${what} with HTTP ${String(response.status)}; try again.`);
+};
+
+/** The service's workspaces (GET /workspaces), for main's own use. */
+export const listWorkspaces = async (file: DiscoveryFile): Promise<Workspace[]> => {
+  const route = ROUTES.listWorkspaces;
+  const response = await callService(file, requestTo(route), { timeoutMs: LIST_TIMEOUT_MS });
+  if (response.status !== 200) throw await refusal(response, `${route.method} ${route.pattern}`);
+  return route.response.parse(await response.json()).workspaces;
+};
+
+/**
+ * Adds a workspace (POST /workspaces, main-only): `root` and `itemsRoot` come only from the folder picker or the app's
+ * own settings. Answers the listed workspace (the same one for a root already listed); rejects with the service's message.
+ */
+export const addWorkspace = async (file: DiscoveryFile, body: AddWorkspaceRequest): Promise<Workspace> => {
+  const route = ROUTES.addWorkspace;
+  const response = await callService(file, requestTo(route), { body, timeoutMs: WORKSPACE_TIMEOUT_MS });
+  if (response.status !== 200) throw await refusal(response, `${route.method} ${route.pattern}`);
+  return route.response.parse(await response.json());
+};
+
+/** Sets a workspace's items folder (PUT /workspaces/:ws/items-root, main-only); rejects with the service's message. */
+export const setItemsRoot = async (file: DiscoveryFile, ws: string, itemsRoot: string): Promise<Workspace> => {
+  const route = ROUTES.setItemsRoot;
+  const response = await callService(file, requestTo(route, { ws }), { body: { itemsRoot }, timeoutMs: WORKSPACE_TIMEOUT_MS });
+  if (response.status !== 200) throw await refusal(response, `${route.method} ${route.pattern}`);
+  return route.response.parse(await response.json());
 };
 
 /** Stopping an agent waits for it to exit, which can take a while. */

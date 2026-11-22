@@ -1,7 +1,9 @@
-// The saved layout, against the built app. Every launch runs in its own sandbox (app-fixtures.ts): temp profile,
+// The saved layout, against the built app; main holds it while the app runs (settings.json version 2 has none). Every launch runs in its own sandbox (app-fixtures.ts): temp profile,
 // runtime and state dirs, fake systemd, fake agents. Tabs open the way a notification click opens them (main sends
 // CHANNELS.openAgent, once); the split is a tab dragged to the right edge of its group, as the user would make it.
-import { click, expect, type GroupView, layoutOf, openAgent, type Sandbox, sendOpenAgent, startAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import type { Page } from "@playwright/test";
+
+import { click, expect, type GroupView, layoutOf, openAgent, sendOpenAgent, startAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 
 /** Every leaf (group) in a saved dockview grid, read loosely: the test checks the app's file, not its types. */
 const savedGroups = (layout: unknown): unknown[] => {
@@ -13,13 +15,14 @@ const savedGroups = (layout: unknown): unknown[] => {
   return walk((layout as { dockview?: { grid?: { root?: unknown } } } | undefined)?.dockview?.grid?.root);
 };
 
-const savedLayout = (sandbox: Sandbox, workspace: string): unknown =>
-  (sandbox.readSettings()?.["workspaces"] as Record<string, { layout?: unknown }> | undefined)?.[workspace]?.layout;
+/** The layout main holds for the page (settings.get): it lasts while the app runs. */
+const savedLayout = (page: Page): Promise<unknown> =>
+  page.evaluate(() => (window as unknown as { wombat: { settings: { get: () => Promise<{ layout?: unknown }> } } }).wombat.settings.get().then(({ layout }) => layout));
 
 test.describe("saved layout", () => {
-  test("split, open two tabs, add an empty group, restart: the same layout returns, the empty group included", async ({ sandbox }) => {
+  test("split, open two tabs, add an empty group, reload the page: the same layout returns, the empty group included", async ({ sandbox }) => {
     test.setTimeout(90_000);
-    // Leave the agents running at quit, so the second start finds them and keeps their tabs.
+    // Leave the agents running at quit.
     const env = { [SWITCH.quitAnswer]: "leave" };
     // The service and its agents run before the app starts, so the first open is sent as soon as the window exists:
     // before the page has subscribed (the preload holds it) and before the layout restore (the page queues it).
@@ -48,20 +51,18 @@ test.describe("saved layout", () => {
     });
     const before = await layoutOf(first.page);
 
-    // The split, the empty group and both chats are saved for this workspace before the app quits.
-    await waitUntil("the split layout in settings.json", WAIT_MS, () => {
-      const layout = savedLayout(sandbox, sandbox.workspace);
+    // The split, the empty group and both chats are saved before the page reloads.
+    await waitUntil("the split layout saved", WAIT_MS, async () => {
+      const layout = await savedLayout(first.page);
       const text = JSON.stringify(layout ?? null);
       return savedGroups(layout).length === 3 && agents.every((id) => text.includes(id)) ? true : undefined;
     });
-    await first.quit();
-    await first.exited();
-
-    const second = await sandbox.launch({ env, workspaceAnswer: null });
-    await waitForConnection(second.page, "connected");
+    expect(sandbox.readSettings()?.["layout"], "the layout was written to settings.json").toBeUndefined();
+    await first.page.reload();
+    await waitForConnection(first.page, "connected");
     let after: GroupView[] = [];
     await waitUntil("the saved layout to come back", WAIT_MS, async () => {
-      after = await layoutOf(second.page);
+      after = await layoutOf(first.page);
       return JSON.stringify(after) === JSON.stringify(before) ? true : undefined;
     }).catch(() => undefined);
     expect(after, "the layout after the restart").toEqual(before);

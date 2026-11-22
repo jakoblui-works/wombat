@@ -32,7 +32,7 @@ const rememberedAnswer = ({ askOnQuit, quitAnswer }: Settings): Settings["quitAn
 export type QuitDeps = {
   settings: () => Settings;
   updateSettings: (change: (current: Settings) => Settings) => void;
-  /** Settles once the workspace control's queue has (a start or switch in progress finished). */
+  /** Settles once the workspace control's queue has (a start or settings upgrade in progress finished). */
   idle: () => Promise<void>;
   /** The service's agents; undefined when no service runs; rejects when a service may run but can't be read. */
   agents: () => Promise<AgentSummary[] | undefined>;
@@ -53,8 +53,8 @@ export type QuitDeps = {
  * says; false for Cancel. Rejects (no quit) when the stop fails.
  */
 export const decideQuit = async ({ settings, updateSettings, idle, agents, ask, stop, notifyKept, log = console.warn }: QuitDeps): Promise<boolean> => {
-  // A quit mid-switch would otherwise leave the old service stopped and the new one never started. Each queued
-  // operation has its own time limits, so this wait ends.
+  // A quit mid-start would otherwise look at no service while one is coming up. Each queued operation has its own
+  // time limits, so this wait ends.
   await idle();
   const running = await runningCount(agents, log);
   if (running === 0) {
@@ -66,7 +66,7 @@ export const decideQuit = async ({ settings, updateSettings, idle, agents, ask, 
   const remembered = rememberedAnswer(settings());
   const { answer, dontAsk } = remembered === undefined ? await ask(running) : { answer: remembered, dontAsk: false };
   if (answer === "cancel") return false;
-  // A switch asked for while the question was open would otherwise be cut off, as above.
+  // A start asked for while the question was open would otherwise be cut off, as above.
   await idle();
   if (answer === "stop") await stop();
   // Only once the answer has been carried out: a stop that failed leaves the question on.
@@ -97,7 +97,7 @@ export const stopIfConfirmed = async ({ agents, confirm, stop, log = console.war
 };
 
 export type RestartDeps = StopDeps & {
-  /** Starts the service for the saved workspace from the code on disk (none runs by then), and connects to it. */
+  /** Starts the service from the code on disk (none runs by then), and connects to it. */
   start: () => Promise<void>;
   /** Not read: Restart is the same in every state. Kept so callers that still pass it compile. */
   incompatible?: () => boolean;

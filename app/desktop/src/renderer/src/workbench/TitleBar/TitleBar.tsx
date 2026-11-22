@@ -1,10 +1,10 @@
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { lastPathPart } from "@/lib/path";
 import { openedByPointer as byPointer } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarSeparator, MenubarShortcut, MenubarTrigger } from "@/components/ui/menubar";
+import { shownWorkspaceOf } from "../../data/query-client.ts";
 import { runLogged } from "../commands/registry.ts";
 import { type MenuModel, MENUS, menuItems } from "./menus.ts";
 import { WombatSymbol } from "../EmptyState/WombatSymbol.tsx";
@@ -43,14 +43,24 @@ export const TitleBar = ({
   onToggleRight: () => void;
 }) => {
   const [workspace, setWorkspace] = useState<string>();
+  // Read from the service once it's connected, again on each connect after, and whenever the workspace list changes.
   useEffect(() => {
     let live = true;
-    window.wombat.workspace.get().then(
-      ({ root }) => live && setWorkspace(lastPathPart(root)),
-      () => undefined,
-    );
+    const read = () =>
+      shownWorkspaceOf().then(
+        ({ name }) => live && setWorkspace(name),
+        () => undefined,
+      );
+    const offConnection = window.wombat.service.onConnection(({ state }) => {
+      if (state === "connected") void read();
+    });
+    const offAlert = window.wombat.service.onAlert(({ type }) => {
+      if (type === "workspaces") void read();
+    });
     return () => {
       live = false;
+      offConnection();
+      offAlert();
     };
   }, []);
   // Edit commands (cut, paste, select all) act on the focused element, and opening a menu moves focus into the menubar.

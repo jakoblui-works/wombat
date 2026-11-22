@@ -44,8 +44,8 @@ const bridge: WombatBridge = {
     restart: () => invoke(CHANNELS.restart),
   },
   workspace: {
-    get: () => invoke(CHANNELS.workspaceGet),
-    switch: () => invoke(CHANNELS.workspaceSwitch),
+    add: () => invoke(CHANNELS.workspaceAdd),
+    chooseItemsFolder: (id) => invoke(CHANNELS.workspaceChooseItemsFolder, id),
   },
   settings: {
     get: () => invoke(CHANNELS.settingsGet),

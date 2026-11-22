@@ -2,7 +2,7 @@
 import { type FetchQueryOptions, hashKey, QueryClient, type QueryKey, queryOptions } from "@tanstack/react-query";
 import { z } from "zod";
 
-import { parseLogEntry } from "@wombat/shared/api";
+import { parseLogEntry, type Workspace } from "@wombat/shared/api";
 import type { FoldEntry } from "@wombat/shared/log-fold";
 import { ROUTES } from "@wombat/shared/routes";
 import { bySeq } from "./by-seq.ts";
@@ -27,14 +27,15 @@ export const createQueryClient = (): QueryClient =>
 
 const readAgents = () => callRoute(ROUTES.listAgents);
 const readHarnesses = () => callRoute(ROUTES.listHarnesses);
-/** The id of the workspace the page shows: the listed one whose root main opened. */
-export const shownWorkspace = async (): Promise<string> => {
-  const { root } = await window.wombat.workspace.get();
+/** The workspace the page shows: the first the service lists (until the page holds a shown workspace of its own). */
+export const shownWorkspaceOf = async (): Promise<Workspace> => {
   const { workspaces } = await callRoute(ROUTES.listWorkspaces);
-  const shown = workspaces.find((workspace) => workspace.root === root);
-  if (shown === undefined) throw new Error(`The service doesn't list the workspace ${root}. Run Restart Service from the command palette (the service adds its workspace when it starts), then try again.`);
-  return shown.id;
+  const [shown] = workspaces;
+  if (shown === undefined) throw new Error("The service lists no workspace yet. Add a folder with Switch Workspace… in the File menu, then try again.");
+  return shown;
 };
+/** The id of the workspace the page shows (shownWorkspaceOf). */
+export const shownWorkspace = async (): Promise<string> => (await shownWorkspaceOf()).id;
 /** The folders an agent may start in, and the id of their workspace. */
 const readRepos = async () => {
   const ws = await shownWorkspace();

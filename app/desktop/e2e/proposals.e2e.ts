@@ -144,7 +144,7 @@ test("text typed on a proposal's right side is saved as my draft, and Approve wr
   expect(await violations(page), "CSP violations with the editable diff").toEqual([]);
 });
 
-// An item proposal in its tab, on an items root (WOMBAT_ITEMS) with one `bugs` binder open to proposals: each
+// An item proposal in its tab, on an items root (the workspace's items folder) with one `bugs` binder open to proposals: each
 // field the proposal changes is a `group` named by the field, with a "Drop" button; Approve writes only the fields I kept.
 // Its row in Needs me reveals the item's row in the Desk sidebar (`complementary` "Desk", the row a `treeitem` named by
 // the item's title inside the row's element): that element is highlighted (`data-revealed`) and holds the focus.
@@ -158,7 +158,7 @@ test("a Needs me click on an item update highlights its row in the Desk; droppin
   );
   const file = path.join(items, "bugs", "basket-coupon.md");
   writeFileSync(file, `---\nid: ${bug.id}\nhandle: ${bug.handle}\nstatus: open\n---\n# ${bug.title}\n\nThe coupon shows but the total stays the same.\n`);
-  await sandbox.startService(sandbox.workspace, { WOMBAT_ITEMS: items });
+  await sandbox.startService(sandbox.workspace, { itemsRoot: items });
 
   type ItemRead = { body: string | null; properties: Record<string, unknown>; version: string };
   const item = async (): Promise<ItemRead> => (await sandbox.api("GET", await itemPath(sandbox, bug.handle))).json as ItemRead;
@@ -212,7 +212,7 @@ test("in the Desk's list, Approve on a proposed create writes its item's file, a
   const water = { title: "Water the tomatoes", file: path.join(folder, "CH-1.md") };
   const waterBytes = "---\nid: 0196f3c2-1b00-7000-8000-00000000c001\nhandle: CH-1\nstage: todo\n---\n# Water the tomatoes\n\nEvery other evening.\n";
   writeFileSync(water.file, waterBytes);
-  await sandbox.startService(sandbox.workspace, { WOMBAT_ITEMS: items });
+  await sandbox.startService(sandbox.workspace, { itemsRoot: items });
 
   const agentId = await startAgent(sandbox, "fake-call-tool");
   const proposeItem = async (tool: string, args: Record<string, unknown>): Promise<string> => {
@@ -268,7 +268,7 @@ test("a wheel past the end of the Desk's list scrolls nothing around it", async 
     const n = i + 1;
     writeFileSync(path.join(folder, `RO-${String(n)}.md`), `---\nid: 0196f3c2-1c00-7000-8000-${n.toString(16).padStart(12, "0")}\nhandle: RO-${String(n)}\n---\n# ${title}\n\nCheck the runbook first.\n`);
   }
-  await sandbox.startService(sandbox.workspace, { WOMBAT_ITEMS: items });
+  await sandbox.startService(sandbox.workspace, { itemsRoot: items });
 
   const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
   const problems: string[] = [];

@@ -50,7 +50,16 @@ const HEADLESS_ARGS = ["--ozone-platform=headless"];
 // desktop notifications and shell.showItemInFolder can't reach the desktop.
 const DROPPED_ENV = /^(DISPLAY|WAYLAND_.*|XAUTHORITY|ELECTRON_OZONE_PLATFORM_HINT|ELECTRON_RUN_AS_NODE|DBUS_SESSION_BUS_ADDRESS|HOME|PATH|XDG_.*|WOMBAT_.*|ANTHROPIC_.*|CLAUDE.*|NODE_OPTIONS|ASDF_.*|SSH_AUTH_SOCK|GIT_.*)$/;
 
-export type Discovery = { apiVersion: number; port: number; pid: number; token: string; workspace?: string };
+export type Discovery = { apiVersion: number; port: number; pid: number; token: string };
+
+export type StartServiceOptions = {
+  /** More env for the service. */
+  env?: Record<string, string>;
+  /** The service's entry (default the sandbox's): another checkout's (see app-copy.ts). */
+  entry?: string;
+  /** The workspace's items folder, given when the workspace is added. */
+  itemsRoot?: string;
+};
 
 export type LaunchOptions = {
   /** XDG_CONFIG_HOME for this app (default the sandbox's first profile); see `Sandbox.newProfile`. */
@@ -101,10 +110,10 @@ export type Sandbox = {
   readSettings: (profile?: string) => Record<string, unknown> | undefined;
   launch: (options?: LaunchOptions) => Promise<LaunchedApp>;
   /**
-   * Starts a service directly (as one left running from before), for `workspace`; resolves once it's found. `entry`
-   * (default the sandbox's service entry) runs it from another checkout (see app-copy.ts).
+   * Starts a service directly (as one left running from before) and adds `workspace` to it, as the app would through
+   * its main-only route; resolves once both are done.
    */
-  startService: (workspace: string, env?: Record<string, string>, entry?: string) => Promise<Discovery>;
+  startService: (workspace: string, options?: StartServiceOptions) => Promise<Discovery>;
   /** The discovery file's content, raw (so fields the shared schema doesn't know yet are kept); undefined when absent. */
   discovery: () => Discovery | undefined;
   /** Waits for a discovery file whose service is alive and answers /version with its token, and that passes `check`. */
@@ -363,15 +372,18 @@ const createSandbox = (systemdOptions: SandboxOptions): { sandbox: Sandbox; tear
     return launched;
   };
 
-  const startService: Sandbox["startService"] = async (forWorkspace, extra = {}, entry = serviceEntry()) => {
+  const startService: Sandbox["startService"] = async (forWorkspace, { env: extra = {}, entry = serviceEntry(), itemsRoot } = {}) => {
     const log = openSync(path.join(root, `direct-service-${String(directServices.length)}.log`), "a", 0o600);
     const child = spawn(process.execPath, [entry], {
-      env: env({ WOMBAT_WORKSPACE: forWorkspace, ...extra }),
+      env: env(extra),
       detached: true,
       stdio: ["ignore", log, log],
     });
     directServices.push(child);
-    return waitForService((file) => file.pid === child.pid);
+    const file = await waitForService((found) => found.pid === child.pid);
+    const added = await api("POST", "/workspaces", { root: forWorkspace, ...(itemsRoot === undefined ? {} : { itemsRoot }) });
+    if (added.status !== 200) throw new Error(`adding the workspace ${forWorkspace} failed: ${JSON.stringify(added.json)}`);
+    return file;
   };
 
   const sandbox: Sandbox = {
@@ -628,9 +640,16 @@ export const bridgeRequest = (
     [method, pathname, body] as const,
   );
 
-/** Starts a fake agent through the test's own client and returns its id. */
+/** The id of the workspace the service lists at `root` (default the sandbox's), once it lists it. */
+export const workspaceId = (sandbox: Sandbox, root = sandbox.workspace): Promise<string> =>
+  until(`the service to list the workspace ${root}`, WAIT_MS, async () => {
+    const listed = await sandbox.api("GET", "/workspaces");
+    return (listed.json as { workspaces?: { id: string; root: string }[] } | undefined)?.workspaces?.find((workspace) => workspace.root === root)?.id;
+  });
+
+/** Starts a fake agent in the sandbox's workspace through the test's own client and returns its id. */
 export const startAgent = async (sandbox: Sandbox, harness: "fake-reply" | "fake-permission" | "fake-hang" | "fake-hostile" | "fake-call-tool"): Promise<string> => {
-  const started = await sandbox.api("POST", "/agents", { harness, repo: REPO });
+  const started = await sandbox.api("POST", "/agents", { workspace: await workspaceId(sandbox), harness, repo: REPO });
   expect(started.status, `start ${harness}: ${JSON.stringify(started.json)}`).toBe(201);
   return (started.json as { id: string }).id;
 };

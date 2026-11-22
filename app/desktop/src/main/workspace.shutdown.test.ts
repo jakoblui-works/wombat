@@ -20,7 +20,6 @@ const control = (sandbox: ServiceSandbox) =>
     settingsFile: sandbox.settingsFile,
     serviceEntry: "/nonexistent/entry.ts",
     chooseFolder: () => Promise.reject(new Error("the folder dialog wasn't expected")),
-    confirmRestart: () => Promise.reject(new Error("the restart box wasn't expected")),
     log: () => undefined,
   });
 

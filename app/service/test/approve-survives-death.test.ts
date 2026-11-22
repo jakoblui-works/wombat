@@ -72,8 +72,6 @@ const place = () => {
       PATH: systemd.binDir,
       HOME: home,
       XDG_RUNTIME_DIR: runtimeDir,
-      WOMBAT_WORKSPACE: workspace,
-      WOMBAT_ITEMS: itemsRoot,
       WOMBAT_STORE: storePath,
       WOMBAT_PORT: "0",
       FAKE_AGENT_PID_DIR: pidDir,

@@ -16,7 +16,6 @@ const unanswering = (processStart?: string): DiscoveryFile => ({
   port: 1,
   pid: process.pid,
   token: "answering-token-0123456789",
-  workspace: "/workspaces/bakery",
   ...(processStart === undefined ? {} : { processStart }),
 });
 

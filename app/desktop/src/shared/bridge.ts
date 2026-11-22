@@ -20,13 +20,11 @@ export type ConnectionState = {
 export type ServiceAnswer = { status: number; body: unknown };
 
 /**
- * The settings the page reads and writes; `layout` is the current workspace's. Main's patch schema must match it
+ * The settings the page reads and writes. Only `askOnQuit` is saved; main holds `lastAgentFolder` and `layout` while it
+ * runs (a reloaded page gets them back), and they're gone at the next start. Main's patch schema must match it
  * (RENDERER_PATCH_MATCHES in main/settings.ts fails to compile otherwise).
  */
 export type RendererSettings = { askOnQuit: boolean; lastAgentFolder?: string; layout?: unknown };
-
-/** The workspace root. Its repos are the service's to list (GET /repos). */
-export type WorkspaceInfo = { root: string };
 
 export type Unsubscribe = () => void;
 
@@ -71,20 +69,22 @@ export type WombatBridge = {
     onConnection: (cb: (state: ConnectionState) => void) => Unsubscribe;
     /**
      * Whatever the connection's state: when agents have a process, asks "Stop the service and its N agents?" first (Cancel leaves
-     * everything as it is); then stops the running service, if any, and starts one from the code on disk for the
-     * workspace (a running service for another workspace is stopped too), then connects to it.
-     * Settles once the service is connected, incompatible or failed (or the question was cancelled).
+     * everything as it is); then stops the running service, if any, and starts one from the code on disk, then
+     * connects to it. Settles once the service is connected, incompatible or failed (or the question was cancelled).
      */
     restart: () => Promise<void>;
   };
   readonly workspace: {
-    get: () => Promise<WorkspaceInfo>;
     /**
-     * Opens the folder picker, then switches the service to the chosen workspace, asking first when that stops a
-     * running service ("Restart the service for <workspace>?"; Cancel changes nothing). A switch that goes ahead
-     * reloads the page, so it reads the new workspace's settings and layout afresh.
+     * Opens the folder picker and adds the chosen folder to the service's workspaces (one already listed stays as it
+     * is). Answers the workspace's id, or undefined when the picker was cancelled. The page never sends a path.
      */
-    switch: () => Promise<void>;
+    add: () => Promise<string | undefined>;
+    /**
+     * Opens the folder picker for workspace `id`'s items folder and gives the service the chosen folder; the service
+     * reads it at once, without a restart. Settles with nothing when the picker was cancelled.
+     */
+    chooseItemsFolder: (id: string) => Promise<void>;
   };
   readonly settings: {
     get: () => Promise<RendererSettings>;
@@ -106,8 +106,8 @@ export const CHANNELS = {
   alert: "wombat:service:alert",
   connection: "wombat:service:connection",
   connectionNow: "wombat:service:connection-now",
-  workspaceGet: "wombat:workspace:get",
-  workspaceSwitch: "wombat:workspace:switch",
+  workspaceAdd: "wombat:workspace:add",
+  workspaceChooseItemsFolder: "wombat:workspace:choose-items-folder",
   settingsGet: "wombat:settings:get",
   settingsSet: "wombat:settings:set",
   openAgent: "wombat:open-agent",

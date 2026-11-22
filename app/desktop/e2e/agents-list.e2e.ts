@@ -52,7 +52,11 @@ test.describe("Agents sidebar and New agent", () => {
     });
     const listed = (await sandbox.api("GET", "/agents")).json as { agents: { id: string; repo: string; harness: string }[] };
     expect(listed.agents[0]?.repo).toBe(REPO);
-    await waitUntil("lastAgentFolder in settings.json", WAIT_MS, () => (sandbox.readSettings()?.["lastAgentFolder"] === REPO ? true : undefined));
+    // Held by main while the app runs (settings.json version 2 holds no folder).
+    const lastFolder = () =>
+      page.evaluate(() => (window as unknown as { wombat: { settings: { get: () => Promise<{ lastAgentFolder?: string }> } } }).wombat.settings.get().then((read) => read.lastAgentFolder));
+    await waitUntil("lastAgentFolder in the page's settings", WAIT_MS, async () => ((await lastFolder()) === REPO ? true : undefined));
+    expect(sandbox.readSettings()?.["lastAgentFolder"], "lastAgentFolder was written to settings.json").toBeUndefined();
 
     // The start opened its chat; the agent's row ends in the Done group.
     const done = sidebar.getByRole("region", { name: AGENT_STATES.done.label, exact: true });

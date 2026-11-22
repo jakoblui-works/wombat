@@ -88,7 +88,22 @@ export type RequestOptions = {
   host?: string | null;
 };
 
-/** The id of the one workspace a service lists: the one its WOMBAT_WORKSPACE added. */
+/**
+ * Adds `root` (with `itemsRoot` as its items folder, when given) as the app's main process does, through
+ * POST /workspaces with the service's token; answers the workspace's id. The route opens its items before it answers.
+ */
+export const addWorkspace = async (
+  api: (method: string, path: string, body?: unknown) => Promise<Response>,
+  root: string,
+  itemsRoot?: string,
+): Promise<string> => {
+  const added = await api("POST", "/workspaces", { root, ...(itemsRoot === undefined ? {} : { itemsRoot }) });
+  const id = (added.json as { id?: unknown } | undefined)?.id;
+  if (added.status >= 300 || typeof id !== "string") throw new Error(`adding the workspace ${root} failed (${String(added.status)}): ${added.text}`);
+  return id;
+};
+
+/** The id of the one workspace a service lists: the one the test added. */
 export const onlyWorkspace = async (api: (method: string, path: string) => Promise<Response>): Promise<string> => {
   const listed = await api("GET", "/workspaces");
   const workspaces = (listed.json as { workspaces?: { id: string }[] } | undefined)?.workspaces ?? [];

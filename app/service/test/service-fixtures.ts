@@ -14,7 +14,7 @@ import { expect, onTestFinished } from "vitest";
 import { fakeSystemd } from "./fake-systemd.ts";
 import { writeAt } from "./items-fixtures.ts";
 import { REPO, SERVICE_SLICE, WAIT_MS, waitFor } from "./manager-fixtures.ts";
-import { APP_ORIGIN, onlyWorkspace, rawRequest, type Response } from "./server-fixtures.ts";
+import { addWorkspace, APP_ORIGIN, onlyWorkspace, rawRequest, type Response } from "./server-fixtures.ts";
 
 const SERVICE_DIR = join(import.meta.dirname, "..");
 const ENTRY = join(import.meta.dirname, "instructions-entry.ts");
@@ -28,7 +28,7 @@ export const ITEMS_DIR = join("platform-docs", "items");
 
 export type RunningService = {
   workspace: string;
-  /** Undefined when the service runs without WOMBAT_ITEMS. */
+  /** Undefined when the workspace has no items folder. */
   itemsRoot: string | undefined;
   /** `<workspace>/.wombat/AGENTS.md` */
   instructionsPath: string;
@@ -39,18 +39,23 @@ export type RunningService = {
 };
 
 export type ServiceOptions = {
-  /** Item files written under the items root before start; undefined runs the service without WOMBAT_ITEMS. */
+  /** Item files written under the items root before start; undefined adds the workspace without an items folder. */
   items?: Record<string, string>;
   /** Files written relative to the workspace before start (a stale instructions file, say). */
   workspaceFiles?: Record<string, string>;
   /** The script that runs `main()`; default instructions-entry.ts. */
   entry?: string;
-  /** More variables for the service's environment. */
-  env?: NodeJS.ProcessEnv;
+  /** More variables for the service's environment, given the test's folders. */
+  env?: (at: { workspace: string; itemsRoot: string | undefined }) => NodeJS.ProcessEnv;
+  /** False leaves the workspace unlisted, for the test to add (with `addWorkspace`); default true. */
+  add?: boolean;
 };
 
-/** Starts the service on a fresh workspace and waits for its discovery file; everything is stopped afterwards. */
-export const startService = async ({ items, workspaceFiles = {}, entry = ENTRY, env: extraEnv = {} }: ServiceOptions = {}): Promise<RunningService> => {
+/**
+ * Starts the service, waits for its discovery file and adds a fresh workspace as the app's main process does (POST
+ * /workspaces); everything is stopped afterwards.
+ */
+export const startService = async ({ items, workspaceFiles = {}, entry = ENTRY, env: extraEnv, add = true }: ServiceOptions = {}): Promise<RunningService> => {
   const base = mkdtempSync(join(tmpdir(), "wombat-instructions-"));
   const workspace = join(base, "workspace");
   const runtimeDir = join(base, "run");
@@ -74,13 +79,11 @@ export const startService = async ({ items, workspaceFiles = {}, entry = ENTRY, 
     PATH: systemd.binDir,
     HOME: home,
     XDG_RUNTIME_DIR: runtimeDir,
-    WOMBAT_WORKSPACE: workspace,
     WOMBAT_STORE: join(base, "state", "service.db"),
     WOMBAT_PORT: "0",
     FAKE_AGENT_PID_DIR: pidDir,
     WOMBAT_TEST_SLICE: slice,
-    ...(itemsRoot === undefined ? {} : { WOMBAT_ITEMS: itemsRoot }),
-    ...extraEnv,
+    ...extraEnv?.({ workspace, itemsRoot }),
   };
   const child: ChildProcess = spawn(process.execPath, [entry], { cwd: SERVICE_DIR, env, stdio: ["ignore", "pipe", "pipe"] });
   let stderr = "";
@@ -110,14 +113,16 @@ export const startService = async ({ items, workspaceFiles = {}, entry = ENTRY, 
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   const file = DiscoveryFile.parse(JSON.parse(readFileSync(discoveryPath, "utf8")));
+  const api: RunningService["api"] = (method, path, body) =>
+    rawRequest(file.port, { method, path, body, headers: { authorization: `Bearer ${file.token}`, origin: APP_ORIGIN } });
+  if (add) await addWorkspace(api, workspace, itemsRoot);
   return {
     workspace,
     itemsRoot,
     instructionsPath: join(workspace, ".wombat", "AGENTS.md"),
     file,
     stderr: () => stderr,
-    api: (method, path, body) =>
-      rawRequest(file.port, { method, path, body, headers: { authorization: `Bearer ${file.token}`, origin: APP_ORIGIN } }),
+    api,
   };
 };
 

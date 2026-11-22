@@ -64,6 +64,11 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
       case "items":
         refreshItems(queryClient);
         break;
+      // A workspace added, or its items folder changed: what the shown workspace lists may have changed with it.
+      case "workspaces":
+        void refresh(queryClient, keys.repos);
+        refreshItems(queryClient);
+        break;
     }
   };
 

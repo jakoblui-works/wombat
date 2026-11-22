@@ -7,7 +7,7 @@ import { errorCode } from "@wombat/shared/errno";
 import { startTimeOf } from "@wombat/shared/process-stat";
 
 import { createManager, type Manager } from "./agents/manager.ts";
-import { readConfig, type Config } from "./config.ts";
+import { readConfig } from "./config.ts";
 import { newToken, removeDiscovery, writeDiscovery } from "./discovery.ts";
 import type { Harness } from "./harness/harness.ts";
 import { defaultHarnesses } from "./harness/registry.ts";
@@ -86,19 +86,6 @@ const probePort = (port: number) =>
     probe.listen(port, "127.0.0.1", () => probe.close(() => resolve()));
   });
 
-/**
- * The workspace WOMBAT_WORKSPACE names, while the app doesn't add its folders itself: added, given every stored row
- * that has no workspace (before the manager loads the agents, so they're listed), and given WOMBAT_ITEMS as its items
- * folder when that differs from the stored one, as the variable always decided.
- */
-const configureWorkspace = (store: Store, { workspaceRoot, itemsRoot }: Pick<Config, "workspaceRoot" | "itemsRoot">) => {
-  if (workspaceRoot === undefined) return undefined;
-  const { workspace } = store.addWorkspace(workspaceRoot, itemsRoot);
-  if (itemsRoot !== undefined && itemsRoot !== workspace.itemsRoot) store.setItemsRoot(workspace.id, itemsRoot);
-  store.adoptUnassigned(workspace.id);
-  return { id: workspace.id, root: workspaceRoot };
-};
-
 /** Runs the service: config, single-instance check, store, manager, server, discovery file, signals. */
 export const main = async (options: MainOptions = {}): Promise<void> => {
   const env = options.env ?? process.env;
@@ -157,7 +144,6 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
     }
     const identity = { startedAt, codeId };
     store = openStore({ path: config.storePath });
-    const configured = configureWorkspace(store, config);
     const slice = options.slice === undefined ? {} : { slice: options.slice };
     const { takeSeq } = store;
     const items = openWorkspaceItems({ store, log, onChanged: (id) => manager?.itemsCommitted(id, takeSeq()) });
@@ -209,8 +195,6 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
         // The start lock has already read it (and refuses to run without it).
         processStart: startTimeOf(process.pid),
         token,
-        // The app still finds its one workspace here; a service with none configured leaves it out.
-        ...(configured === undefined ? {} : { workspace: configured.root }),
       });
     } catch (error) {
       throw new StartRefused(

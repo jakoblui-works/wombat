@@ -4,7 +4,7 @@ import { codeIdOf } from "@wombat/shared/code-id";
 import { agentCountLabel } from "@wombat/shared/api";
 import { discoveryPath, type DiscoveryFile } from "@wombat/shared/discovery";
 import { app, BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent, Menu, Notification, protocol, session, shell, type WebContents } from "electron";
-import { CHANNELS, type ConnectionState, type WorkspaceInfo } from "../shared/bridge.ts";
+import { CHANNELS, type ConnectionState } from "../shared/bridge.ts";
 import { zoomFactor } from "../shared/zoom-factor.ts";
 import { APP_INDEX_URL, APP_SCHEME, contentType, isAppUrl, isBridgeSender, resolveAppFile } from "./app-protocol.ts";
 import { mainCommands } from "./commands.ts";
@@ -15,13 +15,14 @@ import { noticeSink } from "./notice-sink.ts";
 import { NONCE_PLACEHOLDER, newNonce, pageCsp, withNonce } from "./page-csp.ts";
 import { decideQuit, restartService, stopIfConfirmed, type QuitChoice } from "./quit.ts";
 import { keptNotice, quitChoice, quitQuestion } from "./quit-question.ts";
-import { listAgents } from "./service-client.ts";
-import { serviceConnection } from "./service-connection.ts";
-import { ofThisApp, runningService } from "./service-start.ts";
+import { addWorkspace, listAgents, listWorkspaces, setItemsRoot } from "./service-client.ts";
+import { serviceConnection, speaksOurApi } from "./service-connection.ts";
+import { runningService } from "./service-start.ts";
 import { titleBarOverlayAt } from "./title-bar.ts";
-import { settingsPath, withItemsRoot } from "./settings.ts";
+import { inputGate } from "./user-input.ts";
+import { settingsPath } from "./settings.ts";
 import { waitingNotices } from "./waiting-notice.ts";
-import { workspaceControl } from "./workspace.ts";
+import { addChosenWorkspace, workspaceControl } from "./workspace.ts";
 
 // The app's trust boundary (design doc, "App trust boundary"): a sandboxed renderer with no
 // Node, no permissions, no new windows, and no navigation away from the app's own page.
@@ -193,33 +194,25 @@ const messageBox = (options: Electron.MessageBoxOptions): Promise<Electron.Messa
   return window === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(window, options);
 };
 
-const confirmRestart = async (workspace: string, running: number | undefined): Promise<boolean> => {
-  if (e2e !== undefined) return e2e.restartAnswer === "restart";
-  const { response } = await messageBox({
-    type: "question",
-    buttons: ["Restart", "Cancel"],
-    defaultId: 1,
-    cancelId: 1,
-    message: `Restart the service for ${workspace}?`,
-    detail: running === undefined ? "Its agents stop." : `Its agents stop (${agentCountLabel(running)} with a process).`,
-  });
-  return response === 0;
-};
-
 const reportError = (title: string, error: unknown): void => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`${title}: ${message}`);
   if (e2e === undefined) dialog.showErrorBox(title, message);
 };
 
-// The one workspace control: every start, switch and restart of the service goes through its queue.
+// The one workspace control: every start, upgrade and stop of the service goes through its queue.
 const workspace = workspaceControl({
   env: process.env,
   settingsFile: settingsPath(app.getPath("userData")),
   serviceEntry: serviceEntryInUse,
-  chooseFolder: () => chooseFolder(),
-  confirmRestart,
+  chooseFolder: () => chooseFolder(BrowserWindow.getAllWindows()[0]),
 });
+
+/** `file` once the workspace control has prepared it (a service of another API version is left to the connection). */
+const prepared = async (file: DiscoveryFile): Promise<DiscoveryFile> => {
+  if (speaksOurApi(file)) await workspace.prepare(file);
+  return file;
+};
 
 const broadcast = (channel: string, value: unknown): void => {
   for (const window of BrowserWindow.getAllWindows()) window.webContents.send(channel, value);
@@ -257,7 +250,7 @@ const connection = serviceConnection({
   discoveryFile: () => discoveryPath(process.env),
   // Hashed on each connect and each stale check: the code on disk may change while the app runs.
   codeIdOnDisk: () => codeIdOf(serviceAppRoot),
-  // The token is new with every start, so a service started since (a Restart, a switch) is never taken for it.
+  // The token is new with every start, so a service started since (a Restart) is never taken for it.
   foundAtLaunch: (file) => file.token === foundAtLaunch?.token && file.pid === foundAtLaunch.pid,
   ...(e2e?.staleCheckMs === undefined ? {} : { timing: { staleCheckMs: e2e.staleCheckMs } }),
   onState: (update) => {
@@ -280,32 +273,20 @@ const handleBridge = (channel: string, listener: (event: IpcMainInvokeEvent, ...
   });
 };
 
-const currentWorkspace = (): string => {
-  const root = workspace.settings().workspace;
-  if (root === undefined) throw new Error("No workspace is open yet; choose one with Switch Workspace.");
-  return root;
-};
-
 handleBridge(CHANNELS.request, (_event, method, pathname, body) => connection.request(method, pathname, body));
 handleBridge(CHANNELS.connectionNow, () => connection.current());
-// The service lists each workspace by its root's real path, and the page finds the open one by comparing roots.
-handleBridge(CHANNELS.workspaceGet, async (): Promise<WorkspaceInfo> => {
-  const root = currentWorkspace();
-  return { root: await realpath(root).catch(() => root) };
-});
+
 /**
- * The folder picker, then a switch of the service to the chosen folder (asking first when that stops a running
- * service). A switch that went ahead reloads the page: it holds the old workspace's settings, layout and data, and
- * would otherwise save its layout under the new workspace.
+ * The folder picker, then the chosen folder added to the connected service: its workspace's id, or undefined on
+ * cancel. No picker opens while the service isn't connected.
  */
-const switchWorkspace = async (parent?: BrowserWindow): Promise<void> => {
-  const folder = await chooseFolder(parent);
-  if (folder === undefined || !(await workspace.confirmSwitch(folder))) return;
-  await connection.reconnect(async () => {
-    await workspace.switchWorkspace(folder);
-    for (const window of BrowserWindow.getAllWindows()) window.webContents.reload();
-  });
-};
+const addFromPicker = (parent?: BrowserWindow): Promise<string | undefined> =>
+  connection.withService((file) =>
+    addChosenWorkspace(
+      () => chooseFolder(parent),
+      (request) => addWorkspace(file, request),
+    ),
+  );
 
 /** Stops the service and its agents; the page then shows `failed`, with Restart. */
 const stopServiceAndAgents = (): Promise<void> => connection.shutdown(() => workspace.shutdown());
@@ -333,34 +314,32 @@ const confirmStop = async (running: number | undefined): Promise<boolean> => {
 };
 
 /**
- * Restart Service: asks first when agents have a process (Cancel runs nothing, `beforeStop` included), then runs
- * `beforeStop`, stops the service and starts it again for the saved workspace. False when cancelled.
+ * Restart Service: asks first when agents have a process (Cancel runs nothing), then stops the service and starts it
+ * again. False when cancelled.
  */
-const restartServiceAfter = (beforeStop: () => void = () => undefined): Promise<boolean> =>
+const restartServiceAfterAsking = (): Promise<boolean> =>
   restartService({
     agents: serviceAgents,
     confirm: confirmStop,
-    stop: () => {
-      beforeStop();
-      return stopServiceAndAgents();
-    },
-    start: () => connection.reconnect(() => workspace.restart()),
+    stop: stopServiceAndAgents,
+    start: () => connection.reconnect(() => workspace.restart().then(prepared)),
   });
 
 // A failed Restart is reported here, in any state, as the menu's Stop is: the page may show anything by then. It still
 // rejects, so the page's Restart settles as failed.
 handleBridge(CHANNELS.restart, async () => {
   try {
-    await restartServiceAfter();
+    await restartServiceAfterAsking();
   } catch (error) {
     reportError("Wombat couldn't restart the service", error);
     throw error;
   }
 });
 
+const workspaceAt = async (file: DiscoveryFile, id: string) => (await listWorkspaces(file)).find((listed) => listed.id === id);
+
 const chooseItemsFolder = itemsFolderChooser({
-  workspace: () => workspace.settings().workspace,
-  itemsRoot: (root) => workspace.settings().workspaces[root]?.itemsRoot,
+  workspaceOf: (id) => connection.withService((file) => workspaceAt(file, id)),
   pick: (current, parent) =>
     pickFolder({
       title: "Choose the items folder (the folder that holds your binders)",
@@ -369,19 +348,54 @@ const chooseItemsFolder = itemsFolderChooser({
       e2e: e2e === undefined ? undefined : { answer: e2e.itemsFolder },
       parent,
     }),
-  restartAfter: restartServiceAfter,
-  saveItemsRoot: (root, folder) => workspace.updateSettings((current) => withItemsRoot(current, root, folder)),
+  setItemsRoot: (id, folder) => connection.withService((file) => setItemsRoot(file, id, folder)),
   report: reportError,
 });
-handleBridge(CHANNELS.workspaceSwitch, (event) => switchWorkspace(BrowserWindow.fromWebContents(event.sender) ?? undefined));
+
+/**
+ * The File menu's Choose Items Folder…, which names no workspace: the first one the service lists, as the page's
+ * `shownWorkspaceOf()` shows it, until the page holds a shown workspace of its own.
+ */
+const chooseItemsFolderOfFirst = async (parent: BrowserWindow | undefined): Promise<void> => {
+  let first: string | undefined;
+  try {
+    first = (await connection.withService(listWorkspaces))[0]?.id;
+  } catch (error) {
+    reportError("Wombat can't choose an items folder now", error);
+    return;
+  }
+  if (first === undefined) {
+    reportError("Wombat can't choose an items folder yet", new Error("The service lists no workspace yet; add a folder with Switch Workspace… in the File menu, then choose its items folder."));
+    return;
+  }
+  await chooseItemsFolder(first, parent);
+};
+
+const senderWindow = (event: IpcMainInvokeEvent): BrowserWindow | undefined => BrowserWindow.fromWebContents(event.sender) ?? undefined;
+
+const gate = inputGate();
+
+handleBridge(CHANNELS.workspaceAdd, (event) => {
+  gate.check("workspace.add", event.sender);
+  return addFromPicker(senderWindow(event));
+});
+handleBridge(CHANNELS.workspaceChooseItemsFolder, (event, id) => {
+  gate.check("workspace.chooseItemsFolder", event.sender);
+  if (typeof id !== "string") throw new Error("Choose Items Folder needs the id of a workspace the service lists.");
+  return chooseItemsFolder(id, senderWindow(event));
+});
 handleBridge(CHANNELS.settingsGet, () => workspace.pageSettings());
 handleBridge(CHANNELS.settingsSet, (_event, patch) => {
   workspace.setPageSettings(patch);
 });
 
 const commands = mainCommands({
-  switchWorkspace: (parent) => switchWorkspace(parent).catch((error: unknown) => reportError("Wombat couldn't switch the workspace", error)),
-  chooseItemsFolder,
+  addWorkspace: (parent) =>
+    addFromPicker(parent).then(
+      () => undefined,
+      (error: unknown) => reportError("Wombat couldn't add the workspace", error),
+    ),
+  chooseItemsFolder: chooseItemsFolderOfFirst,
   stopService: () =>
     stopIfConfirmed({ agents: serviceAgents, confirm: confirmStop, stop: stopServiceAndAgents }).then(
       () => undefined,
@@ -389,6 +403,7 @@ const commands = mainCommands({
     ),
   quit: () => app.quit(),
   titleBarOverlay: overlayAt,
+  gate,
   zoom: {
     level: () => workspace.settings().zoomLevel,
     save: (zoomLevel) => workspace.updateSettings((current) => ({ ...current, zoomLevel })),
@@ -464,17 +479,16 @@ app.on("before-quit", (event) => {
     });
 });
 
-/** Picks the workspace and starts its service; false when the app should quit (cancelled, or it couldn't). */
-const openWorkspace = async (): Promise<boolean> => {
+/** Finds the service or starts one, then connects in the background; false when the app should quit (it couldn't). */
+const openService = async (): Promise<boolean> => {
   try {
     const opened = await workspace.open();
-    if (opened === undefined) return false;
     foundAtLaunch = opened.found;
-    // A start that fails shows as the `failed` state, and a service from before this app as `incompatible`; both with Restart.
-    void connection.reconnect(() => opened.service.then(ofThisApp));
+    // A start that fails shows as the `failed` state, and a service of another API version as `incompatible`; both with Restart.
+    void connection.reconnect(() => opened.service.then(prepared));
     return true;
   } catch (error) {
-    reportError("Wombat couldn't open the workspace", error);
+    reportError("Wombat couldn't start the service", error);
     return false;
   }
 };
@@ -486,8 +500,8 @@ app
     denyPermissions();
     protocol.handle(APP_SCHEME, serveRenderer);
     Menu.setApplicationMenu(commands.applicationMenu());
-    if (!(await openWorkspace())) {
-      // Nothing opened, so nothing to ask about (a service left running is another workspace's).
+    if (!(await openService())) {
+      // Nothing opened, so nothing to ask about.
       quitNow();
       return;
     }
