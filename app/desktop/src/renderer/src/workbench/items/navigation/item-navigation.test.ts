@@ -9,15 +9,15 @@ import { keys } from "../../../data/keys.ts";
 import { createQueryClient } from "../../../data/query-client.ts";
 import "../../activities.ts";
 import { DESK_ACTIVITY } from "../../activity-ids.ts";
-import { DEFAULT_DESK, type DeskLayout } from "../../layout.ts";
+import { DEFAULT_DESK, deskOf, type DeskLayout } from "../../layout.ts";
 import { shellTabActions } from "../../shell/RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "../../shell/RightSidebar/tab-titles.ts";
-import { emptyShell, type ShellState } from "../../shell/shell-state.ts";
+import { activityStatesOf, changeActivityState, emptyShell, rightView, type ShellState, showActivity } from "../../shell/shell-state.ts";
 import { keepAllTabs, revealStore, tabKey } from "../../tabs.ts";
 import { previewName } from "../ItemPreview/item-preview.ts";
 import { ITEM_PANEL } from "../item-params.ts";
 import { itemNotFound } from "../reads.ts";
-import { followItem, type ItemNavigator, itemTabs } from "./item-navigation.ts";
+import { followItem, type ItemNavigator, itemTabs, openBinder } from "./item-navigation.ts";
 
 afterEach(() => {
   keepAllTabs();
@@ -142,4 +142,32 @@ test.each<[string, Answer, Item | undefined, unknown[]]>([
   expect(desk()).toEqual(lands === undefined ? DEFAULT_DESK : { ...DEFAULT_DESK, binderId: lands.binder });
   expect(shownActivities).toEqual(lands === undefined ? [] : [DESK_ACTIVITY]);
   expect(told).toEqual(tells);
+});
+
+test("openBinder of another workspace opens that workspace's Desk on the binder and leaves the shown one's alone", async () => {
+  const SHOWN = "ws-apiary0001";
+  const OTHER = "ws-meadow0002";
+  let state: ShellState = emptyShell;
+  const change = (update: (state: ShellState) => ShellState): void => {
+    state = update(state);
+  };
+  const reveals = revealStore();
+  const actions = shellTabActions({ current: () => ({ state, shown: SHOWN }), change, reveals, titles: tabTitleStore() });
+  const queryClient = createQueryClient();
+  for (const ws of [SHOWN, OTHER]) queryClient.setQueryData(keys.binders(ws), { binders: [] });
+  // As the shell wires it: a Desk change and an activity name their workspace, else the shown one's.
+  const navigator: ItemNavigator = {
+    workbench: { ...actions, reveals, titleContext: () => ({ agents: [] }), showActivity: (id, ws) => change((current) => showActivity(current, ws ?? SHOWN, id)) },
+    queryClient,
+    changeDesk: (update, ws) => change((current) => changeActivityState(current, ws, DESK_ACTIVITY, (slot) => update(deskOf(slot)))),
+    tell: () => undefined,
+  };
+  const deskIn = (ws: string): DeskLayout => deskOf(activityStatesOf(state, ws)[DESK_ACTIVITY]);
+
+  openBinder(navigator, OTHER, "hives");
+
+  await vi.waitFor(() => expect(deskIn(OTHER).binderId).toBe("hives"));
+  expect(rightView(state, OTHER)).toEqual({ show: "navigator", activity: DESK_ACTIVITY });
+  expect(deskIn(SHOWN)).toEqual(DEFAULT_DESK);
+  expect(rightView(state, SHOWN)).toEqual({ show: "closed" });
 });
