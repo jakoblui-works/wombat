@@ -4,7 +4,7 @@ import { type AriaAttributes, type FocusEvent, type ReactElement, type RefObject
 import { createPreviewCardHandle, PreviewCard, PreviewCardTrigger } from "../../../../components/ui/preview-card";
 import type { OpenOptions } from "../../../workbench-context.ts";
 import type { FlatRow } from "../tree-keys.ts";
-import { ItemPreview, ItemPreviewContent, PREVIEW_CLOSE_DELAY_MS, PREVIEW_DELAY_MS } from "./ItemPreview.tsx";
+import { ItemPreview, ItemPreviewContent, PREVIEW_CLOSE_DELAY_MS, PREVIEW_DELAY_MS } from "../../../items/ItemPreview/ItemPreview.tsx";
 import { previewOnFocus, previewOnSpace, type PreviewTarget } from "./item-preview.ts";
 
 type Options<N> = {

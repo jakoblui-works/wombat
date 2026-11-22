@@ -8,8 +8,9 @@ import type { Item, ItemSummary } from "@wombat/shared/items";
 import type { ItemProposal } from "@wombat/shared/proposals";
 
 import { ServiceError } from "../../../../data/client.ts";
+import { previewName, previewShown } from "../../../items/ItemPreview/item-preview.ts";
 import type { Row } from "../view-model/view-model.ts";
-import { type PreviewKeys, previewName, previewOnFocus, previewOnSpace, previewShown, rowPreview } from "./item-preview.ts";
+import { type PreviewKeys, previewOnFocus, previewOnSpace, rowPreview } from "./item-preview.ts";
 
 const ID = "0196f3c2-0000-7000-8000-000000000001";
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;

@@ -1,10 +1,17 @@
 // What the item tab's controls accept and show, pure.
 import type { ItemSummary, LenientProperty, LinkValue } from "@wombat/shared/items";
 
-import { MISSING_ITEM, numberOfText } from "./values.ts";
+import { linkValue, MISSING_ITEM, numberOfText } from "./values.ts";
 
 /** A field as the form edits it: title, body or a property's value (a link as its target's id); null clears a property. */
 export type FieldValue = string | number | null;
+
+/** A property's value as the form edits it: a link as its target's id, any other non-field value as its JSON text. */
+export const fieldValue = (value: unknown): FieldValue => {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "string" || typeof value === "number") return value;
+  return linkValue(value)?.id ?? JSON.stringify(value);
+};
 
 /** The value an emptied text, date or number input sends. */
 export const inputValue = (text: string): FieldValue => (text === "" ? null : text);

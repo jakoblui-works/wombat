@@ -47,7 +47,7 @@ import {
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { showBinder } from "../panels/Desk/desk-place.ts";
 import { isItemNotFound } from "../items/reads.ts";
-import { Reference, referencePrefixes } from "../panels/Desk/Reference/Reference.tsx";
+import { Reference, referencePrefixes } from "../items/Reference/Reference.tsx";
 import { type ActiveTab, ActiveTabContext, DeskContext, type DeskState, type WorkbenchActions, WorkbenchContext } from "../workbench-context.ts";
 import { tell, Toast } from "../Toast/Toast.tsx";
 

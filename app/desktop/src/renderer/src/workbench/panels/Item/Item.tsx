@@ -19,12 +19,13 @@ import { ProblemList } from "../../items/ProblemList/ProblemList.tsx";
 import { type Listed, useLinkLists } from "../../items/use-link-lists.ts";
 import { problemsByField } from "../../items/problems.ts";
 import { linkValue } from "../../items/values.ts";
-import { type ItemChange, proposalsOnItem } from "../Desk/view-model/with-proposals.ts";
+import { type ItemChange, proposalsOnItem } from "../../items/item-proposals.ts";
 import { Body } from "./Body/Body.tsx";
 import { CloseDialog } from "./CloseDialog/CloseDialog.tsx";
 import { Conflict } from "./Conflict/Conflict.tsx";
 import { FileName } from "./FileName/FileName.tsx";
 import { type FieldValue, linkTarget, valueText } from "../../items/field-input.ts";
+import { draftStart } from "../../items/draft-start.ts";
 import { Fields } from "./fields/Fields.tsx";
 import { ItemActions } from "./ItemActions/ItemActions.tsx";
 import { ItemNotice } from "./ItemNotice/ItemNotice.tsx";
@@ -36,7 +37,6 @@ import {
   changedFields,
   conflicts,
   createRequest,
-  draftStart,
   edited,
   editEvent,
   type FieldEdit,

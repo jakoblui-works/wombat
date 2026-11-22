@@ -5,7 +5,7 @@ import { type ReactNode, useState } from "react";
 import { Button } from "../../../../components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../../components/ui/select";
 import { cn } from "../../../../lib/utils";
-import { useHoverPreview } from "../../Desk/ItemPreview/HoverPreview.tsx";
+import { useHoverPreview } from "../../../items/ItemPreview/HoverPreview.tsx";
 import { Field as FieldFrame, FIELD_INPUT, type FieldControl } from "../../../items/Field/Field.tsx";
 import type { Listed } from "../../../items/use-link-lists.ts";
 import { clearable, displayValue, MISSING_ITEM, typesNumber } from "../../../items/values.ts";

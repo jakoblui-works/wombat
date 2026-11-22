@@ -2,10 +2,9 @@
 // under way, a refused save's problems and a conflict after a stale save. A draft (an item not written yet) is the
 // same state on an empty item, its context's values as the changes it starts with.
 import type { CreateItemRequest } from "@wombat/shared/api";
-import { ITEM_FIELDS, type Item, type ItemSummary, type LenientProperty, type Problem } from "@wombat/shared/items";
+import { ITEM_FIELDS, type Item, type Problem } from "@wombat/shared/items";
 
-import type { FieldValue } from "../../items/field-input.ts";
-import { heldValue, linkValue } from "../../items/values.ts";
+import { type FieldValue, fieldValue } from "../../items/field-input.ts";
 
 /** What a control gives: a field's value, or text it can't read as one (typed into a number field), kept as typed. */
 export type FieldEdit = FieldValue | { unreadable: string };
@@ -46,36 +45,12 @@ export type ItemEditState = {
   readonly unreadable?: Readonly<Record<string, string>> | undefined;
 };
 
-/** A property's value as the form edits it: a link as its target's id, any other non-field value as its JSON text. */
-const fieldValue = (value: unknown): FieldValue => {
-  if (value === undefined || value === null) return null;
-  if (typeof value === "string" || typeof value === "number") return value;
-  return linkValue(value)?.id ?? JSON.stringify(value);
-};
-
 /** The file's value of `field` in `item`; a value of no field type (an invalid item's) as its JSON text. */
 export const fileValue = (item: Item, field: string): FieldValue => {
   if (field === "title") return item.title;
   if (field === "body") return item.body;
   return fieldValue(Object.hasOwn(item.properties, field) ? item.properties[field] : undefined);
 };
-
-/**
- * A draft's starting changes from its context (`viewContext`): each value as its property holds it (`heldValue`; a
- * link's against `targets`, its binder's items), then as the form edits it, empty ones left out.
- */
-export const draftStart = (
-  context: Readonly<Record<string, unknown>>,
-  properties: Readonly<Record<string, LenientProperty>>,
-  targets: (binderId: string) => readonly ItemSummary[] | undefined,
-): Record<string, FieldValue> =>
-  Object.fromEntries(
-    Object.entries(context).flatMap(([field, value]) => {
-      const property = properties[field];
-      const start = fieldValue(heldValue(property, value, property?.type === "link" ? targets(property.to) : undefined));
-      return start === null ? [] : [[field, start]];
-    }),
-  );
 
 /**
  * Drops my changes the file as last read already holds (a change back to the base while the file moved on stays one);

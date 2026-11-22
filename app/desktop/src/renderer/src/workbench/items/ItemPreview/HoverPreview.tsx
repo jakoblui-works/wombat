@@ -1,6 +1,6 @@
 import { type ReactElement, useId, useState } from "react";
 
-import { createPreviewCardHandle, PreviewCard, PreviewCardTrigger } from "../../../../components/ui/preview-card";
+import { createPreviewCardHandle, PreviewCard, PreviewCardTrigger } from "../../../components/ui/preview-card";
 import { ItemPreview, ItemPreviewContent, PREVIEW_CLOSE_DELAY_MS, PREVIEW_DELAY_MS } from "./ItemPreview.tsx";
 
 type Options = {

@@ -1,6 +1,6 @@
 import type { BinderSummary } from "@wombat/shared/items";
 
-import { useWorkbench } from "../../../workbench-context.ts";
+import { useWorkbench } from "../../workbench-context.ts";
 import { useHoverPreview } from "../ItemPreview/HoverPreview.tsx";
 
 /** The prefixes of the listed binders, which references in text are to. */

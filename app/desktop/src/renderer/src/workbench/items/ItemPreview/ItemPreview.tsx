@@ -2,17 +2,17 @@ import { useQuery } from "@tanstack/react-query";
 import type { ItemSummary } from "@wombat/shared/items";
 import type { ComponentProps, ReactNode } from "react";
 
-import { InlineMarkdown, Markdown } from "../../../../components/Markdown/Markdown.tsx";
-import { Button } from "../../../../components/ui/button";
-import { PreviewCardContent } from "../../../../components/ui/preview-card";
-import { useBinders } from "../../../../data/hooks.ts";
-import { itemQuery } from "../../../../data/query-client.ts";
-import { lastPathPart } from "../../../../lib/path.ts";
-import { cn } from "../../../../lib/utils";
-import { itemName } from "../../../items/item-params.ts";
-import { READ_FAILED, UnparseableItem } from "../../../items/notices/notices.tsx";
-import { itemNotFound } from "../../../items/reads.ts";
-import { ProblemList } from "../../../items/ProblemList/ProblemList.tsx";
+import { InlineMarkdown, Markdown } from "../../../components/Markdown/Markdown.tsx";
+import { Button } from "../../../components/ui/button";
+import { PreviewCardContent } from "../../../components/ui/preview-card";
+import { useBinders } from "../../../data/hooks.ts";
+import { itemQuery } from "../../../data/query-client.ts";
+import { lastPathPart } from "../../../lib/path.ts";
+import { cn } from "../../../lib/utils";
+import { itemName } from "../item-params.ts";
+import { READ_FAILED, UnparseableItem } from "../notices/notices.tsx";
+import { itemNotFound } from "../reads.ts";
+import { ProblemList } from "../ProblemList/ProblemList.tsx";
 import { previewName, previewShown, propertyLines } from "./item-preview.ts";
 
 /** How long the pointer rests on what has a preview before its box opens. */

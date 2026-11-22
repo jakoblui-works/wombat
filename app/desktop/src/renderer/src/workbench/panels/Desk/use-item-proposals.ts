@@ -2,7 +2,7 @@ import { useQueries } from "@tanstack/react-query";
 
 import { useProposals } from "../../../data/hooks.ts";
 import { proposalQuery } from "../../../data/query-client.ts";
-import { type ItemProposalRead, openItemProposals } from "./view-model/with-proposals.ts";
+import { type ItemProposalRead, openItemProposals } from "../../items/item-proposals.ts";
 
 /**
  * The binder's open item proposals as `withProposals` takes them: as listed, a create as read on its own (with its

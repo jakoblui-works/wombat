@@ -5,7 +5,7 @@ import { useAgents } from "../../../../data/hooks.ts";
 import { DecideButtons } from "../../../proposals/DecideButtons/DecideButtons.tsx";
 import { markLabel, proposalAgentTitle, reasonFirstLine } from "../../../proposals/proposal-label.ts";
 import { useWorkbench } from "../../../workbench-context.ts";
-import type { ItemChange } from "../../Desk/view-model/with-proposals.ts";
+import type { ItemChange } from "../../../items/item-proposals.ts";
 
 const PROPOSES: Record<ItemChange<ItemProposal>["kind"], string> = { update: "proposes an update to this item", delete: "proposes to delete this item" };
 
