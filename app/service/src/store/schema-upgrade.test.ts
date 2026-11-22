@@ -2,7 +2,8 @@
 // schema 2: every agent, log entry, seq, handle counter and proposal is kept; its agents read with
 // `pendingPermissions: []` and no branch, lastText or lastUserAt. From schema 3: every proposal becomes an item
 // proposal with one agent version, and the outcomes it already had aren't told to the agent again. From schema 4:
-// every handle counter, proposal (file and item) and proposal version is kept under its binder. Without it, an
+// every handle counter, proposal (file and item) and proposal version is kept under its binder. From schema 5: no
+// row is listed until a workspace adopts it, then every agent, proposal and counter is its. Without it, an
 // upgrade would lose history or proposals, leave a half-upgraded file behind, or make the first message after an
 // update carry every old outcome.
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -412,7 +413,42 @@ const writeV4Store = (path: string) => {
   db.close();
 };
 
+/** Writes a schema 5 database: schema 4's rows, its binder columns renamed from `structure`, no workspace anywhere. */
+const writeV5Store = (path: string) => {
+  writeV4Store(path);
+  const db = new DatabaseSync(path);
+  db.exec("ALTER TABLE item_counters RENAME COLUMN structure TO binder; ALTER TABLE proposals RENAME COLUMN structure TO binder;");
+  db.exec("PRAGMA user_version = 5");
+  db.close();
+};
+
 describe("opening a store an older version wrote", () => {
+  test("a v5 store's agents, proposals and handle counters stay unlisted until a workspace adopts them, then are listed under it", () => {
+    const path = tempStorePath();
+    writeV5Store(path);
+
+    const store = open({ path });
+    expect(store.listAgents(), "no agent is listed before a workspace adopts it").toEqual([]);
+    expect(store.listProposals(), "no proposal is listed before a workspace adopts it").toEqual([]);
+
+    const { id: workspace } = store.addWorkspace(tempDir()).workspace;
+    store.adoptUnassigned(workspace);
+
+    expect(store.listAgents().map(({ id, workspace }) => ({ id, workspace }))).toEqual([
+      { id: "a1", workspace },
+      { id: "a2", workspace },
+    ]);
+    expect(store.listProposals().map((proposal) => proposal.id)).toEqual(V4_ROWS.map((row) => row.id));
+    for (const { versions, ...row } of V4_ROWS) {
+      expect(store.getProposal(row.id), `the ${row.target} proposal ${row.id}`).toStrictEqual({ ...row, workspace });
+      expect(store.listVersions(row.id), `the versions of ${row.id}`).toEqual(versions);
+    }
+    for (const { binder, last } of V4_COUNTERS) expect(store.nextHandleNumber(workspace, binder, 0), `${binder}'s counter carries on`).toBe(last + 1);
+    expect(store.currentSeq(), "the upgrade takes no seq").toBe(LAST_SEQ);
+    store.close();
+    expect(version(path)).toBe(SCHEMA_VERSION);
+  });
+
   test("a v2 store migrates in place: agents read with no pending permissions and no new fields, the rest intact", () => {
     const path = tempStorePath();
     mkdirSync(dirname(path), { recursive: true });

@@ -49,13 +49,15 @@ export type ServiceOptions = {
   env?: (at: { workspace: string; itemsRoot: string | undefined }) => NodeJS.ProcessEnv;
   /** False leaves the workspace unlisted, for the test to add (with `addWorkspace`); default true. */
   add?: boolean;
+  /** Writes rows into the service's store before it starts (as an older service left them), given its path. */
+  seed?: (storePath: string) => void;
 };
 
 /**
  * Starts the service, waits for its discovery file and adds a fresh workspace as the app's main process does (POST
  * /workspaces); everything is stopped afterwards.
  */
-export const startService = async ({ items, workspaceFiles = {}, entry = ENTRY, env: extraEnv, add = true }: ServiceOptions = {}): Promise<RunningService> => {
+export const startService = async ({ items, workspaceFiles = {}, entry = ENTRY, env: extraEnv, add = true, seed }: ServiceOptions = {}): Promise<RunningService> => {
   const base = mkdtempSync(join(tmpdir(), "wombat-instructions-"));
   const workspace = join(base, "workspace");
   const runtimeDir = join(base, "run");
@@ -75,11 +77,13 @@ export const startService = async ({ items, workspaceFiles = {}, entry = ENTRY, 
   const systemd = fakeSystemd();
   const slice = `wombattest${randomUUID().replaceAll("-", "")}.slice`;
   const discoveryPath = join(runtimeDir, "wombat", "service.json");
+  const storePath = join(base, "state", "service.db");
+  seed?.(storePath);
   const env: NodeJS.ProcessEnv = {
     PATH: systemd.binDir,
     HOME: home,
     XDG_RUNTIME_DIR: runtimeDir,
-    WOMBAT_STORE: join(base, "state", "service.db"),
+    WOMBAT_STORE: storePath,
     WOMBAT_PORT: "0",
     FAKE_AGENT_PID_DIR: pidDir,
     WOMBAT_TEST_SLICE: slice,
@@ -134,9 +138,12 @@ export type RecordedAgent = {
   token: string;
 };
 
-/** Starts an agent on `harness` and returns what its session/new carried (the mcp-config scenario reports it). */
-export const startRecorded = async (service: RunningService, harness: string): Promise<RecordedAgent> => {
-  const workspace = await onlyWorkspace(service.api);
+/**
+ * Starts an agent on `harness` in `workspace` (default: the one workspace the service lists) and returns what its
+ * session/new carried (the mcp-config scenario reports it).
+ */
+export const startRecorded = async (service: RunningService, harness: string, workspace?: string): Promise<RecordedAgent> => {
+  workspace ??= await onlyWorkspace(service.api);
   const started = await service.api("POST", "/agents", { workspace, harness, repo: REPO });
   expect(started.status, `start ${harness}: ${started.text}`).toBe(201);
   const agentId = (started.json as { id: string }).id;

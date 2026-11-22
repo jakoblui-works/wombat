@@ -1,4 +1,6 @@
-// The store: agent summaries and an append-only log of entries, read back after a cursor.
+// The store: agent summaries and an append-only log of entries, read back after a cursor, and the workspace list.
+import { mkdirSync, symlinkSync } from "node:fs";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { LogEntry } from "@wombat/shared/api";
@@ -155,5 +157,31 @@ describe("deleteAgent", () => {
     // The same id added again starts with no history.
     reopened.putAgent(summary("gone", { workspace: WORKSPACE }));
     expect(reopened.readLog("gone")).toEqual({ entries: [], truncated: false });
+  });
+});
+
+describe("addWorkspace", () => {
+  // The settings upgrade and Open Folder… both add folders as they were given: a second workspace for one folder
+  // would split its agents between two.
+  test("adding the same folder again, through a symlink or with a trailing slash, answers the first workspace unchanged", () => {
+    const store = open({ path: tempStorePath() });
+    const root = join(tempDir(), "platform");
+    mkdirSync(root);
+    const link = join(tempDir(), "platform-link");
+    symlinkSync(root, link, "dir");
+    const items = join(tempDir(), "items");
+    mkdirSync(items);
+
+    const first = store.addWorkspace(root);
+    expect(first.added).toBe(true);
+    for (const [how, again] of [
+      ["the same path", root],
+      ["through a symlink", link],
+      ["with a trailing slash", `${root}/`],
+    ] as const) {
+      const answer = store.addWorkspace(again, items);
+      expect(answer, how).toEqual({ workspace: first.workspace, added: false });
+    }
+    expect(store.listWorkspaces()).toEqual([first.workspace]);
   });
 });

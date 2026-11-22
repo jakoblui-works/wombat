@@ -102,6 +102,17 @@ describe("the instructions file", () => {
     expect(readFileSync(path, "utf8"), "right after the approved delete").not.toContain("The hero caption overlaps the image");
   });
 
+  // A workspace whose folder was renamed or deleted reads as missing; a render that made the folder again would bring
+  // back an empty workspace in its place.
+  test("a render never creates a missing workspace root", async () => {
+    const { catalog } = openItems(writeRoot(INSTRUCTIONS_FILES));
+    const workspaceRoot = join(workspace(), "renamed-away");
+
+    await writeInstructions({ catalog, workspaceRoot, log: () => undefined });
+
+    expect(existsSync(workspaceRoot)).toBe(false);
+  });
+
   test("a file over the cap is sent as an index of every binder, and one under it in full", async () => {
     const catalog = openItems(
       writeRoot({

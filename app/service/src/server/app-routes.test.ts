@@ -8,7 +8,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { APP_ROUTES, appRoute, MAIN_ONLY_ROUTES } from "@wombat/shared/routes";
+import { APP_ROUTES, appRoute, MAIN_ONLY_ROUTES, pathOf, type AppRoute } from "@wombat/shared/routes";
 import { expect, test } from "vitest";
 
 import { appRoutes } from "../../test/server-fixtures.ts";
@@ -49,6 +49,29 @@ test("APP_ROUTES and the server's app routes are the same set", () => {
   expect(listed.filter((route) => !registered.includes(route)), "APP_ROUTES entries the server doesn't register").toEqual([]);
   expect(forThePage.filter((route) => !listed.includes(route)), "server routes missing from APP_ROUTES").toEqual([]);
   expect(new Set(listed).size, "APP_ROUTES lists a route twice").toBe(listed.length);
+});
+
+// Comparing patterns by key misses a page pattern that overlaps a main-only one (`PUT /workspaces/:ws/:x` takes
+// `/workspaces/<id>/items-root`): a page script could then point the service at any folder. So every main-only route
+// is called by a concrete path, as main sends it, and the page's matcher must refuse each.
+test("the page can't reach a main-only route by any path main sends it on", () => {
+  const build = pathOf as (route: AppRoute, params: Record<string, string>) => string;
+  const samples = ["ws-0a1b2c3d4e", "0196f3c2-1a00-7000-8000-0000000000b1", "items-root"];
+  expect(MAIN_ONLY_ROUTES.map(({ method, pattern }) => `${method} ${pattern}`)).toEqual(
+    expect.arrayContaining(["POST /workspaces", "PUT /workspaces/:ws/items-root"]),
+  );
+  for (const route of MAIN_ONLY_ROUTES) {
+    for (const sample of samples) {
+      const params = Object.fromEntries(
+        route.pattern
+          .split("/")
+          .filter((part) => part.startsWith(":"))
+          .map((part) => [part.slice(1), sample]),
+      );
+      const path = build(route, params);
+      expect(appRoute(route.method, path), `${route.method} ${path} reaches the service from the page`).toBeUndefined();
+    }
+  }
 });
 
 // The port rules (port-rules.test.ts) and the agent-token check (agent-tokens.test.ts) walk the fixture's route list,

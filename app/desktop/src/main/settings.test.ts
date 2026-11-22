@@ -5,7 +5,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, onTestFinished, test } from "vitest";
 
-import { loadSettings, rendererSettings, savePageSettings, saveSettings, settingsPath, type Settings, type SettingsV1 } from "./settings.ts";
+import type { AddWorkspaceRequest } from "@wombat/shared/api";
+
+import {
+  loadSettings,
+  rendererSettings,
+  savePageSettings,
+  saveSettings,
+  settingsPath,
+  upgradeSettings,
+  type Settings,
+  type SettingsV1,
+} from "./settings.ts";
 
 const tempUserData = (): string => {
   const base = mkdtempSync(path.join(tmpdir(), "wombat-settings-"));
@@ -89,4 +100,47 @@ test("one workspace's relative itemsRoot in a version 1 file costs only itself: 
   expect(lines[0]).toContain("itemsRoot");
   expect(lines[0]).not.toContain("secret-docs");
   expect(lines[0]).not.toContain("/home/dev/bakery");
+});
+
+// The agents stored before the service listed workspaces are adopted only by the add of the open workspace: an upgrade
+// that drops `adopt`, or rewrites the file as version 2 while that folder is gone, loses them for good. One that keeps
+// the file at version 1 once the folder is back retries forever.
+test("the version 1 upgrade hands over the open workspace first with adopt, then the others with their items roots, skips folders that are gone, and keeps version 1 while the open one is gone", async () => {
+  const v1: SettingsV1 = {
+    ...V1_DEFAULTS,
+    workspace: "/home/dev/bakery",
+    workspaces: {
+      "/home/dev/other": { itemsRoot: "/home/dev/other/docs" },
+      "/home/dev/gone": {},
+      "/home/dev/bakery": { itemsRoot: "/home/dev/bakery-docs" },
+      "/home/dev/third": { itemsRoot: "/home/dev/gone-docs" },
+    },
+  };
+  const upgrade = async (existing: string[]) => {
+    const added: AddWorkspaceRequest[] = [];
+    const keepV1For = await upgradeSettings(
+      v1,
+      (request) => {
+        added.push(request);
+        return Promise.resolve();
+      },
+      (at) => existing.includes(at),
+    );
+    return { added, keepV1For };
+  };
+  const others = ["/home/dev/other", "/home/dev/other/docs", "/home/dev/third"];
+
+  expect(await upgrade(["/home/dev/bakery", "/home/dev/bakery-docs", ...others])).toEqual({
+    added: [
+      { root: "/home/dev/bakery", itemsRoot: "/home/dev/bakery-docs", adopt: true },
+      { root: "/home/dev/other", itemsRoot: "/home/dev/other/docs" },
+      { root: "/home/dev/third" },
+    ],
+    keepV1For: undefined,
+  });
+
+  expect(await upgrade(others)).toEqual({
+    added: [{ root: "/home/dev/other", itemsRoot: "/home/dev/other/docs" }, { root: "/home/dev/third" }],
+    keepV1For: "/home/dev/bakery",
+  });
 });

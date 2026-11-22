@@ -60,3 +60,33 @@ test.each<[string, (service: FakeService) => void]>([
   const ws = `/workspaces/${FAKE_WORKSPACE.id}`;
   expect(await reads(service)).toEqual(expect.arrayContaining([`GET ${ws}/binders`, `GET ${ws}/binders/bugs/items`, `GET ${ws}/items/BUG-1`]));
 });
+
+// Two workspaces can each have a binder `bugs` and an item `BUG-1`: one workspace's change must not show under the
+// other's, nor read the other's again.
+test("an items alert for one workspace reads only that workspace's binders and items again, leaving another workspace's cache as it was", async () => {
+  const { service, client } = setup();
+  const other = "ws-other00002";
+  const cached = (ws: string) => {
+    client.setQueryData(keys.binders(ws), { binders: [{ id: `bugs-of-${ws}` }] });
+    client.setQueryData(keys.binderItems(ws, "bugs"), { items: [{ id: `item-of-${ws}` }] });
+    client.setQueryData(keys.item(ws, "BUG-1"), { id: `bug-1-of-${ws}` });
+  };
+  cached(FAKE_WORKSPACE.id);
+  cached(other);
+  const otherCache = () => ({
+    binders: client.getQueryData(keys.binders(other)),
+    items: client.getQueryData(keys.binderItems(other, "bugs")),
+    item: client.getQueryData(keys.item(other, "BUG-1")),
+  });
+  const before = otherCache();
+  expect(before).toEqual({ binders: { binders: [{ id: `bugs-of-${other}` }] }, items: { items: [{ id: `item-of-${other}` }] }, item: { id: `bug-1-of-${other}` } });
+
+  service.alert("agent_changed", A, { type: "items", workspace: FAKE_WORKSPACE.id });
+  await vi.waitFor(() => expect(service.requests()).not.toEqual([]));
+
+  const ws = `/workspaces/${FAKE_WORKSPACE.id}`;
+  const read = await reads(service);
+  expect(read).toEqual(expect.arrayContaining([`GET ${ws}/binders`, `GET ${ws}/binders/bugs/items`, `GET ${ws}/items/BUG-1`]));
+  expect(read.filter((request) => request.includes(other)), "reads of the other workspace").toEqual([]);
+  expect(otherCache()).toEqual(before);
+});
