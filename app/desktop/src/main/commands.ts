@@ -8,13 +8,6 @@ import type { InputGate } from "./user-input.ts";
 import { clampZoom, ZOOM_STEP } from "./zoom.ts";
 
 export type MainCommandDeps = {
-  /**
-   * The File menu's `workspace.switch`: the folder picker, modal to `parent`, then the folder added to the service's
-   * workspaces (the service keeps running); reports its own errors.
-   */
-  addWorkspace: (parent: BrowserWindow | undefined) => Promise<void>;
-  /** Choose Items Folder…: the folder picker, modal to `parent`, then the service takes the folder; reports its own errors. */
-  chooseItemsFolder: (parent: BrowserWindow | undefined) => Promise<void>;
   /** The File menu's Stop Service and Agents: asks, then stops; reports its own errors. */
   stopService: () => Promise<void>;
   /** The app's quit, through its before-quit question. */
@@ -50,7 +43,7 @@ export type MainCommands = {
   applicationMenu: () => Menu | null;
 };
 
-export const mainCommands = ({ addWorkspace, chooseItemsFolder, stopService, quit, zoom, titleBarOverlay, gate, log = console.error }: MainCommandDeps): MainCommands => {
+export const mainCommands = ({ stopService, quit, zoom, titleBarOverlay, gate, log = console.error }: MainCommandDeps): MainCommands => {
   // The level the windows show; the saved one is only for the next start, so a failed save doesn't hold it back.
   let level = zoom.level();
   const setZoom = (to: number): void => {
@@ -98,10 +91,6 @@ export const mainCommands = ({ addWorkspace, chooseItemsFolder, stopService, qui
         return;
       case "window.close":
         return win?.close();
-      case "workspace.switch":
-        return addWorkspace(win);
-      case "items.chooseFolder":
-        return chooseItemsFolder(win);
       case "service.stop":
         return stopService();
       case "app.quit":

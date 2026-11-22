@@ -3,15 +3,25 @@
 import { type Command, commands, formatKeys } from "../commands/registry.ts";
 import { WORKBENCH_COMMAND } from "../commands/workbench-commands.ts";
 
-/** A menu entry: a command by id, or a separator. */
-export type MenuEntry = { id: string } | "separator";
+/** A menu entry: a command by id, a separator, or the workspaces to show one of (with a separator after, while any is listed). */
+export type MenuEntry = { id: string } | "separator" | "workspaces";
 
 export type MenuModel = { label: string; entries: readonly MenuEntry[] };
 
 export const MENUS: readonly MenuModel[] = [
   {
     label: "File",
-    entries: [{ id: WORKBENCH_COMMAND.newAgent }, { id: "workspace.switch" }, { id: "items.chooseFolder" }, { id: "service.stop" }, { id: WORKBENCH_COMMAND.restartService }, "separator", { id: "app.quit" }],
+    entries: [
+      { id: WORKBENCH_COMMAND.newAgent },
+      { id: WORKBENCH_COMMAND.openFolder },
+      { id: WORKBENCH_COMMAND.chooseItemsFolder },
+      "separator",
+      "workspaces",
+      { id: "service.stop" },
+      { id: WORKBENCH_COMMAND.restartService },
+      "separator",
+      { id: "app.quit" },
+    ],
   },
   {
     label: "Edit",
@@ -25,7 +35,10 @@ export const MENUS: readonly MenuModel[] = [
 ];
 
 /** An entry resolved against the registry. */
-export type MenuItem = { separator: true } | { separator: false; id: string; label: string; keys: string | undefined; disabled: boolean };
+export type MenuItem =
+  | { kind: "separator" }
+  | { kind: "workspaces" }
+  | { kind: "command"; id: string; label: string; keys: string | undefined; disabled: boolean };
 
 /**
  * The items of `menu`, with each command's title and keys; a command whose `when` is false (the panels are inert behind
@@ -33,10 +46,10 @@ export type MenuItem = { separator: true } | { separator: false; id: string; lab
  */
 export const menuItems = (menu: MenuModel, registered: readonly Command[] = commands()): MenuItem[] =>
   menu.entries.map((entry) => {
-    if (entry === "separator") return { separator: true };
+    if (entry === "separator" || entry === "workspaces") return { kind: entry };
     const command = registered.find(({ id }) => id === entry.id);
     if (command === undefined) {
       throw new Error(`The ${menu.label} menu lists the command "${entry.id}", which isn't registered; register it or remove it from MENUS (TitleBar/menus.ts).`);
     }
-    return { separator: false, id: command.id, label: command.title, keys: formatKeys(command), disabled: command.when?.() === false };
+    return { kind: "command", id: command.id, label: command.title, keys: formatKeys(command), disabled: command.when?.() === false };
   });

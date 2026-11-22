@@ -1,18 +1,23 @@
 // The page's query keys. `logs` is the prefix of every `log(agentId)`, `proposalDetails` of every
-// `proposal(proposalId)`, `binderItemLists` of every `binderItems(binderId)` and `itemDetails` of every `item(ref)`,
-// for finding the cached ones.
+// `proposal(proposalId)`, `repoLists` of every `repos(ws)`, `binderLists` of every `binders(ws)`, `binderItemLists`
+// of every `binderItems(ws, binderId)` and `itemDetails` of every `item(ws, ref)`, for finding the cached ones;
+// `workspaceItems(ws)` is the prefix of one workspace's binder item lists and items.
 import type { QueryKey } from "@tanstack/react-query";
 
 const LOG = "log";
 const PROPOSAL = "proposal";
 const PROPOSAL_VERSION = "proposal-version";
+const REPOS = "repos";
+const BINDERS = "binders";
 const BINDER_ITEMS = "binder-items";
 const ITEM = "item";
 
 export const keys = {
   agents: ["agents"],
   harnesses: ["harnesses"],
-  repos: ["repos"],
+  workspaces: ["workspaces"],
+  repoLists: [REPOS],
+  repos: (ws: string) => [REPOS, ws],
   proposals: ["proposals"],
   logs: [LOG],
   log: (agentId: string) => [LOG, agentId],
@@ -20,21 +25,42 @@ export const keys = {
   proposal: (proposalId: string) => [PROPOSAL, proposalId],
   // A version never changes once made, so nothing reads these again.
   proposalVersion: (proposalId: string, version: number) => [PROPOSAL_VERSION, proposalId, String(version)],
-  binders: ["binders"],
+  binderLists: [BINDERS],
+  binders: (ws: string) => [BINDERS, ws],
   binderItemLists: [BINDER_ITEMS],
-  binderItems: (binderId: string) => [BINDER_ITEMS, binderId],
+  workspaceBinderItems: (ws: string) => [BINDER_ITEMS, ws],
+  binderItems: (ws: string, binderId: string) => [BINDER_ITEMS, ws, binderId],
   itemDetails: [ITEM],
-  item: (ref: string) => [ITEM, ref],
-} as const satisfies Record<string, QueryKey | ((id: string, version: number) => QueryKey)>;
+  workspaceItems: (ws: string) => [ITEM, ws],
+  item: (ws: string, ref: string) => [ITEM, ws, ref],
+} as const satisfies Record<string, QueryKey | ((...args: never[]) => QueryKey)>;
+
+// "" is the id hooks key a disabled query by while no workspace is shown; it names nothing to read.
+const named = (key: QueryKey, prefix: string, at: number): string | undefined => {
+  const value = key[at];
+  return key[0] === prefix && key.length === at + 1 && typeof value === "string" && value !== "" && key.slice(1, at).every((part) => part !== "") ? value : undefined;
+};
 
 /** The proposal a `keys.proposal(id)` key names; undefined for any other key. */
-export const proposalIdOf = (key: QueryKey): string | undefined => (key[0] === PROPOSAL && typeof key[1] === "string" ? key[1] : undefined);
+export const proposalIdOf = (key: QueryKey): string | undefined => named(key, PROPOSAL, 1);
 
-/** The binder a `keys.binderItems(binderId)` key names; undefined for any other key. */
-export const binderIdOf = (key: QueryKey): string | undefined => (key[0] === BINDER_ITEMS && typeof key[1] === "string" ? key[1] : undefined);
+/** The workspace a `keys.repos(ws)` key names; undefined for any other key. */
+export const reposWorkspaceOf = (key: QueryKey): string | undefined => named(key, REPOS, 1);
 
-/** The item a `keys.item(ref)` key names; undefined for any other key. */
-export const itemRefOf = (key: QueryKey): string | undefined => (key[0] === ITEM && typeof key[1] === "string" ? key[1] : undefined);
+/** The workspace a `keys.binders(ws)` key names; undefined for any other key. */
+export const bindersWorkspaceOf = (key: QueryKey): string | undefined => named(key, BINDERS, 1);
+
+/** The workspace and binder a `keys.binderItems(ws, binderId)` key names; undefined for any other key. */
+export const binderIdOf = (key: QueryKey): { ws: string; binderId: string } | undefined => {
+  const binderId = named(key, BINDER_ITEMS, 2);
+  return binderId === undefined || typeof key[1] !== "string" ? undefined : { ws: key[1], binderId };
+};
+
+/** The workspace and item a `keys.item(ws, ref)` key names; undefined for any other key. */
+export const itemRefOf = (key: QueryKey): { ws: string; ref: string } | undefined => {
+  const ref = named(key, ITEM, 2);
+  return ref === undefined || typeof key[1] !== "string" ? undefined : { ws: key[1], ref };
+};
 
 /** The agent a `keys.log(agentId)` key names; undefined for any other key. */
-export const logAgentId = (key: QueryKey): string | undefined => (key[0] === LOG && typeof key[1] === "string" ? key[1] : undefined);
+export const logAgentId = (key: QueryKey): string | undefined => named(key, LOG, 1);

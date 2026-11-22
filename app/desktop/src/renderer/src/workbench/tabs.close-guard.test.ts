@@ -12,8 +12,8 @@ import { ITEM_PANEL } from "./items/item-params.ts";
 import { closeGuards, isTemporaryTab, keepAllTabs, openTab, tabKey, tabToReplace } from "./tabs.ts";
 
 test.each([
-  { what: "an item's tab", params: { binderId: "tasks", itemId: "0196f3c2-3e00-7000-8000-000000000001" } },
-  { what: "a draft's tab", params: { binderId: "tasks", draft: "draft-1", context: { status: "todo", parent: { id: "0196f3c2-3e00-7000-8000-000000000002", handle: "TSK-2" } } } },
+  { what: "an item's tab", params: { ws: "ws-tasks00001", binderId: "tasks", itemId: "0196f3c2-3e00-7000-8000-000000000001" } },
+  { what: "a draft's tab", params: { ws: "ws-tasks00001", binderId: "tasks", draft: "draft-1", context: { status: "todo", parent: { id: "0196f3c2-3e00-7000-8000-000000000002", handle: "TSK-2" } } } },
 ])("$what asks before closing while its panel guards it, and closes once it doesn't", ({ params }) => {
   const { host, panels, removed } = fakeHost();
   openTab(host, ITEM_PANEL, params);

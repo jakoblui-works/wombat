@@ -352,25 +352,6 @@ const chooseItemsFolder = itemsFolderChooser({
   report: reportError,
 });
 
-/**
- * The File menu's Choose Items Folder…, which names no workspace: the first one the service lists, as the page's
- * `shownWorkspaceOf()` shows it, until the page holds a shown workspace of its own.
- */
-const chooseItemsFolderOfFirst = async (parent: BrowserWindow | undefined): Promise<void> => {
-  let first: string | undefined;
-  try {
-    first = (await connection.withService(listWorkspaces))[0]?.id;
-  } catch (error) {
-    reportError("Wombat can't choose an items folder now", error);
-    return;
-  }
-  if (first === undefined) {
-    reportError("Wombat can't choose an items folder yet", new Error("The service lists no workspace yet; add a folder with Switch Workspace… in the File menu, then choose its items folder."));
-    return;
-  }
-  await chooseItemsFolder(first, parent);
-};
-
 const senderWindow = (event: IpcMainInvokeEvent): BrowserWindow | undefined => BrowserWindow.fromWebContents(event.sender) ?? undefined;
 
 const gate = inputGate();
@@ -390,12 +371,6 @@ handleBridge(CHANNELS.settingsSet, (_event, patch) => {
 });
 
 const commands = mainCommands({
-  addWorkspace: (parent) =>
-    addFromPicker(parent).then(
-      () => undefined,
-      (error: unknown) => reportError("Wombat couldn't add the workspace", error),
-    ),
-  chooseItemsFolder: chooseItemsFolderOfFirst,
   stopService: () =>
     stopIfConfirmed({ agents: serviceAgents, confirm: confirmStop, stop: stopServiceAndAgents }).then(
       () => undefined,

@@ -21,10 +21,22 @@ export type WorkbenchCommandDeps = {
   closePanel?: (panel: IDockviewPanel) => void;
   /** What Restart Service does (default: the bridge's restart); the page passes the one that tracks the attempt. */
   restartService?: () => void;
+  /** Open Folder…: adds a workspace and shows it; tells its own failures. */
+  openFolder: () => Promise<void>;
+  /** Choose Items Folder…, for the shown workspace; tells its own failures. */
+  chooseItemsFolder: () => Promise<void>;
 };
 
 /** The ids of the workbench's commands the page's controls and menus name. */
-export const WORKBENCH_COMMAND = { newAgent: "agent.new", closeTab: "view.closeTab", closeGroup: "view.closeGroup", toggleRightSidebar: "view.toggleRightSidebar", restartService: "service.restart" } as const;
+export const WORKBENCH_COMMAND = {
+  newAgent: "agent.new",
+  openFolder: "workspace.open",
+  chooseItemsFolder: "items.chooseFolder",
+  closeTab: "view.closeTab",
+  closeGroup: "view.closeGroup",
+  toggleRightSidebar: "view.toggleRightSidebar",
+  restartService: "service.restart",
+} as const;
 
 /** The id of the command that shows activity `id`. */
 export const activityCommandId = (id: string): string => `view.activity.${id}`;
@@ -41,7 +53,18 @@ export const splitCommandId = (direction: SplitDirection): string => `view.split
 export const commandTitle = (id: string): string => commands().find((command) => command.id === id)?.title ?? id;
 
 /** Registers the workbench's commands; returns their unregistration. */
-export const registerWorkbenchCommands = ({ api, activities, showActivity, toggleRightSidebar, rightSidebarTitle = "Right Sidebar", blocked, restartService, closePanel }: WorkbenchCommandDeps): (() => void) => {
+export const registerWorkbenchCommands = ({
+  api,
+  activities,
+  showActivity,
+  toggleRightSidebar,
+  rightSidebarTitle = "Right Sidebar",
+  blocked,
+  restartService,
+  closePanel,
+  openFolder,
+  chooseItemsFolder,
+}: WorkbenchCommandDeps): (() => void) => {
   const unblocked = () => !blocked();
   const unregister = [
     registerCommand({
@@ -53,6 +76,8 @@ export const registerWorkbenchCommands = ({ api, activities, showActivity, toggl
         setNewAgentDialogOpen(true);
       },
     }),
+    registerCommand({ id: WORKBENCH_COMMAND.openFolder, title: "Open Folder…", when: unblocked, run: openFolder }),
+    registerCommand({ id: WORKBENCH_COMMAND.chooseItemsFolder, title: "Choose Items Folder…", when: unblocked, run: chooseItemsFolder }),
     registerCommand({
       id: WORKBENCH_COMMAND.closeTab,
       title: "Close Tab",

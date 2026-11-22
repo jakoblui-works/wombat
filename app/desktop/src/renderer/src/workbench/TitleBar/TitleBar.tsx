@@ -1,13 +1,43 @@
 import type { LucideIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 
 import { openedByPointer as byPointer } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarSeparator, MenubarShortcut, MenubarTrigger } from "@/components/ui/menubar";
-import { shownWorkspaceOf } from "../../data/query-client.ts";
+import {
+  Menubar,
+  MenubarContent,
+  MenubarItem,
+  MenubarMenu,
+  MenubarRadioGroup,
+  MenubarRadioItem,
+  MenubarSeparator,
+  MenubarShortcut,
+  MenubarTrigger,
+} from "@/components/ui/menubar";
+import { useWorkspaces } from "../../data/hooks.ts";
+import { showWorkspace, useShownWorkspace } from "../../data/shown-workspace.ts";
 import { runLogged } from "../commands/registry.ts";
 import { type MenuModel, MENUS, menuItems } from "./menus.ts";
 import { WombatSymbol } from "../EmptyState/WombatSymbol.tsx";
+
+/** The workspaces by name, the shown one checked; choosing one shows it. */
+const WorkspaceEntries = () => {
+  const listed = useWorkspaces().data?.workspaces ?? [];
+  const shown = useShownWorkspace();
+  if (listed.length === 0) return null;
+  return (
+    <>
+      <MenubarRadioGroup value={shown?.id ?? null} onValueChange={(id: unknown) => typeof id === "string" && showWorkspace(id)}>
+        {listed.map(({ id, name, root }) => (
+          <MenubarRadioItem key={id} value={id} title={root}>
+            {name}
+          </MenubarRadioItem>
+        ))}
+      </MenubarRadioGroup>
+      <MenubarSeparator />
+    </>
+  );
+};
 
 /**
  * A menu's items. A component of its own, so they resolve against the registry when the popup opens: the workbench
@@ -15,8 +45,10 @@ import { WombatSymbol } from "../EmptyState/WombatSymbol.tsx";
  */
 const MenuEntries = ({ menu, choose }: { menu: MenuModel; choose: (id: string) => void }) =>
   menuItems(menu).map((item, at) =>
-    item.separator ? (
+    item.kind === "separator" ? (
       <MenubarSeparator key={`separator-${String(at)}`} />
+    ) : item.kind === "workspaces" ? (
+      <WorkspaceEntries key="workspaces" />
     ) : (
       <MenubarItem key={item.id} disabled={item.disabled} onClick={() => choose(item.id)}>
         {item.label}
@@ -42,27 +74,7 @@ export const TitleBar = ({
   rightOpen: boolean;
   onToggleRight: () => void;
 }) => {
-  const [workspace, setWorkspace] = useState<string>();
-  // Read from the service once it's connected, again on each connect after, and whenever the workspace list changes.
-  useEffect(() => {
-    let live = true;
-    const read = () =>
-      shownWorkspaceOf().then(
-        ({ name }) => live && setWorkspace(name),
-        () => undefined,
-      );
-    const offConnection = window.wombat.service.onConnection(({ state }) => {
-      if (state === "connected") void read();
-    });
-    const offAlert = window.wombat.service.onAlert(({ type }) => {
-      if (type === "workspaces") void read();
-    });
-    return () => {
-      live = false;
-      offConnection();
-      offAlert();
-    };
-  }, []);
+  const workspace = useShownWorkspace()?.name;
   // Edit commands (cut, paste, select all) act on the focused element, and opening a menu moves focus into the menubar.
   // So each time focus comes into the menubar from outside it (and outside its popups), it remembers where from. When
   // a menu closes, focus goes back there if the menu was opened with the pointer or a command was chosen (a menu

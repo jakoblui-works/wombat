@@ -7,8 +7,8 @@ import type { ListProposalsResponse } from "@wombat/shared/proposals";
 import type { ConnectionState } from "../../../../shared/bridge.ts";
 import { isSettled, NO_RESTART, restartAttempt, showsBanner } from "@/lib/connection-state";
 import { cn } from "@/lib/utils";
-import { useAgents, useBinders, useConnection, useProposals } from "../../data/hooks.ts";
-import { ReferenceProvider } from "../../components/Markdown/ReferenceProvider.tsx";
+import { useAgents, useConnection, useProposals } from "../../data/hooks.ts";
+import { chooseItemsFolder, openFolder } from "../../data/shown-workspace.ts";
 import { keys } from "../../data/keys.ts";
 // Registers the activities and their panels, which the workbench reads from the registry.
 import "../activities.ts";
@@ -44,7 +44,6 @@ import {
   workbenchActions,
 } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
-import { Reference, referencePrefixes } from "../items/Reference/Reference.tsx";
 import {
   type ActiveTab,
   ActiveTabContext,
@@ -57,7 +56,8 @@ import {
   type WorkbenchContextValue,
 } from "../workbench-context.ts";
 import { openAgentChat } from "../agents/open-agent-chat.ts";
-import { Toast } from "../Toast/Toast.tsx";
+import { tell, Toast } from "../Toast/Toast.tsx";
+import { asError, asSentence } from "../../lib/errors.ts";
 
 type Chrome = Pick<SavedLayout, "sidebars" | "activity">;
 
@@ -135,8 +135,6 @@ const readAnswered = (state: QueryState | undefined, connection: ConnectionState
   state?.status === "success" ||
   (state?.status === "error" && state.fetchStatus === "idle" && (connection === "connected" || isSettled(connection)));
 
-const renderReference = (handle: string) => <Reference handle={handle} />;
-
 /**
  * The window: activity bar, left sidebar (the activity's panel), the editor's tabs (dockview) and the right sidebar.
  * The layout is restored once, after the agents and proposals reads were answered (so tabs of deleted agents and
@@ -147,7 +145,6 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const queryClient = useQueryClient();
   const agents = useAgents();
   const proposals = useProposals();
-  const prefixes = referencePrefixes(useBinders().data?.binders);
   const connectionState = useConnection();
   const { state: connection, message: connectionMessage } = connectionState;
   const [api, setApi] = useState<DockviewApi>();
@@ -222,7 +219,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     if (!fellBack.current) current.arm();
     saver.current = current;
     const changes = api.onDidLayoutChange(({ reasons }) => current.schedule(byThePage.classify(withoutTitleChanges(reasons))));
-    // A reload (a workspace switch) unloads the page after main has moved on: no save may happen from then on.
+    // A reload unloads the page: no save may happen from then on.
     const unloading = () => current.stop();
     window.addEventListener("beforeunload", unloading);
     return () => {
@@ -318,8 +315,11 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         blocked: () => blockedRef.current,
         restartService: () => restartRef.current(),
         ...(api === undefined ? {} : { closePanel: (panel: IDockviewPanel) => closeGuards().close(api, panel) }),
+        openFolder: () => openFolder(queryClient).catch((error: unknown) => tell(`Wombat couldn't open the folder: ${asSentence(asError(error).message)}`)),
+        chooseItemsFolder: () =>
+          chooseItemsFolder(queryClient).catch((error: unknown) => tell(`Wombat couldn't choose the items folder: ${asSentence(asError(error).message)}`)),
       }),
-    [api, showActivity, rightPanel?.title],
+    [api, showActivity, rightPanel?.title, queryClient],
   );
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -377,66 +377,64 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
           <ActiveTabContext value={activeTab}>
             <RevealsContext value={reveals}>
               <TitlesContext value={titles}>
-                <ReferenceProvider prefixes={prefixes} render={renderReference}>
-                  <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
-                    <TitleBar
-                      right={rightPanel}
-                      count={agentList === undefined ? 0 : needsMeCount(agentList, proposals.data?.proposals ?? [])}
-                      rightOpen={!chrome.sidebars.rightCollapsed}
-                      onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
+                <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
+                  <TitleBar
+                    right={rightPanel}
+                    count={agentList === undefined ? 0 : needsMeCount(agentList, proposals.data?.proposals ?? [])}
+                    rightOpen={!chrome.sidebars.rightCollapsed}
+                    onToggleRight={() => runLogged(WORKBENCH_COMMAND.toggleRightSidebar)}
+                  />
+                  {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
+                  {noticeDismissed || blocked ? null : (
+                    <LiveLaunchNotice connection={connectionState} onRestart={restart} onDismiss={dismissNotice} />
+                  )}
+                  <div className="flex min-h-0 flex-1">
+                    <ActivityBar
+                      activities={activities()}
+                      active={activity?.id}
+                      blocked={blocked}
+                      onSelect={(id) => runLogged(activityCommandId(id))}
                     />
-                    {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
-                    {noticeDismissed || blocked ? null : (
-                      <LiveLaunchNotice connection={connectionState} onRestart={restart} onDismiss={dismissNotice} />
-                    )}
-                    <div className="flex min-h-0 flex-1">
-                      <ActivityBar
-                        activities={activities()}
-                        active={activity?.id}
-                        blocked={blocked}
-                        onSelect={(id) => runLogged(activityCommandId(id))}
+                    {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
+                    <div inert={blocked} className="relative flex min-w-0 flex-1">
+                      <aside aria-label={activity?.title} className={SIDEBAR} style={{ width: chrome.sidebars.left }}>
+                        {activity === undefined ? null : <SidebarContent panelId={activity.sidebarPanel} />}
+                      </aside>
+                      <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
+                      <main className="min-w-0 flex-1">
+                        <TabBarMenu api={api}>
+                          <DockviewReact
+                            className="dockview-theme-wombat"
+                            components={COMPONENTS}
+                            defaultTabComponent={Tab}
+                            rightHeaderActionsComponent={SplitButton}
+                            watermarkComponent={EmptyGroup}
+                            onReady={(event: DockviewReadyEvent) => setApi(event.api)}
+                          />
+                        </TabBarMenu>
+                      </main>
+                      {!chrome.sidebars.rightCollapsed && (
+                        <>
+                          <ResizeHandle label="Resize the right sidebar" onDrag={(dx) => resize("right", -dx)} />
+                          <aside aria-label={rightPanel?.title} className={SIDEBAR} style={{ width: chrome.sidebars.right }}>
+                            {rightPanels.map(({ id, component: Panel }) => (
+                              <Panel key={id} params={{}} />
+                            ))}
+                          </aside>
+                        </>
+                      )}
+                      <div
+                        aria-hidden
+                        className={cn("pointer-events-none absolute inset-0 z-20 bg-scrim transition-opacity", blocked ? "opacity-100" : "opacity-0")}
                       />
-                      {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
-                      <div inert={blocked} className="relative flex min-w-0 flex-1">
-                        <aside aria-label={activity?.title} className={SIDEBAR} style={{ width: chrome.sidebars.left }}>
-                          {activity === undefined ? null : <SidebarContent panelId={activity.sidebarPanel} />}
-                        </aside>
-                        <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
-                        <main className="min-w-0 flex-1">
-                          <TabBarMenu api={api}>
-                            <DockviewReact
-                              className="dockview-theme-wombat"
-                              components={COMPONENTS}
-                              defaultTabComponent={Tab}
-                              rightHeaderActionsComponent={SplitButton}
-                              watermarkComponent={EmptyGroup}
-                              onReady={(event: DockviewReadyEvent) => setApi(event.api)}
-                            />
-                          </TabBarMenu>
-                        </main>
-                        {!chrome.sidebars.rightCollapsed && (
-                          <>
-                            <ResizeHandle label="Resize the right sidebar" onDrag={(dx) => resize("right", -dx)} />
-                            <aside aria-label={rightPanel?.title} className={SIDEBAR} style={{ width: chrome.sidebars.right }}>
-                              {rightPanels.map(({ id, component: Panel }) => (
-                                <Panel key={id} params={{}} />
-                              ))}
-                            </aside>
-                          </>
-                        )}
-                        <div
-                          aria-hidden
-                          className={cn("pointer-events-none absolute inset-0 z-20 bg-scrim transition-opacity", blocked ? "opacity-100" : "opacity-0")}
-                        />
-                      </div>
                     </div>
-                    <LiveStatusBar connection={connectionState} agents={agentList} />
-                    <Toast />
-                    <span className="sr-only">
-                      Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
-                    </span>
                   </div>
-                </ReferenceProvider>
+                  <LiveStatusBar connection={connectionState} agents={agentList} />
+                  <Toast />
+                  <span className="sr-only">
+                    Service API version <span data-testid="api-version">{window.wombat.apiVersion}</span>
+                  </span>
+                </div>
               </TitlesContext>
             </RevealsContext>
           </ActiveTabContext>

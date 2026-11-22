@@ -4,7 +4,8 @@ import { Button } from "../../../components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "../../../components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../components/ui/select";
 import { startAgentVars, useStartAgent } from "../../../data/commands.ts";
-import { useHarnesses, useRepos } from "../../../data/hooks.ts";
+import { useHarnesses, useRepos, useWorkspaces } from "../../../data/hooks.ts";
+import { shownOf, useShownWorkspace } from "../../../data/shown-workspace.ts";
 import { asError } from "../../../lib/errors.ts";
 import { useWorkbench } from "../../workbench-context.ts";
 import { CHAT_PANEL } from "../../agents/chat-params.ts";
@@ -15,7 +16,12 @@ const defaultFolder = (paths: readonly string[], last: string | undefined): stri
   last !== undefined && paths.includes(last) ? last : paths[0];
 
 const NewAgentForm = ({ onDone }: { onDone: () => void }) => {
-  const repos = useRepos();
+  const workspaces = useWorkspaces();
+  const shown = useShownWorkspace();
+  const [pickedWorkspace, setPickedWorkspace] = useState<string>();
+  const listedWorkspaces = workspaces.data?.workspaces ?? [];
+  const workspace = shownOf(listedWorkspaces, pickedWorkspace ?? shown?.id)?.id;
+  const repos = useRepos(workspace);
   const harnesses = useHarnesses();
   const start = useStartAgent();
   const { openTab } = useWorkbench();
@@ -43,7 +49,6 @@ const NewAgentForm = ({ onDone }: { onDone: () => void }) => {
   const ready = folder !== undefined && harness !== undefined && text.trim() !== "" && !start.isPending;
 
   const submit = async () => {
-    const workspace = repos.data?.workspace;
     if (workspace === undefined || folder === undefined || harness === undefined) return;
     setFailure(undefined);
     const first = text.trim();
@@ -63,7 +68,7 @@ const NewAgentForm = ({ onDone }: { onDone: () => void }) => {
     openTab(CHAT_PANEL, { agentId: agent.id });
   };
 
-  const error = failure ?? repos.error ?? harnesses.error;
+  const error = failure ?? workspaces.error ?? repos.error ?? harnesses.error;
   return (
     <form
       className="flex flex-col gap-4"
@@ -72,6 +77,30 @@ const NewAgentForm = ({ onDone }: { onDone: () => void }) => {
         void submit();
       }}
     >
+      <div className="flex flex-col gap-1.5">
+        <span id="new-agent-workspace-label" className="text-sm font-medium text-fg-secondary">
+          Workspace
+        </span>
+        <Select
+          value={workspace ?? null}
+          onValueChange={(value) => {
+            setPickedWorkspace(value ?? undefined);
+            setPicked(undefined);
+          }}
+          items={listedWorkspaces.map(({ id, name }) => ({ value: id, label: name }))}
+        >
+          <SelectTrigger aria-labelledby="new-agent-workspace-label" disabled={listedWorkspaces.length === 0}>
+            <SelectValue placeholder="Open a folder first (File → Open Folder…)" />
+          </SelectTrigger>
+          <SelectContent>
+            {listedWorkspaces.map(({ id, name, root }) => (
+              <SelectItem key={id} value={id} title={root}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <div className="flex flex-col gap-1.5">
         <span id="new-agent-folder-label" className="text-sm font-medium text-fg-secondary">
           Folder
@@ -144,7 +173,7 @@ const NewAgentForm = ({ onDone }: { onDone: () => void }) => {
   );
 };
 
-/** New agent: pick the folder, write the first message, Start. Open state is the caller's. */
+/** New agent: pick the workspace (the shown one first) and folder, write the first message, Start. Open state is the caller's. */
 export const NewAgentDialog = ({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>

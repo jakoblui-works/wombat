@@ -7,7 +7,7 @@ import type { MainCommandId } from "../shared/bridge.ts";
 const CLIPBOARD_REFUSAL = "Cut, copy and paste run only right after you click or press a key in the window. Use them from the Edit menu or with their keys.";
 const ITEMS_FOLDER_REFUSAL =
   "The items folder can be chosen only right after you click or press a key in the window. Use Choose Items Folder… in the File menu or the Desk's button.";
-const WORKSPACE_REFUSAL = "A workspace can be added only right after you click or press a key in the window. Use Switch Workspace… in the File menu.";
+const WORKSPACE_REFUSAL = "A workspace can be added only right after you click or press a key in the window. Use File → Open Folder….";
 
 /** What the page asks main to do: a main command, or a bridge call that opens a folder picker. */
 export type PageAction = MainCommandId | "workspace.add" | "workspace.chooseItemsFolder";
@@ -20,9 +20,7 @@ const INPUT_ONLY: Partial<Record<PageAction, string>> = {
   "edit.cut": CLIPBOARD_REFUSAL,
   "edit.copy": CLIPBOARD_REFUSAL,
   "edit.paste": CLIPBOARD_REFUSAL,
-  "items.chooseFolder": ITEMS_FOLDER_REFUSAL,
   "workspace.chooseItemsFolder": ITEMS_FOLDER_REFUSAL,
-  "workspace.switch": WORKSPACE_REFUSAL,
   "workspace.add": WORKSPACE_REFUSAL,
 };
 

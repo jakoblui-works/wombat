@@ -1,5 +1,5 @@
 // Keeps the cache current from the service's alerts. The event stream never replays, so after a reconnect the agents,
-// the proposals, the binders and every cached item list and item are read again and every cached log is read on from its cursor. While not connected nothing is
+// the proposals, the workspaces, the binders and every cached item list and item are read again and every cached log is read on from its cursor. While not connected nothing is
 // cleared: panels keep the last data and dim themselves.
 import { hashKey, type QueryClient } from "@tanstack/react-query";
 
@@ -7,7 +7,7 @@ import type { Alert, ListAgentsResponse } from "@wombat/shared/api";
 import type { ConnectionState, WombatBridge } from "../../../shared/bridge.ts";
 import { keys, logAgentId, proposalIdOf } from "./keys.ts";
 import { forgetAgent } from "./query-client.ts";
-import { refresh, refreshItems } from "./refresh.ts";
+import { refresh, refreshAll, refreshItems } from "./refresh.ts";
 
 /** Keeps the cache current from the bridge's alerts and connection states; returns the unsubscribe. */
 export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (() => void) => {
@@ -62,11 +62,12 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
         void refresh(queryClient, keys.proposal(alert.proposalId));
         break;
       case "items":
-        refreshItems(queryClient);
+        refreshItems(queryClient, alert.workspace);
         break;
-      // A workspace added, or its items folder changed: what the shown workspace lists may have changed with it.
+      // A workspace added, or its items folder changed: what each workspace lists may have changed with it.
       case "workspaces":
-        void refresh(queryClient, keys.repos);
+        void refresh(queryClient, keys.workspaces);
+        refreshAll(queryClient, [keys.repoLists]);
         refreshItems(queryClient);
         break;
     }
@@ -93,6 +94,7 @@ export const connectAlerts = (queryClient: QueryClient, bridge: WombatBridge): (
         void refresh(queryClient, keys.agents).then(dropUnlisted);
         void refresh(queryClient, keys.proposals);
         for (const proposalId of cachedProposals()) void refresh(queryClient, keys.proposal(proposalId));
+        void refresh(queryClient, keys.workspaces);
         refreshItems(queryClient);
         for (const agentId of cachedLogs()) void refresh(queryClient, keys.log(agentId));
       }

@@ -250,8 +250,8 @@ describe("the Desk's state in a layout", () => {
 });
 
 describe("a draft item tab", () => {
-  const item = panel(ITEM_PANEL, { binderId: "tasks", itemId: "0196f3c2-3f00-7000-8000-000000000001" });
-  const draft = panel(ITEM_PANEL, { binderId: "tasks", draft: "draft-1", context: { status: "todo" } });
+  const item = panel(ITEM_PANEL, { ws: "ws-tasks00001", binderId: "tasks", itemId: "0196f3c2-3f00-7000-8000-000000000001" });
+  const draft = panel(ITEM_PANEL, { ws: "ws-tasks00001", binderId: "tasks", draft: "draft-1", context: { status: "todo" } });
   const withDraft = (): SavedLayout => ({
     ...savedSplit(),
     dockview: dockview({ type: "branch", size: 800, data: [leaf("g1", [chatA1, item, draft], draft.id)] }, [chatA1, item, draft], "g1"),

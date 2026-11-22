@@ -64,5 +64,5 @@ export const fakeHost = (groupCount = 1) => {
 };
 
 const ITEMS = 5;
-export const itemTab = (n: number) => ({ binderId: "chores", itemId: `0196f3c2-5a00-7000-8000-${n.toString(16).padStart(12, "0")}` });
+export const itemTab = (n: number) => ({ ws: "ws-chores0001", binderId: "chores", itemId: `0196f3c2-5a00-7000-8000-${n.toString(16).padStart(12, "0")}` });
 export const item = fc.nat({ max: ITEMS - 1 });

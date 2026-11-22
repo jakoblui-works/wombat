@@ -1,6 +1,7 @@
 import type { LenientView } from "@wombat/shared/items";
 
 import { useBinderItems } from "../../../../data/hooks.ts";
+import { useShownWorkspace } from "../../../../data/shown-workspace.ts";
 import type { Reveal } from "../../../registry.ts";
 import { EmptyState } from "../../../EmptyState/EmptyState.tsx";
 import type { DeletableItem } from "../../../items/item-delete.ts";
@@ -29,7 +30,7 @@ type Props = {
  * question (`useItemDelete`) renders here, so it outlives the view when the binder's last item goes.
  */
 export const BinderItems = (props: Props) => {
-  const remove = useItemDelete();
+  const remove = useItemDelete(useShownWorkspace()?.id);
   return (
     <>
       <BinderView {...props} onDeleteItem={remove.ask} />
@@ -39,10 +40,11 @@ export const BinderItems = (props: Props) => {
 };
 
 const BinderView = ({ binder, view, onOpenItem, onDeleteItem, onNewItem, reveal, onRevealed }: Props & { onDeleteItem: (item: DeletableItem) => void }) => {
-  const [read] = useBinderItems([binder.id]);
-  const proposals = useItemProposals(binder.id);
+  const ws = useShownWorkspace()?.id;
+  const [read] = useBinderItems(ws, [binder.id]);
+  const proposals = useItemProposals(ws, binder.id);
   const items = read?.data?.items;
-  const itemsOf = useItemsOf(binder.id, binder.properties, items ?? []);
+  const itemsOf = useItemsOf(ws, binder.id, binder.properties, items ?? []);
   if (items === undefined) {
     return read?.error ? (
       <p role="alert" className="px-3 pt-3 text-sm text-danger">

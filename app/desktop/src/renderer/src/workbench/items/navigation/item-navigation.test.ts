@@ -31,7 +31,7 @@ test("an item's tabs are found by its id, whichever binder they were opened from
       try {
         const showing = new Set<string>();
         for (const each of opened) {
-          const params = "n" in each ? { ...itemTab(each.n), binderId: each.binderId } : { binderId: each.binderId, draft: `draft-${String(each.draft)}`, context: {} };
+          const params = "n" in each ? { ...itemTab(each.n), binderId: each.binderId } : { ws: itemTab(0).ws, binderId: each.binderId, draft: `draft-${String(each.draft)}`, context: {} };
           openTab(host, ITEM_PANEL, params);
           if ("n" in each && each.n === wanted) showing.add(tabKey(ITEM_PANEL, params));
         }
@@ -93,6 +93,7 @@ const page = () => {
     navigator,
     told,
     queryClient,
+    ws: ws.id,
     /** Answers the read of `ref` once the page has asked for it. */
     answer: async (ref: string, answer: Answer): Promise<void> => {
       await vi.waitFor(() => expect([...asked.keys()]).toContain(ref));
@@ -112,20 +113,20 @@ test.each<[string, Answer, Item | undefined, unknown[]]>([
   ["finds no item", { status: 404, body: { error: { code: ItemsErrorCode.enum.item_not_found, message: "No item HV-2." } } }, undefined, [NOT_FOUND]],
   ["fails", { status: 500, body: { error: { code: "internal_error", message: UNREADABLE } } }, undefined, [expect.stringContaining(UNREADABLE)]],
 ])("only the latest follow lands, though an earlier one's read comes back after it: the later read %s", async (_name, laterAnswer, lands, tells) => {
-  const { navigator, told, queryClient, answer, itemTabsOpen, desk, shownActivities } = page();
+  const { navigator, told, queryClient, ws, answer, itemTabsOpen, desk, shownActivities } = page();
   const earlier = hive(1);
 
-  followItem(navigator, "HV-1");
-  followItem(navigator, "HV-2");
+  followItem(navigator, ws, "HV-1");
+  followItem(navigator, ws, "HV-2");
   await answer("HV-2", laterAnswer);
-  if (lands === undefined) await vi.waitFor(() => expect(queryClient.getQueryState(keys.item("HV-2"))?.status).toBe("error"));
+  if (lands === undefined) await vi.waitFor(() => expect(queryClient.getQueryState(keys.item(ws, "HV-2"))?.status).toBe("error"));
   else await vi.waitFor(() => expect(desk().binderId).toBe(lands.binder));
   await answer("HV-1", { status: 200, body: earlier });
-  await vi.waitFor(() => expect(queryClient.getQueryData(keys.item("HV-1"))).toBeDefined());
+  await vi.waitFor(() => expect(queryClient.getQueryData(keys.item(ws, "HV-1"))).toBeDefined());
   // The earlier follow's own step after its read is queued behind the cache's; a timer runs only once that queue is empty.
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  expect(itemTabsOpen()).toEqual(lands === undefined ? [] : [tabOf(lands)]);
+  expect(itemTabsOpen()).toEqual(lands === undefined ? [] : [{ ws, ...tabOf(lands) }]);
   expect(desk()).toEqual(lands === undefined ? DEFAULT_DESK : { ...DEFAULT_DESK, binderId: lands.binder });
   expect(shownActivities).toEqual(lands === undefined ? [] : [DESK_ACTIVITY]);
   expect(told).toEqual(tells);

@@ -179,6 +179,7 @@ const Row = ({ row, sides, property, text, links, edit, problems, file, opened, 
  */
 export const ItemProposal = ({
   proposalId,
+  ws,
   binderId,
   kind,
   current,
@@ -188,6 +189,8 @@ export const ItemProposal = ({
   problems,
 }: {
   proposalId: string;
+  /** The proposal's workspace, whose binders it changes. */
+  ws: string;
   binderId: string;
   kind: ItemProposalKind;
   current: Item | null;
@@ -198,10 +201,10 @@ export const ItemProposal = ({
   edit: ItemEdit | undefined;
   problems: readonly Problem[];
 }) => {
-  const binders = useBinders();
+  const binders = useBinders(ws);
   const binder = binders.data?.binders.find((each) => each.id === binderId);
   const properties = binder?.id === null || binder === undefined ? {} : binder.properties;
-  const links = useLinkLists(properties);
+  const links = useLinkLists(ws, properties);
   const { itemsOf } = links;
   const linksTo = (to: string): Option[] =>
     linkOptions(itemsOf(to)).map(({ id, handle, title }) => ({ value: id, label: [handle, title].filter((part) => part !== null).join(" · ") }));

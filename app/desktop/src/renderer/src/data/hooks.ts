@@ -3,14 +3,19 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { ConnectionState } from "../../../shared/bridge.ts";
-import { agentLogQuery, agentsQuery, harnessesQuery, proposalQuery, proposalsQuery, proposalVersionQuery, reposQuery, binderItemsQuery, bindersQuery, itemQuery } from "./query-client.ts";
+import { agentLogQuery, agentsQuery, harnessesQuery, proposalQuery, proposalsQuery, proposalVersionQuery, reposQuery, binderItemsQuery, bindersQuery, itemQuery, workspacesQuery } from "./query-client.ts";
+
+// The workspace-keyed reads take `ws` undefined while no workspace is known: the query waits, keyed by "".
+const NONE = "";
 
 export const useAgents = () => useQuery(agentsQuery());
 
 export const useHarnesses = () => useQuery(harnessesQuery());
 
-/** The folders an agent may start in; read again each time the caller mounts (the New agent dialog opening). */
-export const useRepos = () => useQuery({ ...reposQuery(), refetchOnMount: "always" });
+export const useWorkspaces = () => useQuery(workspacesQuery());
+
+/** Workspace `ws`'s folders an agent may start in; read again each time the caller mounts (the New agent dialog opening). */
+export const useRepos = (ws: string | undefined) => useQuery({ ...reposQuery(ws ?? NONE), enabled: ws !== undefined, refetchOnMount: "always" });
 
 export const useProposals = () => useQuery(proposalsQuery());
 
@@ -21,16 +26,19 @@ export const useProposals = () => useQuery(proposalsQuery());
 export const useProposal = (proposalId: string, version?: number) =>
   useQuery(version === undefined ? proposalQuery(proposalId) : proposalVersionQuery(proposalId, version));
 
-export const useBinders = () => useQuery(bindersQuery());
+/** Workspace `ws`'s binders. */
+export const useBinders = (ws: string | undefined) => useQuery({ ...bindersQuery(ws ?? NONE), enabled: ws !== undefined });
 
-/** The items of each binder in `binderIds`, in that order. */
-export const useBinderItems = (binderIds: readonly string[]) => useQueries({ queries: binderIds.map((binderId) => binderItemsQuery(binderId)) });
+/** The items of each of workspace `ws`'s binders in `binderIds`, in that order. */
+export const useBinderItems = (ws: string | undefined, binderIds: readonly string[]) =>
+  useQueries({ queries: binderIds.map((binderId) => ({ ...binderItemsQuery(ws ?? NONE, binderId), enabled: ws !== undefined })) });
 
 /**
- * One item by id, read again by every items alert and after a reconnect. A failed read keeps the item from the last
- * read that succeeded as `data`, beside the error.
+ * One item of workspace `ws` by id, read again by every items alert of its workspace and after a reconnect. A failed
+ * read keeps the item from the last read that succeeded as `data`, beside the error.
  */
-export const useItem = (itemId: string) => useQuery(itemQuery(itemId));
+export const useItem = (ws: string | undefined, itemId: string, { enabled = true, retryOnMount }: { enabled?: boolean; retryOnMount?: boolean } = {}) =>
+  useQuery({ ...itemQuery(ws ?? NONE, itemId), enabled: enabled && ws !== undefined, ...(retryOnMount === undefined ? {} : { retryOnMount }) });
 
 export const useAgentLog = (agentId: string) => useQuery(agentLogQuery(useQueryClient(), agentId));
 

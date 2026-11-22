@@ -5,6 +5,7 @@ import type { BinderSummary, Item } from "@wombat/shared/items";
 
 import { newCommandId } from "../../../data/commands.ts";
 import { bindersQuery, itemQuery } from "../../../data/query-client.ts";
+import { showWorkspace } from "../../../data/shown-workspace.ts";
 import { asError, asSentence } from "../../../lib/errors.ts";
 import { DESK_ACTIVITY, DESK_PANEL } from "../../activity-ids.ts";
 import { openTabs, showTab, sidebarRevealKey } from "../../tabs.ts";
@@ -24,13 +25,13 @@ export type ItemNavigator = {
   tell: (message: string) => void;
 };
 
-/** The binders, read when the page has none yet; undefined when they can't be. */
-const readBinders = (queryClient: QueryClient): Promise<readonly BinderSummary[] | undefined> =>
-  queryClient.ensureQueryData(bindersQuery()).then(({ binders }) => binders, () => undefined);
+/** Workspace `ws`'s binders, read when the page has none yet; undefined when they can't be. */
+const readBinders = (queryClient: QueryClient, ws: string): Promise<readonly BinderSummary[] | undefined> =>
+  queryClient.ensureQueryData(bindersQuery(ws)).then(({ binders }) => binders, () => undefined);
 
-/** The item read afresh by id or handle; undefined when the service finds none, rejects on any other failure. */
-const readItemAfresh = (queryClient: QueryClient, ref: string): Promise<Item | undefined> =>
-  queryClient.fetchQuery({ ...itemQuery(ref), staleTime: 0 }).catch((error: unknown) => {
+/** Workspace `ws`'s item read afresh by id or handle; undefined when the service finds none, rejects on any other failure. */
+const readItemAfresh = (queryClient: QueryClient, ws: string, ref: string): Promise<Item | undefined> =>
+  queryClient.fetchQuery({ ...itemQuery(ws, ref), staleTime: 0 }).catch((error: unknown) => {
     if (isItemNotFound(error)) return undefined;
     throw error;
   });
@@ -38,13 +39,14 @@ const readItemAfresh = (queryClient: QueryClient, ref: string): Promise<Item | u
 const itemUnread = (error: unknown): string => `${READ_FAILED.item}: ${asSentence(asError(error).message)} Try again once the service answers.`;
 
 /**
- * Switches to the Desk and shows the binder in its sidebar on its view `view` (else its first), else as a list of its
- * items. `reveal` (a proposal id or an item id) reaches the Desk's sidebar.
+ * Shows workspace `ws`, switches to the Desk and shows the binder in its sidebar on its view `view` (else its first),
+ * else as a list of its items. `reveal` (a proposal id or an item id) reaches the Desk's sidebar.
  */
-export const openBinder = ({ workbench, queryClient, changeDesk }: ItemNavigator, binderId: string, reveal?: string, view?: string): void => {
+export const openBinder = ({ workbench, queryClient, changeDesk }: ItemNavigator, ws: string, binderId: string, reveal?: string, view?: string): void => {
   if (workbench.host === undefined) return;
-  void readBinders(queryClient).then((binders) => {
+  void readBinders(queryClient, ws).then((binders) => {
     const place = binderPlace(binders?.find(({ id }) => id === binderId), view);
+    showWorkspace(ws);
     workbench.reveals.set(sidebarRevealKey(DESK_PANEL), reveal === undefined ? undefined : { target: reveal });
     changeDesk((desk) => showBinder(desk, binderId, place.sidebarView));
     workbench.showActivity(DESK_ACTIVITY);
@@ -52,20 +54,20 @@ export const openBinder = ({ workbench, queryClient, changeDesk }: ItemNavigator
 };
 
 /**
- * Opens or focuses the item's tab. A `temporary` tab takes the place of its group's temporary tab and is replaced by
- * the next one, until it's kept (`keepTab`); a tab opened again without it is kept.
+ * Opens or focuses the tab of workspace `ws`'s item. A `temporary` tab takes the place of its group's temporary tab and
+ * is replaced by the next one, until it's kept (`keepTab`); a tab opened again without it is kept.
  */
-export const openItem = ({ workbench }: ItemNavigator, binderId: string, itemId: string, options?: OpenOptions): void => {
+export const openItem = ({ workbench }: ItemNavigator, ws: string, binderId: string, itemId: string, options?: OpenOptions): void => {
   if (workbench.host === undefined) return;
-  showTab(workbench.host, workbench.reveals, ITEM_PANEL, { binderId, itemId } satisfies ItemParams, workbench.titleContext(), undefined, {
+  showTab(workbench.host, workbench.reveals, ITEM_PANEL, { ws, binderId, itemId } satisfies ItemParams, workbench.titleContext(), undefined, {
     temporary: options?.temporary === true,
   });
 };
 
-/** Opens a new tab on an item not written yet in the binder, starting with `context`'s values (`viewContext`). */
-export const openNewItem = ({ workbench }: ItemNavigator, binderId: string, context: Record<string, unknown>): void => {
+/** Opens a new tab on an item not written yet in workspace `ws`'s binder, starting with `context`'s values (`viewContext`). */
+export const openNewItem = ({ workbench }: ItemNavigator, ws: string, binderId: string, context: Record<string, unknown>): void => {
   if (workbench.host === undefined) return;
-  const params = { binderId, draft: newCommandId(), context } satisfies ItemParams;
+  const params = { ws, binderId, draft: newCommandId(), context } satisfies ItemParams;
   showTab(workbench.host, workbench.reveals, ITEM_PANEL, params, workbench.titleContext(), undefined, { title: NEW_ITEM_TITLE });
 };
 
@@ -73,23 +75,24 @@ export const openNewItem = ({ workbench }: ItemNavigator, binderId: string, cont
 let follows = 0;
 
 /**
- * Shows the item (`ref`: its id or a handle) where it sits: the Desk's sidebar on its binder's first view, the item's
- * row revealed, and the item in a temporary tab. For a ref that names no item, opens nothing and tells the user.
+ * Shows workspace `ws`'s item (`ref`: its id or a handle) where it sits: the Desk's sidebar on its binder's first
+ * view, the item's row revealed, and the item in a temporary tab. For a ref that names no item, opens nothing and
+ * tells the user.
  */
-export const followItem = (navigator: ItemNavigator, ref: string): void => {
+export const followItem = (navigator: ItemNavigator, ws: string, ref: string): void => {
   if (navigator.workbench.host === undefined) return;
   follows += 1;
   const follow = follows;
-  void readItemAfresh(navigator.queryClient, ref).then(
+  void readItemAfresh(navigator.queryClient, ws, ref).then(
     (item) => {
       if (follow !== follows) return;
-      const place = followPlace(item);
+      const place = followPlace(ws, item);
       if (place === undefined) {
         navigator.tell(itemNotFound(previewName(ref)));
         return;
       }
-      openBinder(navigator, place.binderId, place.itemId);
-      openItem(navigator, place.binderId, place.itemId, { temporary: true });
+      openBinder(navigator, place.ws, place.binderId, place.itemId);
+      openItem(navigator, place.ws, place.binderId, place.itemId, { temporary: true });
     },
     (error: unknown) => {
       if (follow === follows) navigator.tell(itemUnread(error));
@@ -102,10 +105,10 @@ export const itemTabs = ({ workbench }: { workbench: Pick<WorkbenchContextValue,
   workbench.host === undefined ? [] : openTabs(workbench.host, ITEM_PANEL).filter((tab) => showsItem(tab.params, itemId));
 
 type ItemNavigation = {
-  openBinder: (binderId: string, reveal?: string, view?: string) => void;
-  openItem: (binderId: string, itemId: string, options?: OpenOptions) => void;
-  openNewItem: (binderId: string, context: Record<string, unknown>) => void;
-  followItem: (ref: string) => void;
+  openBinder: (ws: string, binderId: string, reveal?: string, view?: string) => void;
+  openItem: (ws: string, binderId: string, itemId: string, options?: OpenOptions) => void;
+  openNewItem: (ws: string, binderId: string, context: Record<string, unknown>) => void;
+  followItem: (ws: string, ref: string) => void;
   itemTabs: (itemId: string) => TabRef[];
 };
 
@@ -116,10 +119,10 @@ export const useItemNavigation = (): ItemNavigation => {
   return useMemo(() => {
     const navigator: ItemNavigator = { workbench, queryClient, changeDesk, tell };
     return {
-      openBinder: (binderId, reveal, view) => openBinder(navigator, binderId, reveal, view),
-      openItem: (binderId, itemId, options) => openItem(navigator, binderId, itemId, options),
-      openNewItem: (binderId, context) => openNewItem(navigator, binderId, context),
-      followItem: (ref) => followItem(navigator, ref),
+      openBinder: (ws, binderId, reveal, view) => openBinder(navigator, ws, binderId, reveal, view),
+      openItem: (ws, binderId, itemId, options) => openItem(navigator, ws, binderId, itemId, options),
+      openNewItem: (ws, binderId, context) => openNewItem(navigator, ws, binderId, context),
+      followItem: (ws, ref) => followItem(navigator, ws, ref),
       itemTabs: (itemId) => itemTabs(navigator, itemId),
     };
   }, [workbench, queryClient, changeDesk]);

@@ -26,6 +26,7 @@ import { Composer } from "./Composer/Composer.tsx";
 import { ComposerFooter } from "./Composer/ComposerFooter/ComposerFooter.tsx";
 import { LogError } from "../../approvals/LogError/LogError.tsx";
 import { ClippedMarkdown } from "./ClippedMarkdown/ClippedMarkdown.tsx";
+import { SurfaceWorkspace } from "../../items/Reference/Reference.tsx";
 import { safePrefix } from "./safe-prefix.ts";
 import { Permission } from "./Permission/Permission.tsx";
 import { Plan } from "./Plan/Plan.tsx";
@@ -261,27 +262,29 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
       ) : model === undefined ? (
         <p className="p-5 text-sm text-fg-tertiary">Loading…</p>
       ) : (
-        <ScrollArea viewportRef={viewport} className="min-h-0 flex-1">
-          <div ref={content} role="log" aria-label="Conversation" className="mx-auto flex max-w-chat flex-col gap-3 px-5 pt-2 pb-4">
-            {log.data?.truncated ? <p className="text-sm text-fg-tertiary">Earlier history wasn't kept.</p> : null}
-            {blocks.map((block) => (
-              <Block
-                key={block.key}
-                block={block}
-                live={live ?? liveState(model, agent)}
-                edits={edits}
-                connected={connected}
-                answers={answers}
-                cards={cards.current}
-                fresh={tracked.fresh.has(block.key)}
-                streaming={block.key === streamingBlock}
-                paced={stillReveals(pacing, block.key)}
-                onRevealDone={onRevealDone}
-                onOpenSideBySide={openSideBySide}
-              />
-            ))}
-          </div>
-        </ScrollArea>
+        <SurfaceWorkspace ws={agent?.workspace}>
+          <ScrollArea viewportRef={viewport} className="min-h-0 flex-1">
+            <div ref={content} role="log" aria-label="Conversation" className="mx-auto flex max-w-chat flex-col gap-3 px-5 pt-2 pb-4">
+              {log.data?.truncated ? <p className="text-sm text-fg-tertiary">Earlier history wasn't kept.</p> : null}
+              {blocks.map((block) => (
+                <Block
+                  key={block.key}
+                  block={block}
+                  live={live ?? liveState(model, agent)}
+                  edits={edits}
+                  connected={connected}
+                  answers={answers}
+                  cards={cards.current}
+                  fresh={tracked.fresh.has(block.key)}
+                  streaming={block.key === streamingBlock}
+                  paced={stillReveals(pacing, block.key)}
+                  onRevealDone={onRevealDone}
+                  onOpenSideBySide={openSideBySide}
+                />
+              ))}
+            </div>
+          </ScrollArea>
+        </SurfaceWorkspace>
       )}
       {/* The summary says whether the agent works, the log what it does; both must agree before the line shows. */}
       {agent?.state === "working" ? <WorkingLine activity={model?.activity ?? null} /> : null}

@@ -5,7 +5,8 @@ import { Button } from "../../../components/ui/button";
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { AGENT_STATES } from "../../../lib/agent-state";
 import { useNow } from "../../../lib/ago";
-import { useAgents, useRepos } from "../../../data/hooks.ts";
+import { useAgents, useWorkspaces } from "../../../data/hooks.ts";
+import { workspaceName } from "../../../data/workspaces.ts";
 import { useNewAgentDialog } from "../../commands/new-agent-dialog.ts";
 import { runLogged } from "../../commands/registry.ts";
 import { WORKBENCH_COMMAND } from "../../commands/workbench-commands.ts";
@@ -25,9 +26,7 @@ export const AgentsList = () => {
   const active = useActiveTab();
   const now = useNow();
   const [creating, setCreating] = useNewAgentDialog();
-  // The workspace folder's name comes from the service's folder list (its first entry, ".").
-  const repos = useRepos();
-  const workspaceName = repos.data?.repos.find(({ path }) => path === ".")?.name ?? ".";
+  const workspaces = useWorkspaces();
 
   const activeAgentId = active?.panelId === CHAT_PANEL ? ChatParams.safeParse(active.params).data?.agentId : undefined;
   const list = agents.data?.agents;
@@ -46,9 +45,9 @@ export const AgentsList = () => {
           New agent
         </Button>
       </SidebarHeader>
-      {repos.error && repos.data === undefined ? (
+      {workspaces.error && workspaces.data === undefined ? (
         <p role="alert" className="px-3 pt-3 text-sm text-danger">
-          Couldn't read the workspace folders: {repos.error.message}
+          Couldn't read the workspaces: {workspaces.error.message}
         </p>
       ) : null}
       {agents.error && list === undefined ? (
@@ -73,7 +72,7 @@ export const AgentsList = () => {
                   <ViewTransition key={agent.id} name={`agent-${agent.id}`} default="none" share="agent-row">
                     <AgentRow
                       agent={agent}
-                      workspaceName={workspaceName}
+                      workspaceName={workspaceName(workspaces.data?.workspaces, agent.workspace)}
                       now={now}
                       selected={agent.id === activeAgentId}
                       stateChanged={tracked.changed.has(agent.id)}

@@ -30,8 +30,9 @@ export type Unsubscribe = () => void;
 
 /**
  * The commands the page may ask main to run: the ones only main can do (zoom, the window, the clipboard through
- * webContents, the workspace, items folder and service dialogs, quitting). Main runs an id only when isMainCommandId takes it, so
- * this list is the whole of what `command` can reach; the trust-boundary e2e checks the rest are refused.
+ * webContents, the service dialog, quitting; the folder pickers are `workspace`'s, which name their workspace). Main runs
+ * an id only when isMainCommandId takes it, so this list is the whole of what `command` can reach; the trust-boundary
+ * e2e checks the rest are refused.
  */
 export const MAIN_COMMAND_IDS = [
   "zoom.in",
@@ -46,8 +47,6 @@ export const MAIN_COMMAND_IDS = [
   "window.minimize",
   "window.maximize",
   "window.close",
-  "workspace.switch",
-  "items.chooseFolder",
   "service.stop",
   "app.quit",
 ] as const;

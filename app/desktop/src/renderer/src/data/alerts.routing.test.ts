@@ -49,12 +49,12 @@ test.each<[string, (service: FakeService) => void]>([
       service.connection("connected");
     },
   ],
-  ["an items alert", (service) => service.alert("agent_changed", A, { type: "items" })],
+  ["an items alert", (service) => service.alert("agent_changed", A, { type: "items", workspace: FAKE_WORKSPACE.id })],
 ])("%s reads the binders, every cached binder's items and every cached item again", async (_name, trigger) => {
   const { service, client } = setup();
-  client.setQueryData(keys.binders, { binders: [] });
-  client.setQueryData(keys.binderItems("bugs"), { items: [] });
-  client.setQueryData(keys.item("BUG-1"), { id: "bug-1" });
+  client.setQueryData(keys.binders(FAKE_WORKSPACE.id), { binders: [] });
+  client.setQueryData(keys.binderItems(FAKE_WORKSPACE.id, "bugs"), { items: [] });
+  client.setQueryData(keys.item(FAKE_WORKSPACE.id, "BUG-1"), { id: "bug-1" });
   trigger(service);
   await vi.waitFor(() => expect(service.requests()).not.toEqual([]));
   const ws = `/workspaces/${FAKE_WORKSPACE.id}`;

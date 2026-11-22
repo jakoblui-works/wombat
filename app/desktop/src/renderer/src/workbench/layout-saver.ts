@@ -1,5 +1,3 @@
-// Saves the layout a while after it last changed, and never once the page is unloading: a switch of workspace reloads
-// the page after main has moved on, so a late save would land under the new workspace.
 import type { SavedLayout } from "./layout.ts";
 
 /** How long the layout must stay unchanged before it's saved. */

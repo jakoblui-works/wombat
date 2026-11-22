@@ -20,6 +20,7 @@ import { AnswerError, DecisionSlot, OutcomeMark, Waiting } from "../../approvals
 import { Note } from "../../approvals/Note/Note.tsx";
 import { FileProposal } from "./FileProposal/FileProposal.tsx";
 import { ItemProposal } from "./ItemProposal/ItemProposal.tsx";
+import { SurfaceWorkspace } from "../../items/Reference/Reference.tsx";
 import { proposalActions } from "../../proposals/proposal-actions.ts";
 import { isOutsideWorkspace, proposalAgentTitle, proposalKindWord, proposalTabLabel } from "../../proposals/proposal-label.ts";
 import { OutsideWorkspace } from "../../proposals/OutsideWorkspace/OutsideWorkspace.tsx";
@@ -309,6 +310,7 @@ const ItemTab = ({
   return (
     <ItemProposal
       proposalId={proposalId}
+      ws={shown.workspace}
       binderId={shown.binder}
       kind={shown.kind}
       current={shown.current}
@@ -330,7 +332,14 @@ const ItemTab = ({
   );
 };
 
+/** A proposal's tab, in the proposal's workspace. */
+const ProposalSurface = ({ proposalId, setTitle }: ProposalParams & { setTitle: PanelProps["setTitle"] }) => (
+  <SurfaceWorkspace ws={useProposal(proposalId).data?.workspace}>
+    <ProposalTab proposalId={proposalId} setTitle={setTitle} />
+  </SurfaceWorkspace>
+);
+
 export const Proposal = ({ params, setTitle }: PanelProps) => {
   const parsed = ProposalParams.safeParse(params);
-  return parsed.success ? <ProposalTab {...parsed.data} setTitle={setTitle} /> : <Note>This tab names no proposal; close it.</Note>;
+  return parsed.success ? <ProposalSurface {...parsed.data} setTitle={setTitle} /> : <Note>This tab names no proposal; close it.</Note>;
 };

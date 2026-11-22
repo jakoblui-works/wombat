@@ -2,10 +2,9 @@
 // run only right after the user's own click or key in the window.
 import { expect, test } from "vitest";
 
-import { pageMayRun, USER_INPUT_MS } from "./user-input.ts";
-import type { MainCommandId } from "../shared/bridge.ts";
+import { type PageAction, pageMayRun, USER_INPUT_MS } from "./user-input.ts";
 
-const INPUT_ONLY: readonly MainCommandId[] = ["items.chooseFolder", "edit.cut", "edit.copy", "edit.paste"];
+const INPUT_ONLY: readonly PageAction[] = ["workspace.chooseItemsFolder", "edit.cut", "edit.copy", "edit.paste"];
 
 test.each(INPUT_ONLY)("%s runs only right after the user's input", (id) => {
   const now = 1_000_000;

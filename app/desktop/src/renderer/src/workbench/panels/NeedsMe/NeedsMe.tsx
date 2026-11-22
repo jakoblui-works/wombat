@@ -79,11 +79,15 @@ export const NeedsMe = () => {
   const rows = agents.data === undefined ? undefined : needsMeRows(agents.data.agents, now);
   const proposalList = agents.data === undefined ? [] : proposalRows(proposals.data?.proposals ?? [], agents.data.agents, now);
   const count = agents.data === undefined ? undefined : needsMeCount(agents.data.agents, proposals.data?.proposals ?? []);
-  // An item proposal opens its binder's view with it revealed; one whose binder isn't usable opens its tab.
+  // An item proposal shows its workspace and opens its binder's view with it revealed; one whose binder isn't usable
+  // opens its tab.
   const open = ({ proposal, notification }: ProposalRow) => {
     if (!notification || proposal.target !== "item") return openProposal(proposal.id);
-    void queryClient.ensureQueryData(bindersQuery()).then(
-      ({ binders }) => (binderOf(proposal.binder, binders).kind === "binder" ? openBinder(proposal.binder, proposal.id) : openProposal(proposal.id)),
+    void queryClient.ensureQueryData(bindersQuery(proposal.workspace)).then(
+      ({ binders }) => {
+        if (binderOf(proposal.binder, binders).kind !== "binder") return openProposal(proposal.id);
+        openBinder(proposal.workspace, proposal.binder, proposal.id);
+      },
       () => openProposal(proposal.id),
     );
   };

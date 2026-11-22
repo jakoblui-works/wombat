@@ -1,4 +1,5 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu"
+import { Check } from "lucide-react"
 import { Menubar as MenubarPrimitive } from "@base-ui/react/menubar"
 import { cn } from "../../lib/utils"
 import { POPUP_MOTION, useOpenInput, useOpenTracking } from "./popup-motion"
@@ -50,16 +51,31 @@ function MenubarContent({
   )
 }
 
+const ITEM =
+  "flex items-center gap-6 rounded-md px-2 py-1.5 text-base text-fg-primary outline-none select-none data-highlighted:bg-surface-3 data-disabled:opacity-50"
+
 function MenubarItem({ className, ...props }: MenuPrimitive.Item.Props) {
+  return <MenuPrimitive.Item data-slot="menubar-item" className={cn(ITEM, className)} {...props} />
+}
+
+function MenubarRadioGroup(props: MenuPrimitive.RadioGroup.Props) {
+  return <MenuPrimitive.RadioGroup data-slot="menubar-radio-group" {...props} />
+}
+
+/** One choice of a radio group, its check mark at the right edge while chosen; choosing it closes the menu. */
+function MenubarRadioItem({ className, children, ...props }: MenuPrimitive.RadioItem.Props) {
   return (
-    <MenuPrimitive.Item
-      data-slot="menubar-item"
-      className={cn(
-        "flex items-center gap-6 rounded-md px-2 py-1.5 text-base text-fg-primary outline-none select-none data-highlighted:bg-surface-3 data-disabled:opacity-50",
-        className
-      )}
+    <MenuPrimitive.RadioItem
+      data-slot="menubar-radio-item"
+      closeOnClick
+      className={cn(ITEM, className)}
       {...props}
-    />
+    >
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+      <MenuPrimitive.RadioItemIndicator>
+        <Check className="size-3.5" />
+      </MenuPrimitive.RadioItemIndicator>
+    </MenuPrimitive.RadioItem>
   )
 }
 
@@ -72,4 +88,4 @@ function MenubarShortcut({ className, ...props }: React.ComponentProps<"span">) 
   return <span data-slot="menubar-shortcut" className={cn("ml-auto text-sm text-fg-tertiary", className)} {...props} />
 }
 
-export { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarSeparator, MenubarShortcut, MenubarTrigger }
+export { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarRadioGroup, MenubarRadioItem, MenubarSeparator, MenubarShortcut, MenubarTrigger }
