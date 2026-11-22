@@ -4,9 +4,9 @@ import type { BinderSummary, ItemSummary, LenientView } from "@wombat/shared/ite
 
 import { ServiceError } from "../../../data/client.ts";
 import type { DeskLayout } from "../../layout.ts";
+import { itemTabParams, type SavedItemParams } from "../Item/item-params.ts";
+import type { Binder } from "../Item/item-state.ts";
 import { type DeskNode, deskTree } from "./desk-tree.ts";
-
-type OpenableBinder = Extract<BinderSummary, { id: string }>;
 
 const viewsOf = (binder: BinderSummary | undefined): readonly LenientView[] => (binder === undefined || binder.id === null ? [] : binder.views);
 
@@ -20,11 +20,11 @@ export const binderPlace = (binder: BinderSummary | undefined, viewName?: string
 };
 
 /** Where following an item lands: its binder (on its first view, `binderPlace`) with the item's row revealed, and the item's tab. */
-export type FollowPlace = { binderId: string; itemId: string };
+export type FollowPlace = SavedItemParams;
 
 /** Where following `item` lands; undefined for no item or one without an id. */
 export const followPlace = (item: Pick<ItemSummary, "id" | "binder"> | undefined): FollowPlace | undefined =>
-  item === undefined || item.id === null ? undefined : { binderId: item.binder, itemId: item.id };
+  item === undefined || item.id === null ? undefined : itemTabParams({ binder: item.binder, id: item.id });
 
 /** The view the sidebar shows for a binder: view `viewName`, else its first; undefined for none. */
 const shownView = (binder: BinderSummary | undefined, viewName: string | undefined): LenientView | undefined => {
@@ -38,7 +38,7 @@ export type DeskContent =
   | { kind: "error"; message: string }
   | { kind: "empty" }
   | { kind: "tree"; nodes: DeskNode[] }
-  | { kind: "binder"; binder: OpenableBinder; view: LenientView | undefined };
+  | { kind: "binder"; binder: Binder; view: LenientView | undefined };
 
 /**
  * What the Desk's sidebar shows: the binder the Desk was left on while it is listed and readable, else the tree; an
@@ -50,7 +50,7 @@ export const deskContent = (binders: readonly BinderSummary[] | undefined, error
     return error instanceof ServiceError && error.code === ItemsErrorCode.enum.items_not_configured ? { kind: "no-root" } : { kind: "error", message: error.message };
   }
   if (binders.length === 0) return { kind: "empty" };
-  const shown = desk.binderId === undefined ? undefined : binders.find((binder): binder is OpenableBinder => binder.id === desk.binderId);
+  const shown = desk.binderId === undefined ? undefined : binders.find((binder): binder is Binder => binder.id === desk.binderId);
   if (shown !== undefined) return { kind: "binder", binder: shown, view: shownView(shown, desk.view) };
   return { kind: "tree", nodes: deskTree(binders) };
 };

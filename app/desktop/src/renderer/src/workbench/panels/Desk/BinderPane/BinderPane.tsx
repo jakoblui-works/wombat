@@ -1,16 +1,17 @@
-import type { BinderSummary, LenientView } from "@wombat/shared/items";
+import type { LenientView } from "@wombat/shared/items";
 import { ArrowLeft, Kanban, List, ListTree, Plus } from "lucide-react";
 
 import { Button } from "../../../../components/ui/button";
 import { ScrollArea } from "../../../../components/ui/scroll-area";
 import { cn } from "../../../../lib/utils";
 import type { Reveal } from "../../../registry.ts";
+import type { Binder } from "../../Item/item-state.ts";
 import { BinderItems } from "../BinderItems/BinderItems.tsx";
 import type { OpenRowItem } from "../use-open-row.ts";
 import { type NewItem, sidebarView, viewContext } from "../view-model/view-model.ts";
 
 type Props = {
-  binder: Extract<BinderSummary, { id: string }>;
+  binder: Binder;
   view: LenientView | undefined;
   onBack: () => void;
   onView: (view: string) => void;

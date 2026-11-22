@@ -1,11 +1,11 @@
 import { SETTINGS_FILE } from "@wombat/shared/items";
-import { ChevronRight, Folder, FolderOpen, Notebook, Plus, TriangleAlert } from "lucide-react";
+import { ChevronRight, Folder, FolderOpen, Notebook, TriangleAlert } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo } from "react";
 
-import { Button } from "../../../../components/ui/button";
 import { cn } from "../../../../lib/utils";
 import { type DeskNode, type DeskRow, deskKey, deskRows, nodeName, rowLabel } from "../desk-tree.ts";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
+import { RowAction } from "../RowAction/RowAction.tsx";
 import { rowIndent, TREE_ROW, treeChevron } from "../tree-keys.ts";
 import { useTreeFocus } from "../use-tree-focus.ts";
 
@@ -115,17 +115,7 @@ export const DeskTree = ({ nodes, openDrawers, onToggleDrawer, onOpenBinder, onN
               <RowContent row={row} />
             </div>
             {node.kind === "drawer" ? (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                tabIndex={focus.tabIndex(index)}
-                className="absolute top-1 right-1 bg-surface-1 text-fg-tertiary opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100"
-                aria-label={`New binder in ${node.name}`}
-                title={`New binder in ${node.name}`}
-                onClick={() => onNewBinder(node.path)}
-              >
-                <Plus />
-              </Button>
+              <RowAction label={`New binder in ${node.name}`} tabIndex={focus.tabIndex(index)} onClick={() => onNewBinder(node.path)} />
             ) : null}
           </div>
         );

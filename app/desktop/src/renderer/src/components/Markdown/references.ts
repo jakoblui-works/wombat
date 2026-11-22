@@ -1,7 +1,7 @@
 import { HANDLE_NUMBER_PATTERN, HANDLE_PREFIX_PATTERN } from "@wombat/shared/items";
 import type { ExtraProps } from "react-markdown";
 
-export type ReferenceSpan = { start: number; end: number; handle: string };
+type ReferenceSpan = { start: number; end: number; handle: string };
 
 type Element = NonNullable<ExtraProps["node"]>;
 type ElementContent = Element["children"][number];
@@ -24,12 +24,13 @@ const matchReferences = (text: string, pattern: RegExp | undefined, before = "",
     .filter(({ start, end }) => start >= 0 && end <= text.length);
 };
 
-/** The references in `text`, in order: a handle (`<prefix>-<number>`) for one of `prefixes`, not touching a letter, digit, `-` or `_`. */
-export const findReferences = (text: string, prefixes: readonly string[]): ReferenceSpan[] => matchReferences(text, referencePattern(prefixes));
-
-/** Every text inside a hast node, in order. */
-export const textOf = (node: ElementContent | Element): string =>
-  node.type === "text" ? node.value : node.type === "element" ? node.children.map(textOf).join("") : "";
+/** Every text inside a hast node, in order, an image's alt text included. */
+export const textOf = (node: ElementContent | Element): string => {
+  if (node.type === "text") return node.value;
+  if (node.type !== "element") return "";
+  if (node.tagName === "img") return typeof node.properties.alt === "string" ? node.properties.alt : "";
+  return node.children.map(textOf).join("");
+};
 
 /** The hast property that marks a reference's element; raw HTML never becomes an element, so text can't forge one. */
 const REFERENCE_PROPERTY = "dataReference";
@@ -78,7 +79,8 @@ const markReferences = (parent: { children: ElementContent[] }, pattern: RegExp,
   const { children } = parent;
   const textAt = (index: number) => {
     const node = children[index];
-    return node === undefined ? undefined : textOf(node);
+    const text = node === undefined ? "" : textOf(node);
+    return text === "" ? undefined : text;
   };
   const lastChar = (index: number) => textAt(index)?.slice(-1) ?? before;
   const firstChar = (index: number) => textAt(index)?.slice(0, 1) ?? after;
@@ -91,7 +93,10 @@ const markReferences = (parent: { children: ElementContent[] }, pattern: RegExp,
   });
 };
 
-/** A rehype plugin: the references to items of the binders with `prefixes`, as elements `referenceOf` reads. */
+/**
+ * A rehype plugin: the references to items of the binders with `prefixes`, as elements `referenceOf` reads. A reference
+ * is a handle (`<prefix>-<number>`) for one of `prefixes`, not touching a letter, digit, `-` or `_`.
+ */
 export const rehypeReferences = (prefixes: readonly string[]) => {
   const pattern = referencePattern(prefixes);
   return (tree: { children: ElementContent[] }) => {

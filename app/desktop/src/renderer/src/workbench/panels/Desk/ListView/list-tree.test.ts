@@ -1,7 +1,7 @@
 // A list's folded groups and a reveal: whatever groups are folded, the row a reveal targets (by its item's id, or by
 // the proposal it holds: an item's update or delete, a proposed create, or a change on a missing item) is among the
-// list's visible rows once `unfoldedFor` has had its say, and the fold set it gives settles (asked again, or with
-// nothing to reveal, it is the same set), so the list's render-time state write stops.
+// list's visible rows once the headers above it (`listAncestorsOf`) are open (`opened`), and the fold set that gives
+// settles (opened again, or with nothing to reveal, it is the same set).
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
@@ -9,7 +9,8 @@ import type { ItemSummary } from "@wombat/shared/items";
 import type { ItemProposal } from "@wombat/shared/proposals";
 
 import type { Group, Row } from "../view-model/view-model.ts";
-import { listTree, unfoldedFor } from "./list-tree.ts";
+import { opened } from "../tree-keys.ts";
+import { listAncestorsOf, listTree } from "./list-tree.ts";
 
 // ---- Invented rows and proposals ----
 
@@ -102,8 +103,10 @@ const caseArb = groupsArb.chain((groups) => {
 test("a revealed row shows whatever groups are folded, and the fold set settles", () => {
   fc.assert(
     fc.property(caseArb, ({ groups, folded, target }) => {
-      const unfolded = unfoldedFor(groups, folded, target?.id);
-      expect(unfoldedFor(groups, unfolded, target?.id), "asked again, the same set").toBe(unfolded);
+      const above = target === undefined ? [] : listAncestorsOf(groups, target.id);
+      expect(above, "the row is found").toBeDefined();
+      const unfolded = opened(folded, above ?? []);
+      expect(opened(unfolded, above ?? []), "asked again, the same set").toBe(unfolded);
       if (target === undefined) {
         expect(unfolded, "nothing to reveal: the same set").toBe(folded);
         return;

@@ -29,6 +29,27 @@ export const flatTree = <N>(nodes: readonly N[], { key, children, expanded }: Tr
   return rows;
 };
 
+/** The keys of the nodes above the first node `match` finds (in `flatTree`'s order), top first; undefined when none matches. */
+export const keysAbove = <N>(nodes: readonly N[], { key, children }: Pick<TreeShape<N>, "key" | "children">, match: (node: N) => boolean): string[] | undefined => {
+  for (const node of nodes) {
+    if (match(node)) return [];
+    const below = keysAbove(children(node), { key, children }, match);
+    if (below !== undefined) return [key(node), ...below];
+  }
+  return undefined;
+};
+
+export const setClosed = (closed: ReadonlySet<string>, key: string, open: boolean): Set<string> => {
+  const next = new Set(closed);
+  if (open) next.delete(key);
+  else next.add(key);
+  return next;
+};
+
+/** `closed` with every row in `keys` open; the same set when none of them is closed. */
+export const opened = (closed: ReadonlySet<string>, keys: readonly string[]): ReadonlySet<string> =>
+  keys.some((key) => closed.has(key)) ? new Set([...closed].filter((key) => !keys.includes(key))) : closed;
+
 const ROW_START_PX = 6;
 const INDENT_PX = 12;
 

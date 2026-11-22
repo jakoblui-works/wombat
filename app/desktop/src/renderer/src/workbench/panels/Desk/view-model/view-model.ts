@@ -194,7 +194,10 @@ export const treeRows = (rows: readonly Row[], view: SidebarTree, properties: Pr
   const { outside, shown } = shownRows(rows, view, properties, revealed);
   const link = laidOutBy(view);
   const byId = new Map<string, Row>();
-  for (const row of shown) if (isItemRow(row) && row.item.id !== null) byId.set(row.item.id, row);
+  for (const row of shown) {
+    const id = rowItemId(row);
+    if (id !== undefined) byId.set(id, row);
+  }
   const parentOf = new Map<Row, Row>();
   if (link !== undefined) {
     for (const row of shown) {
@@ -234,7 +237,7 @@ export const treeRows = (rows: readonly Row[], view: SidebarTree, properties: Pr
 export type ParentRow = ItemRow & { item: { id: string } };
 
 /** Whether a tree row offers "New child". */
-export const offersNewChild = (row: Row): row is ParentRow => isItemRow(row) && row.item.id !== null;
+export const offersNewChild = (row: Row): row is ParentRow => rowItem(row) !== undefined;
 
 /** Where "+ New" was asked: a group's header (by its value), or a row (its item becomes the new one's parent). */
 export type NewItemPlace = HeadedGroup | ParentRow;

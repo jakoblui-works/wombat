@@ -8,7 +8,6 @@ import { proposedTitle } from "../../../proposals/proposal-label.ts";
 import { itemName } from "../../Item/item-params.ts";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
 import { FIRST_LINE, FIRST_LINE_BOX } from "../tree-keys.ts";
-import { type RowContent, shownContent } from "../view-model/row-content.ts";
 import { MISSING_ITEM } from "../view-model/values.ts";
 import { isItemRow, isPending, type Row } from "../view-model/view-model.ts";
 import { struck } from "../view-model/with-proposals.ts";
@@ -24,7 +23,7 @@ type Props = {
   /** The title wraps in full (a list's row); else it ends in an ellipsis when it doesn't fit (a tree's). */
   wraps?: boolean | undefined;
   /** An item's line, shown in its title's place (`rowContent`). */
-  content?: RowContent | undefined;
+  content?: string | undefined;
 };
 
 /** A proposed create's title when its fields hold none. */
@@ -44,7 +43,7 @@ const ItemLine = ({ row, render, lead, wraps = false, content, ids }: Props & { 
   const invalid = item.problems.length > 0;
   const titleClass = cn(wraps ? TITLE_WRAPS : TITLE_LINE, struck(row) && "text-fg-secondary line-through");
   const aria = { "aria-labelledby": ids.title, "aria-describedby": invalid ? ids.problems : undefined };
-  const text = shownContent(wraps, content).line ?? item.title;
+  const text = content ?? item.title;
   const title =
     text === null ? (
       <span key="title" id={ids.title} className={titleClass}>

@@ -1,7 +1,6 @@
-import { ChevronRight, Plus } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { type AriaAttributes, type ComponentProps, Fragment, isValidElement, type KeyboardEvent, type ReactElement, type ReactNode, useRef } from "react";
 
-import { Button } from "../../../../components/ui/button";
 import { cn } from "../../../../lib/utils";
 import { useCommandScope } from "../../../commands/registry.ts";
 import type { Reveal } from "../../../registry.ts";
@@ -16,7 +15,6 @@ import { ProposalLines } from "../ProposalLine/ProposalLine.tsx";
 import { FIRST_LINE_BOX, type FlatRow, rowIndent, TREE_ROW, treeChevron, treeKey } from "../tree-keys.ts";
 import { revealProps, REVEALABLE, useReveal } from "../use-reveal.ts";
 import { useTreeFocus } from "../use-tree-focus.ts";
-import type { RowContent } from "../view-model/row-content.ts";
 import type { Row } from "../view-model/view-model.ts";
 
 /**
@@ -167,7 +165,7 @@ type ItemTreeRowProps = Omit<ComponentProps<"div">, "children" | "content"> & {
   /** The row is one of a rich list's (`richRows`): a hairline under it. */
   rich?: boolean;
   /** What an item's rich row shows in its title's place (`rowContent`). */
-  content?: RowContent | undefined;
+  content?: string | undefined;
 };
 
 /**
@@ -180,13 +178,4 @@ export const ItemTreeRow = ({ parts: { treeitem, lead, tabIndex, titleStart, wra
     {action}
     <ProposalLines row={node} outside={outside} tabIndex={tabIndex} className="pr-2 pb-1" style={{ paddingLeft: titleStart }} />
   </div>
-);
-
-const ROW_ACTION = "absolute top-0.5 right-1 bg-surface-1 text-fg-tertiary opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100";
-
-/** A "+" at a row's end, shown on hover or focus within the row (`group/row`); `label` names it and is its tooltip. */
-export const RowAction = ({ label, tabIndex, onClick }: { label: string; tabIndex: number; onClick: () => void }) => (
-  <Button variant="ghost" size="icon-xs" tabIndex={tabIndex} className={ROW_ACTION} aria-label={label} title={label} onClick={onClick}>
-    <Plus />
-  </Button>
 );

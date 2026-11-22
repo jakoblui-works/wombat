@@ -1,9 +1,11 @@
-import type { BinderSummary, LenientView } from "@wombat/shared/items";
+import type { LenientView } from "@wombat/shared/items";
 
 import { useBinderItems } from "../../../../data/hooks.ts";
 import type { Reveal } from "../../../registry.ts";
 import { EmptyState } from "../../EmptyState/EmptyState.tsx";
 import type { DeletableItem } from "../../Item/item-delete.ts";
+import { READ_FAILED } from "../../Item/ItemNotice/ItemNotice.tsx";
+import type { Binder } from "../../Item/item-state.ts";
 import { useItemDelete } from "../../Item/use-item-delete.tsx";
 import { ListView } from "../ListView/ListView.tsx";
 import { TreeView } from "../TreeView/TreeView.tsx";
@@ -14,7 +16,7 @@ import { type NewItem, sidebarView } from "../view-model/view-model.ts";
 import { withProposals } from "../view-model/with-proposals.ts";
 
 type Props = {
-  binder: Extract<BinderSummary, { id: string }>;
+  binder: Binder;
   view: LenientView | undefined;
   onOpenItem?: OpenRowItem | undefined;
   onNewItem: NewItem;
@@ -44,7 +46,7 @@ const BinderView = ({ binder, view, onOpenItem, onDeleteItem, onNewItem, reveal,
   if (items === undefined) {
     return read?.error ? (
       <p role="alert" className="px-3 pt-3 text-sm text-danger">
-        Couldn't read the binder's items: {read.error.message}
+        {READ_FAILED["binder-items"]}: {read.error.message}
       </p>
     ) : (
       <p className="p-3 text-sm text-fg-tertiary">Loading…</p>

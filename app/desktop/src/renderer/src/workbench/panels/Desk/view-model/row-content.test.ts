@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import type { ItemSummary, LenientView } from "@wombat/shared/items";
 
-import { rowContent, shownContent } from "./row-content.ts";
+import { rowContent } from "./row-content.ts";
 import { PLAIN_LIST, sidebarView, type SidebarView } from "./view-model.ts";
 
 const item = (title: string | null, excerpt: string | null): ItemSummary => ({
@@ -54,6 +54,6 @@ describe("the text a wrapping row shows in its title's place", () => {
     { what: "a board with excerpt: false shows titles only", title: TITLE, excerpt: REPEATING, view: sidebarView(TITLES_ONLY_BOARD), line: undefined },
     { what: "a tree shows titles only", title: TITLE, excerpt: REPEATING, view: TREE, line: undefined },
   ])("$what", ({ title, excerpt, view, line }) => {
-    expect(shownContent(true, rowContent(item(title, excerpt), view)).line).toBe(line);
+    expect(rowContent(item(title, excerpt), view)).toBe(line);
   });
 });

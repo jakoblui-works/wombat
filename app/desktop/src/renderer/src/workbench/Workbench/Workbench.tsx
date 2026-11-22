@@ -83,6 +83,7 @@ const NO_ACTIONS: WorkbenchActions = {
   openTab: () => undefined,
   openBeside: () => undefined,
   closeTab: () => undefined,
+  itemTabs: () => [],
   openAgentChat: () => undefined,
   openProposal: () => undefined,
   openBinder: () => undefined,

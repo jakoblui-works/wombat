@@ -7,6 +7,15 @@ import { lastPathPart } from "../../../lib/path.ts";
 export const SavedItemParams = z.object({ binderId: z.string(), itemId: z.string() });
 export type SavedItemParams = z.infer<typeof SavedItemParams>;
 
+/** The params of item `item`'s tab, opened from its binder. */
+export const itemTabParams = (item: Pick<ItemSummary, "binder"> & { id: string }): SavedItemParams => ({ binderId: item.binder, itemId: item.id });
+
+/** Whether an item tab's `params` show item `itemId`, whichever binder the tab was opened from. */
+export const showsItem = (params: unknown, itemId: string): boolean => {
+  const saved = SavedItemParams.safeParse(params);
+  return saved.success && saved.data.itemId === itemId;
+};
+
 /** An item not written yet: `draft` tells one new item's tab from another's; `context` holds the values it starts with. */
 export const DraftItemParams = z.object({ binderId: z.string(), draft: z.string(), context: z.record(z.string(), z.unknown()) });
 export type DraftItemParams = z.infer<typeof DraftItemParams>;

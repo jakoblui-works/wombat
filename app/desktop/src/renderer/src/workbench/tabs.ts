@@ -12,7 +12,8 @@ import { getPanel, paramsFit, type ResolveContext, type Reveal, panelTitle } fro
 import { CHAT_PANEL } from "./panels/Chat/chat-params.ts";
 import { binderPlace, followPlace } from "./panels/Desk/desk-place.ts";
 import { previewName } from "./panels/Desk/ItemPreview/item-preview.ts";
-import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE } from "./panels/Item/item-params.ts";
+import { READ_FAILED } from "./panels/Item/ItemNotice/ItemNotice.tsx";
+import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE, showsItem } from "./panels/Item/item-params.ts";
 import { itemNotFound } from "./panels/Item/item-state.ts";
 import { PROPOSAL_PANEL, type ProposalParams } from "./panels/Proposal/proposal-params.ts";
 import type { TabRef, WorkbenchActions } from "./workbench-context.ts";
@@ -225,6 +226,13 @@ export const pruneTabs = (host: TabHost, isKnown: IsKnown): void => {
   }
 };
 
+/** The open tabs on item `itemId`, whichever binder each was opened from. */
+export const itemTabs = (host: Pick<TabHost, "panels">, itemId: string): TabRef[] =>
+  host.panels.flatMap((panel) => {
+    const tab = tabOf(panel);
+    return tab !== undefined && tab.panelId === ITEM_PANEL && showsItem(tab.params, itemId) ? [tab] : [];
+  });
+
 /**
  * Gives every tab the title its panel has for it now: the one its panel reported for the tab (`reported`, by tab key),
  * else the panel's `title` when that's a function of the agents list. A static `title` was set when the tab opened and
@@ -318,7 +326,7 @@ export type DeskHost = {
   tell: (message: string) => void;
 };
 
-const itemUnread = (error: unknown): string => `The item couldn't be read: ${asSentence(asError(error).message)} Try again once the service answers.`;
+const itemUnread = (error: unknown): string => `${READ_FAILED.item}: ${asSentence(asError(error).message)} Try again once the service answers.`;
 
 /**
  * The workbench's actions on `host`; `ctx` gives the agents as the page knows them now (for titles and the oldest
@@ -350,6 +358,7 @@ export const workbenchActions = (
       const panel = host.getPanel(tabKey(panelId, params));
       if (panel !== undefined) host.removePanel(panel);
     },
+    itemTabs: (itemId) => itemTabs(host, itemId),
     openAgentChat: (agentId, requestId) => {
       showActivity(AGENTS_ACTIVITY);
       const agent = ctx().agents?.find(({ id }) => id === agentId);

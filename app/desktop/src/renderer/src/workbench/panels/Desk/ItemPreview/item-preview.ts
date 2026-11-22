@@ -32,8 +32,10 @@ export type PropertyLine = { name: string; value: string };
 export const propertyLines = (item: Item, binders: readonly BinderSummary[] | undefined): PropertyLine[] => {
   const binder = binders?.find((each) => each.id === item.binder);
   const defined = binder?.id === null || binder === undefined ? {} : binder.properties;
-  const names = [...Object.keys(defined), ...Object.keys(item.properties).filter((name) => !(name in defined))];
-  return names.map((name) => ({ name, value: displayValue(defined[name], item.properties[name]) })).filter(({ value }) => value !== "");
+  const names = [...Object.keys(defined), ...Object.keys(item.properties).filter((name) => !Object.hasOwn(defined, name))];
+  return names
+    .map((name) => ({ name, value: displayValue(Object.hasOwn(defined, name) ? defined[name] : undefined, item.properties[name]) }))
+    .filter(({ value }) => value !== "");
 };
 
 /** What the preview calls the item it can't show: the listing's handle, the ref when it's a handle, else "This item". */

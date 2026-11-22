@@ -23,6 +23,8 @@ export type WorkbenchActions = {
   openBeside: (panelId: string, params: unknown, beside: TabRef) => void;
   /** Closes the tab for this panel and params, if it's open. */
   closeTab: (panelId: string, params: unknown) => void;
+  /** The open tabs on item `itemId`, whichever binder each was opened from (its file may have moved since). */
+  itemTabs: (itemId: string) => TabRef[];
   /**
    * Switches to Agents, opens or focuses the agent's chat and reveals `requestId`; without one, the agent's oldest
    * pending permission, if any. A Needs me click and a notification click both come here.

@@ -10,7 +10,8 @@ import { describe, expect, test } from "vitest";
 import type { ItemSummary, LenientProperty, LinkValue } from "@wombat/shared/items";
 import type { ItemProposalKind, ProposalStatus } from "@wombat/shared/proposals";
 
-import { ancestorsOf, opened, visibleTreeRows } from "../TreeView/tree-view.ts";
+import { opened } from "../tree-keys.ts";
+import { ancestorsOf, visibleTreeRows } from "../TreeView/tree-view.ts";
 import { carries, PROPOSAL_ATTRIBUTE, proposalProps, revealProps } from "../use-reveal.ts";
 import { isItemRow, isPending, type ItemRow, type ItemsOf, listGroups, revealsRow, type Row, rowKey, type SidebarList, type SidebarView, sorted, treeRows, type TreeRow, visibleItems } from "./view-model.ts";
 import { type ItemProposalRead, proposalLines, rowProposalIds, struck, withProposals } from "./with-proposals.ts";

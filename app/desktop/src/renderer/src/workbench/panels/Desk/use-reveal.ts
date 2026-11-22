@@ -1,6 +1,7 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
 
 import type { Reveal } from "../../registry.ts";
+import { opened, setClosed } from "./tree-keys.ts";
 import { type Row, rowItemId } from "./view-model/view-model.ts";
 import { rowProposalIds } from "./view-model/with-proposals.ts";
 
@@ -33,6 +34,24 @@ export const useLastRevealTarget = (reveal: Reveal | undefined): string | undefi
   return reveal?.target ?? last;
 };
 
+/**
+ * The keys of a view's closed rows, and `toggle` to open or close one. Once per reveal request, as soon as `above` finds
+ * the request's row, the rows above it open; they stay open after the request ends.
+ */
+export const useClosedRows = (
+  reveal: Reveal | undefined,
+  above: (target: string) => readonly string[] | undefined,
+): { closed: ReadonlySet<string>; toggle: (key: string, open: boolean) => void } => {
+  const [closed, setClosedRows] = useState<ReadonlySet<string>>(new Set());
+  const [openedFor, setOpenedFor] = useState<Reveal>();
+  const keys = reveal === undefined || reveal === openedFor ? undefined : above(reveal.target);
+  if (keys !== undefined) {
+    setOpenedFor(reveal);
+    setClosedRows((current) => opened(current, keys));
+  }
+  return { closed, toggle: (key, open) => setClosedRows((current) => setClosed(current, key, open)) };
+};
+
 /** The classes of a row that can be revealed: highlighted while it carries `data-revealed`. */
 export const REVEALABLE = "rounded-md transition-colors data-revealed:bg-primary/10 data-revealed:ring-2 data-revealed:ring-primary/40";
 
@@ -63,14 +82,15 @@ const unhighlight = (highlight: Highlight | undefined): void => {
 
 /**
  * At each reveal request, the row under `ref` holding the proposal or the item (`revealProps`) is scrolled into
- * view, takes the focus, and is highlighted briefly (`data-revealed`), and `onShown` is called. A row that doesn't show
- * yet is waited for a while; a tree opens the row's ancestors itself. The highlight outlasts the request.
+ * view, takes the focus, and is highlighted briefly (`data-revealed`), and `onEnded` is called. A row that doesn't show
+ * yet is waited for a while, then given up on, which calls `onEnded` too; a view opens the row's ancestors itself
+ * (`useClosedRows`). The highlight outlasts the request.
  */
-export const useReveal = (reveal: Reveal | undefined, ref: RefObject<HTMLElement | null>, onShown?: () => void): void => {
+export const useReveal = (reveal: Reveal | undefined, ref: RefObject<HTMLElement | null>, onEnded?: () => void): void => {
   const highlight = useRef<Highlight>(undefined);
-  const shownCallback = useRef(onShown);
+  const endedCallback = useRef(onEnded);
   useEffect(() => {
-    shownCallback.current = onShown;
+    endedCallback.current = onEnded;
   });
   useEffect(() => () => unhighlight(highlight.current), []);
   useEffect(() => {
@@ -84,14 +104,20 @@ export const useReveal = (reveal: Reveal | undefined, ref: RefObject<HTMLElement
       unhighlight(highlight.current);
       holder.setAttribute(REVEALED_ATTRIBUTE, "");
       highlight.current = { element: holder, timer: window.setTimeout(() => holder.removeAttribute(REVEALED_ATTRIBUTE), HIGHLIGHT_MS) };
-      shownCallback.current?.();
+      endedCallback.current?.();
       return true;
     };
+    if (show()) return;
     const observer = new MutationObserver(() => {
-      if (show()) observer.disconnect();
+      if (!show()) return;
+      observer.disconnect();
+      window.clearTimeout(giveUp);
     });
-    if (!show()) observer.observe(root, { childList: true, subtree: true });
-    const giveUp = window.setTimeout(() => observer.disconnect(), WAIT_MS);
+    observer.observe(root, { childList: true, subtree: true });
+    const giveUp = window.setTimeout(() => {
+      observer.disconnect();
+      endedCallback.current?.();
+    }, WAIT_MS);
     return () => {
       observer.disconnect();
       window.clearTimeout(giveUp);

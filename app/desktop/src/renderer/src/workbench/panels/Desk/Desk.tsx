@@ -10,6 +10,7 @@ import type { PanelProps } from "../../registry.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useDesk, useWorkbench } from "../../workbench-context.ts";
 import { EmptyState } from "../EmptyState/EmptyState.tsx";
+import { READ_FAILED } from "../Item/ItemNotice/ItemNotice.tsx";
 import { BinderPane } from "./BinderPane/BinderPane.tsx";
 import { revealBinder, toggleDrawer } from "./desk-tree.ts";
 import { deskContent, showTree } from "./desk-place.ts";
@@ -63,7 +64,7 @@ export const Desk = ({ reveal, onRevealed }: PanelProps) => {
         <p className="p-3 text-sm text-fg-tertiary">Loading…</p>
       ) : content.kind === "error" ? (
         <p role="alert" className="px-3 pt-3 text-sm text-danger">
-          Couldn't read the binders: {content.message}
+          {READ_FAILED.binders}: {content.message}
         </p>
       ) : content.kind === "no-root" ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center-safe overflow-y-auto overscroll-y-contain pb-4">

@@ -2,9 +2,6 @@ import type { ItemSummary } from "@wombat/shared/items";
 
 import type { SidebarView } from "./view-model.ts";
 
-/** What a rich row shows in its title's place: its line (undefined: the title). */
-export type RowContent = { line: string | undefined };
-
 /** Text as read: emphasis and code markers dropped, whitespace folded. */
 const plain = (text: string): string => text.replace(/[*_`]/g, "").replace(/\s+/g, " ").trim();
 
@@ -21,17 +18,11 @@ export const repeatsTitle = (title: string, excerpt: string): boolean => {
 export const richRows = (view: SidebarView): boolean => view.kind === "list" && view.excerpt !== false;
 
 /**
- * What an item's row shows in its title's place: nothing (undefined) unless the view's rows are rich (`richRows`); else
- * the item's excerpt as its line when it repeats the title.
+ * What an item's row shows in its title's place: nothing (undefined) unless the view's rows are rich (`richRows`) and
+ * the item's excerpt repeats its title; then the excerpt.
  */
-export const rowContent = (item: ItemSummary, view: SidebarView): RowContent | undefined => {
+export const rowContent = (item: ItemSummary, view: SidebarView): string | undefined => {
   if (!richRows(view)) return undefined;
   const { excerpt, title } = item;
-  return { line: excerpt !== null && title !== null && repeatsTitle(title, excerpt) ? excerpt : undefined };
+  return excerpt !== null && title !== null && repeatsTitle(title, excerpt) ? excerpt : undefined;
 };
-
-const NOTHING_SHOWN: RowContent = { line: undefined };
-
-/** What a row shows of `content`: nothing unless it wraps. */
-export const shownContent = (wraps: boolean, content: RowContent | undefined): RowContent =>
-  !wraps || content === undefined ? NOTHING_SHOWN : content;

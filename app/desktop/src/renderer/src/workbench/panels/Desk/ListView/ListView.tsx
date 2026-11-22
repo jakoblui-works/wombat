@@ -1,18 +1,18 @@
 import type { LenientProperty, LenientView } from "@wombat/shared/items";
-import { cloneElement, useMemo, useState } from "react";
+import { cloneElement, useMemo } from "react";
 
 import { cn } from "../../../../lib/utils";
 import type { Reveal } from "../../../registry.ts";
 import type { DeletableItem } from "../../Item/item-delete.ts";
 import { rowPreview } from "../ItemPreview/item-preview.ts";
-import { ItemTree, ItemTreeRow, RowAction } from "../ItemTree/ItemTree.tsx";
+import { ItemTree, ItemTreeRow } from "../ItemTree/ItemTree.tsx";
+import { RowAction } from "../RowAction/RowAction.tsx";
 import { FIRST_LINE } from "../tree-keys.ts";
-import { setClosed } from "../TreeView/tree-view.ts";
-import { useLastRevealTarget } from "../use-reveal.ts";
+import { useClosedRows, useLastRevealTarget } from "../use-reveal.ts";
 import { type OpenRowItem, useOpenRow } from "../use-open-row.ts";
 import { richRows, rowContent } from "../view-model/row-content.ts";
 import { isItemRow, isOutsideFilter, itemCount, listGroups, type NewItem, newItemLabel, type Row, rowItem, shownGroups, viewContext } from "../view-model/view-model.ts";
-import { listTree, unfoldedFor } from "./list-tree.ts";
+import { listAncestorsOf, listTree } from "./list-tree.ts";
 
 type Props = {
   rows: readonly Row[];
@@ -32,14 +32,10 @@ type Props = {
  */
 export const ListView = ({ rows: given, view, properties, onOpenItem, onDeleteItem, onNewItem, reveal, onRevealed }: Props) => {
   const openRow = useOpenRow(onOpenItem);
-  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
   const revealed = useLastRevealTarget(reveal);
   const groups = useMemo(() => shownGroups(listGroups(given, view, properties, revealed)), [given, view, properties, revealed]);
-  // Kept in the state, not only applied while the reveal lasts: the reveal ends once its row shows, and the group would fold again.
-  const unfolded = unfoldedFor(groups, folded, reveal?.target);
-  if (unfolded !== folded) setFolded(unfolded);
+  const { closed: folded, toggle } = useClosedRows(reveal, (target) => listAncestorsOf(groups, target));
   const rows = useMemo(() => listTree(groups, folded), [groups, folded]);
-  const toggle = (key: string, open: boolean) => setFolded((current) => setClosed(current, key, open));
   const rich = richRows(view);
 
   return (
