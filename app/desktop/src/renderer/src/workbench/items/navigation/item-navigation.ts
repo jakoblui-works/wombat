@@ -5,7 +5,6 @@ import type { BinderSummary, Item } from "@wombat/shared/items";
 
 import { newCommandId } from "../../../data/commands.ts";
 import { bindersQuery, itemQuery } from "../../../data/query-client.ts";
-import { showWorkspace } from "../../../data/shown-workspace.ts";
 import { asError, asSentence } from "../../../lib/errors.ts";
 import { DESK_ACTIVITY, DESK_PANEL } from "../../activity-ids.ts";
 import { sidebarRevealKey } from "../../tabs.ts";
@@ -15,13 +14,13 @@ import { previewName } from "../ItemPreview/item-preview.ts";
 import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE, showsItem } from "../item-params.ts";
 import { READ_FAILED } from "../notices/notices.tsx";
 import { isItemNotFound, itemNotFound } from "../reads.ts";
-import { type DeskState, useChangeDesk } from "./desk-state.ts";
+import { type ChangeDeskOf, useChangeDeskOf } from "./desk-state.ts";
 import { binderPlace, followPlace, showBinder } from "./places.ts";
 
 export type ItemNavigator = {
   workbench: WorkbenchContextValue;
   queryClient: QueryClient;
-  changeDesk: DeskState["changeDesk"];
+  changeDesk: ChangeDeskOf;
   tell: (message: string) => void;
 };
 
@@ -39,16 +38,15 @@ const readItemAfresh = (queryClient: QueryClient, ws: string, ref: string): Prom
 const itemUnread = (error: unknown): string => `${READ_FAILED.item}: ${asSentence(asError(error).message)} Try again once the service answers.`;
 
 /**
- * Shows workspace `ws`, switches to the Desk and shows the binder in its sidebar on its view `view` (else its first),
- * else as a list of its items. `reveal` (a proposal id or an item id) reaches the Desk's sidebar.
+ * Opens workspace `ws`'s right sidebar on the Desk and shows the binder in its navigator on its view `view` (else its
+ * first), else as a list of its items. `reveal` (a proposal id or an item id) reaches the shown workspace's navigator.
  */
 export const openBinder = ({ workbench, queryClient, changeDesk }: ItemNavigator, ws: string, binderId: string, reveal?: string, view?: string): void => {
   void readBinders(queryClient, ws).then((binders) => {
     const place = binderPlace(binders?.find(({ id }) => id === binderId), view);
-    showWorkspace(ws);
     workbench.reveals.set(sidebarRevealKey(DESK_PANEL), reveal === undefined ? undefined : { target: reveal });
-    changeDesk((desk) => showBinder(desk, binderId, place.sidebarView));
-    workbench.showActivity(DESK_ACTIVITY);
+    changeDesk((desk) => showBinder(desk, binderId, place.sidebarView), ws);
+    workbench.showActivity(DESK_ACTIVITY, ws);
   });
 };
 
@@ -109,7 +107,7 @@ type ItemNavigation = {
 export const useItemNavigation = (): ItemNavigation => {
   const workbench = useWorkbench();
   const queryClient = useQueryClient();
-  const changeDesk = useChangeDesk();
+  const changeDesk = useChangeDeskOf();
   return useMemo(() => {
     const navigator: ItemNavigator = { workbench, queryClient, changeDesk, tell };
     return {

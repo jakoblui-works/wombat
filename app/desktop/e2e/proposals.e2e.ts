@@ -227,7 +227,7 @@ test("in the Desk's list, Approve on a proposed create writes its item's file, a
   const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
   await waitForConnection(page, "connected");
   await recordViolations(page);
-  const desk = page.getByRole("navigation", { name: "Activities" }).getByRole("button", { name: "Desk", exact: true });
+  const desk = page.getByRole("main").getByRole("button", { name: "Desk", exact: true });
   if ((await desk.getAttribute("aria-pressed")) !== "true") await click(desk);
   const side = page.getByRole("complementary", { name: "Desk", exact: true });
   await click(side.getByRole("treeitem", { name: /^Chores/ }));
@@ -271,7 +271,7 @@ test("a wheel past the end of the Desk's list scrolls nothing around it", async 
   const problems: string[] = [];
   page.on("pageerror", (error) => problems.push(`page error: ${error.message}`));
   await waitForConnection(page, "connected");
-  const desk = page.getByRole("navigation", { name: "Activities" }).getByRole("button", { name: "Desk", exact: true });
+  const desk = page.getByRole("main").getByRole("button", { name: "Desk", exact: true });
   if ((await desk.getAttribute("aria-pressed")) !== "true") await click(desk);
   const side = page.getByRole("complementary", { name: "Desk", exact: true });
   await click(side.getByRole("treeitem", { name: /^Rota/ }));

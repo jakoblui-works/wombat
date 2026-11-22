@@ -1,7 +1,6 @@
 // The workbench's own commands: the actions its buttons and keys take, registered while the workbench is mounted.
 import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
-import { AGENTS_ACTIVITY } from "../activity-ids.ts";
 import type { ActivityDescriptor } from "../registry.ts";
 import { setNewAgentDialogOpen } from "./new-agent-dialog.ts";
 import { closeEmptyGroup, splitEmpty, type SplitDirection } from "../tabs.ts";
@@ -19,6 +18,8 @@ export type WorkbenchCommandDeps = {
   blocked: () => boolean;
   /** Closes a tab the user asked to close; a tab with unsaved work asks first (default: closes it). */
   closePanel?: (panel: IDockviewPanel) => void;
+  /** Close Tab on the right sidebar's strip in place of dockview's: closes the shown workspace's active tab, its guard asking first. */
+  closeActiveTab?: () => void;
   /** What Restart Service does (default: the bridge's restart); the page passes the one that tracks the attempt. */
   restartService?: () => void;
   /** Open Folder…: adds a workspace and shows it; tells its own failures. */
@@ -62,6 +63,7 @@ export const registerWorkbenchCommands = ({
   blocked,
   restartService,
   closePanel,
+  closeActiveTab,
   openFolder,
   chooseItemsFolder,
 }: WorkbenchCommandDeps): (() => void) => {
@@ -71,10 +73,7 @@ export const registerWorkbenchCommands = ({
       id: WORKBENCH_COMMAND.newAgent,
       title: "New Agent…",
       when: unblocked,
-      run: () => {
-        showActivity(AGENTS_ACTIVITY);
-        setNewAgentDialogOpen(true);
-      },
+      run: () => setNewAgentDialogOpen(true),
     }),
     registerCommand({ id: WORKBENCH_COMMAND.openFolder, title: "Open Folder…", when: unblocked, run: openFolder }),
     registerCommand({ id: WORKBENCH_COMMAND.chooseItemsFolder, title: "Choose Items Folder…", when: unblocked, run: chooseItemsFolder }),
@@ -85,6 +84,10 @@ export const registerWorkbenchCommands = ({
       when: unblocked,
       // Like VS Code's Ctrl+W: a group with no tab closes itself, except the last one.
       run: ({ groupId, panelId }) => {
+        if (closeActiveTab !== undefined) {
+          closeActiveTab();
+          return;
+        }
         const dockview = api();
         if (dockview === undefined) return;
         const close = closePanel ?? ((panel: IDockviewPanel) => dockview.removePanel(panel));

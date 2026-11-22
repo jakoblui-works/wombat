@@ -34,13 +34,12 @@ const dockview = (root: Branch, panels: Panel[], activeGroup?: string): Serializ
     ...(activeGroup === undefined ? {} : { activeGroup }),
   }) as unknown as SerializedDockview;
 
-const agentsActivity = (): string => {
-  const [agents] = activities();
-  if (agents === undefined) throw new Error("no activities registered");
-  return agents.id;
+/** The activity a layout falls back to: the first registered. */
+const defaultActivity = (): string => {
+  const [first] = activities();
+  if (first === undefined) throw new Error("no activities registered");
+  return first.id;
 };
-/** A registered activity other than Agents. */
-const otherActivity = (): string => activities()[1]?.id ?? "missing";
 
 // Invented agents: a1 exists, a-gone was deleted since the layout was saved.
 const chatA1 = panel("chat", { agentId: "a1" });
@@ -61,7 +60,7 @@ const savedSplit = (): SavedLayout => ({
     "g2",
   ),
   sidebars: { left: 280, right: 320, rightCollapsed: true },
-  activity: otherActivity(),
+  activity: DESK_ACTIVITY,
   desk: { binderId: "backlog", view: "By owner", openDrawers: ["work", "work/archive"] },
 });
 
@@ -85,7 +84,7 @@ describe("pruneLayout", () => {
     expect(g1?.data.views).toEqual([chatA1.id]);
     expect(g1?.data.activeView).toBe(chatA1.id);
     expect([undefined, "g1", "g3"]).toContain(pruned.dockview.activeGroup);
-    expect(pruned.activity).toBe(agentsActivity());
+    expect(pruned.activity).toBe(defaultActivity());
     expect(pruned.sidebars).toEqual(savedSplit().sidebars);
     expect(SavedLayout.safeParse(pruned).success).toBe(true);
   });
@@ -123,7 +122,7 @@ describe("pruneLayout", () => {
           version: 2,
           dockview: dockview({ type: "branch", size: 800, data: children }, all, `g${String(activeGroup)}`),
           sidebars: { left: 250, right: 300, rightCollapsed: false },
-          activity: agentsActivity(),
+          activity: defaultActivity(),
         };
         const kept = new Set(all.filter((_, i) => keep[i]).map((p) => p.id));
         const known: IsKnown = (panelId, params) => kept.has(panel(panelId, params as Record<string, unknown>).id);

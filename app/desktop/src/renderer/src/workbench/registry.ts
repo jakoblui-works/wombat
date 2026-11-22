@@ -1,12 +1,12 @@
 // Every panel and activity is registered here once; the shell, the saved layout and the tabs read them from here.
 import type { LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
-import type { ZodType } from "zod";
+import { z, type ZodType } from "zod";
 import type { AgentSummary } from "@wombat/shared/api";
 import type { Proposal } from "@wombat/shared/proposals";
 import type { IsKnown } from "./layout.ts";
 
-export type PanelLocation = "left" | "editor" | "right";
+export type PanelLocation = "tab" | "navigator";
 /** What a panel's title may look at; a list is undefined while it's loading (or couldn't be read). */
 export type ResolveContext = { agents: AgentSummary[] | undefined; proposals?: readonly Proposal[] | undefined };
 /**
@@ -52,9 +52,13 @@ export type ActivityDescriptor = {
   id: string;
   title: string;
   icon: LucideIcon;
-  sidebarPanel: string;
-  emptyState?: { title: string; body: string };
+  /** The panel shown beside the activity's tabs; its params are `NavigatorParams`. */
+  navigator: string;
 };
+
+/** A navigator's params: the workspace whose navigator it is (one per workspace, all mounted). */
+export const NavigatorParams = z.object({ ws: z.string() });
+export type NavigatorParams = z.infer<typeof NavigatorParams>;
 
 const panels = new Map<string, PanelDescriptor>();
 const activityList = new Map<string, ActivityDescriptor>();
@@ -70,7 +74,7 @@ export const getPanel = (id: string): PanelDescriptor | undefined => panels.get(
 export const getActivity = (id: string): ActivityDescriptor | undefined => activityList.get(id);
 /** The activities in registration order. */
 export const activities = (): ActivityDescriptor[] => [...activityList.values()];
-/** The activity `id` names, else the first registered (Agents): what the workbench opens on. */
+/** The activity `id` names, else the first registered. */
 export const activityOrDefault = (id: string | undefined): ActivityDescriptor | undefined =>
   (id === undefined ? undefined : activityList.get(id)) ?? activities()[0];
 export const panelsFor = (location: PanelLocation): PanelDescriptor[] => [...panels.values()].filter((panel) => panel.locations.includes(location));

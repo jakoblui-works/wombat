@@ -5,11 +5,10 @@ import { useCallback, useState } from "react";
 import { Button } from "../../../components/ui/button";
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { useBinders } from "../../../data/hooks.ts";
-import { useShownWorkspace } from "../../../data/shown-workspace.ts";
 import { runLogged } from "../../commands/registry.ts";
 import { WORKBENCH_COMMAND } from "../../commands/workbench-commands.ts";
 import { SurfaceWorkspace } from "../../items/Reference/Reference.tsx";
-import type { PanelProps } from "../../registry.ts";
+import { NavigatorParams, type PanelProps } from "../../registry.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { EmptyState } from "../../EmptyState/EmptyState.tsx";
 import { READ_FAILED } from "../../items/notices/notices.tsx";
@@ -21,19 +20,12 @@ import { deskContent, showTree } from "./desk-place.ts";
 import { DeskTree } from "./DeskTree/DeskTree.tsx";
 import { NewBinder } from "./NewBinder/NewBinder.tsx";
 
-/** The Desk's sidebar, on the shown workspace. */
+/** The Desk's navigator, on the workspace its params name. */
 export const Desk = (props: PanelProps) => {
-  const ws = useShownWorkspace()?.id;
+  const { ws } = NavigatorParams.parse(props.params);
   return (
     <SurfaceWorkspace ws={ws}>
-      {ws === undefined ? (
-        <div className="flex h-full min-h-0 flex-col">
-          <SidebarHeader title="Desk" />
-          {LOADING}
-        </div>
-      ) : (
-        <WorkspaceDesk ws={ws} {...props} />
-      )}
+      <WorkspaceDesk ws={ws} {...props} />
     </SurfaceWorkspace>
   );
 };

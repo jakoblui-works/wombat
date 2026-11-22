@@ -12,6 +12,10 @@ export type TabActionDeps = {
   titles: Pick<TabTitles, "set">;
 };
 
+/** The user closes tab `key` of `workspace`'s strip: its close guard asks first. */
+export const requestClose = (change: TabActionDeps["change"], workspace: string, key: string): void =>
+  closeGuards().request(key, () => change((current) => closeTab(current, workspace, key)));
+
 export const shellTabActions = ({ current, change, reveals, titles }: TabActionDeps): WorkbenchActions & Pick<WorkbenchContextValue, "openTabs"> => ({
   openTab: (panelId, params, reveal, options) => {
     openablePanel(panelId, params);

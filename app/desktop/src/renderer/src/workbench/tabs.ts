@@ -83,7 +83,7 @@ const closeAsks = new Map<string, () => void>();
 export const openablePanel = (panelId: string, params: unknown): PanelDescriptor => {
   const panel = getPanel(panelId);
   if (panel === undefined) throw new Error(`There's no panel "${panelId}" to open; register it in workbench/activities.ts.`);
-  if (!panel.locations.includes("editor")) throw new Error(`The panel "${panelId}" doesn't open as a tab; open it where it's registered to show.`);
+  if (!panel.locations.includes("tab")) throw new Error(`The panel "${panelId}" doesn't open as a tab; open it where it's registered to show.`);
   if (!paramsFit(panel, params)) {
     throw new Error(`The params for the panel "${panelId}" don't match its paramsSchema; pass what the panel registered.`);
   }

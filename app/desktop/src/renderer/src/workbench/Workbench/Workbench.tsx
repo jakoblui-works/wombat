@@ -55,7 +55,6 @@ import {
   WorkbenchContext,
   type WorkbenchContextValue,
 } from "../workbench-context.ts";
-import { AGENTS_ACTIVITY } from "../activity-ids.ts";
 import { CHAT_PANEL } from "../agents/chat-params.ts";
 import { clampWidth, LEFT_WIDTH, RIGHT_WIDTH } from "../shell/shell-state.ts";
 import { useCommandKeys, useServiceChrome } from "../shell/service-chrome.ts";
@@ -275,7 +274,6 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         console.warn("Wombat was asked to open an agent the service doesn't list; nothing was opened.");
         return;
       }
-      workbench.showActivity(AGENTS_ACTIVITY);
       workbench.openTab(CHAT_PANEL, { agentId });
     });
   }, [ready, agentsKnown, openAgents, workbench]);
@@ -284,7 +282,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   blockedRef.current = blocked;
   const restartRef = useRef(restart);
   restartRef.current = restart;
-  const rightPanels = panelsFor("right");
+  const rightPanels = panelsFor("navigator");
   const rightPanel = rightPanels[0] === undefined ? undefined : { title: panelTitle(rightPanels[0], {}, { agents: undefined }), icon: rightPanels[0].icon };
   // The workbench's commands, and the page's one key listener: every key binding runs through the registry.
   useEffect(
@@ -339,7 +337,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
                     {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
                     <div inert={blocked} className="relative flex min-w-0 flex-1">
                       <aside aria-label={activity?.title} className={SIDEBAR} style={{ width: chrome.sidebars.left }}>
-                        {activity === undefined ? null : <SidebarContent panelId={activity.sidebarPanel} />}
+                        {activity === undefined ? null : <SidebarContent panelId={activity.navigator} />}
                       </aside>
                       <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => resize("left", dx)} />
                       <main className="min-w-0 flex-1">

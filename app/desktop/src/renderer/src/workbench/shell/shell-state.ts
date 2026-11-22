@@ -1,7 +1,6 @@
 // The shell's state: which agent is open, which workspace is shown, and each workspace's right sidebar.
 import type { AgentSummary, Workspace } from "@wombat/shared/api";
 
-import { AGENTS_ACTIVITY } from "../activity-ids.ts";
 import { getPanel } from "../registry.ts";
 import { tabKey, tabToReplace } from "../tabs.ts";
 import type { TabRef } from "../workbench-context.ts";
@@ -51,11 +50,8 @@ const keyOf = (tab: TabRef): string => tabKey(tab.panelId, tab.params);
 const omit = <T extends object, K extends keyof T>(value: T, ...fields: K[]): Omit<T, K> =>
   Object.fromEntries(Object.entries(value).filter(([field]) => !fields.includes(field as K))) as Omit<T, K>;
 
-/** The toolbar activity a tab belongs to, from its panel's registration; Agents is no toolbar activity. */
-export const tabActivity = (panelId: string): string | undefined => {
-  const activity = getPanel(panelId)?.activity;
-  return activity === AGENTS_ACTIVITY ? undefined : activity;
-};
+/** The toolbar activity a tab belongs to, from its panel's registration. */
+export const tabActivity = (panelId: string): string | undefined => getPanel(panelId)?.activity;
 
 const activeTab = (shell: WorkspaceShell): TabEntry | undefined => shell.tabs.find((tab) => keyOf(tab) === shell.active);
 
@@ -229,6 +225,10 @@ export const pressToolbarButton = (state: ShellState, workspace: string, activit
   });
 };
 
+/** Opens the sidebar on the activity as its button would, unless that button is the active one already. */
+export const showActivity = (state: ShellState, workspace: string, activityId: string): ShellState =>
+  activeToolbarButton(state, workspace) === activityId ? state : pressToolbarButton(state, workspace, activityId);
+
 export const activityStatesOf = (state: ShellState, workspace: string | undefined): Record<string, unknown> =>
   workspace === undefined ? emptyWorkspace.activityStates : workspaceShell(state, workspace).activityStates;
 
@@ -254,6 +254,23 @@ export const rightView = (state: ShellState, shown: string | undefined): RightVi
   if (tab === undefined) return shell.activity === undefined ? { show: "closed" } : { show: "navigator", activity: shell.activity };
   const activity = tabActivity(tab.panelId);
   return activity === undefined || shell.navigatorHidden ? { show: "tab", tab } : { show: "tab-and-navigator", tab, activity };
+};
+
+export const shownTab = (state: ShellState, workspace: string | undefined): TabEntry | undefined => {
+  const view = rightView(state, workspace);
+  return view.show === "tab" || view.show === "tab-and-navigator" ? view.tab : undefined;
+};
+
+export const shownNavigator = (state: ShellState, workspace: string | undefined): string | undefined => {
+  const view = rightView(state, workspace);
+  return view.show === "navigator" || view.show === "tab-and-navigator" ? view.activity : undefined;
+};
+
+export const navigatorToggle = (state: ShellState, workspace: string): "hide" | "show" | undefined => {
+  const view = rightView(state, workspace);
+  if (view.show === "tab-and-navigator") return "hide";
+  if (view.show === "tab" && tabActivity(view.tab.panelId) !== undefined) return "show";
+  return undefined;
 };
 
 export const clampWidth = (width: number, { min, max }: WidthBounds): number => Math.min(max, Math.max(min, width));

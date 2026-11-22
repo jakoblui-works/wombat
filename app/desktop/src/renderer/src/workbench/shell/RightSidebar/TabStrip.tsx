@@ -5,8 +5,9 @@ import { cn } from "@/lib/utils";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "../../../components/ui/context-menu.tsx";
 import type { ResolveContext } from "../../registry.ts";
 import { closeGuards, tabKey } from "../../tabs.ts";
-import { activateTab, closeOtherTabs, closeTab, keepTab, type TabEntry } from "../shell-state.ts";
+import { activateTab, closeOtherTabs, keepTab, type TabEntry } from "../shell-state.ts";
 import { useShell } from "../ShellProvider.tsx";
+import { requestClose } from "./tab-actions.ts";
 import { tabElementIds } from "./tab-ids.ts";
 import { tabTitle, type TabTitles } from "./tab-titles.ts";
 
@@ -112,7 +113,7 @@ export const TabStrip = ({ workspace, strip, shown, titles, ctx }: { workspace: 
     <div
       role="tablist"
       aria-label="Open tabs"
-      className="flex h-tab-strip shrink-0 overflow-x-auto overflow-y-hidden border-b border-line bg-surface-0 [scrollbar-width:none]"
+      className="flex h-full min-w-0 flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]"
       onWheel={(event) => {
         event.currentTarget.scrollLeft += event.deltaY;
       }}
@@ -130,7 +131,7 @@ export const TabStrip = ({ workspace, strip, shown, titles, ctx }: { workspace: 
             ctx={ctx}
             onActivate={() => change((current) => activateTab(current, workspace, key))}
             onKeep={() => change((current) => keepTab(current, workspace, key))}
-            onClose={() => guards.request(key, () => change((current) => closeTab(current, workspace, key)))}
+            onClose={() => requestClose(change, workspace, key)}
             onCloseOthers={() => change((current) => closeOtherTabs(current, workspace, key, guards.unsaved))}
             onKey={onKey(at)}
           />

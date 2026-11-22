@@ -7,7 +7,7 @@ import { chooseItemsFolder, openFolder } from "../../data/shown-workspace.ts";
 import { asError, asSentence } from "../../lib/errors.ts";
 // Registers the panels (the chat's among them) and the harnesses' UI.
 import "../activities.ts";
-import { AGENTS_ACTIVITY } from "../activity-ids.ts";
+import { AGENTS_PANEL } from "../activity-ids.ts";
 import { CHAT_PANEL } from "../agents/chat-params.ts";
 import { chatRevealKey, useOpenAgentChat } from "../agents/open-agent-chat.ts";
 import { registerWorkbenchCommands } from "../commands/workbench-commands.ts";
@@ -15,19 +15,20 @@ import { ConnectionBanner } from "../ConnectionBanner/ConnectionBanner.tsx";
 import { EmptyState } from "../EmptyState/EmptyState.tsx";
 import { LiveLaunchNotice } from "../LaunchNotice/LaunchNotice.tsx";
 import type { OpenAgents } from "../open-agents.ts";
-import { getActivity, getPanel } from "../registry.ts";
+import { activities, getPanel } from "../registry.ts";
 import { ResizeHandle } from "../ResizeHandle/ResizeHandle.tsx";
 import { LiveStatusBar } from "../StatusBar/StatusBar.tsx";
-import { type Reveals, revealStore } from "../tabs.ts";
+import { type Reveals, revealStore, tabKey } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { tell, Toast } from "../Toast/Toast.tsx";
 import { WorkbenchContext, type WorkbenchContextValue } from "../workbench-context.ts";
 import { RightSidebar } from "./RightSidebar/RightSidebar.tsx";
-import { shellTabActions } from "./RightSidebar/tab-actions.ts";
+import { requestClose, shellTabActions } from "./RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "./RightSidebar/tab-titles.ts";
 import { useCommandKeys, useServiceChrome } from "./service-chrome.ts";
-import { clampWidth, LEFT_START_WIDTH, LEFT_WIDTH, middleView, newChat, rightView } from "./shell-state.ts";
+import { clampWidth, LEFT_START_WIDTH, LEFT_WIDTH, middleView, newChat, rightView, showActivity as showActivityIn, shownTab } from "./shell-state.ts";
 import { ShellProvider, useShell, useShownWorkspace } from "./ShellProvider.tsx";
+import { Toolbar } from "./Toolbar/Toolbar.tsx";
 import { WorkspaceActivityStates } from "./WorkspaceActivityStates.tsx";
 
 // Clipped, not hidden: a hidden overflow can still be scrolled by focus or scrollIntoView, which would take the
@@ -36,8 +37,7 @@ const SIDEBAR = "flex shrink-0 flex-col overflow-clip bg-surface-0";
 
 /** The left sidebar's panel: the agents for now. */
 const LeftPanel = () => {
-  const sidebarPanel = getActivity(AGENTS_ACTIVITY)?.sidebarPanel;
-  const Panel = sidebarPanel === undefined ? undefined : getPanel(sidebarPanel)?.component;
+  const Panel = getPanel(AGENTS_PANEL)?.component;
   return Panel === undefined ? null : <Panel params={{}} />;
 };
 
@@ -104,22 +104,34 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   const reveals = useMemo(revealStore, []);
   const titles = useMemo(tabTitleStore, []);
   const titleContext = useCallback(() => ({ agents: agentsRef.current, proposals: proposalsRef.current }), []);
+  const showActivity = useCallback(
+    (activityId: string, workspace?: string) => {
+      const target = workspace ?? shownRef.current;
+      if (target !== undefined) change((current) => showActivityIn(current, target, activityId));
+    },
+    [change],
+  );
   const workbench = useMemo<WorkbenchContextValue>(
     () => ({
       ...shellTabActions({ current: () => ({ state: stateRef.current, shown: shownRef.current }), change, reveals, titles }),
       reveals,
-      showActivity: () => undefined,
+      showActivity,
       titleContext,
     }),
-    [change, reveals, titles, titleContext],
+    [change, reveals, titles, titleContext, showActivity],
   );
 
   useEffect(
     () =>
       registerWorkbenchCommands({
         api: () => undefined,
-        activities: [],
-        showActivity: () => undefined,
+        activities: activities(),
+        showActivity,
+        closeActiveTab: () => {
+          const workspace = shownRef.current;
+          const tab = shownTab(stateRef.current, workspace);
+          if (workspace !== undefined && tab !== undefined) requestClose(change, workspace, tabKey(tab.panelId, tab.params));
+        },
         toggleRightSidebar: () => undefined,
         blocked: () => blockedRef.current,
         restartService: () => restartRef.current(),
@@ -132,7 +144,7 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
             tell(`Wombat couldn't choose the items folder: ${asSentence(asError(error).message)}`),
           ),
       }),
-    [queryClient, change],
+    [queryClient, change, showActivity],
   );
   useCommandKeys();
 
@@ -152,8 +164,11 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
               <LeftPanel />
             </aside>
             <ResizeHandle label="Resize the left sidebar" onDrag={(dx) => setLeftWidth((width) => clampWidth(width + dx, LEFT_WIDTH))} />
-            <main className="flex min-w-0 flex-1 flex-col">
-              <Middle reveals={reveals} />
+            <main className="flex min-w-0 flex-1">
+              <div className="flex min-w-0 flex-1 flex-col">
+                <Middle reveals={reveals} />
+              </div>
+              <Toolbar workspace={shown?.id} />
             </main>
           </WorkspaceActivityStates>
           <RightSidebar className={cn(SIDEBAR, "border-l border-line")} shown={shown?.id} reveals={reveals} titles={titles} />

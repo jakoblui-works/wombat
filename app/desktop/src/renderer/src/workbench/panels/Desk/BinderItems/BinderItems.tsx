@@ -1,7 +1,6 @@
 import type { LenientView } from "@wombat/shared/items";
 
 import { useBinderItems } from "../../../../data/hooks.ts";
-import { useShownWorkspace } from "../../../../data/shown-workspace.ts";
 import type { Reveal } from "../../../registry.ts";
 import { EmptyState } from "../../../EmptyState/EmptyState.tsx";
 import type { DeletableItem } from "../../../items/item-delete.ts";
@@ -13,6 +12,7 @@ import { TreeView } from "../TreeView/TreeView.tsx";
 import type { OpenRowItem } from "../use-open-row.ts";
 import { useItemProposals } from "../use-item-proposals.ts";
 import { useItemsOf } from "../../../items/use-link-lists.ts";
+import { useSurfaceWorkspace } from "../../../items/surface-workspace.ts";
 import { type NewItem, sidebarView } from "../view-model/view-model.ts";
 import { withProposals } from "../view-model/with-proposals.ts";
 
@@ -30,7 +30,7 @@ type Props = {
  * question (`useItemDelete`) renders here, so it outlives the view when the binder's last item goes.
  */
 export const BinderItems = (props: Props) => {
-  const remove = useItemDelete(useShownWorkspace()?.id);
+  const remove = useItemDelete(useSurfaceWorkspace());
   return (
     <>
       <BinderView {...props} onDeleteItem={remove.ask} />
@@ -40,7 +40,7 @@ export const BinderItems = (props: Props) => {
 };
 
 const BinderView = ({ binder, view, onOpenItem, onDeleteItem, onNewItem, reveal, onRevealed }: Props & { onDeleteItem: (item: DeletableItem) => void }) => {
-  const ws = useShownWorkspace()?.id;
+  const ws = useSurfaceWorkspace();
   const [read] = useBinderItems(ws, [binder.id]);
   const proposals = useItemProposals(ws, binder.id);
   const items = read?.data?.items;

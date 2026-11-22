@@ -35,7 +35,8 @@ export type WorkbenchContextValue = WorkbenchActions & {
   /** Every workspace's open tabs on panel `panelId`. */
   openTabs: (panelId: string) => TabRef[];
   reveals: Pick<ReturnType<typeof revealStore>, "set">;
-  showActivity: (activityId: string) => void;
+  /** Opens `workspace`'s right sidebar (default: the shown workspace's) on the activity, unless it shows it already. */
+  showActivity: (activityId: string, workspace?: string) => void;
   /** The tabs' titles' context as the page knows it now. */
   titleContext: () => ResolveContext;
 };
