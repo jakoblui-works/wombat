@@ -4,7 +4,7 @@ import { ItemsErrorCode } from "@wombat/shared/api";
 import { ROUTES, type ResponseOf } from "@wombat/shared/routes";
 import type { Context, Hono } from "hono";
 
-import { handlesById, summarize, withLinks } from "../items/api-view.ts";
+import { handlesById, summarize, withLinks } from "../items/api-shape.ts";
 import { findByRef, type Catalog, type LoadedItem } from "../items/catalog.ts";
 import { ItemWriteError, ME, unfixedItem, type Writer } from "../items/write.ts";
 import { errorResponse, ITEMS_STATUS, itemWriteResponse } from "./errors.ts";

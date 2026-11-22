@@ -12,7 +12,7 @@ import type { Item } from "@wombat/shared/items";
 import type { ItemProposal, ProposalVersion } from "@wombat/shared/proposals";
 
 import { agentWriteError, itemFor, binderFor, visibleOf, type Visible } from "../items/agent-visible.ts";
-import { handlesById, withLinks } from "../items/api-view.ts";
+import { handlesById, withLinks } from "../items/api-shape.ts";
 import { blockingProblems, type Catalog, type LoadedItem, type LoadedBinder, type ValidBinder } from "../items/catalog.ts";
 import { writeGuards, type WriteGuards } from "../items/guards.ts";
 import { lockedNames, newItem, type Change, type ItemInput } from "../items/refusals.ts";
