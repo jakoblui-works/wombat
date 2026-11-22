@@ -11,7 +11,7 @@ import { propertyOf } from "./validate.ts";
 import { ItemIdentityError, ItemWriteError, listed, BinderProblemsError } from "./write.ts";
 
 /** One read of the root as an agent may see it. */
-export type View = {
+export type Visible = {
   snapshot: Snapshot;
   /** Visible binders by id; a binder id any hidden binder has is never visible. */
   binders: Map<string, ValidBinder>;
@@ -25,7 +25,7 @@ export type View = {
   hiddenFolders: string[];
 };
 
-export const viewOf = (snapshot: Snapshot): View => {
+export const visibleOf = (snapshot: Snapshot): Visible => {
   const valid = snapshot.binders.filter((binder): binder is ValidBinder => binder.id !== null);
   const hiddenIds = new Set(valid.filter((binder) => binder.settings.access === "hidden").map((binder) => binder.id));
   const binders = new Map<string, ValidBinder>();
@@ -44,8 +44,8 @@ export const viewOf = (snapshot: Snapshot): View => {
 };
 
 /** Whether a problem names a hidden binder or an item of one; decided by its `names` alone, never its wording. */
-const namesHidden = (view: View, problem: NamedProblem) =>
-  (problem.names?.binders ?? []).some((id) => view.hiddenBinders.has(id)) || (problem.names?.items ?? []).some((id) => view.hiddenItems.has(id));
+const namesHidden = (visible: Visible, problem: NamedProblem) =>
+  (problem.names?.binders ?? []).some((id) => visible.hiddenBinders.has(id)) || (problem.names?.items ?? []).some((id) => visible.hiddenItems.has(id));
 
 /** A problem with the shared Problem's keys only: the service's `names` never leave it. */
 const plain = ({ field, line, message }: NamedProblem): Problem => ({ ...(field === undefined ? {} : { field }), ...(line === undefined ? {} : { line }), message });
@@ -66,27 +66,27 @@ const linkUnusable = (field: string): Problem => ({
 });
 
 /** What a binder's problem says in place of one naming something hidden, by what it is about. */
-const neutralForBinder = (view: View, field: string | undefined, binder: ValidBinder): Problem => {
+const neutralForBinder = (visible: Visible, field: string | undefined, binder: ValidBinder): Problem => {
   const fix = `ask the user to fix ${binder.id}'s ${SETTINGS_FILE} by hand`;
   if (field === "id") return { field, message: `id: another binder has the same id; ${fix}` };
   if (field === "prefix") return { field, message: `prefix: another binder has the same prefix; ${fix}` };
   const property = propertyOf(binder.settings, linkOfField(field) ?? "");
   // The catalog's sentence with only the binders an agent sees, so it reads the same with or without hidden ones.
-  if (field !== undefined && property?.type === "link") return { field, message: unknownTargetMessage(property.to, view.binders.keys()) };
+  if (field !== undefined && property?.type === "link") return { field, message: unknownTargetMessage(property.to, visible.binders.keys()) };
   // The only field-less binder problems that name a binder: a folder of it that can't be read.
   if (field === undefined) return { message: "folder: a folder of this binder can't be read; ask the user to make it readable so its items load" };
   return { field, message: `${field}: has a problem only the user can fix; ${fix}` };
 };
 
 /** What an item's problem says in place of one naming something hidden, by what it is about. */
-const neutralForItem = (view: View, problem: NamedProblem, where: string, binder: ValidBinder): Problem => {
+const neutralForItem = (visible: Visible, problem: NamedProblem, where: string, binder: ValidBinder): Problem => {
   const { field } = problem;
   const fix = `ask the user to fix ${where} by hand`;
   if (field === "id") return { field, message: `id: another file has the same id; ${fix}` };
   if (field !== undefined && isClash(problem)) return { field, message: `${field}: another file has the same handle or alias; ${fix}` };
   if (field === "file") return { field, message: `file: a new item of ${binder.id} can't go there; pick a path in its own folder` };
   const property = field === undefined ? undefined : propertyOf(binder.settings, field);
-  if (field !== undefined && property?.type === "link") return view.binders.has(property.to) ? linkNotFound(field, property.to) : linkUnusable(field);
+  if (field !== undefined && property?.type === "link") return visible.binders.has(property.to) ? linkNotFound(field, property.to) : linkUnusable(field);
   return { ...(field === undefined ? {} : { field }), message: `${field ?? "file"}: has a problem only the user can fix; ${fix}` };
 };
 
@@ -96,23 +96,23 @@ const neutralForItem = (view: View, problem: NamedProblem, where: string, binder
  * the catalog or writer gave it. `scrubbed` takes the problems of an item (or a new item) of `binder`, named
  * `where` in the neutral texts; `scrubbedSettings` takes the binder's own.
  */
-export const scrubbed = (view: View, problems: NamedProblem[], where: string, binder: ValidBinder): Problem[] =>
-  problems.map((problem) => (namesHidden(view, problem) ? neutralForItem(view, problem, where, binder) : plain(problem)));
+export const scrubbed = (visible: Visible, problems: NamedProblem[], where: string, binder: ValidBinder): Problem[] =>
+  problems.map((problem) => (namesHidden(visible, problem) ? neutralForItem(visible, problem, where, binder) : plain(problem)));
 
-const scrubbedSettings = (view: View, problems: NamedProblem[], binder: ValidBinder): Problem[] =>
-  problems.map((problem) => (namesHidden(view, problem) ? neutralForBinder(view, problem.field, binder) : plain(problem)));
+const scrubbedSettings = (visible: Visible, problems: NamedProblem[], binder: ValidBinder): Problem[] =>
+  problems.map((problem) => (namesHidden(visible, problem) ? neutralForBinder(visible, problem.field, binder) : plain(problem)));
 
 /** A visible binder, or not_found. */
-export const binderFor = (view: View, id: string) => {
-  const binder = view.binders.get(id);
+export const binderFor = (visible: Visible, id: string) => {
+  const binder = visible.binders.get(id);
   if (binder === undefined) throw noBinder(id);
   return binder;
 };
 
 /** A visible item and its binder, or not_found. */
-export const itemFor = (view: View, handle: string) => {
-  const item = findByHandle(view.items, handle);
-  const binder = item === undefined ? undefined : view.binders.get(item.binder);
+export const itemFor = (visible: Visible, handle: string) => {
+  const item = findByHandle(visible.items, handle);
+  const binder = item === undefined ? undefined : visible.binders.get(item.binder);
   if (item?.handle == null || binder === undefined) throw noItem(handle);
   return { item, binder, handle: item.handle };
 };
@@ -122,19 +122,19 @@ export const itemFor = (view: View, handle: string) => {
  * property to a binder the agent can't see takes no value at all, refused here before the writer, whose
  * problem for a value of the wrong type would name the binder.
  */
-export const linksToIds = (view: View, binder: ValidBinder, values: Record<string, unknown>) => {
+export const linksToIds = (visible: Visible, binder: ValidBinder, values: Record<string, unknown>) => {
   const converted = { ...values };
   for (const [name, value] of Object.entries(values)) {
     const property = propertyOf(binder.settings, name);
     // null or undefined sets no value (it clears the field, or leaves it out).
     if (property?.type !== "link" || value === null || value === undefined) continue;
-    if (!view.binders.has(property.to)) {
+    if (!visible.binders.has(property.to)) {
       if (typeof value === "string") throw noItem(value);
       const problems = [linkUnusable(name)];
       throw invalidFields(nothingChanged(problems), problems);
     }
     if (typeof value !== "string") continue;
-    const target = findByHandle(view.items, value);
+    const target = findByHandle(visible.items, value);
     if (target === undefined) throw noItem(value);
     if (target.binder !== property.to) {
       const message = `${name}: links to items of ${property.to}, and ${value} is in ${target.binder}; link an item of ${property.to} by its handle`;
@@ -150,8 +150,8 @@ export const linksToIds = (view: View, binder: ValidBinder, values: Record<strin
 };
 
 /** A refusal for the binder's problems, scrubbed as the binder's own. */
-const binderRefusal = (view: View, binder: ValidBinder, binderProblems: NamedProblem[]) => {
-  const problems = scrubbedSettings(view, binderProblems, binder);
+const binderRefusal = (visible: Visible, binder: ValidBinder, binderProblems: NamedProblem[]) => {
+  const problems = scrubbedSettings(visible, binderProblems, binder);
   return invalidFields(`${binder.id} has problems in its settings (${listed(problems)}), so its items can't be changed. Ask the user to fix its ${SETTINGS_FILE}.`, problems);
 };
 
@@ -159,26 +159,26 @@ const binderRefusal = (view: View, binder: ValidBinder, binderProblems: NamedPro
  * The binder's problems, which refuse every write. Checked here as well as by the writer because converting
  * link handles to ids needs sound settings: a broken link setting answers with the binder's problems.
  */
-export const checkBinder = (view: View, binder: ValidBinder) => {
+export const checkBinder = (visible: Visible, binder: ValidBinder) => {
   const problems = blockingProblems(binder);
-  if (problems.length > 0) throw binderRefusal(view, binder, problems);
+  if (problems.length > 0) throw binderRefusal(visible, binder, problems);
 };
 
 /**
  * Always built from the scrubbed problems, never the writer's message: that shows root-relative paths, and one
  * format whatever was scrubbed means a scrubbed refusal can't be told apart by its shape.
  */
-const itemRefusal = (view: View, error: ItemWriteError, subject: { handle?: string; binder: ValidBinder }) => {
-  const problems = scrubbed(view, error.problems, subject.handle ?? "the item", subject.binder);
+const itemRefusal = (visible: Visible, error: ItemWriteError, subject: { handle?: string; binder: ValidBinder }) => {
+  const problems = scrubbed(visible, error.problems, subject.handle ?? "the item", subject.binder);
   return invalidFields(nothingChanged(problems), problems);
 };
 
 /** A writer refusal as the agent gets it: never naming anything hidden, saying what to do next. */
-export const agentWriteError = (view: View, error: unknown, subject: { handle?: string; binder: ValidBinder }) => {
+export const agentWriteError = (visible: Visible, error: unknown, subject: { handle?: string; binder: ValidBinder }) => {
   if (!(error instanceof ItemWriteError)) return error;
-  // The binder's problems found by the writer's own read (they appeared after the view's).
-  if (error instanceof BinderProblemsError) return binderRefusal(view, subject.binder, error.problems);
-  if (error instanceof ItemIdentityError) return itemRefusal(view, error, subject);
+  // The binder's problems found by the writer's own read (they appeared after the visible's).
+  if (error instanceof BinderProblemsError) return binderRefusal(visible, subject.binder, error.problems);
+  if (error instanceof ItemIdentityError) return itemRefusal(visible, error, subject);
   switch (error.code) {
     case ItemWriteErrorCode.enum.stale_version:
       return stale(subject.handle ?? "The item");
@@ -190,7 +190,7 @@ export const agentWriteError = (view: View, error: unknown, subject: { handle?: 
       // Names only the service's own keys the call gave; it has no problems.
       return invalidFields(error.message);
     case ItemWriteErrorCode.enum.invalid_fields:
-      return itemRefusal(view, error, subject);
+      return itemRefusal(visible, error, subject);
     case ItemWriteErrorCode.enum.items_not_writable:
       return error;
   }

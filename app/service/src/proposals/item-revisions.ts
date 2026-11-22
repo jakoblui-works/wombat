@@ -2,7 +2,7 @@
 // level and locks bind it), and the user's draft, checked as the user's own write would be (no agent locks).
 import { isDeepStrictEqual } from "node:util";
 
-import { viewOf } from "../items/agent-view.ts";
+import { visibleOf } from "../items/agent-visible.ts";
 import { newItem } from "../items/refusals.ts";
 import { TOOL } from "../items/tools.ts";
 import { ItemWriteError, listed, type ItemChange } from "../items/write.ts";
@@ -36,7 +36,7 @@ const SAME_FIELDS = `The fields are the same as your proposal's current ones, so
 export const itemRevisions = ({ catalog, writer, checks }: ItemRevisionsOptions): ItemRevisions => {
   /** `fields` checked as a change of the target as it is now, and the item's version now (null for a create). */
   const checkedOnNow = async (stored: StoredItemProposal, fields: Record<string, unknown>): Promise<{ fields: Record<string, unknown>; version: string | null }> => {
-    const current = viewOf(await catalog.snapshot());
+    const current = visibleOf(await catalog.snapshot());
     const binder = current.binders.get(stored.binder);
     if (binder === undefined) throw new ProposalRefused(UNREACHABLE);
     if (stored.kind === "create") return { fields: await checks.checkedCreate(current, binder, createInputOf(fields, stored.file).input), version: null };

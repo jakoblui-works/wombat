@@ -20,13 +20,13 @@ import {
 import { useState } from "react";
 
 import { Collapse } from "../../../../components/ui/collapse";
-import type { ChatItem, ToolCallContent, ToolCallStatus, ToolKind } from "../../../../data/chat-model.ts";
+import type { ChatPart, ToolCallContent, ToolCallStatus, ToolKind } from "../../../../data/chat-model.ts";
 import { cn } from "../../../../lib/utils";
 import { EditDiff } from "../../approvals/EditDiff/EditDiff.tsx";
 import { ClippedMarkdown } from "../ClippedMarkdown/ClippedMarkdown.tsx";
 import { Omitted, useClipped } from "../Omitted/Omitted.tsx";
 
-export type ToolItem = Extract<ChatItem, { kind: "tool" }>;
+export type ToolPart = Extract<ChatPart, { kind: "tool" }>;
 
 export const KIND_ICONS: Readonly<Record<ToolKind, LucideIcon>> = {
   read: FileText,
@@ -75,29 +75,29 @@ const Content = ({ content }: { content: ToolCallContent }) => {
 };
 
 /** Whether a tool call has more to show than its row: input, output or content. */
-export const hasDetails = (item: ToolItem): boolean => item.input !== undefined || item.output !== undefined || item.content.length > 0;
+export const hasDetails = (part: ToolPart): boolean => part.input !== undefined || part.output !== undefined || part.content.length > 0;
 
 /** A tool call's input, output and content, as its expanded row (and an answered permission's) shows them. */
-export const ToolDetails = ({ item }: { item: ToolItem }) => (
+export const ToolDetails = ({ part }: { part: ToolPart }) => (
   <dl className="flex flex-col gap-1 border-t border-line-subtle px-2.5 pt-1.5 pb-2 pl-8">
-    {item.input === undefined ? null : <Detail label="Input" text={asText(item.input)} />}
-    {item.output === undefined ? null : <Detail label="Output" text={asText(item.output)} />}
-    {item.content.map((content, index) => (
+    {part.input === undefined ? null : <Detail label="Input" text={asText(part.input)} />}
+    {part.output === undefined ? null : <Detail label="Output" text={asText(part.output)} />}
+    {part.content.map((content, index) => (
       <Content key={index} content={content} />
     ))}
-    {hasDetails(item) ? null : <p className="text-xs text-fg-tertiary">Nothing more to show.</p>}
+    {hasDetails(part) ? null : <p className="text-xs text-fg-tertiary">Nothing more to show.</p>}
   </dl>
 );
 
 /** One tool call: a one-line row (tool, target, status); expanded, its input, output and content below. */
-const ToolRow = ({ item }: { item: ToolItem }) => {
+const ToolRow = ({ part }: { part: ToolPart }) => {
   const [expanded, setExpanded] = useState(false);
-  const KindIcon = KIND_ICONS[item.toolKind];
+  const KindIcon = KIND_ICONS[part.toolKind];
   const Chevron = expanded ? ChevronDown : ChevronRight;
-  const status = item.status === undefined ? undefined : STATUS_LOOK[item.status];
+  const status = part.status === undefined ? undefined : STATUS_LOOK[part.status];
   // The first location, unless the title already names it.
-  const location = item.locations[0]?.path;
-  const target = location === undefined || item.title.includes(location) ? undefined : location;
+  const location = part.locations[0]?.path;
+  const target = location === undefined || part.title.includes(location) ? undefined : location;
   return (
     <li>
       <button
@@ -108,7 +108,7 @@ const ToolRow = ({ item }: { item: ToolItem }) => {
       >
         <Chevron className="size-3.5 shrink-0 text-fg-tertiary" />
         <KindIcon className="size-3.5 shrink-0 text-fg-secondary" />
-        <span className="min-w-0 shrink truncate font-medium text-fg-secondary">{item.title === "" ? "Tool call" : item.title}</span>
+        <span className="min-w-0 shrink truncate font-medium text-fg-secondary">{part.title === "" ? "Tool call" : part.title}</span>
         {target === undefined ? null : <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg-primary">{target}</code>}
         {status === undefined ? null : (
           <span className="ml-auto flex shrink-0 items-center gap-1 pl-2 text-xs text-fg-tertiary">
@@ -117,17 +117,17 @@ const ToolRow = ({ item }: { item: ToolItem }) => {
         )}
       </button>
       <Collapse open={expanded}>
-        <ToolDetails item={item} />
+        <ToolDetails part={part} />
       </Collapse>
     </li>
   );
 };
 
 /** Consecutive tool calls, collapsed to one line each. */
-export const ToolCalls = ({ items }: { items: readonly ToolItem[] }) => (
+export const ToolCalls = ({ parts }: { parts: readonly ToolPart[] }) => (
   <ul className="divide-y divide-line-subtle overflow-hidden rounded-md border border-line">
-    {items.map((item) => (
-      <ToolRow key={item.key} item={item} />
+    {parts.map((part) => (
+      <ToolRow key={part.key} part={part} />
     ))}
   </ul>
 );

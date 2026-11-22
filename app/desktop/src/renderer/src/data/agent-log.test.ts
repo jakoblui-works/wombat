@@ -121,14 +121,14 @@ test("truncated says the service's cap dropped entries after the cursor", async 
   expect((await agentLogQueryFn(A, early)).truncated).toBe(true);
 });
 
-test("a malformed known entry doesn't fail the read: it shows as an unreadable item, and the rest of the log reads on", async () => {
+test("a malformed known entry doesn't fail the read: it shows as an unreadable part, and the rest of the log reads on", async () => {
   const [, bad] = service.append(A, user("Fix the hours"), MALFORMED, chunk("Done"), turnEnded());
 
   const log = await agentLogQueryFn(A);
   const model = chatModel(log.entries);
 
-  expect(model.items.map((item) => item.kind as string)).toEqual(["user", "unreadable", "agent", "turn_end"]);
-  const unreadable = model.items[1];
+  expect(model.parts.map((part) => part.kind as string)).toEqual(["user", "unreadable", "agent", "turn_end"]);
+  const unreadable = model.parts[1];
   expect(unreadable?.at).toBe(bad?.at);
   // No content of the entry it stands for.
   expect(Object.keys(unreadable ?? {}).filter((key) => !["kind", "key", "at", "sessionId"].includes(key))).toEqual([]);

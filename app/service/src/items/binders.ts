@@ -26,7 +26,7 @@ export const joinRootPath = (folder: string, name: string) => (folder === "" ? n
 
 /** What makes a folder unreadable, as a problem of the binder the folder belongs to. */
 export const folderProblem = (folder: string, error: unknown): Problem => ({
-  message: `folder: ${folder === "" ? "the items root" : folder} can't be read (${errorCode(error)}); make it readable so its items load`,
+  message: `folder: ${folder === "" ? "the items folder" : folder} can't be read (${errorCode(error)}); make it readable so its items load`,
 });
 
 export const oldSettingsProblem = (besideSettings: boolean): Problem => ({

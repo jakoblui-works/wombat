@@ -1,5 +1,5 @@
-// The instructions file: the items of every binder marked `instructions: full` or `index`, rendered from the
-// agent view (handles only, never ids, nothing hidden) into `<workspace>/.wombat/AGENTS.md`, outside every repo.
+// The instructions file: the items of every binder marked `instructions: full` or `index`, rendered as the
+// agent sees them (handles only, never ids, nothing hidden) into `<workspace>/.wombat/AGENTS.md`, outside every repo.
 // New agents get it at session start (the harness's `sessionParams`); running ones keep what they started with.
 // The service re-renders it at start, after its own writes and approvals, and when a file under the items root
 // changes. A render that fails keeps the last good file: a broken item never takes the agents' conventions away.

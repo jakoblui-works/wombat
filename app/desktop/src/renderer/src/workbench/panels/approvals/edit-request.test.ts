@@ -1,6 +1,6 @@
 // The chat's edit card and the diff tab show the same request. `editRequest` reads it from
 // the chat model: every diff of the request's own tool call (by toolCallId, not whichever edit came last), in order,
-// and the answer the chat's item has. An edit stays an edit: when a tool_call_update replaces the diffs (several
+// and the answer the chat's part has. An edit stays an edit: when a tool_call_update replaces the diffs (several
 // diffs, or text only after the answer), the request still reads as an edit of its file, with the diffs it holds now
 // (none for text) and its outcome intact. A request whose tool call holds no diff and isn't an "edit" with a
 // location, or an unknown id, is no edit.
@@ -38,9 +38,9 @@ const model = (answered: boolean) =>
 type Model = ReturnType<typeof chatModel>;
 
 const chatAnswer = (m: Model, requestId: string) => {
-  const item = m.items.find((candidate) => candidate.kind === "permission" && candidate.requestId === requestId);
-  expect(item?.kind, `no chat item for ${requestId}`).toBe("permission");
-  return item?.kind === "permission" ? item.answer : "no chat item";
+  const part = m.parts.find((candidate) => candidate.kind === "permission" && candidate.requestId === requestId);
+  expect(part?.kind, `no chat part for ${requestId}`).toBe("permission");
+  return part?.kind === "permission" ? part.answer : "no chat part";
 };
 
 test("each request gets its own tool call's diffs and the chat's answer for it", () => {

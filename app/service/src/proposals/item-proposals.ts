@@ -11,7 +11,7 @@ import { isMissing } from "@wombat/shared/errno";
 import type { Item } from "@wombat/shared/items";
 import type { ItemProposal, ProposalVersion } from "@wombat/shared/proposals";
 
-import { agentWriteError, itemFor, binderFor, viewOf, type View } from "../items/agent-view.ts";
+import { agentWriteError, itemFor, binderFor, visibleOf, type Visible } from "../items/agent-visible.ts";
 import { handlesById, withLinks } from "../items/api-view.ts";
 import { blockingProblems, type Catalog, type LoadedItem, type LoadedBinder, type ValidBinder } from "../items/catalog.ts";
 import { writeGuards, type WriteGuards } from "../items/guards.ts";
@@ -112,12 +112,12 @@ export const itemWritten = (stored: StoredItemProposal, now: ItemsNow): Written 
   return item !== undefined && intent.version != null && item.version === intent.version ? { written: true } : undefined;
 };
 
-/** The handle the agent may be told for an item proposal, by `view`: never one of an item or binder hidden from it. */
-const agentHandle = (view: View, stored: StoredItemProposal): string | undefined => {
-  const visible = itemById(view.items, stored.itemId);
-  if (visible !== undefined) return visible.handle ?? undefined;
-  const exists = itemById(view.snapshot.items, stored.itemId) !== undefined;
-  return !exists && view.binders.has(stored.binder) ? stored.itemHandle : undefined;
+/** The handle the agent may be told for an item proposal, by `visible`: never one of an item or binder hidden from it. */
+const agentHandle = (visible: Visible, stored: StoredItemProposal): string | undefined => {
+  const seen = itemById(visible.items, stored.itemId);
+  if (seen !== undefined) return seen.handle ?? undefined;
+  const exists = itemById(visible.snapshot.items, stored.itemId) !== undefined;
+  return !exists && visible.binders.has(stored.binder) ? stored.itemHandle : undefined;
 };
 
 /** Whether nothing is at `path` on disk; any other failure to tell throws. */
@@ -153,7 +153,7 @@ const writeFailure = (error: unknown, stored: StoredItemProposal): Applied | und
  * the guards, then the writer's dry run. Each throws the agent's refusal and answers the fields to store (links as ids).
  */
 const itemChecks = (writer: Writer, guards: WriteGuards) => ({
-  checkedCreate: async (current: View, binder: ValidBinder, input: ItemInput): Promise<Record<string, unknown>> => {
+  checkedCreate: async (current: Visible, binder: ValidBinder, input: ItemInput): Promise<Record<string, unknown>> => {
     const linked = presentValues(await guards.create(current, binder, input, "propose"));
     try {
       await writer.check({ kind: "create", binderId: binder.id, item: newItem(input, linked), unseen: current.hiddenFolders });
@@ -164,7 +164,7 @@ const itemChecks = (writer: Writer, guards: WriteGuards) => ({
   },
 
   /** `handle`, the item's; `named`, the handle the agent gave, which a refusal names. */
-  checkedUpdate: async (current: View, binder: ValidBinder, handle: string, fields: Record<string, unknown>, baseVersion: string, named = handle): Promise<Record<string, unknown>> => {
+  checkedUpdate: async (current: Visible, binder: ValidBinder, handle: string, fields: Record<string, unknown>, baseVersion: string, named = handle): Promise<Record<string, unknown>> => {
     const linked = guards.update(current, binder, fields, "propose");
     try {
       await writer.check({ kind: "update", handle, fields: linked, baseVersion });
@@ -178,12 +178,12 @@ const itemChecks = (writer: Writer, guards: WriteGuards) => ({
 export type ItemChecks = ReturnType<typeof itemChecks>;
 
 export const openItemProposals = ({ catalog, writer, store }: ItemProposalsOptions): ItemProposals => {
-  const view = async () => viewOf(await catalog.snapshot());
+  const visible = async () => visibleOf(await catalog.snapshot());
   const guards = writeGuards(writer);
   const checks = itemChecks(writer, guards);
 
   const checkCreate = async (agentId: string, binderId: string, input: ItemInput, reason: string): Promise<CheckedItemProposal> => {
-    const current = await view();
+    const current = await visible();
     const binder = binderFor(current, binderId);
     return {
       proposal: { target: "item", path: null, binder: binder.id, itemId: null, kind: "create", file: input.file ?? null, reason, baseVersion: null, agentId },
@@ -192,7 +192,7 @@ export const openItemProposals = ({ catalog, writer, store }: ItemProposalsOptio
   };
 
   const checkUpdate = async (agentId: string, handle: string, fields: Record<string, unknown>, version: string, reason: string): Promise<CheckedItemProposal> => {
-    const current = await view();
+    const current = await visible();
     const { item, binder, handle: target } = itemFor(current, handle);
     return {
       proposal: { target: "item", path: null, binder: binder.id, itemId: item.id, kind: "update", file: null, reason, baseVersion: version, agentId },
@@ -201,7 +201,7 @@ export const openItemProposals = ({ catalog, writer, store }: ItemProposalsOptio
   };
 
   const checkDelete = async (agentId: string, handle: string, version: string, reason: string): Promise<CheckedItemProposal> => {
-    const current = await view();
+    const current = await visible();
     const { item, binder, handle: target } = itemFor(current, handle);
     guards.remove(current, binder, item, target, "propose");
     try {
@@ -218,7 +218,7 @@ export const openItemProposals = ({ catalog, writer, store }: ItemProposalsOptio
   /** Applies a proposal, or says why it can't be: what changed since the agent read the item. */
   const write = async (stored: StoredItemProposal, fields: Record<string, unknown>, by: VersionAuthor): Promise<Applied> => {
     const snapshot = await catalog.snapshot();
-    const current = viewOf(snapshot);
+    const current = visibleOf(snapshot);
     const binder = current.binders.get(stored.binder);
     const access = current.hiddenBinders.has(stored.binder) ? "hidden" : binder?.settings.access;
     if (access === "hidden" || access === "read") {
@@ -286,7 +286,7 @@ export const openItemProposals = ({ catalog, writer, store }: ItemProposalsOptio
     agentHandlesOf: async (stored) => {
       const handles = new Map<string, string>();
       if (stored.length === 0) return handles;
-      const current = await view();
+      const current = await visible();
       for (const proposal of stored) {
         const handle = agentHandle(current, proposal);
         if (handle !== undefined) handles.set(proposal.id, handle);

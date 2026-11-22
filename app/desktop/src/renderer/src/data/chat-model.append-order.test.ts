@@ -1,7 +1,7 @@
 // The chat shows the same thing however the log reached the
 // cache: in one read, in appends split anywhere, out of order, or with entries delivered twice (a reconnect re-reads
-// from a cursor and may overlap what an alert already brought). And an item's key never changes as more of the log
-// arrives, so React keeps each item's identity.
+// from a cursor and may overlap what an alert already brought). And a part's key never changes as more of the log
+// arrives, so React keeps each part's identity.
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
@@ -208,16 +208,16 @@ test("the chat model of a log is the same however the log arrived: split into ap
   );
 });
 
-test("item keys are unique, and an item keeps its key and kind as more of the log arrives", () => {
+test("part keys are unique, and a part keeps its key and kind as more of the log arrives", () => {
   fc.assert(
     fc.property(log, (all) => {
-      const full = chatModel(all).items;
-      const keys = full.map((item) => item.key);
+      const full = chatModel(all).parts;
+      const keys = full.map((part) => part.key);
       expect(new Set(keys).size, `duplicate keys: ${keys.join(", ")}`).toBe(keys.length);
-      const kindByKey = new Map(full.map((item) => [item.key, item.kind]));
+      const kindByKey = new Map(full.map((part) => [part.key, part.kind]));
       for (let length = 0; length < all.length; length++) {
-        for (const item of chatModel(all.slice(0, length)).items) {
-          expect(kindByKey.get(item.key), `item ${item.key} (${item.kind}) after ${String(length)} entries`).toBe(item.kind);
+        for (const part of chatModel(all.slice(0, length)).parts) {
+          expect(kindByKey.get(part.key), `part ${part.key} (${part.kind}) after ${String(length)} entries`).toBe(part.kind);
         }
       }
     }),

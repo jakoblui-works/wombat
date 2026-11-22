@@ -3,7 +3,7 @@ import { Check, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "../../../../components/ui/button";
-import type { ChatItem } from "../../../../data/chat-model.ts";
+import type { ChatPart } from "../../../../data/chat-model.ts";
 import { AGENT_STATES } from "../../../../lib/agent-state";
 import { cn } from "../../../../lib/utils";
 import { DiffCounts } from "../EditDiff/EditDiff.tsx";
@@ -22,7 +22,7 @@ export const OutcomeMark = ({ allowed, children }: { allowed: boolean; children:
 };
 
 /** How an answered or cancelled request reads in place of its buttons. */
-export const Outcome = ({ answer }: { answer: NonNullable<Extract<ChatItem, { kind: "permission" }>["answer"]> }) => (
+export const Outcome = ({ answer }: { answer: NonNullable<Extract<ChatPart, { kind: "permission" }>["answer"]> }) => (
   <OutcomeMark allowed={answer.startsWith("allow_")}>{ANSWER_LABELS[answer]}</OutcomeMark>
 );
 

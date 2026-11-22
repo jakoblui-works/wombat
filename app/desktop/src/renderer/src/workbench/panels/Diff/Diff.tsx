@@ -18,7 +18,7 @@ import { editRequest } from "../approvals/edit-request.ts";
 
 /**
  * One edit request side by side: the request's diff in Monaco, with the chat's answer buttons. It reads the same
- * chat model item as the chat's card (`editRequest`) and its outcome by the same rule (`liveState`), so both show the
+ * chat model part as the chat's card (`editRequest`) and its outcome by the same rule (`liveState`), so both show the
  * same; an answered request shows its outcome until the tab is closed.
  */
 const EditDiff = ({ agentId, requestId, setTitle }: DiffParams & { setTitle: PanelProps["setTitle"] }) => {

@@ -1,10 +1,10 @@
 // Which of a permission request's options the chat offers as Approve, as Reject and as the rest, and how an answer
 // reads once given. Pure: the chat's cards and the diff tab both use it.
-import type { ChatItem } from "../../../data/chat-model.ts";
+import type { ChatPart } from "../../../data/chat-model.ts";
 
-type PermissionItem = Extract<ChatItem, { kind: "permission" }>;
+type PermissionPart = Extract<ChatPart, { kind: "permission" }>;
 
-export type PermissionOption = PermissionItem["options"][number];
+export type PermissionOption = PermissionPart["options"][number];
 
 /** The request's options as buttons: the one Approve, the one Reject, and the rest (secondary) by name. */
 export type PermissionButtons = { approve?: PermissionOption; reject?: PermissionOption; others: PermissionOption[] };
@@ -21,7 +21,7 @@ export const permissionButtons = (options: readonly PermissionOption[]): Permiss
 };
 
 /** How an answered or cancelled request reads in place of its buttons. */
-export const ANSWER_LABELS: Readonly<Record<NonNullable<PermissionItem["answer"]>, string>> = {
+export const ANSWER_LABELS: Readonly<Record<NonNullable<PermissionPart["answer"]>, string>> = {
   allow_once: "Approved once",
   allow_always: "Approved always",
   reject_once: "Rejected",

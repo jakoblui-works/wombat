@@ -1,4 +1,4 @@
-// What the chat adds to the log fold: each request's title and answer. How entries become items is the fold's
+// What the chat adds to the log fold: each request's title and answer. How entries become parts is the fold's
 // (shared/src/log-fold.test.ts); order-freedom and key stability are chat-model.append-order.test.ts.
 import { expect, test } from "vitest";
 
@@ -10,9 +10,9 @@ import {
   turnEnded,
   user,
 } from "../../../../../shared/test/log-entries.ts";
-import { type ChatItem, chatModel } from "./chat-model.ts";
+import { type ChatPart, chatModel } from "./chat-model.ts";
 
-const items = (...bodies: Body[]): ChatItem[] => chatModel(entries(bodies)).items;
+const parts = (...bodies: Body[]): ChatPart[] => chatModel(entries(bodies)).parts;
 
 test.each<[string, Body[], string | undefined]>([
   ["open while unanswered", [user("Edit"), permissionRequested("r1", { toolCallId: "t1" })], undefined],
@@ -25,7 +25,7 @@ test.each<[string, Body[], string | undefined]>([
   ],
   ["another request's answer leaves it open", [permissionRequested("r1", { toolCallId: "t1" }), permissionAnswered("r2", "allow_once")], undefined],
 ])("a permission's answer: %s", (_name, bodies, answer) => {
-  const permission = items(...bodies).find((item) => item.kind === "permission");
+  const permission = parts(...bodies).find((part) => part.kind === "permission");
   expect(permission).toBeDefined();
   expect(permission && "answer" in permission ? permission.answer : undefined).toBe(answer);
 });

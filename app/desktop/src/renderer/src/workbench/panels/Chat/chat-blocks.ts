@@ -1,40 +1,40 @@
-// How the chat lays out its items, pure: consecutive tool calls share one list, a permission shows as one thing with
+// How the chat lays out its parts, pure: consecutive tool calls share one list, a permission shows as one thing with
 // the tool call it asks about (the card at the request's place, no row of its own for that call), everything else
 // stands alone.
-import type { ChatItem } from "../../../data/chat-model.ts";
+import type { ChatPart } from "../../../data/chat-model.ts";
 
-type ToolItem = Extract<ChatItem, { kind: "tool" }>;
-type PermissionItem = Extract<ChatItem, { kind: "permission" }>;
+type ToolPart = Extract<ChatPart, { kind: "tool" }>;
+type PermissionPart = Extract<ChatPart, { kind: "permission" }>;
 
 export type ChatBlock =
-  | { kind: "tools"; key: string; items: ToolItem[] }
-  | { kind: "permission"; key: string; item: PermissionItem; tool?: ToolItem }
-  | { kind: "item"; key: string; item: Exclude<ChatItem, ToolItem | PermissionItem> };
+  | { kind: "tools"; key: string; parts: ToolPart[] }
+  | { kind: "permission"; key: string; part: PermissionPart; tool?: ToolPart }
+  | { kind: "part"; key: string; part: Exclude<ChatPart, ToolPart | PermissionPart> };
 
-export const chatBlocks = (items: readonly ChatItem[]): ChatBlock[] => {
+export const chatBlocks = (parts: readonly ChatPart[]): ChatBlock[] => {
   // Each asked-about tool call goes with its latest request (a call asked about twice shows with the later card).
   const askedBy = new Map<string, string>();
-  const tools = new Map<string, ToolItem>();
-  for (const item of items) {
-    if (item.kind === "permission") askedBy.set(item.toolCallId, item.requestId);
-    else if (item.kind === "tool") tools.set(item.toolCallId, item);
+  const tools = new Map<string, ToolPart>();
+  for (const part of parts) {
+    if (part.kind === "permission") askedBy.set(part.toolCallId, part.requestId);
+    else if (part.kind === "tool") tools.set(part.toolCallId, part);
   }
   const blocks: ChatBlock[] = [];
-  for (const item of items) {
+  for (const part of parts) {
     const last = blocks.at(-1);
-    if (item.kind === "permission") {
-      const tool = askedBy.get(item.toolCallId) === item.requestId ? tools.get(item.toolCallId) : undefined;
-      blocks.push({ kind: "permission", key: item.key, item, ...(tool === undefined ? {} : { tool }) });
-    } else if (item.kind !== "tool") blocks.push({ kind: "item", key: item.key, item });
-    else if (askedBy.has(item.toolCallId)) continue;
+    if (part.kind === "permission") {
+      const tool = askedBy.get(part.toolCallId) === part.requestId ? tools.get(part.toolCallId) : undefined;
+      blocks.push({ kind: "permission", key: part.key, part, ...(tool === undefined ? {} : { tool }) });
+    } else if (part.kind !== "tool") blocks.push({ kind: "part", key: part.key, part });
+    else if (askedBy.has(part.toolCallId)) continue;
     // A tool call joins the list before it only from the same session (a sub-agent's calls are marked apart).
-    else if (last?.kind === "tools" && last.items[0]?.sessionId === item.sessionId) last.items.push(item);
-    else blocks.push({ kind: "tools", key: item.key, items: [item] });
+    else if (last?.kind === "tools" && last.parts[0]?.sessionId === part.sessionId) last.parts.push(part);
+    else blocks.push({ kind: "tools", key: part.key, parts: [part] });
   }
   return blocks;
 };
 
 export const streamingKey = (blocks: readonly ChatBlock[], turnActive: boolean): string | undefined => {
   const last = blocks.at(-1);
-  return turnActive && last?.kind === "item" && last.item.kind === "agent" ? last.key : undefined;
+  return turnActive && last?.kind === "part" && last.part.kind === "agent" ? last.key : undefined;
 };
