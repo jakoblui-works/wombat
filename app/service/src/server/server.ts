@@ -17,7 +17,7 @@ import { harnessFeatures } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { ApproveStep } from "../proposals/apply.ts";
 import { openProposals } from "../proposals/proposals.ts";
-import { ProposalError } from "../proposals/refused.ts";
+import { ProposalError, workspaceFolder } from "../proposals/refused.ts";
 import type { Store } from "../store/store.ts";
 import { listRepos, RepoError, WorkspaceError } from "../workspace.ts";
 import { AGENT_CALL_STATUS, AGENT_STATUS, errorResponse, ITEMS_STATUS, SERVER_STATUS, WORKSPACE_STATUS } from "./errors.ts";
@@ -27,20 +27,15 @@ import { mcpRoutes } from "./mcp.ts";
 import { portRules } from "./port-rules.ts";
 import { proposalRoutes } from "./proposal-routes.ts";
 import { InvalidRequest, readBody, readQuery } from "./request.ts";
-import { NO_WORKSPACE, workspaceRoutes } from "./workspace-routes.ts";
+import { workspaceRoutes } from "./workspace-routes.ts";
 
 export type ServerOptions = {
   manager: Manager;
   store: Store;
   harnesses: readonly Harness[];
   /**
-   * The one workspace new proposals belong to, and whose items the agents' /mcp tools reach (until they take their
-   * agent's). Agents, repos and the items routes take their workspace by id.
-   */
-  workspace?: { id: string; root: string };
-  /**
-   * Each workspace's items (workspace-items.ts): the items routes and the proposals ask it, and the workspace routes
-   * open a workspace's items before they answer. Without it no workspace has items.
+   * Each workspace's items (workspace-items.ts): the items routes, the proposals and an agent's /mcp tools ask it, and
+   * the workspace routes open a workspace's items before they answer. Without it no workspace has items.
    */
   items?: Pick<WorkspaceItems, "of" | "open" | "reopen">;
   /** The bearer token every request must carry. */
@@ -75,7 +70,6 @@ export const startServer = async ({
   manager,
   store,
   harnesses,
-  workspace,
   token,
   port = 0,
   heartbeatMs = HEARTBEAT_MS,
@@ -104,17 +98,21 @@ export const startServer = async ({
   // Proposal changes reach the alert stream through the manager's listeners, like agent changes.
   const onProposal = (id: string, seq: number) => manager.proposalCommitted(id, seq);
   const findAgent = (id: string) => store.listAgents().find((agent) => agent.id === id);
-  const { id: workspaceId, root: workspaceRoot } = workspace ?? NO_WORKSPACE;
-  const { access, proposals, notes } = openProposals({
+  const { accessOf, proposals, notes } = openProposals({
     store,
-    workspace: workspaceRoot,
-    workspaceId,
+    workspaceOf: (agentId) => requireAgent(agentId, findAgent).workspace,
+    rootOf: manager.rootOf,
     agentFolder: (agentId) => manager.agentFolder(requireAgent(agentId, findAgent)),
     onProposal,
     log,
-    items: workspace === undefined ? undefined : items?.of(workspace.id),
+    ...(items === undefined ? {} : { itemsOf: items.of }),
     onApproveStep,
   });
+  /** The running agent a token belongs to, with its workspace. */
+  const agentForToken = (token: string) => {
+    const agentId = manager.agentForToken(token);
+    return agentId === undefined ? undefined : findAgent(agentId);
+  };
   // Before the server listens: no request may see a proposal a service death left applying.
   await proposals.settleAtStart();
 
@@ -122,9 +120,10 @@ export const startServer = async ({
   app.route(
     "/",
     mcpRoutes({
-      access,
+      accessOf,
+      folderOf: (workspaceId) => workspaceFolder(store, workspaceId),
       proposals,
-      agentForToken: manager.agentForToken,
+      agentForToken,
       port: () => boundPort,
       maxBodyBytes: MAX_BODY_BYTES,
       log,

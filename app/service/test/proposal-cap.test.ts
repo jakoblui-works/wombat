@@ -97,7 +97,7 @@ test(
 test("at the versions limit the agent's revise is refused and stores nothing, and my own version is still saved", async () => {
   const workspace = tempDir();
   const store = open({ path: tempStorePath() });
-  const proposals = createProposals({ store, workspace, workspaceId: WORKSPACE, agentFolder: () => workspace, onProposal: () => undefined, log: () => undefined });
+  const proposals = createProposals({ store, rootOf: () => workspace, workspaceOf: () => WORKSPACE, agentFolder: () => workspace, onProposal: () => undefined, log: () => undefined });
   const { proposed: id } = await proposals.proposeFile(FULL.agent, join(workspace, "notes.md"), "The notes need a file.", { content: "# Notes\n\nRevision 1.\n" });
   const revise = (n: number) => proposals.revise(FULL.agent, id, "Counted again.", { content: `# Notes\n\nRevision ${String(n)}.\n` });
   // Straight into the store up to one below the limit; the last one through the revise, which is still taken there.

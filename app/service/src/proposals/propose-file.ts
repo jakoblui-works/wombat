@@ -121,17 +121,24 @@ const itemsFileRefusal = (path: string, call: "propose" | "revise" = "propose") 
 const FOLDER_GONE =
   "The folder you work in is gone from the workspace, so a relative path can't be resolved. Give the file's absolute path.";
 
+/** Whether an items catalog holds a file (the item tools change it, never a file proposal). */
+type Holds = (realPath: string) => Promise<boolean>;
+
+/** `holds` as asked for the files of a proposal in `workspaceId`; undefined without items. */
+export const heldIn = (holds: ((realPath: string, workspaceId: string) => Promise<boolean>) | undefined, workspaceId: string): Holds | undefined =>
+  holds === undefined ? undefined : (realPath) => holds(realPath, workspaceId);
+
 type FileProposerOptions = {
   /** The folder an agent runs in: a relative path it proposes starts there. Throws AgentError when it's gone. */
   agentFolder: (agentId: string) => string;
-  /** Whether the items catalog holds a file (the item tools change it, never a file proposal); undefined without items. */
-  holds?: ((realPath: string) => Promise<boolean>) | undefined;
+  /** Whether an items catalog holds a file, as asked for an agent's proposal; undefined without items. */
+  holdsFor: (agentId: string) => Holds | undefined;
   /** Stores a checked proposal; throws ProposalRefused at the cap. */
   insert: (proposal: ProposalForInsert, firstVersion: ProposalContent) => ProposalResult;
 };
 
 /** `proposeFile(agentId, path, reason, change)`: runs a file change's checks, then stores it; throws ProposalRefused. */
-export const fileProposer = ({ agentFolder, holds, insert }: FileProposerOptions) => {
+export const fileProposer = ({ agentFolder, holdsFor, insert }: FileProposerOptions) => {
   const folderFor = (agentId: string) => {
     try {
       return agentFolder(agentId);
@@ -145,7 +152,7 @@ export const fileProposer = ({ agentFolder, holds, insert }: FileProposerOptions
     const asked = changeOf(change);
     if ("refusal" in asked) throw new ProposalRefused(asked.refusal);
     const target = await resolveTarget(path, isAbsolute(path) ? "" : folderFor(agentId));
-    if ((await holds?.(target.realPath)) === true) throw new ProposalRefused(itemsFileRefusal(path));
+    if ((await holdsFor(agentId)?.(target.realPath)) === true) throw new ProposalRefused(itemsFileRefusal(path));
     const mismatch = targetRefusal(asked, target.exists, path);
     if (mismatch !== undefined) throw new ProposalRefused(mismatch);
     const proposal = { target: "file", path: target.realPath, binder: null, itemId: null, file: null, reason, agentId } as const;
@@ -239,7 +246,7 @@ export const reviseFile = async (
   stored: Extract<StoredProposal, { target: "file" }>,
   current: ProposalVersionRecord,
   revision: Revision,
-  holds: ((realPath: string) => Promise<boolean>) | undefined,
+  holds: Holds | undefined,
 ): Promise<FileRevision> => {
   const asked = fileRevisionOf(revision);
   if ("refusal" in asked) throw new ProposalRefused(asked.refusal);

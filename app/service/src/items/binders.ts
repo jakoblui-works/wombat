@@ -5,7 +5,7 @@
 import { glob, lstat, readdir, readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join, matchesGlob, posix, relative, sep } from "node:path";
 
-import { errorCode, isMissing } from "@wombat/shared/errno";
+import { errorCode, isMissing, isMissingPath } from "@wombat/shared/errno";
 import { BinderSettings, type Problem, SETTINGS_FILE } from "@wombat/shared/items";
 import { isCollection, LineCounter, parseDocument, type Document } from "yaml";
 
@@ -194,10 +194,16 @@ export const readsAsItem = (settings: BinderSettings, folder: string, path: stri
 /**
  * Whether the catalog under `root` reads the file at `path` (absolute, symlinks resolved) as a binder's
  * `_binder.yaml` (or `_structure.yaml`) or an item's file, as it is now or once a file is written there: files
- * only the item tools may change. A binder whose settings don't load reads no items.
+ * only the item tools may change. A binder whose settings don't load reads no items; a root that is gone holds none.
  */
 export const isCatalogFile = async (root: string, path: string): Promise<boolean> => {
-  const realRoot = await realpath(root);
+  let realRoot;
+  try {
+    realRoot = await realpath(root);
+  } catch (error) {
+    if (isMissingPath(error)) return false;
+    throw error;
+  }
   if (path === realRoot || !isWithin(realRoot, path)) return false;
   const rootPath = toRootPath(realRoot, path);
   if (isSkippedPath(rootPath)) return false;

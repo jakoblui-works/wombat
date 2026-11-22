@@ -108,6 +108,8 @@ const proposalFields = {
   id: z.string(),
   status: ProposalStatus,
   agentId: z.string(),
+  /** The id of the workspace it belongs to: its agent's. */
+  workspace: z.string().min(1),
   reason: z.string(),
   /** The current version's number; approving names it, so the user approves what they saw. */
   version: z.int().positive(),

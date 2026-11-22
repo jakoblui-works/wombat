@@ -32,5 +32,6 @@ export const proposal = (id: string, agentId = AGENT): Proposal => ({
   editedByMe: false,
   status: "pending",
   agentId,
+  workspace: "ws-bakery0001",
   at: atFor(2),
 });

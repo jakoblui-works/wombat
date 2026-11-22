@@ -11,6 +11,7 @@ export const commonFields = (stored: StoredProposal, heads: readonly ProposalVer
     id: stored.id,
     status: stored.status,
     agentId: stored.agentId,
+    workspace: stored.workspace,
     reason: stored.reason,
     version: current?.n ?? 1,
     // My version is current: a draft, or the version the proposal was decided on.

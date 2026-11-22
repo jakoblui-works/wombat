@@ -17,22 +17,33 @@ type MessageNote = { note: ProposalNote | undefined; delivers: string[] };
 
 type NoteSourceOptions = {
   store: Pick<Store, "undeliveredOutcomes" | "getProposal" | "listVersionHeads" | "getVersion">;
-  /** The item side, to label an item proposal by a handle the agent may see; without it items get a neutral label. */
-  items?: Pick<ItemProposals, "agentHandlesOf"> | undefined;
+  /**
+   * A workspace's item side, to label an item proposal by a handle the agent may see; a workspace without one gets
+   * neutral labels for its items.
+   */
+  itemsOf?: ((workspaceId: string) => Pick<ItemProposals, "agentHandlesOf"> | undefined) | undefined;
   log?: Log | undefined;
 };
 
-export const noteSource = ({ store, items, log }: NoteSourceOptions) => {
-  const handlesOf = async (stored: readonly StoredProposal[]): Promise<ReadonlyMap<string, string>> => {
-    const itemRows = stored.filter((proposal): proposal is StoredItemProposal => proposal.target === "item");
-    if (items === undefined || itemRows.length === 0) return new Map();
+export const noteSource = ({ store, itemsOf, log }: NoteSourceOptions) => {
+  /** The handles of one workspace's item proposals, read in its items. */
+  const handlesIn = async (workspaceId: string, rows: readonly StoredItemProposal[]): Promise<ReadonlyMap<string, string>> => {
+    const items = itemsOf?.(workspaceId);
+    if (items === undefined) return new Map();
     try {
-      return await items.agentHandlesOf(itemRows);
+      return await items.agentHandlesOf(rows);
     } catch (error) {
       // The items can't be read now: the message still goes, its items labelled without a handle.
       log?.("note_handles_failed", { error: errorName(error) });
       return new Map();
     }
+  };
+
+  const handlesOf = async (stored: readonly StoredProposal[]): Promise<ReadonlyMap<string, string>> => {
+    const itemRows = stored.filter((proposal): proposal is StoredItemProposal => proposal.target === "item");
+    const groups = [...Map.groupBy(itemRows, (row) => row.workspace)];
+    const found = await Promise.all(groups.map(([workspaceId, rows]) => handlesIn(workspaceId, rows)));
+    return new Map(found.flatMap((handles) => [...handles]));
   };
 
   const diffFailed = (proposalId: string, error: unknown) => {

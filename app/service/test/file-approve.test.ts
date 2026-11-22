@@ -44,7 +44,7 @@ const tempFolder = () => {
 const bench = () => {
   const workspace = tempFolder();
   const store = open({ path: tempStorePath() });
-  const proposals = createProposals({ store, workspace, workspaceId: WORKSPACE, agentFolder: () => workspace, onProposal: () => undefined, log: () => undefined });
+  const proposals = createProposals({ store, rootOf: () => workspace, workspaceOf: () => WORKSPACE, agentFolder: () => workspace, onProposal: () => undefined, log: () => undefined });
   const path = join(workspace, "pairing-notes.md");
   const text = async (id: string) => ((await proposals.get(id)) as Extract<ProposalDetail, { target: "file" }>).text;
   return {

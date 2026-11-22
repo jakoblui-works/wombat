@@ -35,6 +35,7 @@ const proposed = (kind: ItemProposal["kind"], handle: string | null): ItemPropos
   id: "0196f3c2-0000-7000-8000-0000000000a0",
   status: "pending",
   agentId: "0196f3c2-0000-7000-8000-0000000000a9",
+  workspace: "ws-apiary0001",
   reason: "Invented reason.",
   version: 1,
   editedByMe: false,

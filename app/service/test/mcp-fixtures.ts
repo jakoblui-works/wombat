@@ -54,9 +54,10 @@ export const openMcp = ({ files = ACCESS_FILES, access }: { files?: Record<strin
   const opened = openAccessRoot(files, log);
   const port = 4123;
   const app = mcpRoutes({
-    access: access ?? opened.access,
+    accessOf: (workspaceId) => (workspaceId === WORKSPACE ? (access ?? opened.access) : undefined),
+    folderOf: () => opened.root,
     proposals: opened.proposals,
-    agentForToken: (sent) => (sent === STUB_TOKEN ? STUB_AGENT : undefined),
+    agentForToken: (sent) => (sent === STUB_TOKEN ? { id: STUB_AGENT, workspace: WORKSPACE } : undefined),
     port: () => port,
     // The service's limit; the limit itself is tested on the running server.
     maxBodyBytes: 1024 * 1024,

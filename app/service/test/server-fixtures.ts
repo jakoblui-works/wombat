@@ -16,7 +16,7 @@ import type { Log } from "../src/log.ts";
 import { startServer } from "../src/server/server.ts";
 import type { Store } from "../src/store/store.ts";
 import { fixtureHarnesses, type LogLine, REPO, setup, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
-import { WORKSPACE } from "./store-fixtures.ts";
+import { summary, WORKSPACE } from "./store-fixtures.ts";
 
 export { APP_ORIGIN };
 
@@ -275,8 +275,18 @@ export type ServeOptions = SetupOptions & {
    * `logs`), for the items and proposal routes and the agents' /mcp tools; without it they aren't configured.
    */
   itemsRoot?: string;
-  /** Stub agent tokens (token → agent id) /mcp takes besides the live agents' own, so a test needs no agent for one. */
+  /**
+   * Stub agent tokens (token → agent id) /mcp takes besides the live agents' own, so a test needs no running agent for
+   * one; each stub agent is stored as a done agent of WORKSPACE, which decides the items its tools reach.
+   */
   agentTokens?: Record<string, string>;
+};
+
+/** Stores each stub agent not stored yet, as a done agent of WORKSPACE. */
+const storeStubAgents = (store: Store, agentIds: readonly string[]) => {
+  for (const agentId of new Set(agentIds)) {
+    if (!store.listAgents().some((agent) => agent.id === agentId)) store.putAgent(summary(agentId, { workspace: WORKSPACE }));
+  }
 };
 
 export type Served = Setup & {
@@ -296,6 +306,7 @@ export type Served = Setup & {
 /** A manager fixture behind a running server; everything is torn down after the test. */
 export const serve = async ({ heartbeatMs, sendFails, itemsRoot, agentTokens = {}, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
   const t = setup(setupOptions);
+  storeStubAgents(t.store, Object.values(agentTokens));
   const token = randomBytes(24).toString("base64url");
   const harnesses = fixtureHarnesses(t.pidDir);
   // The server gets the manager with onCommitted counted, so tests can see subscriptions it leaves behind, and with
@@ -329,7 +340,6 @@ export const serve = async ({ heartbeatMs, sendFails, itemsRoot, agentTokens = {
     manager,
     store: t.store,
     harnesses,
-    workspace: { id: WORKSPACE, root: t.root },
     token,
     log,
     onShutdown: () => {

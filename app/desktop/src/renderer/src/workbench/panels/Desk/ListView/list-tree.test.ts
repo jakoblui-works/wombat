@@ -34,6 +34,7 @@ const proposal = (n: number, kind: ItemProposal["kind"], handle: string | null):
   id: idOf("2b00", n),
   status: "pending",
   agentId: idOf("2c00", 1),
+  workspace: "ws-apiary0001",
   reason: "Invented reason.",
   version: 1,
   editedByMe: false,

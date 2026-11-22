@@ -20,12 +20,6 @@ export type WorkspaceRoutesOptions = {
   items?: Pick<WorkspaceItems, "open" | "reopen">;
 };
 
-/**
- * What the proposals get while the service has no configured workspace: no folder resolves from its root, so an
- * agent or a file under it is refused rather than placed in some other folder.
- */
-export const NO_WORKSPACE = { id: "", root: "" } as const;
-
 type FolderUse = "workspace" | "items folder";
 
 const isFolder = (path: string) => {

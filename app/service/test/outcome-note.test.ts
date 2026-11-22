@@ -33,7 +33,7 @@ const open = async () => {
   const t = setup();
   const { id: agentId } = await t.manager.start(WORKSPACE, "fake-echo", REPO);
   const folder = join(t.root, REPO);
-  const proposals = createProposals({ store: t.store, workspace: t.root, workspaceId: WORKSPACE, agentFolder: () => folder, onProposal: () => undefined, log: () => undefined });
+  const proposals = createProposals({ store: t.store, rootOf: () => t.root, workspaceOf: () => WORKSPACE, agentFolder: () => folder, onProposal: () => undefined, log: () => undefined });
   const notes = () => t.entries(agentId).filter((entry): entry is ProposalNoteEntry => entry.type === "proposal_note");
 
   /** The turn of the message stored as `seq`: the agent's reply, and the entry right before the message. */

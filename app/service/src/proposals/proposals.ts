@@ -4,10 +4,9 @@
 // the next start from what the target holds.
 import { MAX_OPEN_PROPOSALS, type FileProposal, type ProposalDetail, type ProposalStatus } from "@wombat/shared/proposals";
 
-import { openAccess } from "../items/access.ts";
-import type { Catalog } from "../items/catalog.ts";
+import { openAccess, type Access } from "../items/access.ts";
 import { versionOfText } from "../items/files.ts";
-import type { Writer } from "../items/write.ts";
+import type { ItemsOfWorkspace } from "../items/workspace-items.ts";
 import { errorName, type Log } from "../log.ts";
 import { currentVersion } from "../store/proposal-rules.ts";
 import { fieldsOf, textOf } from "../store/proposals.ts";
@@ -26,10 +25,10 @@ import {
   type StoredItemProposal,
 } from "./item-proposals.ts";
 import { noteSource } from "./note-source.ts";
-import { fileProposer } from "./propose-file.ts";
+import { fileProposer, heldIn } from "./propose-file.ts";
 import { reviser } from "./revise.ts";
 import { commonFields } from "./proposal-fields.ts";
-import { itemsNotConfigured, notApprovable, notFound, ProposalError, ProposalRefused, toApprove, toReject } from "./refused.ts";
+import { itemsNotConfigured, notApprovable, notFound, ProposalError, ProposalRefused, toApprove, toReject, workspaceFolder } from "./refused.ts";
 
 type StoredFileProposal = Extract<StoredProposal, { target: "file" }>;
 
@@ -58,24 +57,30 @@ const fileProposalOf = (stored: StoredFileProposal, heads: readonly ProposalVers
 
 type ProposalsOptions = {
   store: Store;
-  /** The workspace root; a file outside its real path is marked. */
-  workspace: string;
-  /** The id of that workspace, which every new proposal belongs to. */
-  workspaceId: string;
+  /** The workspace an agent belongs to, which its proposals belong to. Throws AgentError for an unknown agent. */
+  workspaceOf: (agentId: string) => string;
+  /** A workspace's root (the manager's `rootOf`); a file outside its real path is marked. Throws when there is none. */
+  rootOf: (workspaceId: string) => string;
   /** The folder an agent runs in: a relative path it proposes starts there. Throws AgentError when it's gone. */
   agentFolder: (agentId: string) => string;
   /** Called once per committed proposal change, with the seq it took. */
   onProposal: (id: string, seq: number) => void;
   log: Log;
-  /** The item side (its checks, reads and write target), while items are set up. */
-  items?: ItemProposals | undefined;
-  /** Whether the items catalog holds a file (the item tools change it, never a file proposal); undefined without items. */
-  holds?: ((realPath: string) => Promise<boolean>) | undefined;
+  /** A workspace's item side (its checks, reads and write target), while it has an items folder; asked on every use. */
+  itemsOf?: ((workspaceId: string) => ItemProposals | undefined) | undefined;
+  /**
+   * Whether the items catalog of the workspace or of any listed one holds a file (the item tools change it, never a
+   * file proposal); undefined without items.
+   */
+  holds?: ((realPath: string, workspaceId: string) => Promise<boolean>) | undefined;
   /** Called synchronously at each named step of an approve. */
   onApproveStep?: ((step: ApproveStep) => void) | undefined;
 };
 
-export const createProposals = ({ store, workspace, workspaceId, agentFolder, onProposal, log, items, holds, onApproveStep }: ProposalsOptions) => {
+/** A file's mark when its workspace's root can't be resolved (unknown, or its folder gone): outside, the warning side. */
+const ALL_OUTSIDE = () => true;
+
+export const createProposals = ({ store, workspaceOf, rootOf, agentFolder, onProposal, log, itemsOf, holds, onApproveStep }: ProposalsOptions) => {
   const announce = announcer(onProposal, log);
 
   /** Announces a committed change; a refused one here means another change got there first. */
@@ -99,15 +104,26 @@ export const createProposals = ({ store, workspace, workspaceId, agentFolder, on
     return content;
   };
 
-  const itemSide = () => {
-    if (items === undefined) throw itemsNotConfigured();
+  /** The item side of `workspaceId` as its items are now; ProposalError when it has no items folder. */
+  const itemSide = (workspaceId: string) => {
+    const items = itemsOf?.(workspaceId);
+    if (items === undefined) throw itemsNotConfigured(workspaceFolder(store, workspaceId));
     return items;
+  };
+
+  /** Whether a file's real path is outside the workspace's root, as its root is now. */
+  const markOf = async (workspaceId: string) => {
+    try {
+      return await workspaceMark(rootOf(workspaceId));
+    } catch {
+      return ALL_OUTSIDE;
+    }
   };
 
   /** The order of every approve, in the decide queue: the current version, the applying commit, the write, the settle. */
   const applying = async (id: string, version: number): Promise<StoredProposal> => {
     const stored = toApprove(store, id, version);
-    const target = stored.target === "file" ? fileTarget : itemSide().itemTarget;
+    const target = stored.target === "file" ? fileTarget : itemSide(stored.workspace).itemTarget;
     const { content, reason, by } = contentOf(id, version);
     const { intent, itemHandle } = await target.intentOf(stored, content);
     const begun = store.beginApplying(id, version, intent, itemHandle);
@@ -149,48 +165,64 @@ export const createProposals = ({ store, workspace, workspaceId, agentFolder, on
     intentOf: (_stored, content) => Promise.resolve({ intent: versionOfText(textOf(content).text) }),
     write: async (stored, content) => {
       if (stored.target !== "file") throw new Error(`Proposal ${stored.id} isn't a file proposal; it can't be written as one.`);
-      return writeProposed({ proposal: stored, content: textOf(content), holds });
+      return writeProposed({ proposal: stored, content: textOf(content), holds: heldIn(holds, stored.workspace) });
     },
     written: async (stored) => (stored.target === "file" && (await written(stored.path, stored.intent)) ? { written: true } : undefined),
   };
 
   /** `heads` read with `stored`, when the caller has them: a detail's version, versions and text must come from one read. */
-  const fileSummary = async (stored: StoredFileProposal, heads = store.listVersionHeads(stored.id)) => fileProposalOf(stored, heads, (await workspaceMark(workspace))(stored.path));
+  const fileSummary = async (stored: StoredFileProposal, heads = store.listVersionHeads(stored.id)) =>
+    fileProposalOf(stored, heads, (await markOf(stored.workspace))(stored.path));
 
   /** A stored proposal of either target as the API sends it. */
   const summaryOf = async (stored: StoredProposal): Promise<FileProposal | ItemProposalRecord> => {
     if (stored.target === "file") return fileSummary(stored);
-    const [item] = await itemSide().itemProposalsOf([stored]);
+    const [item] = await itemSide(stored.workspace).itemProposalsOf([stored]);
     if (item === undefined) throw new Error(`Proposal ${stored.id} couldn't be read as an item proposal.`);
     return item;
   };
 
-  /** Stores a proposal, unless its agent is at the cap, and announces it. Synchronous, so no other call stores between the count and the insert. */
+  /**
+   * Stores a proposal in its agent's workspace, unless the agent is at the cap, and announces it. Synchronous, so no
+   * other call stores between the count and the insert.
+   */
   const insert = (proposal: ProposalForInsert, firstVersion: ProposalContent): ProposalResult => {
     const refusal = capRefusal(store.countOpen(proposal.agentId));
     if (refusal !== undefined) throw new ProposalRefused(refusal);
-    const { proposal: stored, seq } = store.insertProposal({ ...proposal, workspace: workspaceId }, firstVersion);
+    const { proposal: stored, seq } = store.insertProposal({ ...proposal, workspace: workspaceOf(proposal.agentId) }, firstVersion);
     announce(stored.id, seq);
     return { proposed: stored.id };
   };
 
-  const proposeFile = fileProposer({ agentFolder, holds, insert });
+  const proposeFile = fileProposer({ agentFolder, holdsFor: (agentId) => heldIn(holds, workspaceOf(agentId)), insert });
 
-  /** A proposed item change by `agentId`, stored once it passed its checks. */
+  /** A proposed item change by `agentId`, checked against its workspace's items and stored once it passed. */
   const proposeItem = async (agentId: string, change: ProposedItemChange, reason: string): Promise<ProposalResult> => {
-    const { proposal, fields } = await itemSide().checkItemProposal(agentId, change, reason);
+    const { proposal, fields } = await itemSide(workspaceOf(agentId)).checkItemProposal(agentId, change, reason);
     return insert(proposal, { fields });
   };
 
-  /** Every proposal, or those with `status`, oldest first, as the API lists them; without items an item proposal names the handle it stored. */
+  /** The item proposals as the API lists them, each read in its workspace's items; without them, with the handle it stored. */
+  const itemRecordsOf = async (rows: readonly StoredItemProposal[]): Promise<ItemProposalRecord[]> => {
+    const groups = [...Map.groupBy(rows, (row) => row.workspace)];
+    const records = await Promise.all(
+      groups.map(async ([workspaceId, inWorkspace]) => {
+        const items = itemsOf?.(workspaceId);
+        return items === undefined ? inWorkspace.map((row) => itemProposalOf(row, store.listVersionHeads(row.id))) : items.itemProposalsOf(inWorkspace);
+      }),
+    );
+    return records.flat();
+  };
+
+  /** Every proposal, or those with `status`, oldest first, as the API lists them. */
   const list = async (status?: ProposalStatus): Promise<(FileProposal | ItemProposalRecord)[]> => {
     const stored = store.listProposals(status);
-    const itemRows = stored.filter((proposal): proposal is StoredItemProposal => proposal.target === "item");
-    const itemRecords = items === undefined ? itemRows.map((row) => itemProposalOf(row, store.listVersionHeads(row.id))) : await items.itemProposalsOf(itemRows);
+    const itemRecords = await itemRecordsOf(stored.filter((proposal): proposal is StoredItemProposal => proposal.target === "item"));
     const itemsById = new Map(itemRecords.map((proposal) => [proposal.id, proposal]));
-    const outside = await workspaceMark(workspace);
+    const fileWorkspaces = [...new Set(stored.flatMap((proposal) => (proposal.target === "file" ? [proposal.workspace] : [])))];
+    const marks = new Map(await Promise.all(fileWorkspaces.map(async (workspaceId) => [workspaceId, await markOf(workspaceId)] as const)));
     return stored.flatMap((proposal): (FileProposal | ItemProposalRecord)[] => {
-      if (proposal.target === "file") return [fileProposalOf(proposal, store.listVersionHeads(proposal.id), outside(proposal.path))];
+      if (proposal.target === "file") return [fileProposalOf(proposal, store.listVersionHeads(proposal.id), (marks.get(proposal.workspace) ?? ALL_OUTSIDE)(proposal.path))];
       const item = itemsById.get(proposal.id);
       return item === undefined ? [] : [item];
     });
@@ -209,7 +241,7 @@ export const createProposals = ({ store, workspace, workspaceId, agentFolder, on
       );
     }
     if (stored.target === "item") {
-      const side = itemSide();
+      const side = itemSide(stored.workspace);
       return side.itemProposalDetail(stored, fieldsOf(contentOf(id, n).content), heads);
     }
     const { text } = textOf(contentOf(id, n).content);
@@ -224,18 +256,19 @@ export const createProposals = ({ store, workspace, workspaceId, agentFolder, on
   /** Rejects a pending proposal or a conflict; nothing is written. */
   const reject = (id: string, reason?: string): Promise<FileProposal | ItemProposalRecord> =>
     decide(async () => {
-      if (toReject(store, id).target === "item" && items === undefined) throw itemsNotConfigured();
+      const stored = toReject(store, id);
+      if (stored.target === "item") itemSide(stored.workspace);
       return summaryOf(committed(id, store.rejectProposal(id, reason)));
     });
 
   /**
    * Settles every proposal a service death left applying, from what its target holds: written with the intent →
-   * approved, else pending. Run before the server takes requests. An item proposal waits while items aren't set up,
-   * and one whose items can't be read waits for the next start: settling it pending could make a create twice.
+   * approved, else pending. Run before the server takes requests. An item proposal waits while its workspace has no
+   * items folder, and one whose items can't be read waits for the next start: settling it pending could make a create twice.
    */
   const settleAtStart = async () => {
     for (const stored of store.listApplying()) {
-      const target = stored.target === "file" ? fileTarget : items?.itemTarget;
+      const target = stored.target === "file" ? fileTarget : itemsOf?.(stored.workspace)?.itemTarget;
       if (target === undefined) continue;
       let landed: Written | undefined;
       try {
@@ -252,27 +285,55 @@ export const createProposals = ({ store, workspace, workspaceId, agentFolder, on
     }
   };
 
-  const { revise, putDraft, clearDraft } = reviser({ store, decide, committed, items, holds, summaryOf });
+  const { revise, putDraft, clearDraft } = reviser({ store, decide, committed, itemsOf, holds, summaryOf });
 
   return { proposeFile, proposeItem, revise, putDraft, clearDraft, list, get, approve, reject, settleAtStart };
 };
 
 export type Proposals = ReturnType<typeof createProposals>;
 
-type OpenProposalsOptions = Omit<ProposalsOptions, "items" | "holds"> & {
-  /** The items root's catalog and writer; without them there are no item tools, and every file is a plain one. */
-  items?: { catalog: Catalog; writer: Writer } | undefined;
+type OpenProposalsOptions = Omit<ProposalsOptions, "itemsOf" | "holds"> & {
+  /**
+   * A workspace's catalog and writer (workspace-items' `of`), asked on every use so a changed items folder is seen;
+   * undefined for one without an items folder. Without it no workspace has item tools, and every file is a plain one.
+   */
+  itemsOf?: ((workspaceId: string) => ItemsOfWorkspace | undefined) | undefined;
 };
 
+type ItemSides = { access: Access; itemProposals: ItemProposals };
+
 /**
- * The proposals with everything they work with: the item tools' access and the item side of proposals (both
- * undefined without items), the proposals told which files the items own, and the note source for the agents' next messages.
+ * The proposals with everything they work with: per workspace, the item tools' access and the item side of proposals
+ * (both undefined without an items folder); the proposals told which files any workspace's items own; and the note
+ * source for the agents' next messages.
  */
-export const openProposals = ({ items, ...options }: OpenProposalsOptions) => {
-  const access = items === undefined ? undefined : openAccess(items);
-  const itemProposals = items === undefined ? undefined : openItemProposals({ ...items, store: options.store });
-  const holds = items === undefined ? undefined : (path: string) => items.catalog.holds(path);
-  const proposals = createProposals({ ...options, items: itemProposals, holds });
-  const notes = noteSource({ store: options.store, items: itemProposals, log: options.log });
-  return { access, proposals, notes };
+export const openProposals = ({ itemsOf, ...options }: OpenProposalsOptions) => {
+  // One access and item side per opened items, so a reopened items folder gets new ones.
+  const sides = new WeakMap<ItemsOfWorkspace, ItemSides>();
+  const sidesOf = (workspaceId: string): ItemSides | undefined => {
+    const items = itemsOf?.(workspaceId);
+    if (items === undefined) return undefined;
+    let opened = sides.get(items);
+    if (opened === undefined) {
+      opened = { access: openAccess(items), itemProposals: openItemProposals({ ...items, store: options.store }) };
+      sides.set(items, opened);
+    }
+    return opened;
+  };
+  const itemProposalsOf = (workspaceId: string) => sidesOf(workspaceId)?.itemProposals;
+  // A file of any workspace's items is changed through that workspace's tools, never a file proposal.
+  const holds =
+    itemsOf === undefined
+      ? undefined
+      : async (path: string, workspaceId: string) => {
+          for (const id of new Set([workspaceId, ...options.store.listWorkspaces().map((workspace) => workspace.id)])) {
+            if ((await itemsOf(id)?.catalog.holds(path)) === true) return true;
+          }
+          return false;
+        };
+  const proposals = createProposals({ ...options, itemsOf: itemProposalsOf, holds });
+  const notes = noteSource({ store: options.store, itemsOf: itemProposalsOf, log: options.log });
+  /** The item tools' access in a workspace, as its items are now; undefined without an items folder. */
+  const accessOf = (workspaceId: string) => sidesOf(workspaceId)?.access;
+  return { accessOf, proposals, notes };
 };

@@ -92,7 +92,7 @@ test("my draft is the same as the agent's version for the same text, or the same
   expect(sameAsAgents({ text: "Login times out" }, theirs), "a text against fields").toBe(false);
 });
 
-const common = { status: "pending", agentId: "agt_7f3c2a", version: 1, editedByMe: false, at: "2026-11-09T10:02:11.120Z" };
+const common = { status: "pending", agentId: "agt_7f3c2a", workspace: "ws-site000001", version: 1, editedByMe: false, at: "2026-11-09T10:02:11.120Z" };
 const fileRow = {
   ...common,
   id: "prp_1",
