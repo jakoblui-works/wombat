@@ -9,11 +9,12 @@ import { asError, asSentence } from "../../../lib/errors.ts";
 import { DESK_ACTIVITY, DESK_PANEL } from "../../activity-ids.ts";
 import { openTabs, showTab, sidebarRevealKey } from "../../tabs.ts";
 import { tell } from "../../Toast/Toast.tsx";
-import { type DeskState, type OpenOptions, type TabRef, useChangeDesk, useWorkbench, type WorkbenchContextValue } from "../../workbench-context.ts";
+import { type OpenOptions, type TabRef, useWorkbench, type WorkbenchContextValue } from "../../workbench-context.ts";
 import { previewName } from "../ItemPreview/item-preview.ts";
 import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE, showsItem } from "../item-params.ts";
 import { READ_FAILED } from "../notices/notices.tsx";
 import { isItemNotFound, itemNotFound } from "../reads.ts";
+import { type DeskState, useChangeDesk } from "./desk-state.ts";
 import { binderPlace, followPlace, showBinder } from "./places.ts";
 
 /** What the item navigation acts on: the workbench, the page's query client and the Desk's change function. */

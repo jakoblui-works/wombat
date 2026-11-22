@@ -1,7 +1,9 @@
 // The layout the user left, saved per workspace through settings.set({ layout }) and restored once on load.
 import type { SerializedDockview } from "dockview-react";
 import { z } from "zod";
+import { DESK_ACTIVITY } from "./activity-ids.ts";
 import { activityOrDefault } from "./registry.ts";
+import type { ActivityStates } from "./workbench-context.ts";
 
 /** Whether a saved tab still applies: its panel is registered and its params pass paramsSchema and resolves. */
 export type IsKnown = (panelId: string, params: unknown) => boolean;
@@ -19,6 +21,12 @@ export type DeskLayout = { binderId?: string; view?: string; openDrawers: string
 
 /** The Desk until the user changes it: the tree, every drawer closed. */
 export const DEFAULT_DESK: Readonly<DeskLayout> = { openDrawers: [] };
+
+/** The activities' states a layout restores: the Desk's as saved, else `DEFAULT_DESK`. */
+export const layoutActivityStates = (layout: Pick<SavedLayout, "desk">): ActivityStates => ({ [DESK_ACTIVITY]: layout.desk ?? DEFAULT_DESK });
+
+/** The activities' states as the layout saves them; the Desk's slot holds only what `layoutActivityStates` and the Desk wrote. */
+export const savedActivityStates = (states: ActivityStates): Pick<SavedLayout, "desk"> => ({ desk: states[DESK_ACTIVITY] as DeskLayout });
 
 const DeskLayout = z.object({ binderId: z.string().exactOptional(), view: z.string().exactOptional(), openDrawers: z.array(z.string()) });
 

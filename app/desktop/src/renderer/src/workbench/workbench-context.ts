@@ -1,7 +1,6 @@
 // What panels may ask of the workbench they're shown in.
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo } from "react";
 
-import type { DeskLayout } from "./layout.ts";
 import type { ResolveContext } from "./registry.ts";
 import { closeGuards, type OpenTabOptions, type revealStore, tabKey, type TabHost } from "./tabs.ts";
 
@@ -57,24 +56,33 @@ export const ActiveTabContext = createContext<ActiveTab | undefined>(undefined);
 /** The active tab, for a panel that marks what's open (the agent list marks the active chat). */
 export const useActiveTab = (): ActiveTab | undefined => useContext(ActiveTabContext);
 
-/** The Desk as the user left it, and the one way to change it (saved with the layout). */
-export type DeskState = { desk: DeskLayout; changeDesk: (change: (desk: DeskLayout) => DeskLayout) => void };
+/** Each activity's state as the user left it, by activity id; an activity's own wrapper gives it a type. */
+export type ActivityStates = Record<string, unknown>;
 
-export const DeskContext = createContext<DeskState | undefined>(undefined);
+/** Changes one activity's state; the layout is saved after it, as after any change the user makes. */
+export type ChangeActivityStates = (activityId: string, change: (state: unknown) => unknown) => void;
 
-export const useDesk = (): DeskState => {
-  const state = useContext(DeskContext);
-  if (state === undefined) throw new Error("useDesk is used outside the Workbench; render the panel inside it.");
-  return state;
+export type ActivityState = { state: unknown; change: (change: (state: unknown) => unknown) => void };
+
+export const ActivityStateContext = createContext<ActivityStates | undefined>(undefined);
+
+/** Its value keeps its identity for the Workbench's life, so a reader doesn't re-render on a state change. */
+export const ChangeActivityStateContext = createContext<ChangeActivityStates | undefined>(undefined);
+
+/** Only the activity's own change function: the caller doesn't re-render when any activity's state changes. */
+export const useChangeActivityState = (activityId: string): ActivityState["change"] => {
+  const changeStates = useContext(ChangeActivityStateContext);
+  if (changeStates === undefined) throw new Error("useChangeActivityState is used outside the Workbench; render the panel inside it.");
+  return useCallback((change) => changeStates(activityId, change), [changeStates, activityId]);
 };
 
-/** The Desk's change function alone: its identity outlives every Desk change, so a reader doesn't re-render on one. */
-export const ChangeDeskContext = createContext<DeskState["changeDesk"] | undefined>(undefined);
-
-export const useChangeDesk = (): DeskState["changeDesk"] => {
-  const changeDesk = useContext(ChangeDeskContext);
-  if (changeDesk === undefined) throw new Error("useChangeDesk is used outside the Workbench; render the panel inside it.");
-  return changeDesk;
+/** For the activity's own panel: it re-renders on every activity's state change. */
+export const useActivityState = (activityId: string): ActivityState => {
+  const states = useContext(ActivityStateContext);
+  if (states === undefined) throw new Error("useActivityState is used outside the Workbench; render the panel inside it.");
+  const change = useChangeActivityState(activityId);
+  const state = states[activityId];
+  return useMemo(() => ({ state, change }), [state, change]);
 };
 
 /** While `ask` is given, a close of the tab (its X, Close, Ctrl+W) runs `ask` instead; the panel closes it itself. */

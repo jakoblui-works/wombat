@@ -13,7 +13,7 @@ import { keys } from "../../data/keys.ts";
 // Registers the activities and their panels, which the workbench reads from the registry.
 import "../activities.ts";
 import { needsMeCount } from "../../data/needs-me.ts";
-import { DEFAULT_DESK, type DeskLayout, defaultLayout, pruneLayout, restoreLayout, type SavedLayout } from "../layout.ts";
+import { defaultLayout, layoutActivityStates, pruneLayout, restoreLayout, type SavedLayout, savedActivityStates } from "../layout.ts";
 import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
 import { activities, activityOrDefault, getPanel, isKnown, isRestorable, isSaved, panelsFor, panelTitle } from "../registry.ts";
@@ -45,11 +45,21 @@ import {
 } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { Reference, referencePrefixes } from "../items/Reference/Reference.tsx";
-import { type ActiveTab, ActiveTabContext, ChangeDeskContext, DeskContext, type DeskState, type WorkbenchActions, WorkbenchContext, type WorkbenchContextValue } from "../workbench-context.ts";
+import {
+  type ActiveTab,
+  ActiveTabContext,
+  ActivityStateContext,
+  type ActivityStates,
+  ChangeActivityStateContext,
+  type ChangeActivityStates,
+  type WorkbenchActions,
+  WorkbenchContext,
+  type WorkbenchContextValue,
+} from "../workbench-context.ts";
 import { openAgentChat } from "../agents/open-agent-chat.ts";
 import { Toast } from "../Toast/Toast.tsx";
 
-type Chrome = Pick<SavedLayout, "sidebars" | "activity"> & { desk: DeskLayout };
+type Chrome = Pick<SavedLayout, "sidebars" | "activity">;
 
 const SIDEBAR_MIN = 160;
 const SIDEBAR_MAX = 800;
@@ -144,11 +154,14 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const [saved, setSaved] = useState<SavedRead>();
   const [chrome, setChrome] = useState<Chrome>(() => {
     const { sidebars, activity } = defaultLayout();
-    return { sidebars, activity, desk: DEFAULT_DESK };
+    return { sidebars, activity };
   });
+  const [activityStates, setActivityStates] = useState<ActivityStates>(() => layoutActivityStates(defaultLayout()));
   const [restored, setRestored] = useState<DockviewApi>();
   const chromeRef = useRef(chrome);
   chromeRef.current = chrome;
+  const activityStatesRef = useRef(activityStates);
+  activityStatesRef.current = activityStates;
 
   useEffect(() => {
     let live = true;
@@ -185,7 +198,8 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     }, () => {
       fellBack.current = true;
     });
-    setChrome({ sidebars: layout.sidebars, activity: layout.activity, desk: layout.desk ?? DEFAULT_DESK });
+    setChrome({ sidebars: layout.sidebars, activity: layout.activity });
+    setActivityStates(layoutActivityStates(layout));
     setRestored(api);
   }, [api, saved, restored, queryClient, connection, agents.status, agents.fetchStatus, proposals.status, proposals.fetchStatus]);
 
@@ -198,7 +212,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   useEffect(() => {
     if (!ready || saved?.readable !== true) return;
     const current = layoutSaver(
-      () => pruneLayout({ version: 2, dockview: api.toJSON(), ...chromeRef.current }, isSaved),
+      () => pruneLayout({ version: 2, dockview: api.toJSON(), ...chromeRef.current, ...savedActivityStates(activityStatesRef.current) }, isSaved),
       (layout) => {
         window.wombat.settings.set({ layout }).catch(() => {
           console.warn("Wombat couldn't save the layout.");
@@ -263,11 +277,10 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     setChrome((current) => ({ ...current, activity: id }));
     saver.current?.schedule("user");
   }, []);
-  const changeDesk = useCallback<DeskState["changeDesk"]>((change) => {
-    setChrome((current) => ({ ...current, desk: change(current.desk) }));
+  const changeActivityStates = useCallback<ChangeActivityStates>((activityId, change) => {
+    setActivityStates((current) => ({ ...current, [activityId]: change(current[activityId]) }));
     saver.current?.schedule("user");
   }, []);
-  const deskState = useMemo<DeskState>(() => ({ desk: chrome.desk, changeDesk }), [chrome.desk, changeDesk]);
   const titleContext = useCallback(() => ({ agents: agentsRef.current, proposals: proposalsRef.current }), []);
   const actions = useMemo<WorkbenchActions>(() => (api === undefined ? NO_ACTIONS : workbenchActions(api, reveals, titleContext)), [api, reveals, titleContext]);
   const workbench = useMemo<WorkbenchContextValue>(
@@ -359,8 +372,8 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
 
   return (
     <WorkbenchContext value={workbench}>
-      <DeskContext value={deskState}>
-        <ChangeDeskContext value={changeDesk}>
+      <ActivityStateContext value={activityStates}>
+        <ChangeActivityStateContext value={changeActivityStates}>
           <ActiveTabContext value={activeTab}>
             <RevealsContext value={reveals}>
               <TitlesContext value={titles}>
@@ -427,8 +440,8 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
               </TitlesContext>
             </RevealsContext>
           </ActiveTabContext>
-        </ChangeDeskContext>
-      </DeskContext>
+        </ChangeActivityStateContext>
+      </ActivityStateContext>
     </WorkbenchContext>
   );
 };
