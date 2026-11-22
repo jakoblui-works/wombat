@@ -57,7 +57,7 @@ export const binderFolders = async (root: string): Promise<{ folders: BinderFold
     try {
       entries = await readdir(join(root, folder), { withFileTypes: true });
     } catch (error) {
-      if (folder === "") throw new Error(`The items root ${root} can't be read (${errorCode(error)}); make the folder readable, or choose another items folder in the app (Choose Items Folder… in the File menu), or set WOMBAT_ITEMS to another one when you run the service on its own.`, { cause: error });
+      if (folder === "") throw new Error(`The items folder ${root} can't be read (${errorCode(error)}); make the folder readable, or choose another items folder in the app (Choose Items Folder… in the File menu), or set WOMBAT_ITEMS to another one when you run the service on its own.`, { cause: error });
       if (!isMissing(error)) unreadable.push({ folder, error });
       return;
     }
