@@ -1,9 +1,9 @@
 import type { Problem } from "@wombat/shared/items";
 import { useRef } from "react";
 
-import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "../../../../components/ui/alert-dialog";
-import { Button } from "../../../../components/ui/button";
-import { ProblemList } from "../../../items/ProblemList/ProblemList.tsx";
+import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogTitle } from "../../../components/ui/alert-dialog";
+import { Button } from "../../../components/ui/button";
+import { ProblemList } from "../ProblemList/ProblemList.tsx";
 
 type Props = {
   /** The item's handle and title. */

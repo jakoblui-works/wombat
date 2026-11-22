@@ -5,7 +5,7 @@ import type { BinderSummary, ItemSummary, LenientView } from "@wombat/shared/ite
 import { ServiceError } from "../../../data/client.ts";
 import type { DeskLayout } from "../../layout.ts";
 import { itemTabParams, type SavedItemParams } from "../../items/item-params.ts";
-import type { Binder } from "../Item/item-state.ts";
+import type { Binder } from "../../items/binders.ts";
 import { type DeskNode, deskTree } from "./desk-tree.ts";
 
 const viewsOf = (binder: BinderSummary | undefined): readonly LenientView[] => (binder === undefined || binder.id === null ? [] : binder.views);

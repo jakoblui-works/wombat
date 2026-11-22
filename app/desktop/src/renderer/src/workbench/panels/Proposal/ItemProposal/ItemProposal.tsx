@@ -12,9 +12,9 @@ import { Note } from "../../../approvals/Note/Note.tsx";
 import { type FieldRow, fieldRows } from "./field-rows.ts";
 import { ProblemList } from "../../../items/ProblemList/ProblemList.tsx";
 import { problemsByField } from "../../../items/problems.ts";
-import { useLinkLists } from "../../Desk/use-link-lists.ts";
+import { useLinkLists } from "../../../items/use-link-lists.ts";
 import { clearable, MISSING_ITEM } from "../../../items/values.ts";
-import { linkOptions, shownNumber } from "../../Item/fields/field-input.ts";
+import { linkOptions, shownNumber } from "../../../items/field-input.ts";
 import { inputText, typedValue, valueText, withField, withoutField } from "./field-values.ts";
 
 type Fields = Readonly<Record<string, unknown>>;

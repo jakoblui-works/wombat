@@ -5,7 +5,7 @@ import { Button } from "../../../../components/ui/button";
 import { ScrollArea } from "../../../../components/ui/scroll-area";
 import { cn } from "../../../../lib/utils";
 import type { Reveal } from "../../../registry.ts";
-import type { Binder } from "../../Item/item-state.ts";
+import type { Binder } from "../../../items/binders.ts";
 import { BinderItems } from "../BinderItems/BinderItems.tsx";
 import type { OpenRowItem } from "../use-open-row.ts";
 import { type NewItem, sidebarView, viewContext } from "../view-model/view-model.ts";

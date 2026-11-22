@@ -10,7 +10,7 @@ import type { Item } from "@wombat/shared/items";
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
-import { numberDraft } from "./fields/field-input.ts";
+import { type FieldValue, numberDraft } from "../../items/field-input.ts";
 import {
   canSave,
   changedFields,
@@ -19,7 +19,6 @@ import {
   editEvent,
   edited,
   type FieldEdit,
-  type FieldValue,
   initialEdit,
   itemEdit,
   type ItemEditState,

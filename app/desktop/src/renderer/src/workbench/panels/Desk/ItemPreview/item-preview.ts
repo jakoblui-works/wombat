@@ -2,7 +2,7 @@
 import { type BinderSummary, isItemId, type Item, type ItemSummary } from "@wombat/shared/items";
 
 import { asError } from "../../../../lib/errors.ts";
-import { isItemNotFound } from "../../Item/item-state.ts";
+import { isItemNotFound } from "../../../items/reads.ts";
 import { displayValue } from "../../../items/values.ts";
 import { isItemRow, type Row } from "../view-model/view-model.ts";
 

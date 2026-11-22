@@ -12,9 +12,9 @@ import { getPanel, paramsFit, type ResolveContext, type Reveal, panelTitle } fro
 import { CHAT_PANEL } from "./panels/Chat/chat-params.ts";
 import { binderPlace, followPlace } from "./panels/Desk/desk-place.ts";
 import { previewName } from "./panels/Desk/ItemPreview/item-preview.ts";
-import { READ_FAILED } from "./panels/Item/ItemNotice/ItemNotice.tsx";
+import { READ_FAILED } from "./items/notices/notices.tsx";
 import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE, showsItem } from "./items/item-params.ts";
-import { itemNotFound } from "./panels/Item/item-state.ts";
+import { itemNotFound } from "./items/reads.ts";
 import { PROPOSAL_PANEL, type ProposalParams } from "./panels/Proposal/proposal-params.ts";
 import type { TabRef, WorkbenchActions } from "./workbench-context.ts";
 

@@ -10,8 +10,8 @@ import { itemQuery } from "../../../../data/query-client.ts";
 import { lastPathPart } from "../../../../lib/path.ts";
 import { cn } from "../../../../lib/utils";
 import { itemName } from "../../../items/item-params.ts";
-import { itemNotFound } from "../../Item/item-state.ts";
-import { READ_FAILED, UnparseableItem } from "../../Item/ItemNotice/ItemNotice.tsx";
+import { READ_FAILED, UnparseableItem } from "../../../items/notices/notices.tsx";
+import { itemNotFound } from "../../../items/reads.ts";
 import { ProblemList } from "../../../items/ProblemList/ProblemList.tsx";
 import { previewName, previewShown, propertyLines } from "./item-preview.ts";
 

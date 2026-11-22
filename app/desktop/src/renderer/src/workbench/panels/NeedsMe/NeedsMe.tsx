@@ -14,7 +14,7 @@ import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { useWorkbench } from "../../workbench-context.ts";
 import { AgentsError } from "../../approvals/LogError/LogError.tsx";
 import { KIND_ICONS } from "../Chat/ToolCall/ToolCall.tsx";
-import { binderOf } from "../Item/item-state.ts";
+import { binderOf } from "../../items/binders.ts";
 import { type NeedsMeRow, needsMeRows } from "./needs-me-rows.ts";
 import { type ProposalRow, proposalRows } from "./proposal-rows.ts";
 

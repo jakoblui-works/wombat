@@ -1,8 +1,10 @@
 // What the item tab's controls accept and show, pure.
 import type { ItemSummary, LenientProperty, LinkValue } from "@wombat/shared/items";
 
-import { MISSING_ITEM, numberOfText } from "../../../items/values.ts";
-import type { FieldValue } from "../item-edit.ts";
+import { MISSING_ITEM, numberOfText } from "./values.ts";
+
+/** A field as the form edits it: title, body or a property's value (a link as its target's id); null clears a property. */
+export type FieldValue = string | number | null;
 
 /** The value an emptied text, date or number input sends. */
 export const inputValue = (text: string): FieldValue => (text === "" ? null : text);

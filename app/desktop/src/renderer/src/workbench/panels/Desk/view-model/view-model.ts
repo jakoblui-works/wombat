@@ -18,8 +18,6 @@ export type PendingRow = { pending: ItemProposal; fields: Readonly<Record<string
 /** The link to item `id` of binder `to`, as items hold it: its handle null when no such item is read. */
 export type LinkTarget = (to: string, id: string) => LinkValue;
 
-/** The items a link to binder `binderId` may name. */
-export type ItemsOf = (binderId: string) => readonly ItemSummary[];
 /** The open updates and deletes proposed on handle `missing`, which names no item (its file deleted or renamed by hand), oldest first. */
 export type MissingRow = { missing: string; proposals: readonly ItemProposal[] };
 export type Row = ItemRow | PendingRow | MissingRow;

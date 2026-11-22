@@ -3,7 +3,7 @@ import { Ellipsis } from "lucide-react";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../../../components/ui/dropdown-menu";
 import type { SavedItemParams } from "../../../items/item-params.ts";
-import { useItemDelete } from "../use-item-delete.tsx";
+import { useItemDelete } from "../../../items/use-item-delete.tsx";
 
 /** The item's menu: Delete… deletes the item shown (`useItemDelete`) and closes this tab. */
 export const ItemActions = ({ tab, item }: { tab: SavedItemParams; item: Item }) => {

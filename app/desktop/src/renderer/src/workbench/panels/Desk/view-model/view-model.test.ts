@@ -8,7 +8,8 @@ import { describe, expect, test } from "vitest";
 import type { ItemSummary, LenientProperty, LenientView } from "@wombat/shared/items";
 import type { ItemProposal } from "@wombat/shared/proposals";
 
-import { draftStart, type FieldValue } from "../../Item/item-edit.ts";
+import type { FieldValue } from "../../../items/field-input.ts";
+import { draftStart } from "../../Item/item-edit.ts";
 import { matchesFilter } from "../../../items/values.ts";
 import { hasHeading, isItemRow, itemCount, listGroups, type NewItemPlace, offersNewChild, type Row, shownGroups, sidebarView, type SidebarTree, type SidebarView, treeRows, type TreeRow, viewContext } from "./view-model.ts";
 

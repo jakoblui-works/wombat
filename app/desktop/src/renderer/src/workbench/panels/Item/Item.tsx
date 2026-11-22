@@ -16,7 +16,7 @@ import { useCloseGuard, useWorkbench } from "../../workbench-context.ts";
 import { Note } from "../../approvals/Note/Note.tsx";
 import { Field } from "../../items/Field/Field.tsx";
 import { ProblemList } from "../../items/ProblemList/ProblemList.tsx";
-import { type Listed, useLinkLists } from "../Desk/use-link-lists.ts";
+import { type Listed, useLinkLists } from "../../items/use-link-lists.ts";
 import { problemsByField } from "../../items/problems.ts";
 import { linkValue } from "../../items/values.ts";
 import { type ItemChange, proposalsOnItem } from "../Desk/view-model/with-proposals.ts";
@@ -24,7 +24,7 @@ import { Body } from "./Body/Body.tsx";
 import { CloseDialog } from "./CloseDialog/CloseDialog.tsx";
 import { Conflict } from "./Conflict/Conflict.tsx";
 import { FileName } from "./FileName/FileName.tsx";
-import { linkTarget, valueText } from "./fields/field-input.ts";
+import { type FieldValue, linkTarget, valueText } from "../../items/field-input.ts";
 import { Fields } from "./fields/Fields.tsx";
 import { ItemActions } from "./ItemActions/ItemActions.tsx";
 import { ItemNotice } from "./ItemNotice/ItemNotice.tsx";
@@ -40,7 +40,6 @@ import {
   edited,
   editEvent,
   type FieldEdit,
-  type FieldValue,
   fileChanged,
   initialEdit,
   isSaving,
@@ -51,7 +50,8 @@ import {
   valueOf,
 } from "./item-edit.ts";
 import { type DraftItemParams, ITEM_PANEL, ItemParams, itemTitle, type SavedItemParams } from "../../items/item-params.ts";
-import { type Binder, draftShown, type ItemForm, itemForm, type ItemShown, itemShown, lastKnown, listedBinder } from "./item-state.ts";
+import type { Binder } from "../../items/binders.ts";
+import { draftShown, type ItemForm, itemForm, type ItemShown, itemShown, lastKnown, listedBinder } from "./item-state.ts";
 
 const NO_PROPERTIES: Readonly<Record<string, LenientProperty>> = {};
 

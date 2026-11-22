@@ -1,9 +1,11 @@
 import type { ItemSummary, LenientProperty } from "@wombat/shared/items";
 
-import { useBinderItems } from "../../../data/hooks.ts";
-import { usable } from "../Item/item-state.ts";
-import { linkedBinders } from "../../items/values.ts";
-import type { ItemsOf } from "./view-model/view-model.ts";
+import { useBinderItems } from "../../data/hooks.ts";
+import { usable } from "./reads.ts";
+import { linkedBinders } from "./values.ts";
+
+/** The items a link to binder `binderId` may name. */
+export type ItemsOf =(binderId: string) => readonly ItemSummary[];
 
 /** A linked binder's items by its id; undefined while they can't be shown (`usable`). */
 export type Listed = (binderId: string) => readonly ItemSummary[] | undefined;
