@@ -11,7 +11,9 @@ import "../../activities.ts";
 import { DESK_ACTIVITY } from "../../activity-ids.ts";
 import { DEFAULT_DESK, type DeskLayout } from "../../layout.ts";
 import { keepAllTabs, openTab, openTabs, revealStore, tabKey, workbenchActions } from "../../tabs.ts";
+import { previewName } from "../ItemPreview/item-preview.ts";
 import { ITEM_PANEL } from "../item-params.ts";
+import { itemNotFound } from "../reads.ts";
 import { followItem, type ItemNavigator, itemTabs } from "./item-navigation.ts";
 
 afterEach(() => {
@@ -72,6 +74,7 @@ const page = () => {
   const reveals = revealStore();
   const titleContext = () => ({ agents: [] });
   const shownActivities: string[] = [];
+  const told: string[] = [];
   let desk: DeskLayout = DEFAULT_DESK;
   const queryClient = createQueryClient();
   const navigator: ItemNavigator = {
@@ -80,9 +83,11 @@ const page = () => {
     changeDesk: (change) => {
       desk = change(desk);
     },
+    tell: (message) => told.push(message),
   };
   return {
     navigator,
+    told,
     queryClient,
     /** Answers the read of `ref` once the page has asked for it. */
     answer: async (ref: string, answer: Answer): Promise<void> => {
@@ -95,12 +100,15 @@ const page = () => {
   };
 };
 
-test.each<[string, Answer, Item | undefined]>([
-  ["finds its item", { status: 200, body: hive(2) }, hive(2)],
-  ["finds no item", { status: 404, body: { error: { code: ItemsErrorCode.enum.item_not_found, message: "No item HV-2." } } }, undefined],
-  ["fails", { status: 500, body: { error: { code: "internal_error", message: "The items folder can't be read." } } }, undefined],
-])("only the latest follow lands, though an earlier one's read comes back after it: the later read %s", async (_name, laterAnswer, lands) => {
-  const { navigator, queryClient, answer, itemTabsOpen, desk, shownActivities } = page();
+const NOT_FOUND = itemNotFound(previewName("HV-2"));
+const UNREADABLE = "The invented apiary can't be read.";
+
+test.each<[string, Answer, Item | undefined, unknown[]]>([
+  ["finds its item", { status: 200, body: hive(2) }, hive(2), []],
+  ["finds no item", { status: 404, body: { error: { code: ItemsErrorCode.enum.item_not_found, message: "No item HV-2." } } }, undefined, [NOT_FOUND]],
+  ["fails", { status: 500, body: { error: { code: "internal_error", message: UNREADABLE } } }, undefined, [expect.stringContaining(UNREADABLE)]],
+])("only the latest follow lands, though an earlier one's read comes back after it: the later read %s", async (_name, laterAnswer, lands, tells) => {
+  const { navigator, told, queryClient, answer, itemTabsOpen, desk, shownActivities } = page();
   const earlier = hive(1);
 
   followItem(navigator, "HV-1");
@@ -116,4 +124,5 @@ test.each<[string, Answer, Item | undefined]>([
   expect(itemTabsOpen()).toEqual(lands === undefined ? [] : [tabOf(lands)]);
   expect(desk()).toEqual(lands === undefined ? DEFAULT_DESK : { ...DEFAULT_DESK, binderId: lands.binder });
   expect(shownActivities).toEqual(lands === undefined ? [] : [DESK_ACTIVITY]);
+  expect(told).toEqual(tells);
 });

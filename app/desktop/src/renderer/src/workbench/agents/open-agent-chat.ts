@@ -18,15 +18,14 @@ const oldestPending = (agent: AgentSummary | undefined): string | undefined => {
 const chatReveal = (agents: readonly AgentSummary[] | undefined, agentId: string, requestId: string | undefined): string | undefined =>
   requestId ?? oldestPending(agents?.find(({ id }) => id === agentId));
 
-/** Switches to Agents, opens or focuses the agent's chat and reveals `chatReveal`'s request. */
-export const openAgentChat = (workbench: WorkbenchContextValue, agents: readonly AgentSummary[] | undefined, agentId: string, requestId?: string): void => {
+/** Switches to Agents, opens or focuses the agent's chat and reveals `chatReveal`'s request, among the agents as the page knows them now. */
+export const openAgentChat = (workbench: WorkbenchContextValue, agentId: string, requestId?: string): void => {
   if (workbench.host === undefined) return;
   workbench.showActivity(AGENTS_ACTIVITY);
-  workbench.openTab(CHAT_PANEL, { agentId }, chatReveal(agents, agentId, requestId));
+  workbench.openTab(CHAT_PANEL, { agentId }, chatReveal(workbench.titleContext().agents, agentId, requestId));
 };
 
-/** `openAgentChat` with the agents as the page knows them when it's called. */
 export const useOpenAgentChat = (): ((agentId: string, requestId?: string) => void) => {
   const workbench = useWorkbench();
-  return useCallback((agentId, requestId) => openAgentChat(workbench, workbench.titleContext().agents, agentId, requestId), [workbench]);
+  return useCallback((agentId, requestId) => openAgentChat(workbench, agentId, requestId), [workbench]);
 };

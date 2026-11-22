@@ -7,9 +7,8 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import "./activities.ts";
 import { DESK_ACTIVITY } from "./activity-ids.ts";
-import { DEFAULT_DESK, defaultLayout, type DeskLayout, type IsKnown, layoutActivityStates, layoutToSave, pruneLayout, restoreLayout, SavedLayout } from "./layout.ts";
+import { DEFAULT_DESK, defaultLayout, type DeskLayout, deskOf, type IsKnown, layoutActivityStates, layoutToSave, pruneLayout, restoreLayout, SavedLayout } from "./layout.ts";
 import { ITEM_PANEL } from "./items/item-params.ts";
-import { deskOf } from "./items/navigation/desk-state.ts";
 import { activities, isKnown as registryIsKnown, isRestorable, isSaved } from "./registry.ts";
 import { summary } from "../../../../test/summaries.ts";
 

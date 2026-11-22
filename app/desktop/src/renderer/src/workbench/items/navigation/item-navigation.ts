@@ -17,8 +17,12 @@ import { isItemNotFound, itemNotFound } from "../reads.ts";
 import { type DeskState, useChangeDesk } from "./desk-state.ts";
 import { binderPlace, followPlace, showBinder } from "./places.ts";
 
-/** What the item navigation acts on: the workbench, the page's query client and the Desk's change function. */
-export type ItemNavigator = { workbench: WorkbenchContextValue; queryClient: QueryClient; changeDesk: DeskState["changeDesk"] };
+export type ItemNavigator = {
+  workbench: WorkbenchContextValue;
+  queryClient: QueryClient;
+  changeDesk: DeskState["changeDesk"];
+  tell: (message: string) => void;
+};
 
 /** The binders, read when the page has none yet; undefined when they can't be. */
 const readBinders = (queryClient: QueryClient): Promise<readonly BinderSummary[] | undefined> =>
@@ -81,14 +85,14 @@ export const followItem = (navigator: ItemNavigator, ref: string): void => {
       if (follow !== follows) return;
       const place = followPlace(item);
       if (place === undefined) {
-        tell(itemNotFound(previewName(ref)));
+        navigator.tell(itemNotFound(previewName(ref)));
         return;
       }
       openBinder(navigator, place.binderId, place.itemId);
       openItem(navigator, place.binderId, place.itemId, { temporary: true });
     },
     (error: unknown) => {
-      if (follow === follows) tell(itemUnread(error));
+      if (follow === follows) navigator.tell(itemUnread(error));
     },
   );
 };
@@ -110,7 +114,7 @@ export const useItemNavigation = (): ItemNavigation => {
   const queryClient = useQueryClient();
   const changeDesk = useChangeDesk();
   return useMemo(() => {
-    const navigator: ItemNavigator = { workbench, queryClient, changeDesk };
+    const navigator: ItemNavigator = { workbench, queryClient, changeDesk, tell };
     return {
       openBinder: (binderId, reveal, view) => openBinder(navigator, binderId, reveal, view),
       openItem: (binderId, itemId, options) => openItem(navigator, binderId, itemId, options),

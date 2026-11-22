@@ -33,7 +33,7 @@ export type WorkbenchActions = {
 export type WorkbenchContextValue = WorkbenchActions & {
   /** Undefined until dockview is ready; a navigation does nothing until then. */
   host: TabHost | undefined;
-  reveals: ReturnType<typeof revealStore>;
+  reveals: Pick<ReturnType<typeof revealStore>, "set">;
   showActivity: (activityId: string) => void;
   /** The tabs' titles' context as the page knows it now. */
   titleContext: () => ResolveContext;

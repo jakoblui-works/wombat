@@ -1,14 +1,11 @@
 import { useMemo } from "react";
 
 import { DESK_ACTIVITY } from "../../activity-ids.ts";
-import { DEFAULT_DESK, type DeskLayout } from "../../layout.ts";
+import { type DeskLayout, deskOf } from "../../layout.ts";
 import { type ActivityState, useActivityState, useChangeActivityState } from "../../workbench-context.ts";
 
 /** The Desk as the user left it, and the one way to change it (saved with the layout). */
 export type DeskState = { desk: DeskLayout; changeDesk: (change: (desk: DeskLayout) => DeskLayout) => void };
-
-/** The Desk's slot holds only what layout.ts and `changeDesk` wrote, so it's trusted as it is; an empty slot is `DEFAULT_DESK`. */
-export const deskOf = (slot: unknown): DeskLayout => (slot === undefined ? DEFAULT_DESK : (slot as DeskLayout));
 
 const deskChange =
   (change: ActivityState["change"]): DeskState["changeDesk"] =>

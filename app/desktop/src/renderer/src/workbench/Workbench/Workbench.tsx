@@ -299,7 +299,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
         console.warn("Wombat was asked to open an agent the service doesn't list; nothing was opened.");
         return;
       }
-      openAgentChat(workbench, agentsRef.current, agentId);
+      openAgentChat(workbench, agentId);
     });
   }, [ready, agentsKnown, openAgents, workbench]);
 
