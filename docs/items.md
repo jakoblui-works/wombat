@@ -4,7 +4,7 @@ Items are markdown files that you and your agents work on together: bugs, backlo
 
 In the app, choose the items root with the Desk's Choose items folder… button, or later with Choose Items Folder… in the File menu. The app saves it per workspace in its `settings.json` and restarts the service with it, asking first when agents have a process. A folder that doesn't exist, isn't a folder or can't be read is refused, and the items root stays as it was. The app ignores a `WOMBAT_ITEMS` it inherits from your shell.
 
-When you run the service on its own, set the items root with `WOMBAT_ITEMS`, an absolute path. Without an items root, the service runs without items.
+When you run the service on its own, set the items folder with `WOMBAT_ITEMS`, an absolute path. Without an items folder, the service runs without items.
 
 ## Binders
 
