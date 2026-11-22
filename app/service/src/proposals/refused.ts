@@ -61,7 +61,7 @@ const notPending = (stored: StoredProposal, allowed: string) =>
     nextStatus(stored.status, "applied") === undefined
       ? `Proposal ${stored.id} is ${stored.status}; ${allowed}. Refresh the proposals to see its state.`
       : `Proposal ${stored.id} is being applied: the service is writing it now, or couldn't tell at its start whether its write landed. ` +
-          "Refresh the proposals in a moment; if it stays this way, make the items root or the file's folder readable for the service and restart the service.",
+          "Refresh the proposals in a moment; if it stays this way, make the items folder or the file's folder readable for the service and restart the service.",
   );
 
 export const notApprovable = (stored: StoredProposal) => notPending(stored, "only a pending proposal can be approved");

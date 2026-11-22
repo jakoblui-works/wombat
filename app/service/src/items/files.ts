@@ -55,7 +55,7 @@ const expectVersion = async (path: string, version: string | undefined) => {
 /** The items root's filesystem can't do what a create needs (hard links). */
 export class NoHardLinks extends Error {
   constructor(path: string, code: string, cause: unknown) {
-    super(`Can't create files in ${dirname(path)}: its filesystem doesn't support hard links (${code}); keep the items root on a local filesystem.`, { cause });
+    super(`Can't create files in ${dirname(path)}: its filesystem doesn't support hard links (${code}); keep the items folder on a local filesystem.`, { cause });
     this.name = "NoHardLinks";
   }
 }

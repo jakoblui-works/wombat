@@ -142,7 +142,7 @@ const writeFailure = (error: unknown, stored: StoredItemProposal): Applied | und
   if (!(error instanceof ItemWriteError)) return failureOutcome(error, stored.kind === "create" ? "create" : "edit", "write");
   if (error.code === ItemWriteErrorCode.enum.stale_version || error.code === ItemWriteErrorCode.enum.item_not_found) return ITEM_CHANGED;
   if (error.code === ItemWriteErrorCode.enum.items_not_writable && !(error instanceof ItemIdentityError)) {
-    return conflict(`${error.message} Nothing was written: keep the items root on a local filesystem and ask the agent to propose again, or reject the proposal.`);
+    return conflict(`${error.message} Nothing was written: keep the items folder on a local filesystem and ask the agent to propose again, or reject the proposal.`);
   }
   const [only] = error.problems;
   return conflict(error.message, error.problems.length === 1 ? only?.field : undefined);
