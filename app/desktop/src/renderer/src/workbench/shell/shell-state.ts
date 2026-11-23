@@ -5,10 +5,7 @@ import { z } from "zod";
 import { AGENTS_PANEL, DESK_ACTIVITY } from "../activity-ids.ts";
 import { DEFAULT_DESK, DeskLayout } from "../items/navigation/desk-layout.ts";
 import { getActivity, getPanel, type TabTest } from "../registry.ts";
-import { tabKey, tabToReplace } from "../tabs.ts";
-import type { TabRef } from "../workbench-context.ts";
-
-export type TabEntry = TabRef & { kept: boolean };
+import { type TabEntry, type TabRef, tabKey, tabToReplace } from "../tabs.ts";
 
 export type WorkspaceShell = {
   tabs: TabEntry[];
@@ -134,13 +131,6 @@ const focus = (shell: WorkspaceShell, key: string): WorkspaceShell => {
   };
 };
 
-/** The tab a temporary open replaces: the workspace's temporary tab, unless it has unsaved edits. */
-const replaceable = (shell: WorkspaceShell, isDirty: (key: string) => boolean): number => {
-  const tabs = shell.tabs.map((tab) => ({ key: keyOf(tab), temporary: !tab.kept, unsaved: isDirty(keyOf(tab)) }));
-  const replaced = tabToReplace(tabs);
-  return tabs.findIndex(({ key }) => key === replaced);
-};
-
 export type OpenTabOptions = { temporary: boolean; isDirty?: ((key: string) => boolean) | undefined };
 
 /** Opens or activates the tab in `workspace`'s strip and opens its right sidebar on it; a kept open keeps a temporary tab. */
@@ -151,7 +141,7 @@ export const openTab = (state: ShellState, workspace: string, tab: TabRef, { tem
     if (shell.tabs.some((open) => keyOf(open) === key)) {
       return focus({ ...shell, tabs: shell.tabs.map((open) => (keyOf(open) === key && !temporary ? { ...open, kept: true } : open)) }, key);
     }
-    const replaced = temporary ? replaceable(shell, isDirty) : -1;
+    const replaced = temporary ? tabToReplace(shell.tabs, isDirty) : -1;
     const tabs = replaced === -1 ? [...shell.tabs, entry] : shell.tabs.map((open, index) => (index === replaced ? entry : open));
     return focus({ ...shell, tabs }, key);
   });

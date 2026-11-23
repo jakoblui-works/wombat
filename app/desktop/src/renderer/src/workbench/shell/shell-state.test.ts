@@ -10,8 +10,7 @@ import { ITEM_PANEL } from "../items/item-params.ts";
 import { DEFAULT_DESK } from "../items/navigation/desk-layout.ts";
 import { PROPOSAL_PANEL } from "../proposals/proposal-params.ts";
 import { isRestorable, isSaved, type TabTest } from "../registry.ts";
-import { tabKey } from "../tabs.ts";
-import type { TabRef } from "../workbench-context.ts";
+import { type TabRef, tabKey } from "../tabs.ts";
 import {
   activateTab,
   CHAT_MIN_WIDTH,

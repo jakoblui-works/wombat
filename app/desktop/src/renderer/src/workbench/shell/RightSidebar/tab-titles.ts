@@ -1,5 +1,5 @@
 import { getPanel } from "../../registry.ts";
-import type { TabRef } from "../../workbench-context.ts";
+import type { TabRef } from "../../tabs.ts";
 
 /**
  * The titles tabs hold beside their panel's, by tab key: the start title a tab opened with, then the one its panel

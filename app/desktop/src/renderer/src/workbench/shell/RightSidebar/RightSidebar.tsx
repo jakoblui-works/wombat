@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useSyncExternalStore } from "re
 import { cn } from "@/lib/utils";
 import { useAgents, useProposals } from "../../../data/hooks.ts";
 import { type ActivityDescriptor, activities, getPanel, isKnown, type NavigatorParams } from "../../registry.ts";
-import { closeGuards, navigatorRevealKey, type Reveals, tabKey } from "../../tabs.ts";
+import { closeGuards, navigatorRevealKey, type Reveals, type TabEntry, tabKey } from "../../tabs.ts";
 import { ActiveTabContext } from "../../workbench-context.ts";
 import { ResizeHandle } from "../../ResizeHandle/ResizeHandle.tsx";
 import {
@@ -23,7 +23,6 @@ import {
   shownRightWidth,
   shownTab,
   tabWorkspace,
-  type TabEntry,
   type WorkspaceShell,
 } from "../shell-state.ts";
 import { useShell } from "../ShellProvider.tsx";

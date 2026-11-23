@@ -3,8 +3,8 @@ import { type KeyboardEvent, useEffect, useRef, useSyncExternalStore } from "rea
 
 import { cn } from "@/lib/utils";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "../../../components/ui/context-menu.tsx";
-import { closeGuards, tabKey } from "../../tabs.ts";
-import { activateTab, closeOtherTabs, keepTab, type TabEntry } from "../shell-state.ts";
+import { closeGuards, type TabEntry, tabKey } from "../../tabs.ts";
+import { activateTab, closeOtherTabs, keepTab } from "../shell-state.ts";
 import { useShell } from "../ShellProvider.tsx";
 import { requestClose } from "./tab-actions.ts";
 import { tabElementIds } from "./tab-ids.ts";

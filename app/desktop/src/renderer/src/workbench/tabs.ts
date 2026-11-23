@@ -12,10 +12,17 @@ const stableJson = (value: unknown): string =>
 /** A tab's identity: its panel and its params. */
 export const tabKey = (panelId: string, params: unknown): string => `${panelId}:${stableJson(params)}`;
 
-/** The tab a temporary tab opened in a strip replaces: the strip's temporary tab, unless it has unsaved edits. */
-export const tabToReplace = (tabs: { key: string; temporary: boolean; unsaved: boolean }[]): string | undefined => {
-  const temporary = tabs.find((tab) => tab.temporary);
-  return temporary === undefined || temporary.unsaved ? undefined : temporary.key;
+/** A tab: the panel it shows and its params (its identity, with `tabKey`). */
+export type TabRef = { panelId: string; params: unknown };
+
+/** A tab in a strip: kept, or temporary (the next temporary open replaces it). */
+export type TabEntry = TabRef & { kept: boolean };
+
+/** The index of the tab a temporary open replaces: the strip's temporary tab, unless it has unsaved edits; else -1. */
+export const tabToReplace = (tabs: readonly TabEntry[], isDirty: (key: string) => boolean): number => {
+  const index = tabs.findIndex((tab) => !tab.kept);
+  const temporary = tabs[index];
+  return temporary === undefined || isDirty(tabKey(temporary.panelId, temporary.params)) ? -1 : index;
 };
 
 /** The questions tabs with unsaved work ask before they close, by tab key: the page's one record (`closeGuards`). */
