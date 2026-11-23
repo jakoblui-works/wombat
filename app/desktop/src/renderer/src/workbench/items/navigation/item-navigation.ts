@@ -7,6 +7,7 @@ import { newCommandId } from "../../../data/commands.ts";
 import { bindersQuery, itemQuery } from "../../../data/query-client.ts";
 import { asError, asSentence } from "../../../lib/errors.ts";
 import { DESK_ACTIVITY } from "../../activity-ids.ts";
+import { type OpenTickets, useOpenTicket } from "../../shell/open-ticket.ts";
 import { navigatorRevealKey, type TabRef } from "../../tabs.ts";
 import { tell } from "../../Toast/Toast.tsx";
 import { type OpenOptions, useWorkbench, type WorkbenchContextValue } from "../../workbench-context.ts";
@@ -22,7 +23,7 @@ export type ItemNavigator = {
   queryClient: QueryClient;
   changeDesk: ChangeDesk;
   tell: (message: string) => void;
-};
+} & Pick<OpenTickets, "take" | "land">;
 
 /** Workspace `ws`'s binders, read when the page has none yet; undefined when they can't be. */
 export const readBinders = (queryClient: QueryClient, ws: string): Promise<readonly BinderSummary[] | undefined> =>
@@ -64,10 +65,6 @@ export const openNewItem = ({ workbench }: ItemNavigator, ws: string, binderId: 
   workbench.openTab(ITEM_PANEL, params, undefined, { workspace: ws, title: NEW_ITEM_TITLE });
 };
 
-// The page's count of followed links: only the latest lands. A snapshot of what's shown can't decide it, since an
-// earlier link landing first would change the view and drop the later one.
-let follows = 0;
-
 /**
  * Shows workspace `ws`'s item where it sits: the Desk's sidebar on its binder's first view, `reveal` (default: the
  * item's row) revealed, and the item in a temporary tab.
@@ -77,20 +74,22 @@ export const showItem = (navigator: ItemNavigator, { ws, binderId, itemId }: Sav
   openItem(navigator, ws, binderId, itemId, { temporary: true });
 };
 
-/** Shows workspace `ws`'s item (`ref`: its id or a handle) where it sits (`showItem`); for a ref that names no item, opens nothing and tells the user. */
+/**
+ * Shows workspace `ws`'s item (`ref`: its id or a handle) where it sits (`showItem`); for a ref that names no item, opens
+ * nothing and tells the user. It lands through an open ticket taken at the click.
+ */
 export const followItem = (navigator: ItemNavigator, ws: string, ref: string): void => {
-  follows += 1;
-  const follow = follows;
-  const isLatest = (): boolean => follow === follows;
+  const ticket = navigator.take();
   void readItemAfresh(navigator.queryClient, ws, ref).then(
     (item) => {
-      if (!isLatest()) return;
-      const place = followPlace(ws, item);
-      if (place === undefined) navigator.tell(itemNotFound(previewName(ref)));
-      else showItem(navigator, place);
+      navigator.land(ticket, () => {
+        const place = followPlace(ws, item);
+        if (place === undefined) navigator.tell(itemNotFound(previewName(ref)));
+        else showItem(navigator, place);
+      });
     },
     (error: unknown) => {
-      if (isLatest()) navigator.tell(itemUnread(error));
+      navigator.land(ticket, () => navigator.tell(itemUnread(error)));
     },
   );
 };
@@ -112,8 +111,9 @@ export const useItemNavigation = (): ItemNavigation => {
   const workbench = useWorkbench();
   const queryClient = useQueryClient();
   const { changeDesk } = useDesk();
+  const { take, land } = useOpenTicket();
   return useMemo(() => {
-    const navigator: ItemNavigator = { workbench, queryClient, changeDesk, tell };
+    const navigator: ItemNavigator = { workbench, queryClient, changeDesk, tell, take, land };
     return {
       openBinder: (ws, binderId, reveal, view) => openBinder(navigator, ws, binderId, reveal, view),
       openItem: (ws, binderId, itemId, options) => openItem(navigator, ws, binderId, itemId, options),
@@ -122,5 +122,5 @@ export const useItemNavigation = (): ItemNavigation => {
       followItem: (ws, ref) => followItem(navigator, ws, ref),
       itemTabs: (itemId) => itemTabs(navigator, itemId),
     };
-  }, [workbench, queryClient, changeDesk]);
+  }, [workbench, queryClient, changeDesk, take, land]);
 };

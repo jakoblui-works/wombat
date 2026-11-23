@@ -10,7 +10,8 @@ import "../../activities.ts";
 import { DESK_ACTIVITY } from "../../activity-ids.ts";
 import { shellTabActions } from "../../shell/RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "../../shell/RightSidebar/tab-titles.ts";
-import { activityStateOf, changeActivityState, emptyShell, rightView, type ShellState, showActivity } from "../../shell/shell-state.ts";
+import { openTickets } from "../../shell/open-ticket.ts";
+import { activityStateOf, changeActivityState, emptyShell, rightView, type ShellState, showActivity, shownWorkspace } from "../../shell/shell-state.ts";
 import { revealStore, tabKey } from "../../tabs.ts";
 import { previewName } from "../ItemPreview/item-preview.ts";
 import { ITEM_PANEL } from "../item-params.ts";
@@ -89,7 +90,21 @@ const page = () => {
   };
   vi.stubGlobal("window", { wombat: { service: { request }, workspace: { get: () => Promise.resolve({ root: ws.root }) } } });
 
-  const { actions, reveals } = shellTabs();
+  // The view the follows land on: a shell state of the test's own, showing the apiary.
+  let state: ShellState = emptyShell;
+  const workspaces = [ws];
+  const now = () => ({ state, agents: [], proposals: [], workspaces, shown: shownWorkspace(state, [], workspaces) });
+  const { take, land, recheck } = openTickets(now);
+  const reveals = revealStore();
+  const actions = shellTabActions({
+    current: now,
+    change: (update) => {
+      state = update(state);
+      recheck();
+    },
+    reveals,
+    titles: tabTitleStore(),
+  });
   const shownActivities: string[] = [];
   const told: string[] = [];
   let desk: DeskLayout = DEFAULT_DESK;
@@ -101,6 +116,8 @@ const page = () => {
       desk = change(desk);
     },
     tell: (message) => told.push(message),
+    take,
+    land,
   };
   return {
     navigator,
@@ -162,6 +179,7 @@ test("openBinder of another workspace opens that workspace's Desk on the binder 
     queryClient,
     changeDesk: (update, ws) => change((current) => changeActivityState(current, ws, DESK_ACTIVITY, (desk) => update(desk as DeskLayout))),
     tell: () => undefined,
+    ...openTickets(() => ({ state, agents: [], proposals: [], workspaces: [], shown: SHOWN })),
   };
   const deskIn = (ws: string): DeskLayout => activityStateOf(state, ws, DESK_ACTIVITY) as DeskLayout;
 
