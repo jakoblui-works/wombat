@@ -10,12 +10,12 @@
 // no other test mounts it. While it's mounted, no CSP violation and no page error may happen.
 import type { Page } from "@playwright/test";
 
-import { click, expect, layoutOf, openAgent, REPO, startWaitingAgent, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
-import { answersIn, groupWithTab, logOf, prompt, waitForState } from "./agent-panels.ts";
+import { click, expect, openAgent, REPO, startWaitingAgent, SWITCH, tabTitles, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
+import { answersIn, chatTitled, logOf, prompt, waitForState } from "./agent-panels.ts";
 
 const DIFF_TAB = "notes.txt (diff)";
 
-/** The right sidebar while it holds the diff tab; by element, as `groupWithTab`. */
+/** The right sidebar while it holds the diff tab; by element, as `chatTitled`. */
 const rightSidebar = (page: Page) => page.locator("aside").filter({ has: page.locator('[role="tab"]', { hasText: DIFF_TAB }) });
 
 // Records CSP violations in the page from now on (the page is loaded; Monaco isn't yet).
@@ -31,12 +31,6 @@ const recordViolations = (page: Page): Promise<void> =>
 const violations = (page: Page): Promise<string[]> =>
   page.evaluate((key) => [...((window as unknown as Record<string, string[] | undefined>)[key] ?? ["(recorder missing)"])], VIOLATIONS);
 
-/** The layout main holds for the page (settings.get), as text. */
-const savedLayoutText = async (page: Page): Promise<string> =>
-  JSON.stringify(
-    (await page.evaluate(() => (window as unknown as { wombat: { settings: { get: () => Promise<{ layout?: unknown }> } } }).wombat.settings.get().then(({ layout }) => layout))) ??
-      null,
-  );
 
 test.describe("edit approvals", () => {
   test("approve from the diff tab and the chat shows approved; reject inline and the tab shows rejected; answered diff tabs aren't restored", async ({ sandbox }) => {
@@ -51,7 +45,7 @@ test.describe("edit approvals", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await recordViolations(page);
     await openAgent(launched, agentId);
-    const chat = groupWithTab(page, REPO);
+    const chat = chatTitled(page, REPO);
 
     // The inline card: the file, one line removed and one added.
     const card = chat.getByRole("region", { name: "Edit approval" }).last();
@@ -99,12 +93,10 @@ test.describe("edit approvals", () => {
     expect(pageErrors, "page errors while answering").toEqual([]);
 
     // Reload: the chat comes back, the answered requests' diff tabs don't.
-    await waitUntil("the diff tabs in the saved layout", WAIT_MS, async () => ((await savedLayoutText(page)).includes('"diff"') ? true : undefined));
+    await waitUntil("the diff tabs in the saved shell", WAIT_MS, () => (JSON.stringify(sandbox.readSettings()?.["shell"] ?? null).includes('"diff"') ? true : undefined));
     await page.reload();
     await waitForConnection(page, "connected");
-    await waitUntil("the chat tab restored", WAIT_MS, async () => ((await layoutOf(page)).some((group) => group.tabs.includes(REPO)) ? true : undefined));
-    // Only the chat: a restored diff tab may carry another title until its panel has read the request.
-    const tabs = (await layoutOf(page)).flatMap((group) => group.tabs);
-    expect(tabs, "an answered request's diff tab was restored").toEqual([REPO]);
+    await expect(chat, "the chat isn't restored").toHaveCount(1, { timeout: WAIT_MS });
+    expect(await tabTitles(page), "an answered request's diff tab was restored").toEqual([]);
   });
 });

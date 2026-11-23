@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 
-import { openFolder } from "../../data/shown-workspace.ts";
+import { openFolder } from "../../data/workspace-folders.ts";
 import { asError, asSentence } from "../../lib/errors.ts";
 import { tell } from "../Toast/Toast.tsx";
 

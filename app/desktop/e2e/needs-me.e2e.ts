@@ -9,7 +9,7 @@
 import type { Locator, Page } from "@playwright/test";
 
 import { click, expect, REPO, sendOpenAgent, startWaitingAgent, SWITCH, test, waitForConnection, WAIT_MS } from "./app-fixtures.ts";
-import { groupWithTab } from "./agent-panels.ts";
+import { chatTitled } from "./agent-panels.ts";
 
 const left = (page: Page): Locator => page.getByRole("complementary", { name: "Agents", exact: true });
 const needsMe = (page: Page): Locator =>
@@ -46,7 +46,7 @@ test.describe("Needs me", () => {
 
     // A click: the agent's chat in the middle, the request in view and focused.
     await click(row);
-    const approve = groupWithTab(page, REPO).getByRole("button", { name: "Approve", exact: true });
+    const approve = chatTitled(page, REPO).getByRole("button", { name: "Approve", exact: true });
     await expect(approve).toBeInViewport({ timeout: WAIT_MS });
     await expect.poll(() => focusOnPermission(approve), { timeout: WAIT_MS }).toBe(true);
 

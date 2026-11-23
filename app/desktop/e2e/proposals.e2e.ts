@@ -150,8 +150,8 @@ test("text typed on a proposal's right side is saved as my draft, and Approve wr
 
 // An item proposal in its tab, on an items root (the workspace's items folder) with one `bugs` binder open to proposals: each
 // field the proposal changes is a `group` named by the field, with a "Drop" button; Approve writes only the fields I kept.
-// The proposal is of a second workspace, listed after the one shown at launch. Its row in Needs me shows that workspace
-// (the title bar, `banner`, names the shown workspace), opens the item's tab (in the one visible `tablist`, named from
+// The proposal is of a second workspace, listed after the one shown at launch (the empty chat's `combobox` "Workspace"
+// names it). Its row in Needs me shows that workspace (its agent's chat in `main`, the `h2` its repo), opens the item's tab (in the one visible `tablist`, named from
 // its handle, selected) and reveals the item's row in the Desk sidebar (`complementary` "Desk", the row a `treeitem`
 // named by the item's title inside the row's element): that element is highlighted (`data-revealed`) and holds the focus.
 test("a Needs me click on an item update of a workspace not shown shows that workspace, opens the item and highlights its row in the Desk; dropping a field and approving writes only the fields I kept", async ({
@@ -187,12 +187,12 @@ test("a Needs me click on an item update of a workspace not shown shows that wor
 
   const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
   await waitForConnection(page, "connected");
-  await expect(page.getByRole("banner"), "the workspace listed first isn't shown at launch").toContainText(path.basename(sandbox.workspace), { timeout: WAIT_MS });
-  await expect(page.getByRole("banner"), `${orchardName} is shown at launch`).not.toContainText(orchardName);
-  // An item proposal's row in Needs me shows its workspace, opens the item and the Desk on its binder; its mark there
-  // opens the proposal's tab.
+  const pickedWorkspace = page.getByRole("main").getByRole("combobox", { name: "Workspace", exact: true });
+  await expect(pickedWorkspace, "the workspace listed first isn't shown at launch").toHaveText(path.basename(sandbox.workspace), { timeout: WAIT_MS });
+  // An item proposal's row in Needs me shows its workspace (its agent's chat), opens the item and the Desk on its
+  // binder; its mark there opens the proposal's tab.
   await click(rowOf(page, `bugs/${bug.handle}`));
-  await expect(page.getByRole("banner"), `the row didn't show ${orchardName}`).toContainText(orchardName, { timeout: WAIT_MS });
+  await expect(page.getByRole("main").getByRole("heading", { level: 2 }), `the row didn't show ${orchardName}'s agent`).toHaveText([REPO], { timeout: WAIT_MS });
   const itemTab = page.getByRole("tablist").getByRole("tab", { name: new RegExp(`^\\s*${bug.handle}\\b`) });
   await expect(itemTab, "the item's tab isn't open and selected").toHaveAttribute("aria-selected", "true", { timeout: WAIT_MS });
   const revealed = page.getByRole("complementary", { name: "Desk" }).getByRole("treeitem", { name: bug.title, exact: true }).locator("..");

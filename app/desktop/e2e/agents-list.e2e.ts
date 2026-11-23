@@ -15,7 +15,7 @@ import path from "node:path";
 import type { Page } from "@playwright/test";
 
 import { AGENT_STATES } from "../src/renderer/src/lib/agent-state.ts";
-import { groupWithTab } from "./agent-panels.ts";
+import { chatTitled } from "./agent-panels.ts";
 import { click, expect, REPO, type Sandbox, SWITCH, test, waitForConnection, waitUntil, WAIT_MS } from "./app-fixtures.ts";
 
 const agentsSidebar = (page: Page) => page.getByRole("complementary", { name: "Agents", exact: true });
@@ -41,9 +41,12 @@ test.describe("Agents sidebar and New agent", () => {
     await click(page.getByRole("menubar").getByRole("menuitem", { name: "File", exact: true }));
     await click(page.getByRole("menu").getByRole("menuitem", { name: "New Agent…", exact: true }));
     const empty = page.getByRole("main");
+    // The list may open before the repos are read; it shows REPO once they are.
+    const repoOption = page.getByRole("option", { name: REPO, exact: true });
     await click(empty.getByRole("combobox", { name: "Repo" }));
+    await expect(repoOption).toBeVisible({ timeout: WAIT_MS });
     await expect(page.getByRole("option", { name: path.basename(sandbox.workspace), exact: true })).toBeVisible();
-    await click(page.getByRole("option", { name: REPO, exact: true }));
+    await click(repoOption);
     await empty.getByRole("textbox").fill("Say hello to the bakery.");
     await click(empty.getByRole("button", { name: "Send", exact: true }));
     await expect(empty.getByRole("heading", { level: 2 })).toBeVisible({ timeout: WAIT_MS });
@@ -66,7 +69,7 @@ test.describe("Agents sidebar and New agent", () => {
     const row = group.getByRole("button", { name: new RegExp(REPO) }).first();
     await expect(row).toBeVisible({ timeout: WAIT_MS });
     await expect(row.locator(`[aria-label="${AGENT_STATES.done.label}"]`)).toBeVisible({ timeout: WAIT_MS });
-    const chat = groupWithTab(page, REPO);
+    const chat = chatTitled(page, REPO);
     await expect(chat.getByText("Hello from the fake agent.")).toBeVisible({ timeout: WAIT_MS });
 
     // Open its chat from the row: the one chat in `main`, named after the agent.

@@ -26,7 +26,7 @@ export type DraftItemParams = z.infer<typeof DraftItemParams>;
 export const ItemParams = z.union([SavedItemParams, DraftItemParams]);
 export type ItemParams = z.infer<typeof ItemParams>;
 
-/** A tab is saved with the layout and restored unless it holds a draft. */
+/** A tab is saved with the shell and restored unless it holds a draft. */
 export const itemTabSaved = (params: unknown): boolean => !DraftItemParams.safeParse(params).success;
 
 /** The item panel's id: its registration and every tab opened on it. */

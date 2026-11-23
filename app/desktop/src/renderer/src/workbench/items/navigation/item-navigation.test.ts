@@ -4,25 +4,27 @@ import { afterEach, expect, test, vi } from "vitest";
 import { ItemsErrorCode } from "@wombat/shared/api";
 import type { Item } from "@wombat/shared/items";
 
-import { item, itemTab } from "../../../../../../test/fake-tab-host.ts";
 import { keys } from "../../../data/keys.ts";
 import { createQueryClient } from "../../../data/query-client.ts";
 import "../../activities.ts";
 import { DESK_ACTIVITY } from "../../activity-ids.ts";
-import { DEFAULT_DESK, deskOf, type DeskLayout } from "../../layout.ts";
 import { shellTabActions } from "../../shell/RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "../../shell/RightSidebar/tab-titles.ts";
 import { activityStatesOf, changeActivityState, emptyShell, rightView, type ShellState, showActivity } from "../../shell/shell-state.ts";
-import { keepAllTabs, revealStore, tabKey } from "../../tabs.ts";
+import { revealStore, tabKey } from "../../tabs.ts";
 import { previewName } from "../ItemPreview/item-preview.ts";
 import { ITEM_PANEL } from "../item-params.ts";
 import { itemNotFound } from "../reads.ts";
+import { DEFAULT_DESK, deskOf, type DeskLayout } from "./desk-layout.ts";
 import { followItem, type ItemNavigator, itemTabs, openBinder } from "./item-navigation.ts";
 
 afterEach(() => {
-  keepAllTabs();
   vi.unstubAllGlobals();
 });
+
+const ITEMS = 5;
+const itemTab = (n: number) => ({ ws: "ws-chores0001", binderId: "chores", itemId: `0196f3c2-5a00-7000-8000-${n.toString(16).padStart(12, "0")}` });
+const item = fc.nat({ max: ITEMS - 1 });
 
 /** The workbench's tab actions on a shell state of their own, with no workspace shown. */
 const shellTabs = (reveals = revealStore()) => {

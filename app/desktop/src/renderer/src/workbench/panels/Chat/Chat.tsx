@@ -245,7 +245,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
     revealed.current = reveal;
     const element = viewport.current;
     if (element !== null) {
-      // Only the chat's own viewport scrolls (scrollIntoView would also move dockview's clipped containers).
+      // Only the chat's own viewport scrolls (scrollIntoView would also move the clipped containers around it).
       element.scrollTop += centreOffset(element.getBoundingClientRect(), card.getBoundingClientRect());
       // Revealed above the end, the chat stays at the card until scrolled back down.
       following.current = atBottom(element);

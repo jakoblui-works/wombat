@@ -4,14 +4,14 @@
 // "Fast mode", a select "Effort" (category thought_level) and a select "Mode" (category mode), and refuses
 // "Refuse large".
 // What this check relies on in the page (roles and names, not looks):
-// - the footer sits in the agent's chat (the editor group with its tab, agent-panels.ts `groupWithTab`);
+// - the footer sits in the agent's chat (the middle, agent-panels.ts `chatTitled`);
 // - the settings button is a `button` whose name has the current model's and effort's names; it opens a `dialog`;
 // - in the dialog, a select's values are listed by name, a click on one sets it, and the current one carries
 //   aria-checked, aria-selected or aria-current "true"; a boolean is a `switch` named by the option's `name`;
 // - the dialog stays open after a pick.
 import { FAKE_CONFIG, fakeConfigOptions } from "../../service/test/fake-agent.ts";
 import { click, current, expect, openAgent, REPO, startAgent, test, waitForConnection, waitUntil, WAIT_MS, type Sandbox } from "./app-fixtures.ts";
-import { groupWithTab } from "./agent-panels.ts";
+import { chatTitled } from "./agent-panels.ts";
 
 type Option = { id: string; currentValue?: unknown };
 type Entry = { type: string; update?: { sessionUpdate?: string; configOptions?: Option[] } };
@@ -46,7 +46,7 @@ test.describe("composer footer", () => {
     const { page } = launched;
     await waitForConnection(page, "connected");
     await openAgent(launched, agentId);
-    const chat = groupWithTab(page, REPO);
+    const chat = chatTitled(page, REPO);
 
     const initial = optionName(FAKE_CONFIG.model.initial);
     const settings = chat.getByRole("button", { name: new RegExp(escape(initial)) });

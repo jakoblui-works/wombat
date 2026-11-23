@@ -1,6 +1,6 @@
 /*
  * Wombat's design tokens: every colour, size, radius and duration the renderer uses is defined here.
- * Components reach them through the Tailwind utilities bound below (bg-surface-1, text-fg-secondary, w-activity-bar, …)
+ * Components reach them through the Tailwind utilities bound below (bg-surface-1, text-fg-secondary, h-tab-strip, …)
  * or through var(--…); shadcn's variables (globals.css) are mapped onto them.
  * Dark only. Surfaces step up in lightness from the window chrome to raised elements; text comes in three steps.
  * Naming: app code uses these Wombat names; shadcn's names (--primary, --muted, …) are used only inside components/ui.
@@ -8,7 +8,7 @@
 :root {
   color-scheme: dark;
 
-  /* Surfaces, darkest first: chrome (title bar, activity bar, sidebars, tab strips), content, raised, hover/selected. */
+  /* Surfaces, darkest first: chrome (title bar, sidebars, tab strips), content, raised, hover/selected. */
   --surface-0: oklch(0.152 0.004 275);
   --surface-1: oklch(0.178 0.005 275);
   --surface-2: oklch(0.208 0.006 275);
@@ -76,10 +76,9 @@
   --font-size-2xl: 22px;
   --line-height-2xl: 28px;
 
-  /* Spacing on a 4px grid, and the fixed sizes of the workbench's chrome (sidebar widths are the layout's: workbench/layout.ts). */
+  /* Spacing on a 4px grid, and the fixed sizes of the workbench's chrome (sidebar widths are the shell state's: workbench/shell/shell-state.ts). */
   --space: 4px;
   --size-titlebar: 36px;
-  --size-activity-bar: 48px;
   --size-tab-strip: 36px;
   --size-chat: 760px;
   --size-empty-state: 280px;
@@ -186,7 +185,6 @@
 
   --spacing: var(--space);
   --spacing-titlebar: var(--size-titlebar);
-  --spacing-activity-bar: var(--size-activity-bar);
   --spacing-tab-strip: var(--size-tab-strip);
   --container-chat: var(--size-chat);
   --container-empty-state: var(--size-empty-state);

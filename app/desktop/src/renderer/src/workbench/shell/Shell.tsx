@@ -3,7 +3,7 @@ import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 
 import { cn } from "@/lib/utils";
 import { useAgents, useProposals, useWorkspaces } from "../../data/hooks.ts";
-import { chooseItemsFolder } from "../../data/shown-workspace.ts";
+import { chooseItemsFolder } from "../../data/workspace-folders.ts";
 import { asError, asSentence } from "../../lib/errors.ts";
 // Registers the panels (the chat's among them) and the harnesses' UI.
 import "../activities.ts";
@@ -164,7 +164,6 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   useEffect(
     () =>
       registerWorkbenchCommands({
-        api: () => undefined,
         activities: activities(),
         showActivity,
         newAgent: () => change((current) => newChat(current, shownRef.current)),

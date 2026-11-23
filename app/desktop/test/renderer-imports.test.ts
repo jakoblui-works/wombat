@@ -2,8 +2,8 @@
 // A harness's desktop module is reached only through the footer slots. It is imported in
 // exactly one place, outside the panels (where panels are registered), and no panel imports from harnesses/ itself, so
 // the generic footer and dialogs never hold a tool's own UI.
-// The Desk's and the Item's panel folders never import from each other, no shell or topic file imports from a panel's
-// folder, and a tab is added to or removed from the editor area only where the temporary-tab and close-guard rules are applied.
+// The Desk's and the Item's panel folders never import from each other, and no shell or topic file imports from a
+// panel's folder.
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
@@ -75,15 +75,5 @@ test("outside panels/, only activities.ts imports from a panel's folder", () => 
   expect(
     importsInto(outside, PANELS),
     "A workbench file outside panels/ imports from a panel's folder. Panels are named only in activities.ts, where they're registered; move what the file needs to workbench/<topic>/ and import it from there.",
-  ).toEqual([]);
-});
-
-test("tabs are added and removed only by tabs.ts and the workbench's commands", () => {
-  const allowed = [join(WORKBENCH, "tabs.ts"), join(WORKBENCH, "commands", "workbench-commands.ts")];
-  const callers = sources(RENDERER).filter((file) => /\.(?:addPanel|removePanel)\s*(?:<[^()]*>)?\s*\(/.test(readFileSync(file, "utf8")));
-  expect(callers, "the scan finds tabs.ts's own calls").toContain(join(WORKBENCH, "tabs.ts"));
-  expect(
-    callers.filter((file) => !allowed.includes(file)).map((file) => relative(RENDERER, file)),
-    "A file calls .addPanel( or .removePanel( itself, past the temporary-tab and close-guard rules. Open and close tabs through tabs.ts's functions (showTab, openTab, replaceTab) or the workbench's actions.",
   ).toEqual([]);
 });

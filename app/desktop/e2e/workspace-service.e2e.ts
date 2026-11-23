@@ -107,7 +107,7 @@ const agentSaying = async (sandbox: Sandbox, ws: string, repo: string, text: str
 
 const showAgentIn = async (page: Page, garden: Garden): Promise<void> => {
   await click(page.getByRole("complementary", { name: "Agents", exact: true }).getByRole("button", { name: new RegExp(garden.repo) }).first());
-  await expect(page.getByRole("banner"), `showing ${garden.name}'s agent`).toContainText(garden.name, { timeout: WAIT_MS });
+  await expect(page.getByRole("main").getByRole("heading", { level: 2 }), `showing ${garden.name}'s agent`).toHaveText([garden.repo], { timeout: WAIT_MS });
 };
 const itemTab = (page: Page, handle: string): Locator => page.getByRole("tablist").getByRole("tab", { name: new RegExp(`^\\s*${handle}\\b`) });
 const titleBox = (page: Page): Locator => page.getByRole("textbox", { name: "Title", exact: true });

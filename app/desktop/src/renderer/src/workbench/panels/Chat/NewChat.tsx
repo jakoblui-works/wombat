@@ -7,7 +7,8 @@ import { useAgents, useConnection, useHarnesses, useRepos, useWorkspaces } from 
 import { asError } from "../../../lib/errors.ts";
 import { messageBoxMark } from "../../agents/chat-params.ts";
 import { useOpenAgent } from "../../agents/open-agent-chat.ts";
-import { newChatFocusTaken, useNewChatFocusWanted } from "../../commands/new-chat-focus.ts";
+import { newChatFocusStands, newChatFocusTaken, useNewChatFocusWanted } from "../../commands/new-chat-focus.ts";
+import { inTitleBarMenus } from "../../TitleBar/menus.ts";
 import { newChat, sameView, shownView } from "../../shell/shell-state.ts";
 import { useShell, useShownWorkspace } from "../../shell/ShellProvider.tsx";
 import { pickOf, repoChoices } from "./ComposerBar/bar-picks.ts";
@@ -48,8 +49,9 @@ export const NewChat = () => {
   const box = useRef<HTMLTextAreaElement>(null);
   const focusWanted = useNewChatFocusWanted();
   useEffect(() => {
-    if (!focusWanted) return;
-    box.current?.focus();
+    if (focusWanted === undefined) return;
+    const now = document.activeElement;
+    if (newChatFocusStands(focusWanted.from, now, now !== null && inTitleBarMenus(now))) box.current?.focus();
     newChatFocusTaken();
   }, [focusWanted]);
 

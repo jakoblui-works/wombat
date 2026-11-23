@@ -8,6 +8,12 @@ export type MenuEntry = { id: string } | "separator" | "workspaces";
 
 export type MenuModel = { label: string; entries: readonly MenuEntry[] };
 
+/** An open menu's popup. */
+export const MENU_POPUP = "[data-slot=menubar-content]";
+
+/** Whether `element` is in the title bar's menus: the menubar or an open menu's popup. */
+export const inTitleBarMenus = (element: Element): boolean => element.closest(`[data-slot=menubar], ${MENU_POPUP}`) !== null;
+
 export const MENUS: readonly MenuModel[] = [
   {
     label: "File",

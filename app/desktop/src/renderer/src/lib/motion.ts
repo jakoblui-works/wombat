@@ -19,8 +19,8 @@ const NOT_YET = Symbol("not yet");
 
 /**
  * Plays an animation class on the element `ref` gets when `key` changes (and, with `onMount`, when it first mounts),
- * but only if the element is in the document and shown at that moment. Dockview keeps inactive panels' content out
- * of the document, and an animation started there would play when the tab is clicked; such a change just shows. The
+ * but only if the element is in the document and shown at that moment. An inactive tab's content is hidden, and an
+ * animation started there would play when the tab is clicked; such a change just shows. The
  * class goes when the animation ends or is cancelled, so a finished one doesn't start again when the element is moved.
  */
 export const usePlay = <E extends Element>(className: string, key: unknown, { onMount = false } = {}): RefObject<E | null> => {

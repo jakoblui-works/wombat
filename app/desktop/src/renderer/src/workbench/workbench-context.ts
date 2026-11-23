@@ -2,13 +2,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo } from "react";
 
 import type { ResolveContext } from "./registry.ts";
-import { closeGuards, type OpenTabOptions, type revealStore, tabKey } from "./tabs.ts";
+import { closeGuards, type revealStore, tabKey } from "./tabs.ts";
 
 /** A tab: the panel it shows and its params (its identity, with `tabKey`). */
 export type TabRef = { panelId: string; params: unknown };
 
 /** How a tab opens: as a temporary tab (a row's click), or kept. */
-export type OpenOptions = Pick<OpenTabOptions, "temporary">;
+export type OpenOptions = { temporary?: boolean | undefined };
 
 /**
  * Where and how a tab opens: in `workspace`'s strip (default: the shown workspace's), temporary or kept (default), and
@@ -60,7 +60,7 @@ export const useActiveTab = (): ActiveTab | undefined => useContext(ActiveTabCon
 /** Each activity's state as the user left it, by activity id; an activity's own wrapper gives it a type. */
 export type ActivityStates = Record<string, unknown>;
 
-/** Changes one activity's state; the layout is saved after it, as after any change the user makes. */
+/** Changes one activity's state; the shell is saved after it, as after any change the user makes. */
 export type ChangeActivityStates = (activityId: string, change: (state: unknown) => unknown) => void;
 
 export type ActivityState = { state: unknown; change: (change: (state: unknown) => unknown) => void };

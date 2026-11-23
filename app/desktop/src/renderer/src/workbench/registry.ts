@@ -1,10 +1,12 @@
-// Every panel and activity is registered here once; the shell, the saved layout and the tabs read them from here.
+// Every panel and activity is registered here once; the shell, its saved state and the tabs read them from here.
 import type { LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
 import { z, type ZodType } from "zod";
 import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import type { Proposal } from "@wombat/shared/proposals";
-import type { IsKnown } from "./layout.ts";
+
+/** Whether a tab still applies: its panel is registered and its params pass paramsSchema and resolves. */
+type IsKnown = (panelId: string, params: unknown) => boolean;
 
 export type PanelLocation = "tab" | "navigator";
 /** What a panel's title may look at; a list is undefined while it's loading (or couldn't be read). */
@@ -50,7 +52,7 @@ export type PanelDescriptor = {
   resolves?: (params: unknown, ctx: KnownContext) => boolean;
   /** Whether a saved tab comes back at the next start, on top of `resolves` (checked only by the restore). */
   restores?: (params: unknown, ctx: KnownContext) => boolean;
-  /** Whether an open tab is saved with the layout (default: yes); a tab that isn't is never restored either. */
+  /** Whether an open tab is saved with the shell (default: yes); a tab that isn't is never restored either. */
   saves?: (params: unknown) => boolean;
 };
 
@@ -80,10 +82,6 @@ export const getPanel = (id: string): PanelDescriptor | undefined => panels.get(
 export const getActivity = (id: string): ActivityDescriptor | undefined => activityList.get(id);
 /** The activities in registration order. */
 export const activities = (): ActivityDescriptor[] => [...activityList.values()];
-/** The activity `id` names, else the first registered. */
-export const activityOrDefault = (id: string | undefined): ActivityDescriptor | undefined =>
-  (id === undefined ? undefined : activityList.get(id)) ?? activities()[0];
-export const panelsFor = (location: PanelLocation): PanelDescriptor[] => [...panels.values()].filter((panel) => panel.locations.includes(location));
 
 /** A panel's title for these params. */
 export const panelTitle = (panel: PanelDescriptor, params: unknown, ctx: ResolveContext): string =>
@@ -104,7 +102,7 @@ export const isKnown =
     return agents === undefined || panel.resolves === undefined || panel.resolves(params, { agents, proposals });
   };
 
-/** Whether an open tab goes into the saved layout: its panel's `saves`. */
+/** Whether an open tab goes into the saved shell: its panel's `saves`. */
 export const isSaved: IsKnown = (panelId, params) => panels.get(panelId)?.saves?.(params) ?? true;
 
 /**

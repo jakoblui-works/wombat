@@ -3,7 +3,7 @@ import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import { z } from "zod";
 
 import { DESK_ACTIVITY } from "../activity-ids.ts";
-import { DEFAULT_DESK, DeskLayout } from "../layout.ts";
+import { DEFAULT_DESK, DeskLayout } from "../items/navigation/desk-layout.ts";
 import { getActivity, getPanel } from "../registry.ts";
 import { tabKey, tabToReplace } from "../tabs.ts";
 import type { TabRef } from "../workbench-context.ts";

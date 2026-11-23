@@ -15,11 +15,11 @@ import {
   MenubarTrigger,
 } from "@/components/ui/menubar";
 import { useNeedsMeCount, useWorkspaces } from "../../data/hooks.ts";
-import { ariaKeyShortcut, runLogged } from "../commands/registry.ts";
+import { ariaKeyShortcut, commands, runLogged } from "../commands/registry.ts";
 import { TOGGLE_LEFT_SIDEBAR, WORKBENCH_COMMAND } from "../commands/workbench-commands.ts";
 import { newChat } from "../shell/shell-state.ts";
 import { useShell, useShownWorkspace } from "../shell/ShellProvider.tsx";
-import { type MenuModel, MENUS, menuItems } from "./menus.ts";
+import { inTitleBarMenus, MENU_POPUP, type MenuModel, MENUS, menuItems } from "./menus.ts";
 import { WombatSymbol } from "../EmptyState/WombatSymbol.tsx";
 
 /** The workspaces by name, the shown one checked; choosing one shows the empty chat on it. */
@@ -44,6 +44,15 @@ const WorkspaceEntries = () => {
     </>
   );
 };
+
+/** Logs why command `id`, chosen from a menu, didn't run. */
+const logDropped = (id: string, why: string): void => console.error(`The command "${id}" didn't run: ${why}.`);
+
+/** Whether command `id` acts on the focused element. */
+const isFocused = (id: string): boolean => commands().some((command) => command.id === id && command.focused === true);
+
+/** Whether focus is on an element of its own outside the menus, where the user put it, not the page. */
+const focusMovedOn = (active: Element | null): boolean => active !== null && active !== active.ownerDocument.body && !inTitleBarMenus(active);
 
 /**
  * A menu's items. A component of its own, so they resolve against the registry when the popup opens: the workbench
@@ -104,7 +113,8 @@ export const TitleBar = ({ leftToggle }: { leftToggle?: Ref<HTMLButtonElement> }
   // Edit commands (cut, paste, select all) act on the focused element, and opening a menu moves focus into the menubar.
   // So each time focus comes into the menubar from outside it (and outside its popups), it remembers where from. When
   // a menu closes, focus goes back there if the menu was opened with the pointer or a command was chosen (a menu
-  // opened and dismissed from the keyboard stays on its trigger, where the user was).
+  // opened and dismissed from the keyboard stays on its trigger, where the user was), unless a click put it elsewhere
+  // while the menu was closing.
   const menubar = useRef<HTMLDivElement>(null);
   const focusBefore = useRef<HTMLElement | null>(null);
   // Per menu, for the open that is under way: whether the pointer opened it; each open overwrites the last.
@@ -114,7 +124,7 @@ export const TitleBar = ({ leftToggle }: { leftToggle?: Ref<HTMLButtonElement> }
   const openMenus = useRef(new Set<string>());
   const chosen = useRef<string | undefined>(undefined);
   const inBar = (target: EventTarget | null) => target instanceof Node && menubar.current?.contains(target) === true;
-  const inPopup = (target: EventTarget | null) => target instanceof Element && target.closest("[data-slot=menubar-content]") !== null;
+  const inPopup = (target: EventTarget | null) => target instanceof Element && target.closest(MENU_POPUP) !== null;
   const rememberFocus = (event: React.FocusEvent) => {
     // React events cross the popup's portal; only focus arriving at the bar's own DOM counts.
     if (!inBar(event.target) || inBar(event.relatedTarget) || inPopup(event.relatedTarget)) return;
@@ -139,7 +149,7 @@ export const TitleBar = ({ leftToggle }: { leftToggle?: Ref<HTMLButtonElement> }
       document.removeEventListener("focusin", onFocusIn);
       clearTimeout(timer);
       if (dropped === undefined) runLogged(id);
-      else console.error(`The command "${id}" didn't run: ${dropped}.`);
+      else logDropped(id, dropped);
     };
     const onFocusIn = () => {
       if (inPopup(document.activeElement)) return;
@@ -153,6 +163,15 @@ export const TitleBar = ({ leftToggle }: { leftToggle?: Ref<HTMLButtonElement> }
     const byPointer = openedByPointer.current.get(label) === true;
     const id = chosen.current;
     chosen.current = undefined;
+    if (focusMovedOn(document.activeElement)) {
+      // A click landed while the menu was closing: focus stays there. A command acting on the focused element would act
+      // on the wrong one; any other runs, leaving the focus where it is.
+      if (id !== undefined) {
+        if (isFocused(id)) logDropped(id, "focus went to another element while the menu closed");
+        else runLogged(id, { keepFocus: true });
+      }
+      return false;
+    }
     if (id === undefined && [...openMenus.current].some((open) => open !== label)) return false;
     const before = focusBefore.current?.isConnected === true ? focusBefore.current : null;
     const target = (byPointer || id !== undefined) && before !== null ? before : null;

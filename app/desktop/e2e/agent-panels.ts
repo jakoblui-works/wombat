@@ -9,7 +9,7 @@ import { agentSummary, expect, type Sandbox, waitUntil, WAIT_MS } from "./app-fi
  * The middle while it shows the chat titled `title` (exactly). By element, not role: a modal dialog hides the page
  * from the accessibility tree while it's open.
  */
-export const groupWithTab = (page: Page, title: string): Locator =>
+export const chatTitled = (page: Page, title: string): Locator =>
   page.locator("main").filter({ has: page.locator("h2", { hasText: new RegExp(`^\\s*${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`) }) });
 
 /** Sends `text` to the agent through the test's own client. */

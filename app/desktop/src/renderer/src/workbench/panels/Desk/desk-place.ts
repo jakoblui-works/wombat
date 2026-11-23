@@ -3,8 +3,8 @@ import { ItemsErrorCode } from "@wombat/shared/api";
 import type { BinderSummary, LenientView } from "@wombat/shared/items";
 
 import { ServiceError } from "../../../data/client.ts";
-import type { DeskLayout } from "../../layout.ts";
 import type { Binder } from "../../items/binders.ts";
+import type { DeskLayout } from "../../items/navigation/desk-layout.ts";
 import { shownView } from "../../items/navigation/places.ts";
 import { type DeskNode, deskTree } from "./desk-tree.ts";
 

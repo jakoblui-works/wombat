@@ -35,7 +35,7 @@ export const REPO = "bakery-site";
 
 /**
  * The window's content size. Under the headless platform a hidden window's content is 1x1, too small for anything
- * laid out (dockview's groups, a drag between them); every launch gets this size.
+ * laid out (the sidebars beside the chat, a drag between them); every launch gets this size.
  */
 export const VIEWPORT = { width: 1440, height: 900 };
 
@@ -518,8 +518,8 @@ const WHEELED = "data-e2e-wheeled";
 /**
  * Wheels over the scroller holding `inside` (it, or its nearest ancestor whose overflow-y is auto or scroll) until
  * that scroller is at its top or end, then once more past it, and returns what around it scrolled or overflows
- * vertically, described: each element from the scroller's parent up to the document, every sidebar (<aside>) and
- * dockview view (`.dv-view`), and the document's scrolling element. Empty when only the scroller moved. Throws when
+ * vertically, described: each element from the scroller's parent up to the document, every sidebar (<aside>),
+ * and the document's scrolling element. Empty when only the scroller moved. Throws when
  * the scroller has nothing to scroll, or something covers it.
  */
 export const wheelPastEnd = async (inside: Locator, way: "up" | "down"): Promise<string[]> => {
@@ -573,7 +573,7 @@ export const wheelPastEnd = async (inside: Locator, way: "up" | "down"): Promise
   return scroller.evaluate((element) => {
     const around = new Set<Element>();
     for (let up = element.parentElement; up !== null; up = up.parentElement) around.add(up);
-    for (const other of document.querySelectorAll("aside, .dv-view")) around.add(other);
+    for (const other of document.querySelectorAll("aside")) around.add(other);
     if (document.scrollingElement !== null) around.add(document.scrollingElement);
     const name = (el: Element) =>
       `<${el.tagName.toLowerCase()}${el.getAttribute("aria-label") === null ? "" : ` "${el.getAttribute("aria-label") ?? ""}"`}${typeof el.className === "string" && el.className !== "" ? ` .${el.className.split(/\s+/).slice(0, 4).join(".")}` : ""}>`;
@@ -681,9 +681,6 @@ export const startWaitingAgent = async (sandbox: Sandbox, prompt: string): Promi
   return agentId;
 };
 
-/** One editor group as the page shows it: its tabs' text and the active tab's. */
-export type GroupView = { tabs: string[]; active: string | undefined };
-
 /** Asks the page to open an agent's chat, as main does for a notification click. */
 export const sendOpenAgent = (app: ElectronApplication, agentId: string): Promise<void> =>
   app.evaluate(
@@ -693,8 +690,8 @@ export const sendOpenAgent = (app: ElectronApplication, agentId: string): Promis
     [CHANNELS.openAgent, agentId] as const,
   );
 
-// 0 while the page is still loading (its context may be replaced under the count).
-export const tabCount = (page: Page): Promise<number> => page.locator(".dv-tab").count().catch(() => 0);
+/** The titles of the tabs in the shown workspace's strip (the one visible `tablist`), in order. */
+export const tabTitles = async (page: Page): Promise<string[]> => (await page.getByRole("tablist").getByRole("tab").allInnerTexts()).map((title) => title.trim());
 
 /** Opens the agent's chat once, as one notification click would, and waits for its header (its title) in the middle (`main`). */
 export const openAgent = async (launched: LaunchedApp, agentId: string): Promise<void> => {
@@ -705,24 +702,6 @@ export const openAgent = async (launched: LaunchedApp, agentId: string): Promise
     return (await header.count().catch(() => 0)) >= 1 ? true : undefined;
   });
 };
-
-/** The editor's groups, left to right then top to bottom, each with its tabs' text and the active tab's. */
-export const layoutOf = (page: Page): Promise<GroupView[]> =>
-  page.evaluate(() =>
-    [...document.querySelectorAll<HTMLElement>(".dv-groupview")]
-      .map((group) => {
-        const box = group.getBoundingClientRect();
-        const tabs = [...group.querySelectorAll<HTMLElement>(".dv-tab")];
-        return {
-          x: box.x,
-          y: box.y,
-          tabs: tabs.map((tab) => (tab.textContent ?? "").trim()),
-          active: group.querySelector<HTMLElement>(".dv-tab.dv-active-tab")?.textContent?.trim(),
-        };
-      })
-      .sort((a, b) => a.x - b.x || a.y - b.y)
-      .map(({ tabs, active }) => ({ tabs, active })),
-  );
 
 type CommandWindow = {
   wombat?: { command?: (id: unknown) => Promise<void>; onZoom?: (cb: (level: number) => void) => unknown };
