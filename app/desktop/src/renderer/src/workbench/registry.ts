@@ -5,8 +5,8 @@ import { z, type ZodType } from "zod";
 import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import type { Proposal } from "@wombat/shared/proposals";
 
-/** Whether a tab still applies: its panel is registered and its params pass paramsSchema and resolves. */
-type IsKnown = (panelId: string, params: unknown) => boolean;
+/** A rule on a tab, as `isKnown`, `isSaved` and `isRestorable` answer. */
+export type TabTest = (panelId: string, params: unknown) => boolean;
 
 export type PanelLocation = "tab" | "navigator";
 /** What a panel's title may look at; a list is undefined while it's loading (or couldn't be read). */
@@ -95,7 +95,7 @@ export const paramsFit = (panel: PanelDescriptor, params: unknown): boolean => p
  * resolves is true. While the list is unknown a tab is kept.
  */
 export const isKnown =
-  ({ agents, proposals }: ResolveContext): IsKnown =>
+  ({ agents, proposals }: ResolveContext): TabTest =>
   (panelId, params) => {
     const panel = panels.get(panelId);
     if (panel === undefined || !paramsFit(panel, params)) return false;
@@ -103,14 +103,14 @@ export const isKnown =
   };
 
 /** Whether an open tab goes into the saved shell: its panel's `saves`. */
-export const isSaved: IsKnown = (panelId, params) => panels.get(panelId)?.saves?.(params) ?? true;
+export const isSaved: TabTest = (panelId, params) => panels.get(panelId)?.saves?.(params) ?? true;
 
 /**
  * Whether a saved tab comes back at the next start: `isKnown` and `isSaved`, plus, once the agents list is known, its panel's
  * `restores` (a diff tab of an answered request isn't restored).
  */
 export const isRestorable =
-  (ctx: ResolveContext): IsKnown =>
+  (ctx: ResolveContext): TabTest =>
   (panelId, params) => {
     if (!isKnown(ctx)(panelId, params) || !isSaved(panelId, params)) return false;
     const restores = panels.get(panelId)?.restores;

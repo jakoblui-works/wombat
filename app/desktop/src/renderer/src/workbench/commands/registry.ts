@@ -313,7 +313,22 @@ const MAIN_COMMAND_SHOWN_KEYS: Partial<Record<MainCommandId, readonly string[]>>
 };
 
 // Main runs these on the page's focused element.
-const FOCUSED_MAIN_COMMANDS: ReadonlySet<MainCommandId> = new Set(["edit.undo", "edit.redo", "edit.cut", "edit.copy", "edit.paste", "edit.selectAll"]);
+const FOCUSED_MAIN_COMMANDS: Record<MainCommandId, boolean> = {
+  "zoom.in": false,
+  "zoom.out": false,
+  "zoom.reset": false,
+  "edit.undo": true,
+  "edit.redo": true,
+  "edit.cut": true,
+  "edit.copy": true,
+  "edit.paste": true,
+  "edit.selectAll": true,
+  "window.minimize": false,
+  "window.maximize": false,
+  "window.close": false,
+  "service.stop": false,
+  "app.quit": false,
+};
 
 for (const id of MAIN_COMMAND_IDS) {
   const keys = MAIN_COMMAND_KEYS[id];
@@ -323,7 +338,7 @@ for (const id of MAIN_COMMAND_IDS) {
     title: MAIN_COMMAND_TITLES[id],
     ...(keys === undefined ? {} : { keys }),
     ...(shownKeys === undefined ? {} : { shownKeys }),
-    ...(FOCUSED_MAIN_COMMANDS.has(id) ? { focused: true } : {}),
+    ...(FOCUSED_MAIN_COMMANDS[id] ? { focused: true } : {}),
     run: () => window.wombat.command(id),
   });
 }

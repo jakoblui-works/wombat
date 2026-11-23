@@ -24,7 +24,6 @@ const runningAgents = async (agents: () => Promise<AgentSummary[] | undefined>, 
 export const runningCount = async (agents: () => Promise<AgentSummary[] | undefined>, log: (line: string) => void): Promise<number | undefined> =>
   (await runningAgents(agents, log))?.length;
 
-/** How many workspaces `agents` belong to. */
 export const workspaceCount = (agents: readonly Pick<AgentSummary, "workspace">[]): number => new Set(agents.map(({ workspace }) => workspace)).size;
 
 export type QuitChoice = { answer: QuitAnswer; dontAsk: boolean };

@@ -45,7 +45,6 @@ const WorkspaceEntries = () => {
   );
 };
 
-/** Logs why command `id`, chosen from a menu, didn't run. */
 const logDropped = (id: string, why: string): void => console.error(`The command "${id}" didn't run: ${why}.`);
 
 /** Whether command `id` acts on the focused element. */

@@ -4,14 +4,11 @@ import { z } from "zod";
 
 import { DESK_ACTIVITY } from "../activity-ids.ts";
 import { DEFAULT_DESK, DeskLayout } from "../items/navigation/desk-layout.ts";
-import { getActivity, getPanel } from "../registry.ts";
+import { getActivity, getPanel, type TabTest } from "../registry.ts";
 import { tabKey, tabToReplace } from "../tabs.ts";
 import type { TabRef } from "../workbench-context.ts";
 
 export type TabEntry = TabRef & { kept: boolean };
-
-/** A rule on a tab, as the registry's `isKnown`, `isSaved` and `isRestorable` answer. */
-export type TabTest = (panelId: string, params: unknown) => boolean;
 
 export type WorkspaceShell = {
   tabs: TabEntry[];
@@ -52,7 +49,9 @@ export const NAVIGATOR_WIDTH = 240;
 
 export const emptyShell: ShellState = { leftHidden: false, barCollapsed: false, workspaces: {} };
 
-const emptyWorkspace: WorkspaceShell = { tabs: [], navigatorHidden: false, rightOpen: false, activityStates: {}, right: { dragged: false } };
+const NO_RIGHT_WIDTH: RightWidthEvidence = { dragged: false };
+
+const emptyWorkspace: WorkspaceShell = { tabs: [], navigatorHidden: false, rightOpen: false, activityStates: {}, right: NO_RIGHT_WIDTH };
 
 const keyOf = (tab: TabRef): string => tabKey(tab.panelId, tab.params);
 
@@ -69,7 +68,7 @@ const workspaceShell = (state: ShellState, workspace: string): WorkspaceShell =>
 const withWorkspace = (state: ShellState, workspace: string, change: (shell: WorkspaceShell) => WorkspaceShell): ShellState => {
   const before = workspaceShell(state, workspace);
   const changed = change(before);
-  const shell = before.rightOpen && !changed.rightOpen ? { ...changed, right: { dragged: false } } : changed;
+  const shell = before.rightOpen && !changed.rightOpen ? { ...changed, right: NO_RIGHT_WIDTH } : changed;
   return { ...state, workspaces: { ...state.workspaces, [workspace]: shell } };
 };
 
@@ -192,7 +191,7 @@ const closedTab = (shell: WorkspaceShell, key: string): WorkspaceShell => {
 const droppedTab = (shell: WorkspaceShell, key: string): WorkspaceShell => {
   const closed = closedTab(shell, key);
   if (shell.rightOpen) return closed;
-  const kept = { ...omit(closed, "activity"), rightOpen: false, lastActive: forgetTab(shell.lastActive, key) };
+  const kept = { ...omit(closed, "activity"), rightOpen: false };
   return shell.activity === undefined ? kept : { ...kept, activity: shell.activity };
 };
 
@@ -235,31 +234,43 @@ const dropTabsWhere = (state: ShellState, drop: (tab: TabEntry) => boolean): She
 /** Drops the tabs that no longer `apply`, in every workspace, leaving a closed sidebar closed; the same state when all do. */
 export const pruneTabs = (state: ShellState, apply: TabTest): ShellState => dropTabsWhere(state, (tab) => !apply(tab.panelId, tab.params));
 
-const SavedTab = z.object({ panelId: z.string(), params: z.unknown() });
+// The state never saved: the right sidebar's width evidence, and the composer bar's pick and collapse.
+const UNSAVED_WORKSPACE_FIELDS = ["right"] as const;
+const UNSAVED_SHELL_FIELDS = ["newChatWorkspace", "barCollapsed"] as const;
 
-const SavedWorkspace = z.object({
-  tabs: z.array(SavedTab),
-  active: z.string().exactOptional(),
-  activity: z.string().exactOptional(),
-  navigatorHidden: z.boolean(),
-  rightOpen: z.boolean(),
-  activityStates: z.record(z.string(), z.unknown()),
-  lastActive: z.record(z.string(), z.string()).exactOptional(),
-});
-type SavedWorkspace = z.infer<typeof SavedWorkspace>;
-
-const SavedShell = z.object({ openAgent: z.string().exactOptional(), leftHidden: z.boolean(), workspaces: z.record(z.string(), SavedWorkspace) });
+type SavedWorkspace = Flat<Omit<WorkspaceShell, (typeof UNSAVED_WORKSPACE_FIELDS)[number] | "tabs"> & { tabs: TabRef[] }>;
 /** What settings.json holds of the shell. */
-export type SavedShell = z.infer<typeof SavedShell>;
+export type SavedShell = Omit<ShellState, (typeof UNSAVED_SHELL_FIELDS)[number] | "workspaces"> & { workspaces: Record<string, SavedWorkspace> };
 
-const savedWorkspace = ({ tabs, active, activity, navigatorHidden, rightOpen, activityStates, lastActive }: WorkspaceShell): SavedWorkspace => ({
-  tabs: tabs.map(({ panelId, params }) => ({ panelId, params })),
-  ...(active === undefined ? {} : { active }),
-  ...(activity === undefined ? {} : { activity }),
-  navigatorHidden,
-  rightOpen,
-  activityStates: registeredStates(activityStates),
-  ...(lastActive === undefined ? {} : { lastActive }),
+type Flat<T> = { [K in keyof T]: T[K] };
+type Same<A, B> = (<T>() => T extends Flat<A> ? 1 : 2) extends <T>() => T extends Flat<B> ? 1 : 2 ? true : false;
+
+/** `schema`, which only compiles when it parses exactly `T`: no field more or less, none with another type or optionality. */
+const parsing =
+  <T>() =>
+  <S extends z.ZodType>(schema: S & (Same<z.infer<S>, T> extends true ? unknown : never)): S =>
+    schema;
+
+const SavedWorkspace = parsing<SavedWorkspace>()(
+  z.object({
+    tabs: z.array(z.object({ panelId: z.string(), params: z.unknown() })),
+    active: z.string().exactOptional(),
+    activity: z.string().exactOptional(),
+    navigatorHidden: z.boolean(),
+    rightOpen: z.boolean(),
+    activityStates: z.record(z.string(), z.unknown()),
+    lastActive: z.record(z.string(), z.string()).exactOptional(),
+  }),
+);
+
+const SavedShell = parsing<SavedShell>()(
+  z.object({ openAgent: z.string().exactOptional(), leftHidden: z.boolean(), workspaces: z.record(z.string(), SavedWorkspace) }),
+);
+
+const savedWorkspace = (shell: WorkspaceShell): SavedWorkspace => ({
+  ...omit(shell, ...UNSAVED_WORKSPACE_FIELDS),
+  tabs: shell.tabs.map(({ panelId, params }) => ({ panelId, params })),
+  activityStates: registeredStates(shell.activityStates),
 });
 
 const registeredStates = (states: Record<string, unknown>): Record<string, unknown> =>
@@ -277,8 +288,7 @@ const restoredStates = (states: Record<string, unknown>): Record<string, unknown
 export const savedShell = (state: ShellState, isSaved: TabTest): SavedShell => {
   const kept = dropTabsWhere(state, (tab) => !tab.kept || !isSaved(tab.panelId, tab.params));
   return {
-    ...(kept.openAgent === undefined ? {} : { openAgent: kept.openAgent }),
-    leftHidden: kept.leftHidden,
+    ...omit(kept, ...UNSAVED_SHELL_FIELDS),
     workspaces: Object.fromEntries(Object.entries(kept.workspaces).map(([id, shell]) => [id, savedWorkspace(shell)])),
   };
 };
@@ -286,18 +296,17 @@ export const savedShell = (state: ShellState, isSaved: TabTest): SavedShell => {
 const restoredWorkspace = ({ tabs, active, activityStates, ...rest }: SavedWorkspace): WorkspaceShell => {
   const restored = tabs.map(({ panelId, params }) => ({ panelId, params, kept: true }));
   const shown = active !== undefined && restored.some((tab) => keyOf(tab) === active);
-  return { ...rest, tabs: restored, ...(shown ? { active } : {}), activityStates: restoredStates(activityStates), right: { dragged: false } };
+  return { ...emptyWorkspace, ...rest, tabs: restored, ...(shown ? { active } : {}), activityStates: restoredStates(activityStates) };
 };
 
 /** The shell `raw` (savedShell's value, read back) describes, without the tabs `isRestorable` refuses; `emptyShell` when it doesn't parse. */
 export const restoredShell = (raw: unknown, isRestorable: TabTest): ShellState => {
   const parsed = SavedShell.safeParse(raw);
   if (!parsed.success) return emptyShell;
-  const { openAgent, leftHidden, workspaces } = parsed.data;
+  const { workspaces, ...rest } = parsed.data;
   const state: ShellState = {
-    ...(openAgent === undefined ? {} : { openAgent }),
-    leftHidden,
-    barCollapsed: emptyShell.barCollapsed,
+    ...emptyShell,
+    ...rest,
     workspaces: Object.fromEntries(Object.entries(workspaces).map(([id, saved]) => [id, restoredWorkspace(saved)])),
   };
   return pruneTabs(state, isRestorable);

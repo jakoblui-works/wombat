@@ -2,13 +2,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo } from "react";
 
 import type { ResolveContext } from "./registry.ts";
+import type { OpenTabOptions } from "./shell/shell-state.ts";
 import { closeGuards, type revealStore, tabKey } from "./tabs.ts";
 
 /** A tab: the panel it shows and its params (its identity, with `tabKey`). */
 export type TabRef = { panelId: string; params: unknown };
 
 /** How a tab opens: as a temporary tab (a row's click), or kept. */
-export type OpenOptions = { temporary?: boolean | undefined };
+export type OpenOptions = { temporary?: OpenTabOptions["temporary"] | undefined };
 
 /**
  * Where and how a tab opens: in `workspace`'s strip (default: the shown workspace's), temporary or kept (default), and
