@@ -2,7 +2,7 @@
 import { Columns2, FilePen, FileText, Inbox, LibraryBig, List, MessageSquare } from "lucide-react";
 
 import "../harnesses/claude/claude-ui.ts";
-import { AGENTS_PANEL, DESK_ACTIVITY, DESK_PANEL } from "./activity-ids.ts";
+import { AGENTS_PANEL, DESK_ACTIVITY, DESK_PANEL, NEEDS_ME_PANEL } from "./activity-ids.ts";
 import { registerOnce } from "../lib/register-once.ts";
 import { NavigatorParams, registerActivity, registerPanel } from "./registry.ts";
 import { NAVIGATOR_WIDTH } from "./shell/shell-state.ts";
@@ -22,7 +22,7 @@ const register = (): void => {
   // The shell places these itself, never as a tab or a navigator.
   registerPanel({ id: AGENTS_PANEL, title: "Agents", icon: List, locations: [], component: AgentsList });
   registerPanel({ id: CHAT_PANEL, title: chatTitle, icon: MessageSquare, locations: [], component: Chat, paramsSchema: ChatParams, resolves: chatResolves });
-  registerPanel({ id: "needs-me", title: "Needs me", icon: Inbox, locations: [], component: NeedsMe });
+  registerPanel({ id: NEEDS_ME_PANEL, title: "Needs me", icon: Inbox, locations: [], component: NeedsMe });
 
   registerPanel({
     id: DIFF_PANEL,

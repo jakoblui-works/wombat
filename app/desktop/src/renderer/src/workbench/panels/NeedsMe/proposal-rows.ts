@@ -5,7 +5,10 @@ import { ago } from "../../../lib/ago";
 import { isOutsideWorkspace, proposalAgentTitle, proposalKindWord, proposalLabel } from "../../proposals/proposal-label.ts";
 
 export type ProposalRow = {
+  type: "proposal";
   key: string;
+  workspace: string;
+  at: string;
   proposal: Proposal;
   label: string;
   /** "new file", "new item" or "delete"; undefined for an edit or update. */
@@ -16,11 +19,9 @@ export type ProposalRow = {
   agent: AgentSummary | undefined;
   agentTitle: string;
   ago: string;
-  /** It only points to where it is decided (an item proposal: its binder's view), with no Approve or Reject of its own. */
-  notification: boolean;
 };
 
-/** The Proposals group's rows: open proposals only, newest first. */
+/** The open proposals' rows, newest first. */
 export const proposalRows = (proposals: readonly Proposal[], agents: readonly AgentSummary[], now: number): ProposalRow[] =>
   proposals
     .filter(({ status }) => isOpen(status))
@@ -28,7 +29,10 @@ export const proposalRows = (proposals: readonly Proposal[], agents: readonly Ag
     .map((proposal) => {
       const agent = agents.find(({ id }) => id === proposal.agentId);
       return {
+        type: "proposal",
         key: proposal.id,
+        workspace: proposal.workspace,
+        at: proposal.at,
         proposal,
         label: proposalLabel(proposal),
         kind: proposalKindWord(proposal),
@@ -37,6 +41,5 @@ export const proposalRows = (proposals: readonly Proposal[], agents: readonly Ag
         agent,
         agentTitle: proposalAgentTitle(proposal, agents),
         ago: ago(proposal.at, now),
-        notification: proposal.target === "item",
       };
     });

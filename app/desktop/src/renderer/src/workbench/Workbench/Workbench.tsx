@@ -12,7 +12,6 @@ import { chooseItemsFolder, openFolder, showWorkspace, shownWorkspaceId } from "
 import { keys } from "../../data/keys.ts";
 // Registers the activities and their panels, which the workbench reads from the registry.
 import "../activities.ts";
-import { needsMeCount } from "../../data/needs-me.ts";
 import { defaultLayout, layoutActivityStates, layoutToSave, pruneLayout, restoreLayout, type SavedLayout } from "../layout.ts";
 import { type LayoutSaver, layoutSaver, pageChanges } from "../layout-saver.ts";
 import type { OpenAgents } from "../open-agents.ts";
@@ -314,14 +313,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
             <RevealsContext value={reveals}>
               <TitlesContext value={titles}>
                 <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
-                  <TitleBar
-                    right={rightPanel}
-                    count={agentList === undefined ? 0 : needsMeCount(agentList, proposals.data?.proposals ?? [])}
-                    rightOpen={!chrome.sidebars.rightCollapsed}
-                    onToggleRight={() =>
-                      changeChrome((current) => ({ ...current, sidebars: { ...current.sidebars, rightCollapsed: !current.sidebars.rightCollapsed } }))
-                    }
-                  />
+                  <TitleBar />
                   {blocked ? <ConnectionBanner connection={connection} message={connectionMessage} attempt={attempt} onRestart={restart} /> : null}
                   {!noticeShown ? null : (
                     <LiveLaunchNotice connection={connectionState} onRestart={restart} onDismiss={dismissNotice} />

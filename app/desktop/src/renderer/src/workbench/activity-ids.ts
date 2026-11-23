@@ -6,3 +6,5 @@ export const DESK_ACTIVITY = "desk";
 export const DESK_PANEL = "desk";
 /** The overview's panel, which the left sidebar shows. */
 export const AGENTS_PANEL = "agents-list";
+/** Needs me's panel, which the left sidebar shows above the overview. */
+export const NEEDS_ME_PANEL = "needs-me";

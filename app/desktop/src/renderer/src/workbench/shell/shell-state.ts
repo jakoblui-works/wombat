@@ -94,6 +94,20 @@ export const newChat = (state: ShellState, workspace: string | undefined): Shell
 export const agentDeleted = (state: ShellState, agentId: string, workspace: string | undefined): ShellState =>
   state.openAgent === agentId ? newChat(state, workspace) : state;
 
+/** Shows `workspace` unless it is shown: its last started agent's chat, else the empty chat on it. */
+export const showWorkspace = (
+  state: ShellState,
+  workspace: string,
+  agents: readonly Pick<AgentSummary, "id" | "workspace" | "startedAt">[] | undefined,
+  workspaces?: readonly Pick<Workspace, "id">[],
+): ShellState => {
+  if (shownWorkspace(state, agents, workspaces) === workspace) return state;
+  const newest = agents
+    ?.filter((agent) => agent.workspace === workspace)
+    .reduce<(typeof agents)[number] | undefined>((top, agent) => (top === undefined || agent.startedAt > top.startedAt ? agent : top), undefined);
+  return newest === undefined ? newChat(state, workspace) : openAgent(state, newest.id);
+};
+
 export type MiddleView = { show: "chat"; agentId: string } | { show: "empty" };
 
 /** What the middle shows: the open agent's chat (also while the agents list isn't read), else the empty chat. */

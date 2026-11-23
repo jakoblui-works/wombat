@@ -100,9 +100,12 @@ test.describe("chat", () => {
 
     // Every other place agent content shows: Needs me (the requests' titles), the Agents list (the message's
     // excerpt), and the edit's diff tab (its title from the agent's path, its texts in Monaco).
-    const needsMeToggle = page.getByRole("button", { name: /^Needs me\b/ });
-    if ((await needsMeToggle.getAttribute("aria-pressed")) !== "true") await click(needsMeToggle);
-    const needsMe = page.getByRole("complementary", { name: "Needs me", exact: true });
+    const needsMe = page
+      .getByRole("complementary", { name: "Agents", exact: true })
+      .locator("*")
+      .filter({ has: page.getByRole("heading", { name: "Needs me", exact: true }) })
+      .filter({ hasNot: page.getByRole("heading", { name: "Agents", exact: true }) })
+      .first();
     await expect(needsMe.getByRole("button")).toHaveCount(2, { timeout: WAIT_MS });
     const diffTab = `${HOSTILE.editFileName()} (diff)`;
     await click(chat.getByRole("region", { name: "Edit approval" }).getByRole("button", { name: "Open side by side" }));

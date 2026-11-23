@@ -15,6 +15,6 @@ export const needsMe = (agents: AgentSummary[]): NeedsMeItem[] =>
     )
     .sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || (a.agentId < b.agentId ? -1 : a.agentId > b.agentId ? 1 : 0));
 
-/** The title bar's and the sidebar header's count: requests plus open proposals. */
+/** Needs me's count: requests plus open proposals. */
 export const needsMeCount = (agents: AgentSummary[], proposals: readonly Pick<Proposal, "status">[]): number =>
   needsMe(agents).length + proposals.filter(({ status }) => isOpen(status)).length;

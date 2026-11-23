@@ -11,7 +11,7 @@ import { navigatorRevealKey } from "../../tabs.ts";
 import { tell } from "../../Toast/Toast.tsx";
 import { type OpenOptions, type TabRef, useWorkbench, type WorkbenchContextValue } from "../../workbench-context.ts";
 import { previewName } from "../ItemPreview/item-preview.ts";
-import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE, showsItem } from "../item-params.ts";
+import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE, type SavedItemParams, showsItem } from "../item-params.ts";
 import { READ_FAILED } from "../notices/notices.tsx";
 import { isItemNotFound, itemNotFound } from "../reads.ts";
 import { type ChangeDeskOf, useChangeDeskOf } from "./desk-state.ts";
@@ -25,11 +25,11 @@ export type ItemNavigator = {
 };
 
 /** Workspace `ws`'s binders, read when the page has none yet; undefined when they can't be. */
-const readBinders = (queryClient: QueryClient, ws: string): Promise<readonly BinderSummary[] | undefined> =>
+export const readBinders = (queryClient: QueryClient, ws: string): Promise<readonly BinderSummary[] | undefined> =>
   queryClient.ensureQueryData(bindersQuery(ws)).then(({ binders }) => binders, () => undefined);
 
 /** Workspace `ws`'s item read afresh by id or handle; undefined when the service finds none, rejects on any other failure. */
-const readItemAfresh = (queryClient: QueryClient, ws: string, ref: string): Promise<Item | undefined> =>
+export const readItemAfresh = (queryClient: QueryClient, ws: string, ref: string): Promise<Item | undefined> =>
   queryClient.fetchQuery({ ...itemQuery(ws, ref), staleTime: 0 }).catch((error: unknown) => {
     if (isItemNotFound(error)) return undefined;
     throw error;
@@ -64,30 +64,38 @@ export const openNewItem = ({ workbench }: ItemNavigator, ws: string, binderId: 
   workbench.openTab(ITEM_PANEL, params, undefined, { workspace: ws, title: NEW_ITEM_TITLE });
 };
 
-// The page's one count of follows: only the latest lands, so one whose read comes back after a later follow's does nothing.
-let follows = 0;
+// The page's one count of navigations (a followed item, a Needs me row): only the latest lands, so one whose read comes
+// back after a later one started does nothing.
+let navigations = 0;
+
+/** Starts a navigation; the check it returns answers whether it is still the latest. */
+export const startNavigation = (): (() => boolean) => {
+  navigations += 1;
+  const navigation = navigations;
+  return () => navigation === navigations;
+};
 
 /**
- * Shows workspace `ws`'s item (`ref`: its id or a handle) where it sits: the Desk's sidebar on its binder's first
- * view, the item's row revealed, and the item in a temporary tab. For a ref that names no item, opens nothing and
- * tells the user.
+ * Shows workspace `ws`'s item where it sits: the Desk's sidebar on its binder's first view, `reveal` (default: the
+ * item's row) revealed, and the item in a temporary tab.
  */
+export const showItem = (navigator: ItemNavigator, { ws, binderId, itemId }: SavedItemParams, reveal: string = itemId): void => {
+  openBinder(navigator, ws, binderId, reveal);
+  openItem(navigator, ws, binderId, itemId, { temporary: true });
+};
+
+/** Shows workspace `ws`'s item (`ref`: its id or a handle) where it sits (`showItem`); for a ref that names no item, opens nothing and tells the user. */
 export const followItem = (navigator: ItemNavigator, ws: string, ref: string): void => {
-  follows += 1;
-  const follow = follows;
+  const isLatest = startNavigation();
   void readItemAfresh(navigator.queryClient, ws, ref).then(
     (item) => {
-      if (follow !== follows) return;
+      if (!isLatest()) return;
       const place = followPlace(ws, item);
-      if (place === undefined) {
-        navigator.tell(itemNotFound(previewName(ref)));
-        return;
-      }
-      openBinder(navigator, place.ws, place.binderId, place.itemId);
-      openItem(navigator, place.ws, place.binderId, place.itemId, { temporary: true });
+      if (place === undefined) navigator.tell(itemNotFound(previewName(ref)));
+      else showItem(navigator, place);
     },
     (error: unknown) => {
-      if (follow === follows) navigator.tell(itemUnread(error));
+      if (isLatest()) navigator.tell(itemUnread(error));
     },
   );
 };
@@ -100,6 +108,7 @@ type ItemNavigation = {
   openBinder: (ws: string, binderId: string, reveal?: string, view?: string) => void;
   openItem: (ws: string, binderId: string, itemId: string, options?: OpenOptions) => void;
   openNewItem: (ws: string, binderId: string, context: Record<string, unknown>) => void;
+  showItem: (place: SavedItemParams, reveal?: string) => void;
   followItem: (ws: string, ref: string) => void;
   itemTabs: (itemId: string) => TabRef[];
 };
@@ -114,6 +123,7 @@ export const useItemNavigation = (): ItemNavigation => {
       openBinder: (ws, binderId, reveal, view) => openBinder(navigator, ws, binderId, reveal, view),
       openItem: (ws, binderId, itemId, options) => openItem(navigator, ws, binderId, itemId, options),
       openNewItem: (ws, binderId, context) => openNewItem(navigator, ws, binderId, context),
+      showItem: (place, reveal) => showItem(navigator, place, reveal),
       followItem: (ws, ref) => followItem(navigator, ws, ref),
       itemTabs: (itemId) => itemTabs(navigator, itemId),
     };

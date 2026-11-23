@@ -1,11 +1,12 @@
 // Proposals from an agent to the user's decision, against the built app and the `fake-call-tool` agent (it calls the
 // MCP tool its prompt names; see service/test/app-e2e-entry.ts). With no request waiting, the agent proposes edits to
-// two files; Approve on one row writes it, the other row opens its tab, and Reject there with a reason leaves it.
+// two files; each row opens its tab, Approve in one writes its file, and Reject in the other with a reason leaves it.
 // What this relies on in the page:
-// - the title bar toggle: a `button` whose name starts with "Needs me"; the right sidebar `complementary` "Needs me";
-// - one row per open proposal holding its file's path, with an open `button` holding the path and the buttons
-//   "Approve" and "Reject"; a click on the open button opens the proposal in an editor tab (dockview's
-//   `.dv-content-container`), which has "Reject", and then a `textbox` named with "reason", sent with Enter.
+// - Needs me: the part of the left sidebar (`complementary` "Agents") holding the heading "Needs me" and not the
+//   overview's heading "Agents";
+// - one row per open proposal: a `button` holding its file's path, without Approve or Reject; a click opens the
+//   proposal in a tab, whose content is the one visible `tabpanel`, with "Approve" and "Reject", and after Reject a
+//   `textbox` named with "reason", sent with Enter.
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Locator, Page } from "@playwright/test";
@@ -15,11 +16,19 @@ import { SETTINGS_FILE } from "../../service/src/items/binders.ts";
 
 type Listed = { id: string; status: string; path?: string; rejectReason?: string };
 
-const needsMe = (page: Page): Locator => page.getByRole("complementary", { name: "Needs me", exact: true });
+const needsMe = (page: Page): Locator =>
+  page
+    .getByRole("complementary", { name: "Agents", exact: true })
+    .locator("*")
+    .filter({ has: page.getByRole("heading", { name: "Needs me", exact: true }) })
+    .filter({ hasNot: page.getByRole("heading", { name: "Agents", exact: true }) })
+    .first();
 
-/** The innermost element in Needs me holding `file` and a Reject button: the proposal's row. */
-const rowOf = (page: Page, file: string): Locator =>
-  needsMe(page).locator("*").filter({ hasText: file }).filter({ has: page.getByRole("button", { name: "Reject", exact: true }) }).last();
+/** The proposal's row in Needs me: the one button holding `file`. */
+const rowOf = (page: Page, file: string): Locator => needsMe(page).getByRole("button").filter({ hasText: file });
+
+/** The open tab's content while it holds `text`. */
+const tabHolding = (page: Page, text: string): Locator => page.getByRole("tabpanel").filter({ hasText: text });
 
 // Content Security Policy violations the page reports, recorded from when `recordViolations` runs.
 const VIOLATIONS = "__wombatE2eCspViolations";
@@ -55,7 +64,7 @@ const propose = async (sandbox: Sandbox, agentId: string, file: string, edits: {
   await waitUntil(`a proposal on ${file}`, WAIT_MS, async () => ((await proposalOn(sandbox, file)) === undefined ? undefined : true));
 };
 
-test("an agent's proposals: Approve on a row writes the file, a row opens its tab, Reject there with a reason leaves the file", async ({ sandbox }) => {
+test("an agent's proposals: each row opens its tab, Approve there writes the file, Reject there with a reason leaves the file", async ({ sandbox }) => {
   await sandbox.startService(sandbox.workspace);
   const hours = path.join(sandbox.workspace, REPO, "opening-hours.md");
   const prices = path.join(sandbox.workspace, REPO, "prices.md");
@@ -70,21 +79,21 @@ test("an agent's proposals: Approve on a row writes the file, a row opens its ta
 
   const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
   await waitForConnection(page, "connected");
-  const toggle = page.getByRole("button", { name: /^Needs me\b/ });
-  if ((await toggle.getAttribute("aria-pressed")) !== "true") await click(toggle);
 
-  // No request waits: both proposals still show.
+  // No request waits: both proposals still show, without Approve or Reject on the rows.
   await expect(rowOf(page, hours)).toBeVisible({ timeout: WAIT_MS });
   await expect(rowOf(page, prices)).toBeVisible({ timeout: WAIT_MS });
+  await expect(needsMe(page).getByRole("button", { name: /^(Approve|Reject)$/ })).toHaveCount(0);
 
-  // Approve on a row: the file is written and the row goes.
-  await click(rowOf(page, hours).getByRole("button", { name: "Approve", exact: true }));
+  // A row opens its tab; Approve there: the file is written and the row goes.
+  await click(rowOf(page, hours));
+  await click(tabHolding(page, hours).getByRole("button", { name: "Approve", exact: true }));
   await waitUntil("the approved edit on disk", WAIT_MS, () => (readFileSync(hours, "utf8") === hoursBefore.replace("8:00", "7:30") ? true : undefined));
   await expect(needsMe(page).getByText(hours)).toHaveCount(0, { timeout: WAIT_MS });
 
   // The other row opens its tab; Reject there with a reason.
-  await click(needsMe(page).getByRole("button").filter({ hasText: prices }));
-  const tab = page.locator(".dv-groupview .dv-content-container").filter({ hasText: prices });
+  await click(rowOf(page, prices));
+  const tab = tabHolding(page, prices);
   await click(tab.getByRole("button", { name: "Reject", exact: true }));
   const reason = "Prices stay until the new menu is printed.";
   await tab.getByRole("textbox", { name: /reason/i }).fill(reason);
@@ -112,10 +121,8 @@ test("text typed on a proposal's right side is saved as my draft, and Approve wr
   const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
   await waitForConnection(page, "connected");
   await recordViolations(page);
-  const toggle = page.getByRole("button", { name: /^Needs me\b/ });
-  if ((await toggle.getAttribute("aria-pressed")) !== "true") await click(toggle);
-  await click(needsMe(page).getByRole("button").filter({ hasText: menu }));
-  const tab = page.locator(".dv-groupview .dv-content-container").filter({ hasText: menu });
+  await click(rowOf(page, menu));
+  const tab = tabHolding(page, menu);
   const right = tab.locator(".monaco-diff-editor .editor.modified");
 
   // Drop the agent's first hunk (Rye loaf) with Monaco's revert arrow in the gutter, one per hunk in line order.
@@ -143,7 +150,7 @@ test("text typed on a proposal's right side is saved as my draft, and Approve wr
 
 // An item proposal in its tab, on an items root (the workspace's items folder) with one `bugs` binder open to proposals: each
 // field the proposal changes is a `group` named by the field, with a "Drop" button; Approve writes only the fields I kept.
-// Its row in Needs me reveals the item's row in the Desk sidebar (`complementary` "Desk", the row a `treeitem` named by
+// Its row in Needs me opens the item's tab and reveals the item's row in the Desk sidebar (`complementary` "Desk", the row a `treeitem` named by
 // the item's title inside the row's element): that element is highlighted (`data-revealed`) and holds the focus.
 test("a Needs me click on an item update highlights its row in the Desk; dropping a field and approving writes only the fields I kept", async ({ sandbox }) => {
   const bug = { id: "0196f3c2-1a00-7000-8000-00000000c001", handle: "BUG-1", title: "Basket total ignores the coupon" };
@@ -168,15 +175,13 @@ test("a Needs me click on an item update highlights its row in the Desk; droppin
 
   const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
   await waitForConnection(page, "connected");
-  const toggle = page.getByRole("button", { name: /^Needs me\b/ });
-  if ((await toggle.getAttribute("aria-pressed")) !== "true") await click(toggle);
-  // An item proposal's row in Needs me opens the Desk on its binder; its mark there opens the proposal's tab.
-  await click(needsMe(page).getByRole("button").filter({ hasText: `bugs/${bug.handle}` }));
+  // An item proposal's row in Needs me opens the item and the Desk on its binder; its mark there opens the proposal's tab.
+  await click(rowOf(page, `bugs/${bug.handle}`));
   const revealed = page.getByRole("complementary", { name: "Desk" }).getByRole("treeitem", { name: bug.title, exact: true }).locator("..");
   await expect(revealed, "the item's row highlighted").toHaveAttribute("data-revealed", "", { timeout: WAIT_MS });
   await expect(revealed.locator(":focus"), "the focus in the item's row").toHaveCount(1);
   await click(page.getByRole("complementary", { name: "Desk" }).getByRole("button", { name: "Update proposed", exact: true }));
-  const tab = page.locator(".dv-groupview .dv-content-container").filter({ hasText: `bugs/${bug.handle}` });
+  const tab = tabHolding(page, `bugs/${bug.handle}`);
   await click(tab.getByRole("group", { name: "status", exact: true }).getByRole("button", { name: "Drop", exact: true }));
 
   type Detail = { status: string; fields: Record<string, unknown>; versions: { n: number; by: string }[] };

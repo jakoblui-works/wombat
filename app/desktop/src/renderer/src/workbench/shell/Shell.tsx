@@ -7,7 +7,7 @@ import { chooseItemsFolder, openFolder } from "../../data/shown-workspace.ts";
 import { asError, asSentence } from "../../lib/errors.ts";
 // Registers the panels (the chat's among them) and the harnesses' UI.
 import "../activities.ts";
-import { AGENTS_PANEL } from "../activity-ids.ts";
+import { AGENTS_PANEL, NEEDS_ME_PANEL } from "../activity-ids.ts";
 import { CHAT_PANEL } from "../agents/chat-params.ts";
 import { chatRevealKey, useOpenAgentChat } from "../agents/open-agent-chat.ts";
 import { registerWorkbenchCommands } from "../commands/workbench-commands.ts";
@@ -36,10 +36,16 @@ const SIDEBAR = "flex shrink-0 flex-col overflow-clip bg-surface-0";
 
 const NO_WORKSPACE_SHOWN = "Wombat couldn't choose the items folder: no workspace is shown. Open one with File → Open Folder…, then try again.";
 
-/** The left sidebar's panel: the agents for now. */
+/** The left sidebar: Needs me above the overview. */
 const LeftPanel = () => {
-  const Panel = getPanel(AGENTS_PANEL)?.component;
-  return Panel === undefined ? null : <Panel params={{}} />;
+  const NeedsMe = getPanel(NEEDS_ME_PANEL)?.component;
+  const Overview = getPanel(AGENTS_PANEL)?.component;
+  return (
+    <>
+      {NeedsMe === undefined ? null : <NeedsMe params={{}} />}
+      <div className="flex min-h-0 flex-1 flex-col">{Overview === undefined ? null : <Overview params={{}} />}</div>
+    </>
+  );
 };
 
 const ShownChat = ({ agentId, reveals }: { agentId: string; reveals: Reveals }) => {
@@ -179,7 +185,7 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
     <WorkbenchContext value={workbench}>
       <OpenAgentRequests openAgents={openAgents} />
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
-        <TitleBar right={undefined} rightOpen={rightOpen} onToggleRight={() => undefined} />
+        <TitleBar />
         {blocked ? <ConnectionBanner connection={connection.state} message={connection.message} attempt={attempt} onRestart={restart} /> : null}
         {noticeShown ? <LiveLaunchNotice connection={connection} onRestart={restart} onDismiss={dismissNotice} /> : null}
         {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}

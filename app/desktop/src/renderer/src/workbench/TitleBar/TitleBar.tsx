@@ -1,8 +1,6 @@
-import type { LucideIcon } from "lucide-react";
 import { useRef } from "react";
 
 import { openedByPointer as byPointer } from "@/lib/motion";
-import { cn } from "@/lib/utils";
 import {
   Menubar,
   MenubarContent,
@@ -64,21 +62,10 @@ const MenuEntries = ({ menu, choose }: { menu: MenuModel; choose: (id: string) =
 
 /**
  * The window's title bar, in place of the system's: the menus on the left, the symbol and workspace as the drag strip
- * in the middle, the right sidebar's toggle (named after its panel) on the right, then the room the window controls
- * (Electron's overlay) take. The bar drags the window, so each control opts out of it with `no-drag`.
+ * in the middle, then on the right the room the window controls (Electron's overlay) take. The bar drags the window,
+ * so each control opts out of it with `no-drag`.
  */
-export const TitleBar = ({
-  right,
-  count = 0,
-  rightOpen,
-  onToggleRight,
-}: {
-  right: { title: string; icon: LucideIcon } | undefined;
-  /** What waits on the user: shown after the toggle's name while above 0. */
-  count?: number;
-  rightOpen: boolean;
-  onToggleRight: () => void;
-}) => {
+export const TitleBar = () => {
   const workspace = useShownWorkspace()?.name;
   // Edit commands (cut, paste, select all) act on the focused element, and opening a menu moves focus into the menubar.
   // So each time focus comes into the menubar from outside it (and outside its popups), it remembers where from. When
@@ -161,22 +148,7 @@ export const TitleBar = ({
         )}
       </div>
       <div className="flex min-w-0 items-center justify-end gap-2">
-        {right === undefined ? null : (
-          <button
-            type="button"
-            aria-pressed={rightOpen}
-            onClick={onToggleRight}
-            className={cn(
-              "focus-ring flex h-7 items-center gap-2 rounded-md px-2 text-sm text-fg-secondary transition-colors [app-region:no-drag] hover:bg-surface-2 hover:text-fg-primary",
-              rightOpen && "bg-surface-3 text-fg-primary",
-            )}
-          >
-            <right.icon className="size-4" />
-            {right.title}{" "}
-            {count > 0 ? <span className="text-fg-tertiary tabular-nums">{count}</span> : null}
-          </button>
-        )}
-        {/* The window controls sit over the bar's right end; this keeps the toggle clear of them. */}
+        {/* The window controls sit over the bar's right end; this keeps the bar's grid clear of them. */}
         <div aria-hidden className="h-full w-[calc(100vw-env(titlebar-area-x,0px)-env(titlebar-area-width,100vw))] shrink-0" />
       </div>
     </header>
