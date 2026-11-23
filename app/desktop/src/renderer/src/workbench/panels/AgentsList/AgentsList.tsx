@@ -51,7 +51,6 @@ const WorkspaceGroup = ({ workspace, agents, now }: GroupProps) => {
             <AgentRow
               key={agent.id}
               agent={agent}
-              workspaceName={workspace.name}
               now={now}
               selected={agent.id === state.openAgent}
               onOpen={() => openAgent(agent.id)}

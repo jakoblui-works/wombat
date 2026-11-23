@@ -15,19 +15,13 @@ import { canStop, useAgentActions } from "./agent-actions.ts";
 
 type Props = {
   agent: AgentSummary;
-  /** The agent's workspace's name; undefined while the workspace list doesn't hold it. */
-  workspaceName: string | undefined;
   now: number;
   selected: boolean;
   onOpen: () => void;
 };
 
-/** Where the agent works: its workspace's name, then its folder unless that is the workspace root. */
-export const agentPlace = (workspaceName: string | undefined, repo: string): string =>
-  [workspaceName ?? (repo === "." ? "." : undefined), repo === "." ? undefined : repo].filter((part) => part !== undefined).join(" / ");
-
 /** One agent: the row opens its chat; the menu beside it stops or deletes the agent. */
-export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props) => {
+export const AgentRow = ({ agent, now, selected, onOpen }: Props) => {
   const title = agentTitle(agent.id, agent);
   const actions = useAgentActions(agent.id);
   const [confirming, setConfirming] = useState(false);
@@ -50,7 +44,7 @@ export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props)
           <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{ago(agent.lastUserAt ?? agent.startedAt, now)}</span>
         </span>{" "}
         <span className="flex w-full min-w-0 items-center gap-1.5 pl-5.5 font-mono text-xs text-fg-tertiary">
-          <span className="min-w-0 shrink-0 truncate">{agentPlace(workspaceName, agent.repo)}</span>
+          {agent.repo === "." ? null : <span className="min-w-0 shrink-0 truncate">{agent.repo}</span>}
           {agent.branch === undefined ? null : (
             <>
               {" "}
