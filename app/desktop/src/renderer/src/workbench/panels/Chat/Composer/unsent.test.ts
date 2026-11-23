@@ -1,5 +1,5 @@
 // Each agent's message box lives outside its chat (one chat is mounted at a time): a first message the empty chat
-// couldn't send opens in it as a failed send, once; a send that settles after its chat was switched away lands in it.
+// couldn't send opens in it as a failed send and stays until it is sent or cleared; a send that settles after its chat was switched away lands in it.
 import { expect, test } from "vitest";
 
 import { EMPTY_COMPOSER } from "./composer-state.ts";

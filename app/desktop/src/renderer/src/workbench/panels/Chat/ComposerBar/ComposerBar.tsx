@@ -58,7 +58,7 @@ export const ComposerBar = ({ workspaces, workspace, onWorkspace, repos, repo, o
               {name}
             </SelectItem>
           ))}
-          {workspaces.length === 0 ? null : <div role="separator" className="my-1 h-px bg-line" />}
+          {workspaces.length === 0 ? null : <div aria-hidden className="my-1 h-px bg-line" />}
           <SelectItem value={OPEN_FOLDER}>Open folder…</SelectItem>
         </SelectContent>
       </Select>
