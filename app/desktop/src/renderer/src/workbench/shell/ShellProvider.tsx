@@ -1,8 +1,9 @@
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import type { Proposal } from "@wombat/shared/proposals";
 import { useAgents, useProposals, useWorkspaces } from "../../data/hooks.ts";
+import { OpenTicketContext, openTickets } from "./open-ticket.ts";
 import { emptyShell, type ShellState, shownWorkspace } from "./shell-state.ts";
 
 /** The shell state, the lists as the page has read them (undefined while unread) and the shown workspace's id. */
@@ -39,7 +40,15 @@ export const ShellProvider = ({ initial = emptyShell, children }: { initial?: Sh
   const change = useCallback((update: (state: ShellState) => ShellState) => setState(update), []);
   const current = useCallback(() => now.current, []);
   const value = useMemo(() => ({ state, change, current }), [state, change, current]);
-  return <ShellContext value={value}>{children}</ShellContext>;
+  const [tickets] = useState(() => openTickets(current));
+  useEffect(() => {
+    tickets.recheck();
+  }, [tickets, state, agents, proposals, workspaces]);
+  return (
+    <ShellContext value={value}>
+      <OpenTicketContext value={tickets}>{children}</OpenTicketContext>
+    </ShellContext>
+  );
 };
 
 /** The shell's state and its one change function, which takes one of `shell-state.ts`'s functions. */
