@@ -71,7 +71,7 @@ const LeftSidebarToggle = ({ toggle }: { toggle: Ref<HTMLButtonElement> | undefi
     <button
       type="button"
       aria-pressed={shown}
-      aria-label={TOGGLE_LEFT_SIDEBAR.title}
+      aria-label={shown || waiting === 0 ? TOGGLE_LEFT_SIDEBAR.title : `${TOGGLE_LEFT_SIDEBAR.title}, ${waiting} waiting on you`}
       aria-keyshortcuts={ariaKeyShortcut(TOGGLE_LEFT_SIDEBAR.keys)}
       title={TOGGLE_LEFT_SIDEBAR.title}
       ref={toggle}
