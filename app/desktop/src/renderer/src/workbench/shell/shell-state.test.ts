@@ -336,8 +336,8 @@ describe("the saved shell across a quit and a start", () => {
     for (const state of shells) expect(kept(reopened(state))).toEqual(kept(state));
   });
 
-  test("a shell saved before overviewCollapsed existed restores its tabs, Desk state and open agent, and keeps no agents-list entry", () => {
-    // settings.json's shell as the app wrote it then: the overview's collapse under activityStates["agents-list"].
+  test("a saved shell holding an unregistered activity's state restores its tabs, Desk state and open agent without that state", () => {
+    // An entry under activityStates whose id no activity registers.
     const OLD_OVERVIEW_KEY = "agents-list";
     const savedBefore = {
       openAgent: "agent-oven-1",
