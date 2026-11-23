@@ -11,6 +11,8 @@
 //   message starts it again" on hover; the settings button is a `button` named "Settings: …" that opens a `dialog`
 //   listing a select's values by name, the current one carrying aria-checked, aria-selected or aria-current "true";
 //   the message box is the textbox "Message", and Enter sends.
+// - a running agent's composer bar has one toggle button, named "Hide composer bar" while shown and "Show composer
+//   bar" while hidden.
 import type { ElectronApplication, Page } from "@playwright/test";
 
 import { FAKE_CONFIG, fakeConfigOptions, HOSTILE } from "../../service/test/fake-agent.ts";
@@ -198,6 +200,21 @@ test.describe("chat", () => {
     expect(await wheelPastEnd(conversation, "up"), "scrolled or overflowing around the chat, past its top").toEqual([]);
     expect(await wheelPastEnd(conversation, "down"), "scrolled or overflowing around the chat, past its end").toEqual([]);
     expect(problems).toEqual([]);
+  });
+
+  test("the composer bar's toggle keeps the focus as it hides and shows the bar", async ({ sandbox }) => {
+    await sandbox.startService(sandbox.workspace);
+    const agentId = await startAgent(sandbox, "fake-reply");
+    const launched = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
+    const { page } = launched;
+    await waitForConnection(page, "connected");
+    await openAgent(launched, agentId);
+    const chat = chatTitled(page, REPO);
+    await chat.getByRole("button", { name: "Hide composer bar" }).focus();
+    await page.keyboard.press("Space");
+    await expect(chat.getByRole("button", { name: "Show composer bar" })).toBeFocused();
+    await page.keyboard.press("Space");
+    await expect(chat.getByRole("button", { name: "Hide composer bar" })).toBeFocused();
   });
 
   // A stopped agent's chat goes on. Its footer says it

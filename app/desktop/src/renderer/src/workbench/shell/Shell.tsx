@@ -15,7 +15,7 @@ import { registerWorkbenchCommands } from "../commands/workbench-commands.ts";
 import { ConnectionBanner } from "../ConnectionBanner/ConnectionBanner.tsx";
 import { LiveLaunchNotice } from "../LaunchNotice/LaunchNotice.tsx";
 import type { OpenAgents } from "../open-agents.ts";
-import { activities, getPanel } from "../registry.ts";
+import { getPanel } from "../registry.ts";
 import { RESIZE_HANDLE_WIDTH, ResizeHandle } from "../ResizeHandle/ResizeHandle.tsx";
 import { LiveStatusBar } from "../StatusBar/StatusBar.tsx";
 import { type Reveals, revealStore, tabKey } from "../tabs.ts";
@@ -164,8 +164,6 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   useEffect(
     () =>
       registerWorkbenchCommands({
-        activities: activities(),
-        showActivity,
         newAgent: () => change((current) => newChat(current, shownRef.current)),
         toggleLeftSidebar: () => {
           if (!stateRef.current.leftHidden) {
@@ -194,7 +192,7 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
           );
         },
       }),
-    [queryClient, change, showActivity],
+    [queryClient, change],
   );
   useCommandKeys();
 

@@ -1,11 +1,8 @@
 // The workbench's own commands: the actions its buttons and keys take, registered while the workbench is mounted.
-import type { ActivityDescriptor } from "../registry.ts";
 import { wantNewChatFocus } from "./new-chat-focus.ts";
 import { registerCommand } from "./registry.ts";
 
 export type WorkbenchCommandDeps = {
-  activities: readonly ActivityDescriptor[];
-  showActivity: (id: string) => void;
   /** New Agent: shows the empty chat on the shown workspace. */
   newAgent: () => void;
   toggleLeftSidebar: () => void;
@@ -37,13 +34,8 @@ export const WORKBENCH_COMMAND = {
  */
 export const TOGGLE_LEFT_SIDEBAR = { title: "Toggle Left Sidebar", keys: "ctrl+b" } as const;
 
-/** The id of the command that shows activity `id`. */
-export const activityCommandId = (id: string): string => `view.activity.${id}`;
-
 /** Registers the workbench's commands; returns their unregistration. */
 export const registerWorkbenchCommands = ({
-  activities,
-  showActivity,
   newAgent,
   toggleLeftSidebar,
   blocked,
@@ -77,7 +69,6 @@ export const registerWorkbenchCommands = ({
         else return window.wombat.service.restart();
       },
     }),
-    ...activities.map(({ id, title }) => registerCommand({ id: activityCommandId(id), title: `Show ${title}`, when: unblocked, run: () => showActivity(id) })),
   ];
   return () => {
     for (const off of unregister) off();
