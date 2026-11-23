@@ -1,7 +1,7 @@
 import type { QueryState } from "@tanstack/react-query";
 
 import type { ConnectionState } from "../../../../shared/bridge.ts";
-import { isSettled } from "@/lib/connection-state";
+import { isSettled } from "../../lib/connection-state.ts";
 import type { SavedShell } from "./shell-state.ts";
 
 /** How long the shell must stay unchanged before it's saved. */

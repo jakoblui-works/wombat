@@ -3,10 +3,13 @@
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
+import { proposal as listedProposal, summary } from "../../../../../test/summaries.ts";
 import "../activities.ts";
 import { DESK_ACTIVITY } from "../activity-ids.ts";
 import { ITEM_PANEL } from "../items/item-params.ts";
+import { DEFAULT_DESK } from "../items/navigation/desk-layout.ts";
 import { PROPOSAL_PANEL } from "../proposals/proposal-params.ts";
+import { isRestorable, isSaved, type TabTest } from "../registry.ts";
 import { tabKey } from "../tabs.ts";
 import type { TabRef } from "../workbench-context.ts";
 import {
@@ -22,11 +25,13 @@ import {
   leftBounds,
   openTab,
   pressToolbarButton,
+  restoredShell,
   RIGHT_WIDTH,
   rightBounds,
   type RightView,
   rightView,
   rightWanted,
+  savedShell,
   type ShellState,
   shownRightWidth,
   shownTab,
@@ -259,5 +264,123 @@ describe("the right sidebar's width", () => {
       }),
       { numRuns: 300 },
     );
+  });
+});
+
+// The saved shell's contract (contract "App settings, version 2", its `shell`): what savedShell writes is what
+// restoredShell reads back at the next start, through settings.json.
+describe("the saved shell across a quit and a start", () => {
+  // The diff panel's id, as registered (panels/ isn't imported outside activities.ts). A tab of it that should come
+  // back keeps a renamed id from passing for a dropped one.
+  const DIFF_PANEL = "diff";
+  const diff = (agentId: string, requestId: string): TabRef => ({ panelId: DIFF_PANEL, params: { agentId, requestId } });
+  const proposalTab = (proposalId: string): TabRef => ({ panelId: PROPOSAL_PANEL, params: { proposalId } });
+  const draft: TabRef = { panelId: ITEM_PANEL, params: { ws: BAKERY, binderId: "pages", draft: "draft-tuesday-hours", context: {} } };
+  const DESK = { binderId: "pages", view: "Board", openDrawers: ["recipes"] };
+
+  const workspace = (fields: Partial<WorkspaceShell>): WorkspaceShell => ({
+    tabs: [],
+    navigatorHidden: false,
+    rightOpen: false,
+    activityStates: {},
+    right: { dragged: false },
+    ...fields,
+  });
+  const temporary = (tab: TabRef) => ({ ...tab, kept: false });
+  /** Through settings.json: what main writes and reads back. */
+  const throughFile = (value: unknown): unknown => JSON.parse(JSON.stringify(value)) as unknown;
+  const reopened = (state: ShellState, restorable: TabTest = () => true): ShellState => restoredShell(throughFile(savedShell(state, isSaved)), restorable);
+  const tabKeys = (state: ShellState, ws: string): string[] => (state.workspaces[ws]?.tabs ?? []).map(key);
+
+  /** What a start gives back of a shell: its open agent, left sidebar and each workspace's tabs, activity, navigator and Desk. */
+  const kept = (state: ShellState) => ({
+    openAgent: state.openAgent,
+    leftHidden: state.leftHidden,
+    workspaces: Object.fromEntries(
+      Object.entries(state.workspaces).map(([id, shell]) => [
+        id,
+        {
+          tabs: shell.tabs.map((tab) => ({ key: key(tab), kept: tab.kept })),
+          active: shell.active,
+          activity: shell.activity,
+          navigatorHidden: shell.navigatorHidden,
+          rightOpen: shell.rightOpen,
+          desk: shell.activityStates[DESK_ACTIVITY],
+        },
+      ]),
+    ),
+  });
+
+  test("a start gives back the open agent, the left sidebar and each workspace's kept tabs, active tab, activity, navigator and Desk", () => {
+    const shells: ShellState[] = [
+      {
+        ...emptyShell,
+        openAgent: "agent-oven-1",
+        leftHidden: true,
+        workspaces: {
+          [BAKERY]: workspace({
+            tabs: [entry(item(1)), entry(item(2)), entry(proposal)],
+            active: key(item(2)),
+            activity: DESK_ACTIVITY,
+            navigatorHidden: true,
+            rightOpen: true,
+            activityStates: { [DESK_ACTIVITY]: DESK },
+            right: { width: 733, dragged: true },
+          }),
+          [GARDEN]: workspace({ tabs: [entry(item(3, GARDEN))], active: key(item(3, GARDEN)), activity: DESK_ACTIVITY }),
+        },
+      },
+      { ...emptyShell, workspaces: { [GARDEN]: workspace({ activity: DESK_ACTIVITY, rightOpen: true, activityStates: { [DESK_ACTIVITY]: { openDrawers: [] } } }) } },
+    ];
+    for (const state of shells) expect(kept(reopened(state))).toEqual(kept(state));
+  });
+
+  test("a save leaves out temporary tabs and tabs their panel doesn't save (a draft's)", () => {
+    const state = bakery({ tabs: [entry(item(1)), temporary(item(2)), entry(draft), temporary(item(3))], active: key(item(1)), activity: DESK_ACTIVITY, rightOpen: true });
+    expect(tabKeys(reopened(state), BAKERY)).toEqual([key(item(1))]);
+  });
+
+  test("a start leaves out the tabs isRestorable refuses: a deleted agent's diff and a decided proposal's tab", () => {
+    const restorable = isRestorable({
+      agents: [summary("agent-oven-1", { state: "waiting", hasProcess: true, pendingPermissions: [{ requestId: "req-7" } as never] })],
+      proposals: [listedProposal("p-open-prices", "agent-oven-1"), { ...listedProposal("p-decided-menu", "agent-oven-1"), status: "approved" }],
+    });
+    const state = bakery({
+      tabs: [entry(item(1)), entry(diff("agent-oven-1", "req-7")), entry(diff("agent-deleted", "req-9")), entry(proposalTab("p-open-prices")), entry(proposalTab("p-decided-menu"))],
+      active: key(item(1)),
+      activity: DESK_ACTIVITY,
+      rightOpen: true,
+    });
+    expect(tabKeys(reopened(state, restorable), BAKERY)).toEqual([key(item(1)), key(diff("agent-oven-1", "req-7")), key(proposalTab("p-open-prices"))]);
+  });
+
+  test("a closed right sidebar stays closed when its active tab doesn't come back", () => {
+    const gone = proposalTab("p-decided-menu");
+    const refusesGone: TabTest = (panelId, params) => key({ panelId, params }) !== key(gone);
+    // With a tab beside it, and alone.
+    for (const tabs of [[entry(item(1)), entry(gone)], [entry(gone)]]) {
+      const state = reopened(bakery({ tabs, active: key(gone), activity: DESK_ACTIVITY, rightOpen: false }), refusesGone);
+      expect(shows(rightView(state, BAKERY)), `with ${String(tabs.length)} tabs`).toEqual(CLOSED);
+    }
+  });
+
+  test.each<[string, unknown]>([
+    ["nothing saved", undefined],
+    ["null", null],
+    ["a string", "not a shell"],
+    ["an array", [{ panelId: ITEM_PANEL }]],
+    ["fields of the wrong type", { openAgent: 7, leftHidden: "yes", workspaces: "bakery" }],
+    ["a workspace without its flags", { leftHidden: false, workspaces: { [BAKERY]: { tabs: [] } } }],
+  ])("a saved value that doesn't parse (%s) gives the default shell", (_name, raw) => {
+    expect(restoredShell(raw, () => true)).toEqual(emptyShell);
+  });
+
+  test("a Desk state that doesn't parse comes back as the Desk's default, the rest of the shell as saved", () => {
+    for (const desk of [{ openDrawers: "recipes" }, 7, { binderId: 3, openDrawers: [] }]) {
+      const state = bakery({ tabs: [entry(item(1))], active: key(item(1)), activity: DESK_ACTIVITY, rightOpen: true, activityStates: { [DESK_ACTIVITY]: desk } });
+      const back = reopened(state);
+      expect(back.workspaces[BAKERY]?.activityStates[DESK_ACTIVITY], JSON.stringify(desk)).toEqual(DEFAULT_DESK);
+      expect(tabKeys(back, BAKERY)).toEqual([key(item(1))]);
+    }
   });
 });
