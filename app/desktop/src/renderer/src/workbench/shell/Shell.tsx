@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { cn } from "@/lib/utils";
-import { useAgents, useProposals, useWorkspaces } from "../../data/hooks.ts";
+import { useAgents, useProposals } from "../../data/hooks.ts";
 import { chooseItemsFolder } from "../../data/shown-workspace.ts";
 import { asError, asSentence } from "../../lib/errors.ts";
 // Registers the panels (the chat's among them) and the harnesses' UI.
@@ -26,7 +26,7 @@ import { RightSidebar } from "./RightSidebar/RightSidebar.tsx";
 import { requestClose, shellTabActions } from "./RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "./RightSidebar/tab-titles.ts";
 import { useCommandKeys, useServiceChrome } from "./service-chrome.ts";
-import { clampWidth, hideLeftSidebar, LEFT_START_WIDTH, leftBounds, middleView, newChat, rightView, showActivity as showActivityIn, shownTab, showWorkspace } from "./shell-state.ts";
+import { clampWidth, hideLeftSidebar, LEFT_START_WIDTH, leftBounds, middleView, newChat, rightView, showActivity as showActivityIn, shownTab } from "./shell-state.ts";
 import { ShellProvider, useShell, useShownWorkspace } from "./ShellProvider.tsx";
 import { Toolbar } from "./Toolbar/Toolbar.tsx";
 
@@ -118,10 +118,6 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   const middle = useRef<HTMLElement>(null);
   const left = useRef<HTMLElement>(null);
   const leftToggle = useRef<HTMLButtonElement>(null);
-  const workspaces = useWorkspaces().data?.workspaces;
-  const workspacesRef = useRef(workspaces);
-  workspacesRef.current = workspaces;
-
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
   const shownRef = useRef(shown?.id);
@@ -179,8 +175,7 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
         blocked: () => blockedRef.current,
         restartService: () => restartRef.current(),
         openFolder: () =>
-          // A folder already listed answers its workspace: shown as a Needs me row shows one, its open agent kept.
-          openFolderOrTell(queryClient, (id) => change((current) => showWorkspace(current, id, agentsRef.current, workspacesRef.current))),
+          openFolderOrTell(queryClient, (id) => change((current) => newChat(current, id))),
         chooseItemsFolder: async () => {
           const workspace = shownRef.current;
           if (workspace === undefined) {

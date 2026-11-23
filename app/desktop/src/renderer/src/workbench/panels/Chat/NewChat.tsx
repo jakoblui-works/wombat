@@ -3,12 +3,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "../../../components/ui/button";
 import { startAgentVars, useStartAgent } from "../../../data/commands.ts";
-import { useConnection, useHarnesses, useRepos, useWorkspaces } from "../../../data/hooks.ts";
+import { useAgents, useConnection, useHarnesses, useRepos, useWorkspaces } from "../../../data/hooks.ts";
 import { asError } from "../../../lib/errors.ts";
 import { messageBoxMark } from "../../agents/chat-params.ts";
 import { useOpenAgent } from "../../agents/open-agent-chat.ts";
 import { newChatFocusTaken, useNewChatFocusWanted } from "../../commands/new-chat-focus.ts";
-import { newChat } from "../../shell/shell-state.ts";
+import { newChat, sameView, shownView } from "../../shell/shell-state.ts";
 import { useShell, useShownWorkspace } from "../../shell/ShellProvider.tsx";
 import { pickOf, repoChoices } from "./ComposerBar/bar-picks.ts";
 import { ComposerBar } from "./ComposerBar/ComposerBar.tsx";
@@ -33,7 +33,8 @@ const useLastRepo = (): string | undefined => {
 
 /** The empty chat: the composer bar and the message box; the first message starts the agent where the bar points. */
 export const NewChat = () => {
-  const { change } = useShell();
+  const { state, change } = useShell();
+  const agents = useAgents();
   const workspaces = useWorkspaces();
   const workspace = useShownWorkspace();
   const repos = useRepos(workspace?.id);
@@ -71,6 +72,9 @@ export const NewChat = () => {
   const send = () => {
     if (target === undefined) return;
     const text = composer.text;
+    const agentList = agents.data?.agents;
+    const workspaceList = workspaces.data?.workspaces;
+    const atSend = shownView(state, agentList, workspaceList);
     composerEvent(NEW_CHAT_BOX, { type: "send" });
     // Settled through the promise, not mutate's callbacks: those skip a chat that stopped showing meanwhile.
     start.mutateAsync(startAgentVars({ ...target, text })).then(
@@ -79,7 +83,7 @@ export const NewChat = () => {
         if (sendError !== undefined) handOverUnsent(agent.id, text, sendError);
         composerEvent(NEW_CHAT_BOX, { type: "sent", about: undefined });
         window.wombat.settings.set({ lastAgentFolder: target.repo }).catch(() => undefined);
-        openAgent(agent.id);
+        openAgent(agent.id, undefined, (now) => sameView(atSend, shownView(now, agentList, workspaceList)));
       },
       (error: unknown) => composerEvent(NEW_CHAT_BOX, { type: "failed", message: asError(error).message }),
     );
