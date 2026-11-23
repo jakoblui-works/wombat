@@ -2,6 +2,8 @@
 // never covers what the user did since.
 import { expect, test } from "vitest";
 
+import type { AgentSummary } from "@wombat/shared/api";
+
 import { atFor } from "../../../../../../shared/test/log-entries.ts";
 import { summary } from "../../../../../test/summaries.ts";
 import "../activities.ts";
@@ -9,7 +11,7 @@ import { DESK_ACTIVITY } from "../activity-ids.ts";
 import { collapseGroup } from "../agents/collapsed-groups.ts";
 import { ITEM_PANEL } from "../items/item-params.ts";
 import { tabKey } from "../tabs.ts";
-import { ticketLands } from "./open-ticket.ts";
+import { openTickets, ticketLands } from "./open-ticket.ts";
 import {
   activateTab,
   dragShownRight,
@@ -26,6 +28,7 @@ import {
   type ShownView,
   shownView,
 } from "./shell-state.ts";
+import { shellNow } from "./ShellProvider.tsx";
 
 // Invented workspaces and agents.
 const BAKERY = "ws-bakery0001";
@@ -62,4 +65,42 @@ test.each<[string, () => ShownView, "open" | "drop" | "wait"]>([
   ["nothing shown yet", () => after((state) => state, { agentsRead: false }), "wait"],
 ])("the latest ticket's open lands only while the view is the one its click left: %s", (_, now, expected) => {
   expect(ticketLands({ seq: 1, view: shownView(clicked, AGENTS, WORKSPACES) }, 1, now())).toBe(expected);
+});
+
+test("a ticket taken before the latest is dropped, whatever the view: the newest click wins", () => {
+  const views: [string, ShownView][] = [
+    ["nothing changed", after((state) => state)],
+    ["nothing shown yet", after((state) => state, { agentsRead: false })],
+    ["another workspace shown", after((state) => showWorkspace(state, GARDEN, AGENTS, WORKSPACES))],
+  ];
+  for (const [name, now] of views) expect(ticketLands({ seq: 1, view: shownView(clicked, AGENTS, WORKSPACES) }, 2, now), name).toBe("drop");
+});
+
+test("a waiting open lands once on the recheck that finds its view again, and never once a later ticket was taken", () => {
+  // What the page knows now: the clicked shell, with the agents read or not (a refetch), as the provider builds it.
+  let agents: AgentSummary[] | undefined = AGENTS;
+  const listed = WORKSPACES.map(({ id }) => ({ id, name: id, root: `/invented/${id}`, missing: false }));
+  const tickets = openTickets(() => shellNow(clicked, agents, [], listed));
+  const opened: string[] = [];
+
+  // A waits while no workspace is shown; B is taken before A's view comes back.
+  const a = tickets.take();
+  agents = undefined;
+  tickets.land(a, () => opened.push("A"));
+  tickets.recheck();
+  tickets.take();
+  agents = AGENTS;
+  tickets.recheck();
+  expect(opened).toEqual([]);
+
+  // C waits, and lands on the recheck that finds its view, once.
+  const c = tickets.take();
+  agents = undefined;
+  tickets.land(c, () => opened.push("C"));
+  tickets.recheck();
+  expect(opened).toEqual([]);
+  agents = AGENTS;
+  tickets.recheck();
+  tickets.recheck();
+  expect(opened).toEqual(["C"]);
 });

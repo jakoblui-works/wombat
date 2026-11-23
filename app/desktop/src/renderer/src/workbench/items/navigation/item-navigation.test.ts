@@ -11,7 +11,7 @@ import { DESK_ACTIVITY } from "../../activity-ids.ts";
 import { fakeShell } from "../../shell/fake-shell.test-support.ts";
 import { shellWorkbench } from "../../shell/RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "../../shell/RightSidebar/tab-titles.ts";
-import { activityStateOf, changeActivityState, rightView } from "../../shell/shell-state.ts";
+import { activityStateOf, changeActivityState, newChat, rightView } from "../../shell/shell-state.ts";
 import { revealStore, tabKey } from "../../tabs.ts";
 import { previewName } from "../ItemPreview/item-preview.ts";
 import { ITEM_PANEL } from "../item-params.ts";
@@ -83,8 +83,9 @@ const page = () => {
   };
   vi.stubGlobal("window", { wombat: { service: { request }, workspace: { get: () => Promise.resolve({ root: ws.root }) } } });
 
-  // The view the follows land on: a shell state of the test's own, showing the apiary.
-  const { current, change, tickets } = fakeShell({ workspaces: [ws] });
+  // The view the follows land on: a shell state of the test's own, showing the apiary (listed first).
+  const meadow = { id: "ws-meadow0002", name: "meadow", root: "/invented/meadow", missing: false };
+  const { current, change, tickets } = fakeShell({ workspaces: [ws, meadow] });
   const { take, land } = tickets;
   const reveals = revealStore();
   const actions = shellWorkbench({ current, change, reveals, titles: tabTitleStore() });
@@ -113,6 +114,8 @@ const page = () => {
     told,
     queryClient,
     ws: ws.id,
+    /** Shows the other listed workspace, as the user can while a read is out. */
+    showOtherWorkspace: () => change((state) => newChat(state, meadow.id)),
     /** Answers the read of `ref` once the page has asked for it. */
     answer: async (ref: string, answer: Answer): Promise<void> => {
       await vi.waitFor(() => expect([...asked.keys()]).toContain(ref));
@@ -149,6 +152,22 @@ test.each<[string, Answer, Item | undefined, unknown[]]>([
   expect(desk()).toEqual(lands === undefined ? DEFAULT_DESK : { ...DEFAULT_DESK, binderId: lands.binder });
   expect(shownActivities).toEqual(lands === undefined ? [] : [DESK_ACTIVITY]);
   expect(told).toEqual(tells);
+});
+
+test("a followed link whose view changed while its item was read opens nothing and tells nothing", async () => {
+  const { navigator, told, queryClient, ws, showOtherWorkspace, answer, itemTabsOpen, desk, shownActivities } = page();
+
+  followItem(navigator, ws, "HV-2");
+  showOtherWorkspace();
+  await answer("HV-2", { status: 200, body: hive(2) });
+  await vi.waitFor(() => expect(queryClient.getQueryData(keys.item(ws, "HV-2"))).toBeDefined());
+  // The follow's own step after its read is queued behind the cache's; a timer runs only once that queue is empty.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(itemTabsOpen()).toEqual([]);
+  expect(desk()).toEqual(DEFAULT_DESK);
+  expect(shownActivities).toEqual([]);
+  expect(told).toEqual([]);
 });
 
 test("openBinder of another workspace opens that workspace's Desk on the binder and leaves the shown one's alone", async () => {

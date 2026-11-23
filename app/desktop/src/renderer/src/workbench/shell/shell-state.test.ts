@@ -336,6 +336,65 @@ describe("the saved shell across a quit and a start", () => {
     for (const state of shells) expect(kept(reopened(state))).toEqual(kept(state));
   });
 
+  test("a shell saved before overviewCollapsed existed restores its tabs, Desk state and open agent, and keeps no agents-list entry", () => {
+    // settings.json's shell as the app wrote it then: the overview's collapse under activityStates["agents-list"].
+    const OLD_OVERVIEW_KEY = "agents-list";
+    const savedBefore = {
+      openAgent: "agent-oven-1",
+      leftHidden: true,
+      workspaces: {
+        [BAKERY]: {
+          tabs: [item(1), item(2)],
+          active: key(item(2)),
+          activity: DESK_ACTIVITY,
+          navigatorHidden: true,
+          rightOpen: true,
+          activityStates: { [DESK_ACTIVITY]: DESK, [OLD_OVERVIEW_KEY]: { collapsed: true } },
+          lastActive: { [DESK_ACTIVITY]: key(item(2)) },
+        },
+        [GARDEN]: {
+          tabs: [item(3, GARDEN)],
+          active: key(item(3, GARDEN)),
+          activity: DESK_ACTIVITY,
+          navigatorHidden: false,
+          rightOpen: false,
+          activityStates: { [OLD_OVERVIEW_KEY]: { collapsed: false } },
+        },
+      },
+    };
+
+    const back = restoredShell(throughFile(savedBefore), () => true);
+
+    expect(kept(back)).toEqual({
+      openAgent: "agent-oven-1",
+      leftHidden: true,
+      workspaces: {
+        [BAKERY]: {
+          tabs: [
+            { key: key(item(1)), kept: true },
+            { key: key(item(2)), kept: true },
+          ],
+          active: key(item(2)),
+          activity: DESK_ACTIVITY,
+          navigatorHidden: true,
+          rightOpen: true,
+          desk: DESK,
+          overview: undefined,
+        },
+        [GARDEN]: {
+          tabs: [{ key: key(item(3, GARDEN)), kept: true }],
+          active: key(item(3, GARDEN)),
+          activity: DESK_ACTIVITY,
+          navigatorHidden: false,
+          rightOpen: false,
+          desk: undefined,
+          overview: undefined,
+        },
+      },
+    });
+    for (const ws of [BAKERY, GARDEN]) expect(Object.keys(back.workspaces[ws]?.activityStates ?? {}), ws).not.toContain(OLD_OVERVIEW_KEY);
+  });
+
   test("a save leaves out temporary tabs and tabs their panel doesn't save (a draft's)", () => {
     const state = bakery({ tabs: [entry(item(1)), temporary(item(2)), entry(draft), temporary(item(3))], active: key(item(1)), activity: DESK_ACTIVITY, rightOpen: true });
     expect(tabKeys(reopened(state), BAKERY)).toEqual([key(item(1))]);
