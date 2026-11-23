@@ -29,6 +29,7 @@ import { useCommandKeys, useServiceChrome } from "./service-chrome.ts";
 import { clampWidth, hideLeftSidebar, LEFT_START_WIDTH, leftBounds, middleView, newChat, rightView, showActivity as showActivityIn, shownTab } from "./shell-state.ts";
 import { ShellProvider, useShell, useShownWorkspace } from "./ShellProvider.tsx";
 import { Toolbar } from "./Toolbar/Toolbar.tsx";
+import { useSavedShell } from "./use-saved-shell.ts";
 
 // Clipped, not hidden: a hidden overflow can still be scrolled by focus or scrollIntoView, which would take the
 // sidebar's header out of view. Its panel owns the scroll.
@@ -69,15 +70,18 @@ const Middle = ({ reveals }: { reveals: Reveals }) => {
   return NewChat === undefined ? null : <NewChat params={{}} />;
 };
 
-/** Main's open-agent requests (a notification's click), once the agents list is read, so an unlisted id opens nothing. */
-const OpenAgentRequests = ({ openAgents }: { openAgents: OpenAgents }) => {
+/**
+ * Main's open-agent requests (a notification's click), once the saved shell is restored (it would replace the open
+ * agent) and the agents list is read, so an unlisted id opens nothing.
+ */
+const OpenAgentRequests = ({ openAgents, restored }: { openAgents: OpenAgents; restored: boolean }) => {
   const openAgentChat = useOpenAgentChat();
   const agents = useAgents().data?.agents;
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
   const agentsKnown = agents !== undefined;
   useEffect(() => {
-    if (!agentsKnown) return;
+    if (!restored || !agentsKnown) return;
     return openAgents.open((agentId) => {
       if (!agentsRef.current?.some(({ id }) => id === agentId)) {
         // Without the id: the console may end up in a bug report.
@@ -86,7 +90,7 @@ const OpenAgentRequests = ({ openAgents }: { openAgents: OpenAgents }) => {
       }
       openAgentChat(agentId);
     });
-  }, [agentsKnown, openAgents, openAgentChat]);
+  }, [restored, agentsKnown, openAgents, openAgentChat]);
   return null;
 };
 
@@ -110,6 +114,7 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   const { state, change } = useShell();
   const shown = useShownWorkspace();
   const { connection, blocked, attempt, restart, noticeShown, dismissNotice } = useServiceChrome();
+  const restored = useSavedShell(connection.state);
   const [leftWidth, setLeftWidth] = useState(LEFT_START_WIDTH);
   const beside = useRef<HTMLDivElement>(null);
   const besideWidth = useWidth(beside);
@@ -198,7 +203,7 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
 
   return (
     <WorkbenchContext value={workbench}>
-      <OpenAgentRequests openAgents={openAgents} />
+      <OpenAgentRequests openAgents={openAgents} restored={restored} />
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
         <TitleBar leftToggle={leftToggle} />
         {blocked ? <ConnectionBanner connection={connection.state} message={connection.message} attempt={attempt} onRestart={restart} /> : null}

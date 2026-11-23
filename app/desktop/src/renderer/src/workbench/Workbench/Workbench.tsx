@@ -140,7 +140,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   useEffect(() => {
     let live = true;
     window.wombat.settings.get().then(
-      (settings) => live && setSaved({ raw: settings.layout, readable: true }),
+      () => live && setSaved({ raw: undefined, readable: false }),
       (error: unknown) => {
         console.warn("Wombat couldn't read its settings; the layout opens as the default and isn't saved:", error);
         if (live) setSaved({ raw: undefined, readable: false });
@@ -190,11 +190,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     if (!ready || saved?.readable !== true) return;
     const current = layoutSaver(
       () => pruneLayout(layoutToSave(api.toJSON(), chromeRef.current, activityStatesRef.current), isSaved),
-      (layout) => {
-        window.wombat.settings.set({ layout }).catch(() => {
-          console.warn("Wombat couldn't save the layout.");
-        });
-      },
+      () => undefined,
     );
     if (!fellBack.current) current.arm();
     saver.current = current;

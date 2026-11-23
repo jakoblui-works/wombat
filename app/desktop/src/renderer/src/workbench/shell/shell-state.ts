@@ -1,11 +1,17 @@
 // The shell's state: which agent is open, which workspace is shown, and each workspace's right sidebar.
 import type { AgentSummary, Workspace } from "@wombat/shared/api";
+import { z } from "zod";
 
+import { DESK_ACTIVITY } from "../activity-ids.ts";
+import { DEFAULT_DESK, DeskLayout } from "../layout.ts";
 import { getActivity, getPanel } from "../registry.ts";
 import { tabKey, tabToReplace } from "../tabs.ts";
 import type { TabRef } from "../workbench-context.ts";
 
 export type TabEntry = TabRef & { kept: boolean };
+
+/** A rule on a tab, as the registry's `isKnown`, `isSaved` and `isRestorable` answer. */
+export type TabTest = (panelId: string, params: unknown) => boolean;
 
 export type WorkspaceShell = {
   tabs: TabEntry[];
@@ -166,19 +172,29 @@ const forgetTab = (lastActive: WorkspaceShell["lastActive"], key: string): Recor
  * tab's activity's navigator, or closes for a tab without one.
  */
 export const closeTab = (state: ShellState, workspace: string, key: string): ShellState =>
-  withWorkspace(state, workspace, (shell) => {
-    const index = shell.tabs.findIndex((tab) => keyOf(tab) === key);
-    const closed = shell.tabs[index];
-    if (closed === undefined) return shell;
-    const tabs = shell.tabs.filter((_, at) => at !== index);
-    const lastActive = forgetTab(shell.lastActive, key);
-    if (shell.active !== key) return { ...shell, tabs, lastActive };
-    const rest = omit({ ...shell, tabs, lastActive }, "active");
-    const neighbour = tabs[index] ?? tabs[index - 1];
-    if (neighbour !== undefined) return focus(rest, keyOf(neighbour));
-    const activity = tabActivity(closed.panelId);
-    return activity === undefined ? { ...rest, rightOpen: false } : { ...rest, activity };
-  });
+  withWorkspace(state, workspace, (shell) => closedTab(shell, key));
+
+const closedTab = (shell: WorkspaceShell, key: string): WorkspaceShell => {
+  const index = shell.tabs.findIndex((tab) => keyOf(tab) === key);
+  const closed = shell.tabs[index];
+  if (closed === undefined) return shell;
+  const tabs = shell.tabs.filter((_, at) => at !== index);
+  const lastActive = forgetTab(shell.lastActive, key);
+  if (shell.active !== key) return { ...shell, tabs, lastActive };
+  const rest = omit({ ...shell, tabs, lastActive }, "active");
+  const neighbour = tabs[index] ?? tabs[index - 1];
+  if (neighbour !== undefined) return focus(rest, keyOf(neighbour));
+  const activity = tabActivity(closed.panelId);
+  return activity === undefined ? { ...rest, rightOpen: false } : { ...rest, activity };
+};
+
+/** The tab gone without the user closing it: as a close, but a closed sidebar stays closed on its activity. */
+const droppedTab = (shell: WorkspaceShell, key: string): WorkspaceShell => {
+  const closed = closedTab(shell, key);
+  if (shell.rightOpen) return closed;
+  const kept = { ...omit(closed, "activity"), rightOpen: false, lastActive: forgetTab(shell.lastActive, key) };
+  return shell.activity === undefined ? kept : { ...kept, activity: shell.activity };
+};
 
 /** Puts `to` where tab `from` is, kept and active, and closes `from`; with `from` not open, opens `to` kept. */
 export const replaceTab = (state: ShellState, workspace: string, from: string, to: TabRef): ShellState => {
@@ -209,13 +225,83 @@ export const tabWorkspace = (state: ShellState, key: string, preferred?: string)
 
 export const allTabs = (state: ShellState): TabEntry[] => Object.values(state.workspaces).flatMap(({ tabs }) => tabs);
 
-/** Closes the tabs that no longer `apply`, in every workspace; the same state when all do. */
-export const pruneTabs = (state: ShellState, apply: (panelId: string, params: unknown) => boolean): ShellState =>
+const dropTabsWhere = (state: ShellState, drop: (tab: TabEntry) => boolean): ShellState =>
   Object.entries(state.workspaces).reduce(
     (current, [workspace, { tabs }]) =>
-      tabs.filter((tab) => !apply(tab.panelId, tab.params)).reduce((pruned, tab) => closeTab(pruned, workspace, keyOf(tab)), current),
+      tabs.filter(drop).reduce((pruned, tab) => withWorkspace(pruned, workspace, (shell) => droppedTab(shell, keyOf(tab))), current),
     state,
   );
+
+/** Drops the tabs that no longer `apply`, in every workspace, leaving a closed sidebar closed; the same state when all do. */
+export const pruneTabs = (state: ShellState, apply: TabTest): ShellState => dropTabsWhere(state, (tab) => !apply(tab.panelId, tab.params));
+
+const SavedTab = z.object({ panelId: z.string(), params: z.unknown() });
+
+const SavedWorkspace = z.object({
+  tabs: z.array(SavedTab),
+  active: z.string().exactOptional(),
+  activity: z.string().exactOptional(),
+  navigatorHidden: z.boolean(),
+  rightOpen: z.boolean(),
+  activityStates: z.record(z.string(), z.unknown()),
+  lastActive: z.record(z.string(), z.string()).exactOptional(),
+});
+type SavedWorkspace = z.infer<typeof SavedWorkspace>;
+
+const SavedShell = z.object({ openAgent: z.string().exactOptional(), leftHidden: z.boolean(), workspaces: z.record(z.string(), SavedWorkspace) });
+/** What settings.json holds of the shell. */
+export type SavedShell = z.infer<typeof SavedShell>;
+
+const savedWorkspace = ({ tabs, active, activity, navigatorHidden, rightOpen, activityStates, lastActive }: WorkspaceShell): SavedWorkspace => ({
+  tabs: tabs.map(({ panelId, params }) => ({ panelId, params })),
+  ...(active === undefined ? {} : { active }),
+  ...(activity === undefined ? {} : { activity }),
+  navigatorHidden,
+  rightOpen,
+  activityStates: registeredStates(activityStates),
+  ...(lastActive === undefined ? {} : { lastActive }),
+});
+
+const registeredStates = (states: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(Object.entries(states).filter(([id]) => getActivity(id) !== undefined));
+
+/** The registered activities' saved states; a Desk state that doesn't parse is `DEFAULT_DESK`. */
+const restoredStates = (states: Record<string, unknown>): Record<string, unknown> => {
+  const registered = registeredStates(states);
+  if (!(DESK_ACTIVITY in registered)) return registered;
+  const desk = DeskLayout.safeParse(registered[DESK_ACTIVITY]);
+  return { ...registered, [DESK_ACTIVITY]: desk.success ? desk.data : DEFAULT_DESK };
+};
+
+/** The shell as saved: kept tabs that `isSaved` takes, the activities' states, no widths, nor the composer bar's picks. */
+export const savedShell = (state: ShellState, isSaved: TabTest): SavedShell => {
+  const kept = dropTabsWhere(state, (tab) => !tab.kept || !isSaved(tab.panelId, tab.params));
+  return {
+    ...(kept.openAgent === undefined ? {} : { openAgent: kept.openAgent }),
+    leftHidden: kept.leftHidden,
+    workspaces: Object.fromEntries(Object.entries(kept.workspaces).map(([id, shell]) => [id, savedWorkspace(shell)])),
+  };
+};
+
+const restoredWorkspace = ({ tabs, active, activityStates, ...rest }: SavedWorkspace): WorkspaceShell => {
+  const restored = tabs.map(({ panelId, params }) => ({ panelId, params, kept: true }));
+  const shown = active !== undefined && restored.some((tab) => keyOf(tab) === active);
+  return { ...rest, tabs: restored, ...(shown ? { active } : {}), activityStates: restoredStates(activityStates), right: { dragged: false } };
+};
+
+/** The shell `raw` (savedShell's value, read back) describes, without the tabs `isRestorable` refuses; `emptyShell` when it doesn't parse. */
+export const restoredShell = (raw: unknown, isRestorable: TabTest): ShellState => {
+  const parsed = SavedShell.safeParse(raw);
+  if (!parsed.success) return emptyShell;
+  const { openAgent, leftHidden, workspaces } = parsed.data;
+  const state: ShellState = {
+    ...(openAgent === undefined ? {} : { openAgent }),
+    leftHidden,
+    barCollapsed: emptyShell.barCollapsed,
+    workspaces: Object.fromEntries(Object.entries(workspaces).map(([id, saved]) => [id, restoredWorkspace(saved)])),
+  };
+  return pruneTabs(state, isRestorable);
+};
 
 /** The activity's last active tab still open, else its last tab in the strip. */
 const lastTabOf = (shell: WorkspaceShell, activity: string): string | undefined => {

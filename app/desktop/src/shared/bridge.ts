@@ -20,11 +20,11 @@ export type ConnectionState = {
 export type ServiceAnswer = { status: number; body: unknown };
 
 /**
- * The settings the page reads and writes. Only `askOnQuit` is saved; main holds `lastAgentFolder` and `layout` while it
- * runs (a reloaded page gets them back), and they're gone at the next start. Main's patch schema must match it
- * (RENDERER_PATCH_MATCHES in main/settings.ts fails to compile otherwise).
+ * The settings the page reads and writes. `askOnQuit` and `shell` (the page's own JSON) are saved; main holds
+ * `lastAgentFolder` while it runs (a reloaded page gets it back), and it's gone at the next start. Main's patch schema
+ * must match it (RENDERER_PATCH_MATCHES in main/settings.ts fails to compile otherwise).
  */
-export type RendererSettings = { askOnQuit: boolean; lastAgentFolder?: string; layout?: unknown };
+export type RendererSettings = { askOnQuit: boolean; lastAgentFolder?: string; shell?: unknown };
 
 export type Unsubscribe = () => void;
 

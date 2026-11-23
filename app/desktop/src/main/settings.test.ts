@@ -59,7 +59,7 @@ test.each([
   expect(existsSync(file)).toBe(false);
 });
 
-test("the page sees and sets only askOnQuit, lastAgentFolder and layout; only askOnQuit is saved", () => {
+test("the page sees and sets only askOnQuit, lastAgentFolder and shell; askOnQuit and shell are saved", () => {
   const saved: Settings[] = [];
   let settings: Settings = DEFAULTS;
   const update = (change: (current: Settings) => Settings) => {
@@ -67,13 +67,14 @@ test("the page sees and sets only askOnQuit, lastAgentFolder and layout; only as
     saved.push(settings);
   };
 
-  const memory = savePageSettings(update, {}, { askOnQuit: false, lastAgentFolder: "bakery-site", layout: { panes: 3 } });
-  expect(saved).toEqual([{ ...DEFAULTS, askOnQuit: false }]);
-  expect(rendererSettings(settings, memory)).toEqual({ askOnQuit: false, lastAgentFolder: "bakery-site", layout: { panes: 3 } });
+  const memory = savePageSettings(update, {}, { askOnQuit: false, lastAgentFolder: "bakery-site", shell: { panes: 3 } });
+  expect(saved).toEqual([{ ...DEFAULTS, askOnQuit: false, shell: { panes: 3 } }]);
+  expect(rendererSettings(settings, memory)).toEqual({ askOnQuit: false, lastAgentFolder: "bakery-site", shell: { panes: 3 } });
 
-  expect(() => savePageSettings(update, memory, { workspace: "/home/dev/other" })).toThrow(/askOnQuit, lastAgentFolder and layout/);
-  // A layout that couldn't be held as JSON is refused, so it can't block later reads.
-  expect(() => savePageSettings(update, memory, { layout: { panes: 10n } })).toThrow(/settings change isn't valid/);
+  expect(() => savePageSettings(update, memory, { workspace: "/home/dev/other" })).toThrow(/askOnQuit, lastAgentFolder and shell/);
+  expect(() => savePageSettings(update, memory, { layout: { panes: 3 } })).toThrow(/askOnQuit, lastAgentFolder and shell/);
+  // A shell that couldn't be held as JSON is refused, so it can't block later reads.
+  expect(() => savePageSettings(update, memory, { shell: { panes: 10n } })).toThrow(/settings change isn't valid/);
 });
 
 test("one workspace's relative itemsRoot in a version 1 file costs only itself: the other workspaces and that workspace's layout stay", () => {

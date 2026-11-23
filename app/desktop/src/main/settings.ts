@@ -24,7 +24,10 @@ const SHARED = {
   zoomLevel: z.number().transform(clampZoom).default(0),
 };
 
-export const Settings = z.object({ version: z.literal(VERSION).default(VERSION), ...SHARED });
+/** The page's saved shell: JSON only, since a value that can't be held would block every later read. */
+const Shell = z.json();
+
+export const Settings = z.object({ version: z.literal(VERSION).default(VERSION), ...SHARED, shell: Shell.optional() });
 export type Settings = z.infer<typeof Settings>;
 
 /** One workspace root's settings in a version 1 file. */
@@ -186,8 +189,7 @@ export const upgradeSettings = async (
 export const RendererSettingsPatch = z.strictObject({
   askOnQuit: Settings.shape.askOnQuit.unwrap().exactOptional(),
   lastAgentFolder: z.string().exactOptional(),
-  // JSON only: a value that can't be held would block every later read.
-  layout: z.json().exactOptional(),
+  shell: Shell.exactOptional(),
 });
 export type RendererSettingsPatch = z.infer<typeof RendererSettingsPatch>;
 
@@ -207,19 +209,19 @@ export type PatchMatches<Page, Patch> = [keyof Page] extends [keyof Patch]
 export const RENDERER_PATCH_MATCHES: PatchMatches<RendererSettings, z.infer<typeof RendererSettingsPatch>> = true;
 
 /**
- * The page's own settings that version 2 doesn't save (no folder, no layout): main holds them while it runs, so a
- * reloaded page gets them back, and they're gone at the next start.
+ * The page's own settings that version 2 doesn't save (no folder): main holds them while it runs, so a reloaded page
+ * gets them back, and they're gone at the next start.
  */
-export type PageMemory = Pick<RendererSettings, "lastAgentFolder" | "layout">;
+export type PageMemory = Pick<RendererSettings, "lastAgentFolder">;
 
 /** The settings the page sees. */
 export const rendererSettings = (settings: Settings, memory: PageMemory): RendererSettings => ({
   askOnQuit: settings.askOnQuit,
   ...(memory.lastAgentFolder === undefined ? {} : { lastAgentFolder: memory.lastAgentFolder }),
-  ...(memory.layout === undefined ? {} : { layout: memory.layout }),
+  ...(settings.shell === undefined ? {} : { shell: settings.shell }),
 });
 
-/** "askOnQuit, lastAgentFolder and layout": the fields the page may change, for the refusal. */
+/** "askOnQuit, lastAgentFolder and shell": the fields the page may change, for the refusal. */
 const PATCH_FIELDS = new Intl.ListFormat("en-GB", { type: "conjunction" }).format(Object.keys(RendererSettingsPatch.shape));
 
 /** A change from the page that doesn't fit; its message is safe to show the page. */
@@ -233,8 +235,8 @@ export const parseRendererPatch = (patch: unknown): RendererSettingsPatch => {
 };
 
 /**
- * Applies the page's `patch`: its askOnQuit saved through `update` (the workspace control's), the rest kept in
- * `memory`. A save that fails is logged here in full and rejected with a message that names no path (the error
+ * Applies the page's `patch`: its askOnQuit and shell saved through `update` (the workspace control's), the rest kept
+ * in `memory`. A save that fails is logged here in full and rejected with a message that names no path (the error
  * itself names the settings file); `memory` changes only once the save went through.
  */
 export const savePageSettings = (
@@ -243,10 +245,11 @@ export const savePageSettings = (
   patch: unknown,
   log: (line: string) => void = console.error,
 ): PageMemory => {
-  const { askOnQuit, ...rest } = parseRendererPatch(patch);
-  if (askOnQuit !== undefined) {
+  const { askOnQuit, shell, ...rest } = parseRendererPatch(patch);
+  const saved = { ...(askOnQuit === undefined ? {} : { askOnQuit }), ...(shell === undefined ? {} : { shell }) };
+  if (Object.keys(saved).length > 0) {
     try {
-      update((current) => ({ ...current, askOnQuit }));
+      update((current) => ({ ...current, ...saved }));
     } catch (error) {
       log(`Wombat couldn't save the settings: ${error instanceof Error ? error.message : String(error)}`);
       throw new Error("Wombat couldn't save the settings. Check that its settings folder is yours and writable, then try again.", { cause: error });
