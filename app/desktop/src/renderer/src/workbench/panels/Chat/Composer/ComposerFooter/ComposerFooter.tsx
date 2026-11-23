@@ -22,9 +22,9 @@ type Props = {
 };
 
 /**
- * Under the message box: the agent's tool, then the harness's `settings` and `context` slots (its own, else the
- * defaults). For an agent without a process, the NotRunning indicator takes the `context` slot's place, whatever the
- * harness's own: the one owner of it.
+ * Under the message box: the harness's `settings` and `context` slots (its own, else the defaults). For an agent
+ * without a process, the NotRunning indicator takes the `context` slot's place, whatever the harness's own: the one
+ * owner of it.
  */
 export const ComposerFooter = ({ agent, options, usage, access = "running", onSet }: Props) => {
   const [failure, setFailure] = useState<string>();

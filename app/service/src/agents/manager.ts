@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { AgentErrorCode, ITEMS_ALERT, PROPOSAL_ALERT, WORKSPACES_ALERT, type AgentSummary } from "@wombat/shared/api";
+import { AgentErrorCode, ITEMS_ALERT, PROPOSAL_ALERT, WORKSPACES_ALERT, type AgentSummary, type Workspace } from "@wombat/shared/api";
 import { emptyFold } from "@wombat/shared/log-fold";
 
 import type { CacheState, Harness } from "../harness/harness.ts";
@@ -27,10 +27,10 @@ export type { Committed } from "./agent-record.ts";
 export type ManagerOptions = {
   store: Store;
   /**
-   * The root of a workspace by its id (`rootIn(store.getWorkspace)` in the service): an agent's repo is relative to its
+   * A workspace by its id (`workspaceIn(store.getWorkspace)` in the service): an agent's repo is relative to its
    * workspace's root and must resolve inside it. Throws `workspace_not_found` or `workspace_missing`.
    */
-  rootOf: (workspaceId: string) => string;
+  workspaceOf: (workspaceId: string) => Workspace;
   harnesses?: readonly Harness[];
   log?: Log;
   /** What each agent's environment is filtered from (see `agentEnv`). */
@@ -45,7 +45,7 @@ export type ManagerOptions = {
 
 export const createManager = ({
   store,
-  rootOf,
+  workspaceOf,
   harnesses = defaultHarnesses,
   log = logToStderr,
   env = process.env,
@@ -53,6 +53,7 @@ export const createManager = ({
   readInstructions,
   configSetTimeoutMs = CONFIG_SET_TIMEOUT_MS,
 }: ManagerOptions) => {
+  const rootOf = (workspaceId: string) => workspaceOf(workspaceId).root;
   let shuttingDown: Promise<void> | undefined;
   const isShuttingDown = () => shuttingDown !== undefined;
   const scopes = createScopes({ slice, env, log });
@@ -341,6 +342,7 @@ export const createManager = ({
     itemsCommitted,
     workspacesCommitted,
     liveCache,
+    workspaceOf,
     rootOf,
     agentFolder,
   };

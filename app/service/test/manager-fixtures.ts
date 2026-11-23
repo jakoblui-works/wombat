@@ -17,7 +17,7 @@ import { readInstructions } from "../src/items/instructions.ts";
 import type { Harness } from "../src/harness/harness.ts";
 import { openStore, type Store, type StoreOptions } from "../src/store/store.ts";
 import { workspaceOf } from "../src/store/workspaces.ts";
-import { rootIn } from "../src/workspace.ts";
+import { workspaceIn } from "../src/workspace.ts";
 import { SCENARIOS, type FakeScenario } from "./fake-agent.ts";
 import { fakeHarness, type FakeHarnessOptions } from "./fake-harness.ts";
 import { fakeSystemd, type FakeSystemd, type FakeSystemdOptions } from "./fake-systemd.ts";
@@ -36,9 +36,9 @@ export type { Committed };
 
 const RECORD_PID = pathToFileURL(join(import.meta.dirname, "record-pid.ts")).href;
 
-/** The manager's `rootOf` for one workspace, WORKSPACE at `root`, without a store holding it. */
-export const rootOfOne = (root: string) =>
-  rootIn((id) => (id === WORKSPACE ? workspaceOf({ id, root, items_root: null }, isFolder) : undefined));
+/** The manager's `workspaceOf` for one workspace, WORKSPACE at `root`, without a store holding it. */
+export const workspaceOfOne = (root: string) =>
+  workspaceIn((id) => (id === WORKSPACE ? workspaceOf({ id, root, items_root: null }, isFolder) : undefined));
 
 /** The fake agent on `scenario`, with id `fake-<scenario>`, recording its pid in `pidDir`. */
 export const trackedHarness = (scenario: FakeScenario, pidDir: string, options: FakeHarnessOptions = {}): Harness => {
@@ -176,7 +176,7 @@ export const setup = ({ systemd = "none", fake, storeOptions = {}, configSetTime
   const make = (store: Store) => {
     const manager = createManager({
       store,
-      rootOf: rootOfOne(root),
+      workspaceOf: workspaceOfOne(root),
       harnesses,
       log: (event: string, fields: LogLine["fields"]) => logs.push({ event, fields }),
       env,

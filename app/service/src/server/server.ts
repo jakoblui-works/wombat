@@ -147,7 +147,7 @@ export const startServer = async ({
   workspaceRoutes(app, { store, workspacesCommitted: manager.workspacesCommitted, ...(items === undefined ? {} : { items }) });
 
   app.get("/workspaces/:ws/repos", (c) =>
-    c.json({ repos: listRepos(manager.rootOf(c.req.param("ws"))) } satisfies ResponseOf<typeof ROUTES.listRepos>),
+    c.json({ repos: listRepos(manager.workspaceOf(c.req.param("ws"))) } satisfies ResponseOf<typeof ROUTES.listRepos>),
   );
 
   app.get("/agents", (c) =>

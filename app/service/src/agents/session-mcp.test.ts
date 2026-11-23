@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { describe, expect, onTestFinished, test } from "vitest";
 
 import { fakeHarness } from "../../test/fake-harness.ts";
-import { rootOfOne, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
+import { TEST_TIMEOUT_MS, waitFor, workspaceOfOne } from "../../test/manager-fixtures.ts";
 import { WORKSPACE } from "../../test/store-fixtures.ts";
 import { claudeCode } from "../harness/claude-code.ts";
 import type { Harness } from "../harness/harness.ts";
@@ -43,7 +43,7 @@ const startResumable = async () => {
   const instructions = { now: "Bakery site: keep the opening hours in one place." };
   const manager = createManager({
     store,
-    rootOf: rootOfOne(workspace),
+    workspaceOf: workspaceOfOne(workspace),
     harnesses: [harness],
     log: () => undefined,
     env: { ...process.env, PATH: join(base, "bin") },

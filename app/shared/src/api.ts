@@ -19,10 +19,16 @@ export { newWorkspaceId, WorkspaceId } from "./workspace-id.ts";
 const Seq = z.int().nonnegative();
 const DbId = z.string().min(1);
 
-/** `"."` (the workspace root) or relative segments: no absolute, `..`, `.`, empty segments, backslashes or control characters. */
+/** The repo path of the workspace root itself. */
+export const ROOT_REPO = ".";
+
+/** A repo path's name: the workspace root is named after its workspace, any other repo by its path. */
+export const repoName = (path: string, workspace: Pick<Workspace, "name">): string => (path === ROOT_REPO ? workspace.name : path);
+
+/** The workspace root or relative segments: no absolute, `..`, `.`, empty segments, backslashes or control characters. */
 const isRepoPath = (path: string) =>
   [...path].every((char) => char >= " ") &&
-  (path === "." ||
+  (path === ROOT_REPO ||
     path
       .split("/")
       .every((segment) => segment !== "" && segment !== "." && segment !== ".." && !segment.includes("\\")));

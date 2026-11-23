@@ -1,9 +1,4 @@
-import type { AgentSummary, Workspace } from "@wombat/shared/api";
-
-const ROOT = ".";
-
-/** A repo path's name: the workspace root (`"."`) is named after its workspace. */
-export const repoName = (path: string, workspace: Pick<Workspace, "name">): string => (path === ROOT ? workspace.name : path);
+import { repoName, ROOT_REPO, type AgentSummary, type Workspace } from "@wombat/shared/api";
 
 /** How much of an agent id a title shows when there's nothing better. */
 const SHORT_ID_LENGTH = 8;
@@ -20,7 +15,7 @@ export const agentTitle = (
 ): string => {
   if (agent?.title !== undefined) return agent.title;
   if (agent === undefined) return agentId.slice(0, SHORT_ID_LENGTH);
-  if (agent.repo !== ROOT) return agent.repo;
+  if (agent.repo !== ROOT_REPO) return agent.repo;
   const workspace = workspaces?.find(({ id }) => id === agent.workspace);
   return workspace === undefined ? agentId.slice(0, SHORT_ID_LENGTH) : repoName(agent.repo, workspace);
 };

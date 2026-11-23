@@ -1,4 +1,4 @@
-// Each agent's message box lives outside its chat (one chat is mounted at a time): a first message the New agent dialog
+// Each agent's message box lives outside its chat (one chat is mounted at a time): a first message the empty chat
 // couldn't send opens in it as a failed send, once; a send that settles after its chat was switched away lands in it.
 import { expect, test } from "vitest";
 

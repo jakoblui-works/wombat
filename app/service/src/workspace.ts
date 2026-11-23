@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, realpathSync, statSync } from "node:fs";
-import { basename, join, resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 
-import { RepoErrorCode, WorkspaceErrorCode, type Workspace } from "@wombat/shared/api";
+import { repoName, RepoErrorCode, ROOT_REPO, WorkspaceErrorCode, type Workspace } from "@wombat/shared/api";
 
 /** A repo path that doesn't name a folder inside the workspace. */
 export class RepoError extends Error {
@@ -61,23 +61,23 @@ export const agentRepoGone = (code: RepoErrorCode, root: string, repo: string) =
 };
 
 /**
- * The root of workspace `id` as `getWorkspace` holds it: `workspace_not_found` for an id it doesn't hold,
- * `workspace_missing` while the root isn't an existing folder.
+ * Workspace `id` as `getWorkspace` holds it: `workspace_not_found` for an id it doesn't hold, `workspace_missing`
+ * while the root isn't an existing folder.
  */
-export const rootIn =
+export const workspaceIn =
   (getWorkspace: (id: string) => Workspace | undefined) =>
-  (id: string): string => {
+  (id: string): Workspace => {
     const workspace = getWorkspace(id);
     if (workspace === undefined) throw workspaceNotFound(id);
     if (workspace.missing) throw workspaceMissing(workspace.root);
-    return workspace.root;
+    return workspace;
   };
 
 /** True when `path` is `root` or inside it; both real paths. A plain prefix check would let `ws-evil` pass for `ws`. */
 export const isWithin = (root: string, path: string) =>
   path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
 
-/** The workspace root's real path; `workspace_missing` when it doesn't exist (it may go after `rootIn` saw it). */
+/** The workspace root's real path; `workspace_missing` when it doesn't exist (it may go after `workspaceIn` saw it). */
 const realRoot = (workspaceRoot: string): string => {
   try {
     return realpathSync(workspaceRoot);
@@ -120,16 +120,16 @@ export const resolveRepo = (workspaceRoot: string, repo: string): string => {
 export type WorkspaceRepo = { path: string; name: string };
 
 /**
- * The folders an agent may start in: the workspace root first (named after its folder), then the root's immediate
+ * The folders an agent may start in: the workspace root first (named after the workspace), then the root's immediate
  * subdirectories holding a `.git`, sorted by name. Hidden directories and symlinks (a link to a repo inside would
  * list it twice, one to outside leads out) are left out, so every path listed is one `resolveRepo` accepts.
  */
-export const listRepos = (workspaceRoot: string): WorkspaceRepo[] => {
-  realRoot(workspaceRoot);
-  const root = resolve(workspaceRoot);
+export const listRepos = (workspace: Pick<Workspace, "root" | "name">): WorkspaceRepo[] => {
+  realRoot(workspace.root);
+  const root = resolve(workspace.root);
   const names = readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.name.startsWith(".") && existsSync(join(root, entry.name, ".git")))
     .map((entry) => entry.name)
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return [{ path: ".", name: basename(root) }, ...names.map((name) => ({ path: name, name }))];
+  return [ROOT_REPO, ...names].map((path) => ({ path, name: repoName(path, workspace) }));
 };

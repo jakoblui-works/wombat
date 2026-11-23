@@ -15,7 +15,7 @@ export const useHarnesses = () => useQuery(harnessesQuery());
 
 export const useWorkspaces = () => useQuery(workspacesQuery());
 
-/** Workspace `ws`'s folders an agent may start in; read again each time the caller mounts (the New agent dialog opening). */
+/** Workspace `ws`'s folders an agent may start in; read again each time the caller mounts (the empty chat showing). */
 export const useRepos = (ws: string | undefined) => useQuery({ ...reposQuery(ws ?? NONE), enabled: ws !== undefined, refetchOnMount: "always" });
 
 export const useProposals = () => useQuery(proposalsQuery());

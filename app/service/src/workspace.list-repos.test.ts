@@ -1,10 +1,10 @@
-// The folders the New agent dialog offers come from one place, `listRepos`, and
+// The folders the composer bar offers come from one place, `listRepos`, and
 // it offers only what an agent may start in: the workspace root, then the root's own git repos by name. A hidden
 // folder, a folder that isn't a repo, a repo nested deeper and anything reached through a symlink are never offered,
 // and every folder offered is one `resolveRepo` accepts.
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 
 import { afterEach, expect, test } from "vitest";
 
@@ -45,10 +45,10 @@ test("the root first, then the root's own git repos sorted by name; nothing hidd
   repo(join(base, "outside-repo"));
   symlinkSync(join(base, "outside-repo"), join(root, "outside-link"));
 
-  const listed = listRepos(root);
+  const listed = listRepos({ root, name: "bakery" });
 
   expect(listed).toEqual([
-    { path: ".", name: basename(root) },
+    { path: ".", name: "bakery" },
     { path: "alpha-site", name: "alpha-site" },
     { path: "menu-api", name: "menu-api" },
     { path: "zeta-shop", name: "zeta-shop" },

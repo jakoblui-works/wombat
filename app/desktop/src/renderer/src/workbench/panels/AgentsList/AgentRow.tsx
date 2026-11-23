@@ -1,4 +1,4 @@
-import type { AgentSummary } from "@wombat/shared/api";
+import { ROOT_REPO, type AgentSummary } from "@wombat/shared/api";
 import { Ellipsis, GitBranch } from "lucide-react";
 import { useState } from "react";
 
@@ -41,7 +41,7 @@ export const AgentRow = ({ agent, now, selected, onOpen }: Props) => {
       >
         <AgentHeadLine state={agent.state} title={title} ago={ago(agent.lastUserAt ?? agent.startedAt, now)} />{" "}
         <span className={cn("flex w-full min-w-0 items-center gap-1.5 font-mono text-xs text-fg-tertiary", UNDER_TITLE)}>
-          {agent.repo === "." ? null : <span className="min-w-0 shrink-0 truncate">{agent.repo}</span>}
+          {agent.repo === ROOT_REPO ? null : <span className="min-w-0 shrink-0 truncate">{agent.repo}</span>}
           {agent.branch === undefined ? null : (
             <>
               {" "}

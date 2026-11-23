@@ -6,7 +6,7 @@ import { cn } from "../../../../lib/utils";
 import { useShell } from "../../../shell/ShellProvider.tsx";
 import { collapseBar } from "../../../shell/shell-state.ts";
 import { BAR_ROW, Host, Step } from "./ComposerBar.tsx";
-import { runningBarValues } from "./running-bar.ts";
+import { runningBarValues, type RunningBarValues } from "./running-bar.ts";
 
 const VALUE = "min-w-0 truncate px-2 text-sm text-fg-secondary";
 
@@ -27,38 +27,42 @@ const Chevron = ({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => 
   );
 };
 
+const Values = ({ values }: { values: RunningBarValues }) => (
+  <>
+    <Host />
+    {values.workspace === undefined ? null : (
+      <>
+        <Step />
+        <span className={VALUE}>{values.workspace}</span>
+      </>
+    )}
+    {values.repo === undefined ? null : (
+      <>
+        <Step />
+        <span className={VALUE}>{values.repo}</span>
+      </>
+    )}
+    {values.branch === undefined ? null : (
+      <span className="flex min-w-0 items-center gap-1 px-1 font-mono text-xs text-fg-tertiary">
+        <GitBranch aria-label="branch" className="size-3 shrink-0" />
+        <span className="truncate">{values.branch}</span>
+      </span>
+    )}
+    <span className={cn(VALUE, "ml-auto")}>{values.harness}</span>
+  </>
+);
+
 /** A running agent's composer bar: where it runs and on what, read-only; collapsed or not for every chat. */
 export const RunningBar = ({ agent }: { agent: AgentSummary }) => {
   const { state, change } = useShell();
   const workspaces = useWorkspaces();
   const harnesses = useHarnesses();
   const collapsed = state.barCollapsed;
-  const chevron = <Chevron collapsed={collapsed} onToggle={() => change((current) => collapseBar(current, !current.barCollapsed))} />;
-  if (collapsed) return <div className="flex justify-end pb-1.5">{chevron}</div>;
-  const values = runningBarValues(agent, workspaces.data?.workspaces, harnesses.data);
+  // One row in both states with the chevron in the same slot, so toggling keeps the same button and its focus.
   return (
-    <div className={BAR_ROW}>
-      <Host />
-      {values.workspace === undefined ? null : (
-        <>
-          <Step />
-          <span className={VALUE}>{values.workspace}</span>
-        </>
-      )}
-      {values.repo === undefined ? null : (
-        <>
-          <Step />
-          <span className={VALUE}>{values.repo}</span>
-        </>
-      )}
-      {values.branch === undefined ? null : (
-        <span className="flex min-w-0 items-center gap-1 px-1 font-mono text-xs text-fg-tertiary">
-          <GitBranch aria-label="branch" className="size-3 shrink-0" />
-          <span className="truncate">{values.branch}</span>
-        </span>
-      )}
-      <span className={cn(VALUE, "ml-auto")}>{values.harness}</span>
-      {chevron}
+    <div className={cn(BAR_ROW, "justify-end")}>
+      {collapsed ? null : <Values values={runningBarValues(agent, workspaces.data?.workspaces, harnesses.data)} />}
+      <Chevron collapsed={collapsed} onToggle={() => change((current) => collapseBar(current, !current.barCollapsed))} />
     </div>
   );
 };

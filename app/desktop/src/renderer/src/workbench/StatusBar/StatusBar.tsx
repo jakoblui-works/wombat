@@ -7,8 +7,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../../components/ui/popover";
+import { useWorkspaces } from "../../data/hooks.ts";
 import { useNow } from "../../lib/ago";
-import type { AgentSummary } from "@wombat/shared/api";
+import { agentTitle } from "../../lib/agent-title.ts";
+import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import { CONNECTION_STATES } from "../../lib/connection-state";
 import { serviceView, type ServiceTone } from "../../lib/service-view";
 import { cn } from "../../lib/utils";
@@ -24,18 +26,20 @@ const TONE_CLASS: Record<ServiceTone, string> = {
 
 /**
  * The row along the bottom of the app. Its service item shows the agent service (so nobody has one in the background
- * unknowingly), and opens a panel with Stop and Restart. What they say is serviceView's; `agents` is the agents list,
- * undefined until read.
+ * unknowingly), and opens a panel with Stop and Restart. What they say is serviceView's; `agents` and `workspaces` are
+ * the service's lists, undefined until read.
  */
 export const StatusBar = ({
   connection,
   agents,
+  workspaces,
   now,
   onStop,
   onRestart,
 }: {
   connection: ConnectionState;
   agents: readonly AgentSummary[] | undefined;
+  workspaces: readonly Workspace[] | undefined;
   now: number;
   onStop: () => void;
   onRestart: () => void;
@@ -91,7 +95,7 @@ export const StatusBar = ({
             {panel.agents !== undefined && panel.agents.length > 0 ? (
               <ul className="list-disc pl-5 text-fg-secondary">
                 {panel.agents.map((agent) => (
-                  <li key={agent.id}>{agent.title ?? agent.repo}</li>
+                  <li key={agent.id}>{agentTitle(agent.id, agent, workspaces)}</li>
                 ))}
               </ul>
             ) : null}
@@ -139,6 +143,7 @@ export const LiveStatusBar = ({
   <StatusBar
     connection={connection}
     agents={agents}
+    workspaces={useWorkspaces().data?.workspaces}
     now={useNow()}
     onStop={() => runLogged("service.stop")}
     onRestart={() => runLogged("service.restart")}

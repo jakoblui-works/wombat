@@ -17,7 +17,7 @@ import type { ApproveStep } from "./proposals/apply.ts";
 import { startServer } from "./server/server.ts";
 import { LockHeld, takeStartLock } from "./start-lock.ts";
 import { openStore, type Store } from "./store/store.ts";
-import { rootIn } from "./workspace.ts";
+import { workspaceIn } from "./workspace.ts";
 
 export type MainOptions = {
   /** Default process.env. */
@@ -150,7 +150,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
     workspaceItems = items;
     manager = createManager({
       store,
-      rootOf: rootIn(store.getWorkspace),
+      workspaceOf: workspaceIn(store.getWorkspace),
       harnesses,
       log,
       env,

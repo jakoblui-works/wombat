@@ -1,7 +1,5 @@
 // What a running agent's composer bar shows, pure.
-import type { AgentSummary, ListHarnessesResponse, Workspace } from "@wombat/shared/api";
-
-import { repoName } from "../../../../lib/agent-title.ts";
+import { repoName, type AgentSummary, type ListHarnessesResponse, type Workspace } from "@wombat/shared/api";
 
 /** The harness's listed name, else its id (unlisted, or the list is still loading). */
 export const harnessName = (harnesses: ListHarnessesResponse | undefined, id: string): string => harnesses?.find((listed) => listed.id === id)?.name ?? id;

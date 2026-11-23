@@ -1,10 +1,10 @@
-import { useQueryClient } from "@tanstack/react-query";
 import type { ListHarnessesResponse, Workspace } from "@wombat/shared/api";
 import { ChevronRight, Monitor } from "lucide-react";
 
 import { cn } from "../../../../lib/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../../../components/ui/select";
-import { openFolderOrTell } from "../../../commands/open-folder.ts";
+import { runLogged } from "../../../commands/registry.ts";
+import { WORKBENCH_COMMAND } from "../../../commands/workbench-commands.ts";
 import type { Repo } from "./bar-picks.ts";
 
 // Not a workspace id (those are `ws-` and ten letters or digits), so it never stands for one.
@@ -37,7 +37,6 @@ export const Host = () => (
 
 /** Where a new agent starts and on what: the host, the workspace (or a folder opened as one), the repo, the harness. */
 export const ComposerBar = ({ workspaces, workspace, onWorkspace, repos, repo, onRepo, harnesses, harness, onHarness }: Props) => {
-  const queryClient = useQueryClient();
   return (
     <div className={BAR_ROW}>
       <Host />
@@ -45,7 +44,7 @@ export const ComposerBar = ({ workspaces, workspace, onWorkspace, repos, repo, o
       <Select
         value={workspace?.id ?? null}
         onValueChange={(value) => {
-          if (value === OPEN_FOLDER) void openFolderOrTell(queryClient, onWorkspace);
+          if (value === OPEN_FOLDER) runLogged(WORKBENCH_COMMAND.openFolder);
           else if (value !== null) onWorkspace(value);
         }}
         items={workspaces.map(({ id, name }) => ({ value: id, label: name }))}
