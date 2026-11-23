@@ -2,8 +2,8 @@
 import type { DockviewApi, IDockviewPanel } from "dockview-react";
 
 import type { ActivityDescriptor } from "../registry.ts";
-import { setNewAgentDialogOpen } from "./new-agent-dialog.ts";
 import { closeEmptyGroup, splitEmpty, type SplitDirection } from "../tabs.ts";
+import { wantNewChatFocus } from "./new-chat-focus.ts";
 import { commands, registerCommand } from "./registry.ts";
 
 export type WorkbenchCommandDeps = {
@@ -11,6 +11,8 @@ export type WorkbenchCommandDeps = {
   api: () => DockviewApi | undefined;
   activities: readonly ActivityDescriptor[];
   showActivity: (id: string) => void;
+  /** New Agent: shows the empty chat on the shown workspace; without it (the old workbench) the command isn't registered. */
+  newAgent?: () => void;
   /** Hides or shows the left sidebar; without it (the old workbench) the toggle isn't registered. */
   toggleLeftSidebar?: () => void;
   /** Whether the connection banner has made the panels inert: no key may change them then. */
@@ -63,6 +65,7 @@ export const registerWorkbenchCommands = ({
   api,
   activities,
   showActivity,
+  newAgent,
   toggleLeftSidebar,
   blocked,
   restartService,
@@ -73,12 +76,19 @@ export const registerWorkbenchCommands = ({
 }: WorkbenchCommandDeps): (() => void) => {
   const unblocked = () => !blocked();
   const unregister = [
-    registerCommand({
-      id: WORKBENCH_COMMAND.newAgent,
-      title: "New Agent…",
-      when: unblocked,
-      run: () => setNewAgentDialogOpen(true),
-    }),
+    ...(newAgent === undefined
+      ? []
+      : [
+          registerCommand({
+            id: WORKBENCH_COMMAND.newAgent,
+            title: "New Agent…",
+            when: unblocked,
+            run: () => {
+              newAgent();
+              wantNewChatFocus();
+            },
+          }),
+        ]),
     registerCommand({ id: WORKBENCH_COMMAND.openFolder, title: "Open Folder…", when: unblocked, run: openFolder }),
     registerCommand({ id: WORKBENCH_COMMAND.chooseItemsFolder, title: "Choose Items Folder…", when: unblocked, run: chooseItemsFolder }),
     registerCommand({

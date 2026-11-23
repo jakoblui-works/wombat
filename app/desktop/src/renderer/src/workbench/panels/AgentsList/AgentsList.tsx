@@ -7,16 +7,15 @@ import { Collapse } from "../../../components/ui/collapse";
 import { ScrollArea } from "../../../components/ui/scroll-area";
 import { useNow } from "../../../lib/ago";
 import { useAgents, useWorkspaces } from "../../../data/hooks.ts";
-import { useNewAgentDialog } from "../../commands/new-agent-dialog.ts";
+import { runLogged } from "../../commands/registry.ts";
+import { WORKBENCH_COMMAND } from "../../commands/workbench-commands.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { collapseGroup, expandShownAgent, isCollapsed } from "../../agents/collapsed-groups.ts";
 import { useOpenAgent } from "../../agents/open-agent-chat.ts";
-import { newChat } from "../../shell/shell-state.ts";
-import { useShell, useShownWorkspace } from "../../shell/ShellProvider.tsx";
+import { useShell } from "../../shell/ShellProvider.tsx";
 import { AgentsError } from "../../approvals/LogError/LogError.tsx";
 import { AgentRow } from "./AgentRow.tsx";
 import { groupAgents } from "./group-agents.ts";
-import { NewAgentDialog } from "./NewAgentDialog.tsx";
 
 const NO_AGENTS = "No agents yet";
 
@@ -66,9 +65,7 @@ const WorkspaceGroup = ({ workspace, agents, now }: GroupProps) => {
 export const AgentsList = () => {
   const agents = useAgents();
   const { state, change } = useShell();
-  const shown = useShownWorkspace();
   const now = useNow();
-  const [creating, setCreating] = useNewAgentDialog();
   const workspaces = useWorkspaces();
 
   const list = agents.data?.agents;
@@ -86,7 +83,7 @@ export const AgentsList = () => {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <SidebarHeader title="Agents" {...(groups === undefined ? {} : { count: groups.reduce((sum, group) => sum + group.agents.length, 0) })}>
-        <Button variant="secondary" size="sm" onClick={() => change((current) => newChat(current, shown?.id))}>
+        <Button variant="secondary" size="sm" onClick={() => runLogged(WORKBENCH_COMMAND.newAgent)}>
           <Plus />
           New
         </Button>
@@ -114,7 +111,6 @@ export const AgentsList = () => {
           </div>
         </ScrollArea>
       )}
-      <NewAgentDialog open={creating} onOpenChange={setCreating} />
     </div>
   );
 };

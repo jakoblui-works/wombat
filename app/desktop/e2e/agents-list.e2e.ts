@@ -1,8 +1,8 @@
 // The Agents sidebar and New agent, against the built app and the fake agents (app-fixtures.ts).
 // What this check relies on in the page (roles and names, not looks; the approved design's structure):
 // - the title bar's `menubar` has a `menuitem` "File" whose `menu` holds a `menuitem` "New Agent…";
-// - New agent opens a `dialog` with a folder pick (a `combobox` named "Folder" whose `option`s are the folders by
-//   name), one `textbox` for the first message, and a button "Start";
+// - New agent shows the empty chat in `main`: a repo pick (a `combobox` named "Repo" whose `option`s are the folders by
+//   name), one `textbox` for the first message, and a button "Send";
 // - the left sidebar `complementary` "Agents" groups rows in `region`s named by their workspace's name; a row's
 //   main part is a button naming the agent (its title, else its repo), and beside it a button "Agent actions" opens
 //   a `menu` with the `menuitem`s "Stop" (while it runs) and "Delete"; the row's state mark is labelled by the
@@ -40,14 +40,13 @@ test.describe("Agents sidebar and New agent", () => {
     // Start: the folder pick lists the root and REPO (from the service, through main's allow-list); pick REPO.
     await click(page.getByRole("menubar").getByRole("menuitem", { name: "File", exact: true }));
     await click(page.getByRole("menu").getByRole("menuitem", { name: "New Agent…", exact: true }));
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    await click(dialog.getByRole("combobox", { name: "Folder" }));
+    const empty = page.getByRole("main");
+    await click(empty.getByRole("combobox", { name: "Repo" }));
     await expect(page.getByRole("option", { name: path.basename(sandbox.workspace), exact: true })).toBeVisible();
     await click(page.getByRole("option", { name: REPO, exact: true }));
-    await dialog.getByRole("textbox").fill("Say hello to the bakery.");
-    await click(dialog.getByRole("button", { name: "Start", exact: true }));
-    await expect(dialog).toBeHidden();
+    await empty.getByRole("textbox").fill("Say hello to the bakery.");
+    await click(empty.getByRole("button", { name: "Send", exact: true }));
+    await expect(empty.getByRole("heading", { level: 2 })).toBeVisible({ timeout: WAIT_MS });
 
     // One agent, started in REPO with the first harness; the folder is remembered for next time.
     const [agentId] = await waitUntil("the started agent", WAIT_MS, async () => {

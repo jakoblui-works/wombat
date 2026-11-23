@@ -1,6 +1,6 @@
 // Each agent's message box, kept outside it: its text, a send's error and the reference survive the chat not showing,
-// and a send under way settles here even when no box shows. Also what is handed to the box from outside it: the New
-// agent dialog's first message when it wasn't sent, and the proposal Ask for changes puts above it.
+// and a send under way settles here even when no box shows. Also what is handed to the box from outside it: the empty
+// chat's first message when the started agent didn't take it, and the proposal Ask for changes puts above it.
 import { useSyncExternalStore } from "react";
 
 import {
@@ -13,15 +13,26 @@ import {
   isEmptyEntry,
 } from "./composer-state.ts";
 
+/** The key the empty chat's message box is kept under, beside the agents' ids (which never take it). */
+export const NEW_CHAT_BOX = "new-chat";
+
+/** The empty chat's composer bar picks: the repo picked in each workspace, by workspace id, and the harness picked. */
+export type NewChatPicks = { repos: Readonly<Record<string, string>>; harness?: string };
+
 const entries = new Map<string, ComposerEntry>();
+let newChatPicks: NewChatPicks = { repos: {} };
 const listeners = new Set<() => void>();
+
+const notify = (): void => {
+  for (const listener of [...listeners]) listener();
+};
 
 const entryOf = (agentId: string): ComposerEntry => entries.get(agentId) ?? EMPTY_ENTRY;
 
 const put = (agentId: string, entry: ComposerEntry): void => {
   if (isEmptyEntry(entry)) entries.delete(agentId);
   else entries.set(agentId, entry);
-  for (const listener of [...listeners]) listener();
+  notify();
 };
 
 const subscribe = (listener: () => void): (() => void) => {
@@ -30,6 +41,18 @@ const subscribe = (listener: () => void): (() => void) => {
 };
 
 export const composerEvent = (agentId: string, event: ComposerEntryEvent): void => put(agentId, composerEntryReducer(entryOf(agentId), event));
+
+export const useNewChatPicks = (): NewChatPicks => useSyncExternalStore(subscribe, () => newChatPicks);
+
+export const pickNewChatRepo = (workspace: string, path: string): void => {
+  newChatPicks = { ...newChatPicks, repos: { ...newChatPicks.repos, [workspace]: path } };
+  notify();
+};
+
+export const pickNewChatHarness = (harness: string): void => {
+  newChatPicks = { ...newChatPicks, harness };
+  notify();
+};
 
 /** The agent's message box and reference, as kept; re-renders on every change to them. */
 export const useComposerEntry = (agentId: string): ComposerEntry => useSyncExternalStore(subscribe, () => entryOf(agentId));

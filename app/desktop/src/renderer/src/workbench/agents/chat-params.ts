@@ -8,6 +8,9 @@ export const ChatParams = z.object({ agentId: z.string() });
 /** The chat panel's id: its registration and every tab opened on it. */
 export const CHAT_PANEL = "chat";
 
+/** The empty chat's panel id: the middle shows it while no agent is open. */
+export const NEW_CHAT_PANEL = "new-chat";
+
 const MESSAGE_BOX_ATTRIBUTE = "data-message-box";
 
 /** Marks the chat's message box, for `MESSAGE_BOX` to find. */

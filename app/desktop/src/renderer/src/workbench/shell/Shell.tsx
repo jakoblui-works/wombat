@@ -3,16 +3,16 @@ import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 
 import { cn } from "@/lib/utils";
 import { useAgents, useProposals, useWorkspaces } from "../../data/hooks.ts";
-import { chooseItemsFolder, openFolder } from "../../data/shown-workspace.ts";
+import { chooseItemsFolder } from "../../data/shown-workspace.ts";
 import { asError, asSentence } from "../../lib/errors.ts";
 // Registers the panels (the chat's among them) and the harnesses' UI.
 import "../activities.ts";
 import { AGENTS_PANEL, NEEDS_ME_PANEL } from "../activity-ids.ts";
-import { CHAT_PANEL, MESSAGE_BOX } from "../agents/chat-params.ts";
+import { CHAT_PANEL, MESSAGE_BOX, NEW_CHAT_PANEL } from "../agents/chat-params.ts";
 import { chatRevealKey, useOpenAgentChat } from "../agents/open-agent-chat.ts";
+import { openFolderOrTell } from "../commands/open-folder.ts";
 import { registerWorkbenchCommands } from "../commands/workbench-commands.ts";
 import { ConnectionBanner } from "../ConnectionBanner/ConnectionBanner.tsx";
-import { EmptyState } from "../EmptyState/EmptyState.tsx";
 import { LiveLaunchNotice } from "../LaunchNotice/LaunchNotice.tsx";
 import type { OpenAgents } from "../open-agents.ts";
 import { activities, getPanel } from "../registry.ts";
@@ -26,7 +26,7 @@ import { RightSidebar } from "./RightSidebar/RightSidebar.tsx";
 import { requestClose, shellTabActions } from "./RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "./RightSidebar/tab-titles.ts";
 import { useCommandKeys, useServiceChrome } from "./service-chrome.ts";
-import { clampWidth, hideLeftSidebar, LEFT_START_WIDTH, leftBounds, middleView, rightView, showActivity as showActivityIn, shownTab, showWorkspace } from "./shell-state.ts";
+import { clampWidth, hideLeftSidebar, LEFT_START_WIDTH, leftBounds, middleView, newChat, rightView, showActivity as showActivityIn, shownTab, showWorkspace } from "./shell-state.ts";
 import { ShellProvider, useShell, useShownWorkspace } from "./ShellProvider.tsx";
 import { Toolbar } from "./Toolbar/Toolbar.tsx";
 
@@ -65,7 +65,8 @@ const Middle = ({ reveals }: { reveals: Reveals }) => {
   const view = middleView(state, useAgents().data?.agents);
   // Keyed by the agent, so each agent's chat starts from its own state.
   if (view.show === "chat") return <ShownChat key={view.agentId} agentId={view.agentId} reveals={reveals} />;
-  return <EmptyState symbol title="No agent open" body="Open an agent from the list, or start a new one." />;
+  const NewChat = getPanel(NEW_CHAT_PANEL)?.component;
+  return NewChat === undefined ? null : <NewChat params={{}} />;
 };
 
 /** Main's open-agent requests (a notification's click), once the agents list is read, so an unlisted id opens nothing. */
@@ -162,6 +163,7 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
         api: () => undefined,
         activities: activities(),
         showActivity,
+        newAgent: () => change((current) => newChat(current, shownRef.current)),
         toggleLeftSidebar: () => {
           if (!stateRef.current.leftHidden) {
             const inside = left.current?.contains(document.activeElement) === true;
@@ -178,9 +180,7 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
         restartService: () => restartRef.current(),
         openFolder: () =>
           // A folder already listed answers its workspace: shown as a Needs me row shows one, its open agent kept.
-          openFolder(queryClient, (id) => change((current) => showWorkspace(current, id, agentsRef.current, workspacesRef.current))).catch((error: unknown) =>
-            tell(`Wombat couldn't open the folder: ${asSentence(asError(error).message)}`),
-          ),
+          openFolderOrTell(queryClient, (id) => change((current) => showWorkspace(current, id, agentsRef.current, workspacesRef.current))),
         chooseItemsFolder: async () => {
           const workspace = shownRef.current;
           if (workspace === undefined) {

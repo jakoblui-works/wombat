@@ -8,7 +8,8 @@ import { NavigatorParams, registerActivity, registerPanel } from "./registry.ts"
 import { NAVIGATOR_WIDTH } from "./shell/shell-state.ts";
 import { AgentsList } from "./panels/AgentsList/AgentsList.tsx";
 import { Chat } from "./panels/Chat/Chat.tsx";
-import { CHAT_PANEL, ChatParams, chatResolves, chatTitle } from "./agents/chat-params.ts";
+import { CHAT_PANEL, ChatParams, chatResolves, chatTitle, NEW_CHAT_PANEL } from "./agents/chat-params.ts";
+import { NewChat } from "./panels/Chat/NewChat.tsx";
 import { Diff } from "./panels/Diff/Diff.tsx";
 import { DIFF_TITLE, DIFF_PANEL, DiffParams, diffResolves, diffRestores } from "./panels/Diff/diff-params.ts";
 import { NeedsMe } from "./panels/NeedsMe/NeedsMe.tsx";
@@ -22,6 +23,7 @@ const register = (): void => {
   // The shell places these itself, never as a tab or a navigator.
   registerPanel({ id: AGENTS_PANEL, title: "Agents", icon: List, locations: [], component: AgentsList });
   registerPanel({ id: CHAT_PANEL, title: chatTitle, icon: MessageSquare, locations: [], component: Chat, paramsSchema: ChatParams, resolves: chatResolves });
+  registerPanel({ id: NEW_CHAT_PANEL, title: "New agent", icon: MessageSquare, locations: [], component: NewChat });
   registerPanel({ id: NEEDS_ME_PANEL, title: "Needs me", icon: Inbox, locations: [], component: NeedsMe });
 
   registerPanel({
