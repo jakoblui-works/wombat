@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { cn } from "@/lib/utils";
 import { useAgents } from "../../data/hooks.ts";
@@ -23,12 +23,12 @@ import { LiveStatusBar } from "../StatusBar/StatusBar.tsx";
 import { type Reveals, revealStore, tabKey } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { tell, Toast } from "../Toast/Toast.tsx";
-import { WorkbenchContext, type WorkbenchContextValue } from "../workbench-context.ts";
+import { WorkbenchContext } from "../workbench-context.ts";
 import { RightSidebar } from "./RightSidebar/RightSidebar.tsx";
-import { requestClose, shellTabActions } from "./RightSidebar/tab-actions.ts";
+import { requestClose, shellWorkbench } from "./RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "./RightSidebar/tab-titles.ts";
 import { useCommandKeys, useServiceChrome } from "./service-chrome.ts";
-import { clampWidth, hideLeftSidebar, LEFT_START_WIDTH, leftBounds, middleView, newChat, rightView, showActivity as showActivityIn, shownTab } from "./shell-state.ts";
+import { clampWidth, hideLeftSidebar, LEFT_START_WIDTH, leftBounds, middleView, newChat, rightView, shownTab } from "./shell-state.ts";
 import { ShellProvider, useShell, useShownWorkspace } from "./ShellProvider.tsx";
 import { Toolbar } from "./Toolbar/Toolbar.tsx";
 import { useSavedShell } from "./use-saved-shell.ts";
@@ -126,21 +126,7 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
 
   const reveals = useMemo(revealStore, []);
   const titles = useMemo(tabTitleStore, []);
-  const showActivity = useCallback(
-    (activityId: string, workspace?: string) => {
-      const target = workspace ?? current().shown;
-      if (target !== undefined) change((state) => showActivityIn(state, target, activityId));
-    },
-    [change, current],
-  );
-  const workbench = useMemo<WorkbenchContextValue>(
-    () => ({
-      ...shellTabActions({ current, change, reveals, titles }),
-      reveals,
-      showActivity,
-    }),
-    [change, current, reveals, titles, showActivity],
-  );
+  const workbench = useMemo(() => shellWorkbench({ current, change, reveals, titles }), [change, current, reveals, titles]);
 
   useEffect(
     () =>

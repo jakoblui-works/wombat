@@ -8,10 +8,10 @@ import { keys } from "../../../data/keys.ts";
 import { createQueryClient } from "../../../data/query-client.ts";
 import "../../activities.ts";
 import { DESK_ACTIVITY } from "../../activity-ids.ts";
-import { shellTabActions } from "../../shell/RightSidebar/tab-actions.ts";
+import { fakeShell } from "../../shell/fake-shell.test-support.ts";
+import { shellWorkbench } from "../../shell/RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "../../shell/RightSidebar/tab-titles.ts";
-import { openTickets } from "../../shell/open-ticket.ts";
-import { activityStateOf, changeActivityState, emptyShell, rightView, type ShellState, showActivity, shownWorkspace } from "../../shell/shell-state.ts";
+import { activityStateOf, changeActivityState, rightView } from "../../shell/shell-state.ts";
 import { revealStore, tabKey } from "../../tabs.ts";
 import { previewName } from "../ItemPreview/item-preview.ts";
 import { ITEM_PANEL } from "../item-params.ts";
@@ -29,15 +29,8 @@ const item = fc.nat({ max: ITEMS - 1 });
 
 /** The workbench's tab actions on a shell state of their own, with no workspace shown. */
 const shellTabs = (reveals = revealStore()) => {
-  let state: ShellState = emptyShell;
-  const actions = shellTabActions({
-    current: () => ({ state, shown: undefined }),
-    change: (update) => {
-      state = update(state);
-    },
-    reveals,
-    titles: tabTitleStore(),
-  });
+  const { current, change } = fakeShell();
+  const actions = shellWorkbench({ current, change, reveals, titles: tabTitleStore() });
   return { actions, reveals };
 };
 
@@ -91,26 +84,22 @@ const page = () => {
   vi.stubGlobal("window", { wombat: { service: { request }, workspace: { get: () => Promise.resolve({ root: ws.root }) } } });
 
   // The view the follows land on: a shell state of the test's own, showing the apiary.
-  let state: ShellState = emptyShell;
-  const workspaces = [ws];
-  const now = () => ({ state, agents: [], proposals: [], workspaces, shown: shownWorkspace(state, [], workspaces) });
-  const { take, land, recheck } = openTickets(now);
+  const { current, change, tickets } = fakeShell({ workspaces: [ws] });
+  const { take, land } = tickets;
   const reveals = revealStore();
-  const actions = shellTabActions({
-    current: now,
-    change: (update) => {
-      state = update(state);
-      recheck();
-    },
-    reveals,
-    titles: tabTitleStore(),
-  });
+  const actions = shellWorkbench({ current, change, reveals, titles: tabTitleStore() });
   const shownActivities: string[] = [];
   const told: string[] = [];
   let desk: DeskLayout = DEFAULT_DESK;
   const queryClient = createQueryClient();
   const navigator: ItemNavigator = {
-    workbench: { ...actions, reveals, showActivity: (id) => shownActivities.push(id) },
+    workbench: {
+      ...actions,
+      showActivity: (id, workspace) => {
+        shownActivities.push(id);
+        actions.showActivity(id, workspace);
+      },
+    },
     queryClient,
     changeDesk: (change) => {
       desk = change(desk);
@@ -165,28 +154,25 @@ test.each<[string, Answer, Item | undefined, unknown[]]>([
 test("openBinder of another workspace opens that workspace's Desk on the binder and leaves the shown one's alone", async () => {
   const SHOWN = "ws-apiary0001";
   const OTHER = "ws-meadow0002";
-  let state: ShellState = emptyShell;
-  const change = (update: (state: ShellState) => ShellState): void => {
-    state = update(state);
-  };
-  const reveals = revealStore();
-  const actions = shellTabActions({ current: () => ({ state, shown: SHOWN }), change, reveals, titles: tabTitleStore() });
+  const listed = (id: string, name: string) => ({ id, name, root: `/invented/${name}`, missing: false });
+  // The first listed workspace is the shown one.
+  const { current, change, tickets } = fakeShell({ workspaces: [listed(SHOWN, "apiary"), listed(OTHER, "meadow")] });
   const queryClient = createQueryClient();
   for (const ws of [SHOWN, OTHER]) queryClient.setQueryData(keys.binders(ws), { binders: [] });
-  // As the shell wires it: a Desk change and an activity name their workspace, else the shown one's.
+  // As the shell wires it: a Desk change names its workspace.
   const navigator: ItemNavigator = {
-    workbench: { ...actions, reveals, showActivity: (id, ws) => change((current) => showActivity(current, ws ?? SHOWN, id)) },
+    workbench: shellWorkbench({ current, change, reveals: revealStore(), titles: tabTitleStore() }),
     queryClient,
-    changeDesk: (update, ws) => change((current) => changeActivityState(current, ws, DESK_ACTIVITY, (desk) => update(desk as DeskLayout))),
+    changeDesk: (update, ws) => change((before) => changeActivityState(before, ws, DESK_ACTIVITY, (desk) => update(desk as DeskLayout))),
     tell: () => undefined,
-    ...openTickets(() => ({ state, agents: [], proposals: [], workspaces: [], shown: SHOWN })),
+    ...tickets,
   };
-  const deskIn = (ws: string): DeskLayout => activityStateOf(state, ws, DESK_ACTIVITY) as DeskLayout;
+  const deskIn = (ws: string): DeskLayout => activityStateOf(current().state, ws, DESK_ACTIVITY) as DeskLayout;
 
   openBinder(navigator, OTHER, "hives");
 
   await vi.waitFor(() => expect(deskIn(OTHER).binderId).toBe("hives"));
-  expect(rightView(state, OTHER)).toEqual({ show: "navigator", activity: DESK_ACTIVITY });
+  expect(rightView(current().state, OTHER)).toEqual({ show: "navigator", activity: DESK_ACTIVITY });
   expect(deskIn(SHOWN)).toEqual(DEFAULT_DESK);
-  expect(rightView(state, SHOWN)).toEqual({ show: "closed" });
+  expect(rightView(current().state, SHOWN)).toEqual({ show: "closed" });
 });

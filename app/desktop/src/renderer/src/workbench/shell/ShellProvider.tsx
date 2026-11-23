@@ -29,12 +29,20 @@ const shownIn = (state: ShellState, agents: AgentSummary[] | undefined, workspac
   return workspaces?.find((workspace) => workspace.id === id);
 };
 
+/** What the page knows now, from the shell state and the lists as read. */
+export const shellNow = (
+  state: ShellState,
+  agents: AgentSummary[] | undefined,
+  proposals: readonly Proposal[] | undefined,
+  workspaces: readonly Workspace[] | undefined,
+): ShellNow => ({ state, agents, proposals, workspaces, shown: shownIn(state, agents, workspaces)?.id });
+
 export const ShellProvider = ({ initial = emptyShell, children }: { initial?: ShellState; children: ReactNode }) => {
   const [state, setState] = useState(initial);
   const agents = useAgents().data?.agents;
   const proposals = useProposals().data?.proposals;
   const workspaces = useWorkspaces().data?.workspaces;
-  const latest: ShellNow = { state, agents, proposals, workspaces, shown: shownIn(state, agents, workspaces)?.id };
+  const latest = shellNow(state, agents, proposals, workspaces);
   const now = useRef(latest);
   now.current = latest;
   const change = useCallback((update: (state: ShellState) => ShellState) => setState(update), []);
