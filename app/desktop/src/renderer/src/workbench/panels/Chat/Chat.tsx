@@ -5,7 +5,7 @@ import { ScrollArea } from "../../../components/ui/scroll-area";
 import { type ChatPart, type ChatModel } from "../../../data/chat-model.ts";
 import { useSetConfig } from "../../../data/commands.ts";
 import { useConnection, useHarnesses } from "../../../data/hooks.ts";
-import type { Reveal, PanelProps } from "../../registry.ts";
+import type { Reveal } from "../../registry.ts";
 import { useWorkbench } from "../../workbench-context.ts";
 import { DIFF_PANEL } from "../Diff/diff-params.ts";
 import { type EditRequest, editRequest } from "../../approvals/edit-request.ts";
@@ -14,7 +14,6 @@ import { usePlay } from "../../../lib/motion.ts";
 import { useReveal } from "../../../lib/use-reveal.ts";
 import { type Arrivals, NO_ARRIVALS, trackArrivals } from "./arrivals.ts";
 import { type ChatBlock, chatBlocks, streamingKey } from "./chat-blocks.ts";
-import { ChatParams } from "../../agents/chat-params.ts";
 import { featuresOrAssumed, useHarnessFeatures } from "../../../data/harness-features.ts";
 import { type LiveState, liveState } from "../../approvals/live-state.ts";
 import { sameBlock } from "./same-part.ts";
@@ -179,7 +178,7 @@ const Block = ({ block, live, edits, connected, answers, cards, fresh, streaming
 };
 
 /** One agent's chat: the plan pinned on top, the conversation, the message box at the bottom. */
-const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | undefined }) => {
+export const Chat = ({ agentId, reveal }: { agentId: string; reveal?: Reveal | undefined }) => {
   const { model, agent, log } = useChatModel(agentId);
   const connected = useConnection().state === "connected";
   const answers = useAnswer(agentId);
@@ -311,7 +310,3 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   );
 };
 
-export const Chat = ({ params, reveal }: PanelProps) => {
-  const parsed = ChatParams.safeParse(params);
-  return parsed.success ? <AgentChat agentId={parsed.data.agentId} reveal={reveal} /> : <p className="p-5 text-sm">This tab names no agent; close it.</p>;
-};

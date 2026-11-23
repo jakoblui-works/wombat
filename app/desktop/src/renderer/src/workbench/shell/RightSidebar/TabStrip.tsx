@@ -3,9 +3,8 @@ import { type KeyboardEvent, useEffect, useRef, useSyncExternalStore } from "rea
 
 import { cn } from "@/lib/utils";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "../../../components/ui/context-menu.tsx";
-import type { ResolveContext } from "../../registry.ts";
-import { closeGuards, tabKey } from "../../tabs.ts";
-import { activateTab, closeOtherTabs, keepTab, type TabEntry } from "../shell-state.ts";
+import { closeGuards, type TabEntry, tabKey } from "../../tabs.ts";
+import { activateTab, closeOtherTabs, keepTab } from "../shell-state.ts";
 import { useShell } from "../ShellProvider.tsx";
 import { requestClose } from "./tab-actions.ts";
 import { tabElementIds } from "./tab-ids.ts";
@@ -26,7 +25,6 @@ type StripTabProps = {
   active: boolean;
   shown: boolean;
   titles: TabTitles;
-  ctx: ResolveContext;
   onActivate: () => void;
   onKeep: () => void;
   onClose: () => void;
@@ -34,10 +32,10 @@ type StripTabProps = {
   onKey: (event: KeyboardEvent<HTMLDivElement>) => void;
 };
 
-const StripTab = ({ tab, ids, active, shown, titles, ctx, onActivate, onKeep, onClose, onCloseOthers, onKey }: StripTabProps) => {
+const StripTab = ({ tab, ids, active, shown, titles, onActivate, onKeep, onClose, onCloseOthers, onKey }: StripTabProps) => {
   const key = tabKey(tab.panelId, tab.params);
   const held = useSyncExternalStore(titles.subscribe, () => titles.get(key));
-  const title = tabTitle(tab, held, ctx);
+  const title = tabTitle(tab, held);
   const element = useRef<HTMLDivElement>(null);
   // Scrolling does nothing while the strip is hidden, and a longer title can push the close button past the edge.
   useEffect(() => {
@@ -95,7 +93,7 @@ const StripTab = ({ tab, ids, active, shown, titles, ctx, onActivate, onKeep, on
 };
 
 /** Workspace `workspace`'s tab strip. A close asks the tab's close guard first; Close others leaves tabs with unsaved edits open. */
-export const TabStrip = ({ workspace, strip, shown, titles, ctx }: { workspace: string; strip: string; shown: boolean; titles: TabTitles; ctx: ResolveContext }) => {
+export const TabStrip = ({ workspace, strip, shown, titles }: { workspace: string; strip: string; shown: boolean; titles: TabTitles }) => {
   const { state, change } = useShell();
   const shell = state.workspaces[workspace];
   const tabs = shell?.tabs ?? [];
@@ -128,7 +126,6 @@ export const TabStrip = ({ workspace, strip, shown, titles, ctx }: { workspace: 
             active={shell?.active === key}
             shown={shown}
             titles={titles}
-            ctx={ctx}
             onActivate={() => change((current) => activateTab(current, workspace, key))}
             onKeep={() => change((current) => keepTab(current, workspace, key))}
             onClose={() => requestClose(change, workspace, key)}

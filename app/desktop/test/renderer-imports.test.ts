@@ -2,8 +2,8 @@
 // A harness's desktop module is reached only through the footer slots. It is imported in
 // exactly one place, outside the panels (where panels are registered), and no panel imports from harnesses/ itself, so
 // the generic footer and dialogs never hold a tool's own UI.
-// The Desk's and the Item's panel folders never import from each other, and no shell or topic file imports from a
-// panel's folder.
+// The Desk's and the Item's panel folders never import from each other, and no shell or topic file but Shell.tsx
+// imports from a panel's folder.
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
@@ -70,10 +70,11 @@ test("the Desk's and the Item's panel folders never import from each other, test
   ).toEqual([]);
 });
 
-test("outside panels/, only activities.ts imports from a panel's folder", () => {
-  const outside = allSources(WORKBENCH).filter((file) => !within(PANELS, file) && file !== join(WORKBENCH, "activities.ts"));
+test("outside panels/, only activities.ts and shell/Shell.tsx import from a panel's folder", () => {
+  const allowed = [join(WORKBENCH, "activities.ts"), join(WORKBENCH, "shell", "Shell.tsx")];
+  const outside = allSources(WORKBENCH).filter((file) => !within(PANELS, file) && !allowed.includes(file));
   expect(
     importsInto(outside, PANELS),
-    "A workbench file outside panels/ imports from a panel's folder. Panels are named only in activities.ts, where they're registered; move what the file needs to workbench/<topic>/ and import it from there.",
+    "A workbench file outside panels/ imports from a panel's folder. Panels are named only in activities.ts, where the tabs' panels are registered, and shell/Shell.tsx, which places the fixed panels; move what the file needs to workbench/<topic>/ and import it from there.",
   ).toEqual([]);
 });

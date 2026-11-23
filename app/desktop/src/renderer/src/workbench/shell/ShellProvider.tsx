@@ -1,21 +1,65 @@
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
-import type { Workspace } from "@wombat/shared/api";
-import { useAgents, useWorkspaces } from "../../data/hooks.ts";
+import type { AgentSummary, Workspace } from "@wombat/shared/api";
+import type { Proposal } from "@wombat/shared/proposals";
+import { useAgents, useProposals, useWorkspaces } from "../../data/hooks.ts";
+import { OpenTicketContext, openTickets } from "./open-ticket.ts";
 import { emptyShell, type ShellState, shownWorkspace } from "./shell-state.ts";
 
-export type Shell = { state: ShellState; change: (update: (state: ShellState) => ShellState) => void };
+/** A list is undefined while unread. */
+export type ShellNow = {
+  state: ShellState;
+  agents: AgentSummary[] | undefined;
+  proposals: readonly Proposal[] | undefined;
+  workspaces: readonly Workspace[] | undefined;
+  shown: string | undefined;
+};
+
+export type Shell = {
+  state: ShellState;
+  change: (update: (state: ShellState) => ShellState) => void;
+  /** As of the latest render: a change queued in the same event isn't in it yet. */
+  current: () => ShellNow;
+};
 
 const ShellContext = createContext<Shell | undefined>(undefined);
 
-export const ShellProvider = ({ initial = emptyShell, children }: { initial?: ShellState; children: ReactNode }) => {
-  const [state, setState] = useState(initial);
-  const change = useCallback((update: (state: ShellState) => ShellState) => setState(update), []);
-  const value = useMemo(() => ({ state, change }), [state, change]);
-  return <ShellContext value={value}>{children}</ShellContext>;
+const shownIn = (state: ShellState, agents: AgentSummary[] | undefined, workspaces: readonly Workspace[] | undefined): Workspace | undefined => {
+  const id = shownWorkspace(state, agents, workspaces);
+  return workspaces?.find((workspace) => workspace.id === id);
 };
 
-/** The shell's state and its one change function, which takes one of `shell-state.ts`'s functions. */
+/** What the page knows now, from the shell state and the lists as read. */
+export const shellNow = (
+  state: ShellState,
+  agents: AgentSummary[] | undefined,
+  proposals: readonly Proposal[] | undefined,
+  workspaces: readonly Workspace[] | undefined,
+): ShellNow => ({ state, agents, proposals, workspaces, shown: shownIn(state, agents, workspaces)?.id });
+
+export const ShellProvider = ({ initial = emptyShell, children }: { initial?: ShellState; children: ReactNode }) => {
+  const [state, setState] = useState(initial);
+  const agents = useAgents().data?.agents;
+  const proposals = useProposals().data?.proposals;
+  const workspaces = useWorkspaces().data?.workspaces;
+  const latest = shellNow(state, agents, proposals, workspaces);
+  const now = useRef(latest);
+  now.current = latest;
+  const change = useCallback((update: (state: ShellState) => ShellState) => setState(update), []);
+  const current = useCallback(() => now.current, []);
+  const value = useMemo(() => ({ state, change, current }), [state, change, current]);
+  const [tickets] = useState(() => openTickets(current));
+  useEffect(() => {
+    tickets.recheck();
+  }, [tickets, state, agents, proposals, workspaces]);
+  return (
+    <ShellContext value={value}>
+      <OpenTicketContext value={tickets}>{children}</OpenTicketContext>
+    </ShellContext>
+  );
+};
+
+/** The shell's state, its one change function (it takes one of `shell-state.ts`'s functions) and `current`, the latest state and lists. */
 export const useShell = (): Shell => {
   const shell = useContext(ShellContext);
   if (shell === undefined) throw new Error("useShell is used outside the ShellProvider; render the component inside it.");
@@ -23,10 +67,5 @@ export const useShell = (): Shell => {
 };
 
 /** The shown workspace; undefined while the lists aren't read or the service lists none. */
-export const useShownWorkspace = (): Workspace | undefined => {
-  const { state } = useShell();
-  const agents = useAgents().data?.agents;
-  const workspaces = useWorkspaces().data?.workspaces;
-  const id = shownWorkspace(state, agents, workspaces);
-  return workspaces?.find((workspace) => workspace.id === id);
-};
+export const useShownWorkspace = (): Workspace | undefined =>
+  shownIn(useShell().state, useAgents().data?.agents, useWorkspaces().data?.workspaces);

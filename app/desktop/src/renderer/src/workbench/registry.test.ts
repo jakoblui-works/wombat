@@ -1,5 +1,5 @@
 // Whether a saved tab still applies is the registry's to say (`isKnown(ctx)`: the panel is registered, its
-// paramsSchema passes, its resolves is true), and for a chat tab that's what lets a restore drop a deleted agent's
+// paramsSchema passes, its resolves is true), and for a diff tab that's what lets a restore drop a deleted agent's
 // tab. While the agents are still loading, a tab is kept.
 import { expect, test } from "vitest";
 
@@ -9,9 +9,9 @@ import { isKnown, isRestorable, type ResolveContext } from "./registry.ts";
 import { PROPOSAL_PANEL } from "./proposals/proposal-params.ts";
 
 test.each<[string, string, unknown, ResolveContext, boolean]>([
-  ["a chat tab whose agent exists", "chat", { agentId: "a1" }, { agents: [summary("a1"), summary("a2")] }, true],
-  ["a chat tab whose agent was deleted", "chat", { agentId: "a-gone" }, { agents: [summary("a1")] }, false],
-  ["a chat tab while the agents are still loading", "chat", { agentId: "a1" }, { agents: undefined }, true],
+  ["a diff tab whose agent exists", "diff", { agentId: "a1", requestId: "r1" }, { agents: [summary("a1"), summary("a2")] }, true],
+  ["a diff tab whose agent was deleted", "diff", { agentId: "a-gone", requestId: "r1" }, { agents: [summary("a1")] }, false],
+  ["a diff tab while the agents are still loading", "diff", { agentId: "a1", requestId: "r1" }, { agents: undefined }, true],
   ["a panel that isn't registered", "old-panel-from-a-newer-app", {}, { agents: [summary("a1")] }, false],
 ])("%s", (_name, panelId, params, ctx, expected) => {
   expect(isKnown(ctx)(panelId, params)).toBe(expected);

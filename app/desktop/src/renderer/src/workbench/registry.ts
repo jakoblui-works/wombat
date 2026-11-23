@@ -1,19 +1,17 @@
-// Every panel and activity is registered here once; the shell, its saved state and the tabs read them from here.
+// Every tab's panel and every activity is registered here once; the shell, its saved state and the tabs read them from here.
 import type { LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
-import { z, type ZodType } from "zod";
-import type { AgentSummary, Workspace } from "@wombat/shared/api";
+import type { ZodType } from "zod";
+import type { AgentSummary } from "@wombat/shared/api";
 import type { Proposal } from "@wombat/shared/proposals";
 
 /** A rule on a tab, as `isKnown`, `isSaved` and `isRestorable` answer. */
 export type TabTest = (panelId: string, params: unknown) => boolean;
 
-export type PanelLocation = "tab" | "navigator";
-/** What a panel's title may look at; a list is undefined while it's loading (or couldn't be read). */
+/** What decides whether a tab still applies; a list is undefined while it's loading (or couldn't be read). */
 export type ResolveContext = {
   agents: AgentSummary[] | undefined;
   proposals?: readonly Proposal[] | undefined;
-  workspaces?: readonly Pick<Workspace, "id" | "name">[] | undefined;
 };
 /**
  * What `resolves` looks at: it's only asked once the agents list is known (until then a tab is kept). The proposals
@@ -33,19 +31,17 @@ export type PanelProps = {
   /** For a sidebar panel: called once it has shown `reveal` or given up on it, which is then forgotten (no replay when it shows again). */
   onRevealed?: (() => void) | undefined;
   /**
-   * For a panel whose tab title needs more than the agents list (the diff tab's file name, from the log): the title it
-   * reports takes the place of its `title` for this tab until the tab closes.
+   * Replaces the registered `title` for this tab, until it closes, once the panel knows a better one.
    */
   setTitle?: ((title: string) => void) | undefined;
 };
 
+/** A tab's panel. */
 export type PanelDescriptor = {
   id: string;
-  title: string | ((params: unknown, ctx: ResolveContext) => string);
-  icon: LucideIcon;
-  locations: PanelLocation[];
+  title: string;
   activity?: string;
-  /** The right sidebar's width, in pixels, this panel wants as the active tab, or as a navigator alone. */
+  /** The right sidebar's width, in pixels, this panel wants as the active tab. */
   wants?: number;
   component: ComponentType<PanelProps>;
   paramsSchema?: ZodType;
@@ -56,17 +52,23 @@ export type PanelDescriptor = {
   saves?: (params: unknown) => boolean;
 };
 
-export type ActivityDescriptor = {
+/** A navigator shows workspace `ws`'s list (one per workspace, all mounted); `onRevealed` as for a panel. */
+export type NavigatorProps = { ws: string } & Pick<PanelProps, "reveal" | "onRevealed">;
+
+/** One object feeds both `registerActivity` and `useActivityState`, so the hook's type is the registered schema's. */
+export type ActivityStateOf<T> = { id: string; state: { schema: ZodType<T>; initial: T } };
+
+export type ActivityDescriptor<T = unknown> = {
   id: string;
   title: string;
   icon: LucideIcon;
-  /** The panel shown beside the activity's tabs; its params are `NavigatorParams`. */
-  navigator: string;
+  /**
+   * The navigator shown beside the activity's tabs. `wants` is the right sidebar's width, in pixels, it wants alone.
+   */
+  navigator: { component: ComponentType<NavigatorProps>; wants?: number };
+  /** Its state in each workspace, saved with the shell: `initial` until changed, and again when the saved one doesn't parse. */
+  state?: { schema: ZodType<T>; initial: T };
 };
-
-/** A navigator's params: the workspace whose navigator it is (one per workspace, all mounted). */
-export const NavigatorParams = z.object({ ws: z.string() });
-export type NavigatorParams = z.infer<typeof NavigatorParams>;
 
 const panels = new Map<string, PanelDescriptor>();
 const activityList = new Map<string, ActivityDescriptor>();
@@ -77,15 +79,11 @@ const addOnce = <T extends { id: string }>(registry: Map<string, T>, kind: strin
 };
 
 export const registerPanel = (panel: PanelDescriptor): void => addOnce(panels, "panel", panel);
-export const registerActivity = (activity: ActivityDescriptor): void => addOnce(activityList, "activity", activity);
+export const registerActivity = <T>(activity: ActivityDescriptor<T>): void => addOnce<ActivityDescriptor>(activityList, "activity", activity);
 export const getPanel = (id: string): PanelDescriptor | undefined => panels.get(id);
 export const getActivity = (id: string): ActivityDescriptor | undefined => activityList.get(id);
 /** The activities in registration order. */
 export const activities = (): ActivityDescriptor[] => [...activityList.values()];
-
-/** A panel's title for these params. */
-export const panelTitle = (panel: PanelDescriptor, params: unknown, ctx: ResolveContext): string =>
-  typeof panel.title === "string" ? panel.title : panel.title(params, ctx);
 
 /** Whether `params` pass the panel's paramsSchema (a panel without one takes any). */
 export const paramsFit = (panel: PanelDescriptor, params: unknown): boolean => panel.paramsSchema === undefined || panel.paramsSchema.safeParse(params).success;

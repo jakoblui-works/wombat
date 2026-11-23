@@ -2,13 +2,8 @@
 import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import { z } from "zod";
 
-import { AGENTS_PANEL, DESK_ACTIVITY } from "../activity-ids.ts";
-import { DEFAULT_DESK, DeskLayout } from "../items/navigation/desk-layout.ts";
 import { getActivity, getPanel, type TabTest } from "../registry.ts";
-import { tabKey, tabToReplace } from "../tabs.ts";
-import type { TabRef } from "../workbench-context.ts";
-
-export type TabEntry = TabRef & { kept: boolean };
+import { type TabEntry, type TabRef, tabKey, tabToReplace } from "../tabs.ts";
 
 export type WorkspaceShell = {
   tabs: TabEntry[];
@@ -18,6 +13,7 @@ export type WorkspaceShell = {
   navigatorHidden: boolean;
   rightOpen: boolean;
   activityStates: Record<string, unknown>;
+  overviewCollapsed?: boolean;
   /** Each activity's last active tab, by activity id. */
   lastActive?: Record<string, string>;
   /** The right sidebar's width evidence; never saved. */
@@ -134,13 +130,6 @@ const focus = (shell: WorkspaceShell, key: string): WorkspaceShell => {
   };
 };
 
-/** The tab a temporary open replaces: the workspace's temporary tab, unless it has unsaved edits. */
-const replaceable = (shell: WorkspaceShell, isDirty: (key: string) => boolean): number => {
-  const tabs = shell.tabs.map((tab) => ({ key: keyOf(tab), temporary: !tab.kept, unsaved: isDirty(keyOf(tab)) }));
-  const replaced = tabToReplace(tabs);
-  return tabs.findIndex(({ key }) => key === replaced);
-};
-
 export type OpenTabOptions = { temporary: boolean; isDirty?: ((key: string) => boolean) | undefined };
 
 /** Opens or activates the tab in `workspace`'s strip and opens its right sidebar on it; a kept open keeps a temporary tab. */
@@ -151,7 +140,7 @@ export const openTab = (state: ShellState, workspace: string, tab: TabRef, { tem
     if (shell.tabs.some((open) => keyOf(open) === key)) {
       return focus({ ...shell, tabs: shell.tabs.map((open) => (keyOf(open) === key && !temporary ? { ...open, kept: true } : open)) }, key);
     }
-    const replaced = temporary ? replaceable(shell, isDirty) : -1;
+    const replaced = temporary ? tabToReplace(shell.tabs, isDirty) : -1;
     const tabs = replaced === -1 ? [...shell.tabs, entry] : shell.tabs.map((open, index) => (index === replaced ? entry : open));
     return focus({ ...shell, tabs }, key);
   });
@@ -259,6 +248,7 @@ const SavedWorkspace = parsing<SavedWorkspace>()(
     navigatorHidden: z.boolean(),
     rightOpen: z.boolean(),
     activityStates: z.record(z.string(), z.unknown()),
+    overviewCollapsed: z.boolean().exactOptional(),
     lastActive: z.record(z.string(), z.string()).exactOptional(),
   }),
 );
@@ -274,17 +264,20 @@ const savedWorkspace = (shell: WorkspaceShell): SavedWorkspace => ({
 });
 
 const registeredStates = (states: Record<string, unknown>): Record<string, unknown> =>
-  Object.fromEntries(Object.entries(states).filter(([id]) => id === AGENTS_PANEL || getActivity(id) !== undefined));
+  Object.fromEntries(Object.entries(states).filter(([id]) => getActivity(id) !== undefined));
 
-/** The saved states of the activities and the overview (its collapsed groups); a Desk state that doesn't parse is `DEFAULT_DESK`. */
-const restoredStates = (states: Record<string, unknown>): Record<string, unknown> => {
-  const registered = registeredStates(states);
-  if (!(DESK_ACTIVITY in registered)) return registered;
-  const desk = DeskLayout.safeParse(registered[DESK_ACTIVITY]);
-  return { ...registered, [DESK_ACTIVITY]: desk.success ? desk.data : DEFAULT_DESK };
-};
+/** The saved states of the registered activities; a state that doesn't parse by its activity's schema is its initial. */
+const restoredStates = (states: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(registeredStates(states)).map(([id, saved]) => {
+      const registered = getActivity(id)?.state;
+      if (registered === undefined) return [id, saved];
+      const parsed = registered.schema.safeParse(saved);
+      return [id, parsed.success ? parsed.data : registered.initial];
+    }),
+  );
 
-/** The shell as saved: kept tabs that `isSaved` takes, the activities' and the overview's states, no widths, nor the composer bar's picks. */
+/** The shell as saved: kept tabs that `isSaved` takes, the activities' states and the overview's collapse, no widths, nor the composer bar's picks. */
 export const savedShell = (state: ShellState, isSaved: TabTest): SavedShell => {
   const kept = dropTabsWhere(state, (tab) => !tab.kept || !isSaved(tab.panelId, tab.params));
   return {
@@ -341,11 +334,20 @@ export const pressToolbarButton = (state: ShellState, workspace: string, activit
 export const showActivity = (state: ShellState, workspace: string, activityId: string): ShellState =>
   activeToolbarButton(state, workspace) === activityId ? state : pressToolbarButton(state, workspace, activityId);
 
-export const activityStatesOf = (state: ShellState, workspace: string | undefined): Record<string, unknown> =>
-  workspace === undefined ? emptyWorkspace.activityStates : workspaceShell(state, workspace).activityStates;
+/** The activity's state in `workspace` as stored, else its registered initial. */
+export const activityStateOf = (state: ShellState, workspace: string | undefined, activityId: string): unknown => {
+  const stored = (workspace === undefined ? emptyWorkspace : workspaceShell(state, workspace)).activityStates[activityId];
+  return stored === undefined ? getActivity(activityId)?.state?.initial : stored;
+};
 
 export const changeActivityState = (state: ShellState, workspace: string, activityId: string, change: (activityState: unknown) => unknown): ShellState =>
-  withWorkspace(state, workspace, (shell) => ({ ...shell, activityStates: { ...shell.activityStates, [activityId]: change(shell.activityStates[activityId]) } }));
+  withWorkspace(state, workspace, (shell) => ({
+    ...shell,
+    activityStates: { ...shell.activityStates, [activityId]: change(activityStateOf(state, workspace, activityId)) },
+  }));
+
+export const setOverviewCollapsed = (state: ShellState, workspace: string, collapsed: boolean): ShellState =>
+  withWorkspace(state, workspace, (shell) => ({ ...shell, overviewCollapsed: collapsed }));
 
 export const hideNavigator = (state: ShellState, workspace: string, hidden: boolean): ShellState =>
   withWorkspace(state, workspace, (shell) => ({ ...shell, navigatorHidden: hidden }));
@@ -458,8 +460,8 @@ export const leftBounds = (room: number, rightOpen: boolean): WidthBounds => ({
 /** The width the shown kind wants: the active tab's panel, else the navigator alone; undefined while closed. */
 export const rightWanted = (view: RightView): number | undefined => {
   if (view.show === "closed") return undefined;
-  const panelId = view.show === "navigator" ? getActivity(view.activity)?.navigator : view.tab.panelId;
-  return (panelId === undefined ? undefined : getPanel(panelId)?.wants) ?? RIGHT_DEFAULT_WANTS;
+  const wants = view.show === "navigator" ? getActivity(view.activity)?.navigator.wants : getPanel(view.tab.panelId)?.wants;
+  return wants ?? RIGHT_DEFAULT_WANTS;
 };
 
 /** `rightWidth` for what `workspace`'s right sidebar shows; undefined while it's closed. */

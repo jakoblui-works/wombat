@@ -5,13 +5,12 @@ import { describe, expect, test } from "vitest";
 
 import { proposal as listedProposal, summary } from "../../../../../test/summaries.ts";
 import "../activities.ts";
-import { AGENTS_PANEL, DESK_ACTIVITY } from "../activity-ids.ts";
+import { DESK_ACTIVITY } from "../activity-ids.ts";
 import { ITEM_PANEL } from "../items/item-params.ts";
 import { DEFAULT_DESK } from "../items/navigation/desk-layout.ts";
 import { PROPOSAL_PANEL } from "../proposals/proposal-params.ts";
 import { isRestorable, isSaved, type TabTest } from "../registry.ts";
-import { tabKey } from "../tabs.ts";
-import type { TabRef } from "../workbench-context.ts";
+import { type TabRef, tabKey } from "../tabs.ts";
 import {
   activateTab,
   CHAT_MIN_WIDTH,
@@ -306,7 +305,7 @@ describe("the saved shell across a quit and a start", () => {
           navigatorHidden: shell.navigatorHidden,
           rightOpen: shell.rightOpen,
           desk: shell.activityStates[DESK_ACTIVITY],
-          overview: shell.activityStates[AGENTS_PANEL],
+          overview: shell.overviewCollapsed,
         },
       ]),
     ),
@@ -325,7 +324,8 @@ describe("the saved shell across a quit and a start", () => {
             activity: DESK_ACTIVITY,
             navigatorHidden: true,
             rightOpen: true,
-            activityStates: { [DESK_ACTIVITY]: DESK, [AGENTS_PANEL]: { collapsed: true } },
+            activityStates: { [DESK_ACTIVITY]: DESK },
+            overviewCollapsed: true,
             right: { width: 733, dragged: true },
           }),
           [GARDEN]: workspace({ tabs: [entry(item(3, GARDEN))], active: key(item(3, GARDEN)), activity: DESK_ACTIVITY }),
@@ -334,6 +334,65 @@ describe("the saved shell across a quit and a start", () => {
       { ...emptyShell, workspaces: { [GARDEN]: workspace({ activity: DESK_ACTIVITY, rightOpen: true, activityStates: { [DESK_ACTIVITY]: { openDrawers: [] } } }) } },
     ];
     for (const state of shells) expect(kept(reopened(state))).toEqual(kept(state));
+  });
+
+  test("a saved shell holding an unregistered activity's state restores its tabs, Desk state and open agent without that state", () => {
+    // An entry under activityStates whose id no activity registers.
+    const OLD_OVERVIEW_KEY = "agents-list";
+    const savedBefore = {
+      openAgent: "agent-oven-1",
+      leftHidden: true,
+      workspaces: {
+        [BAKERY]: {
+          tabs: [item(1), item(2)],
+          active: key(item(2)),
+          activity: DESK_ACTIVITY,
+          navigatorHidden: true,
+          rightOpen: true,
+          activityStates: { [DESK_ACTIVITY]: DESK, [OLD_OVERVIEW_KEY]: { collapsed: true } },
+          lastActive: { [DESK_ACTIVITY]: key(item(2)) },
+        },
+        [GARDEN]: {
+          tabs: [item(3, GARDEN)],
+          active: key(item(3, GARDEN)),
+          activity: DESK_ACTIVITY,
+          navigatorHidden: false,
+          rightOpen: false,
+          activityStates: { [OLD_OVERVIEW_KEY]: { collapsed: false } },
+        },
+      },
+    };
+
+    const back = restoredShell(throughFile(savedBefore), () => true);
+
+    expect(kept(back)).toEqual({
+      openAgent: "agent-oven-1",
+      leftHidden: true,
+      workspaces: {
+        [BAKERY]: {
+          tabs: [
+            { key: key(item(1)), kept: true },
+            { key: key(item(2)), kept: true },
+          ],
+          active: key(item(2)),
+          activity: DESK_ACTIVITY,
+          navigatorHidden: true,
+          rightOpen: true,
+          desk: DESK,
+          overview: undefined,
+        },
+        [GARDEN]: {
+          tabs: [{ key: key(item(3, GARDEN)), kept: true }],
+          active: key(item(3, GARDEN)),
+          activity: DESK_ACTIVITY,
+          navigatorHidden: false,
+          rightOpen: false,
+          desk: undefined,
+          overview: undefined,
+        },
+      },
+    });
+    for (const ws of [BAKERY, GARDEN]) expect(Object.keys(back.workspaces[ws]?.activityStates ?? {}), ws).not.toContain(OLD_OVERVIEW_KEY);
   });
 
   test("a save leaves out temporary tabs and tabs their panel doesn't save (a draft's)", () => {

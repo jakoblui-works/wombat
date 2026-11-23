@@ -8,14 +8,15 @@ import { keys } from "../../../data/keys.ts";
 import { createQueryClient } from "../../../data/query-client.ts";
 import "../../activities.ts";
 import { DESK_ACTIVITY } from "../../activity-ids.ts";
-import { shellTabActions } from "../../shell/RightSidebar/tab-actions.ts";
+import { fakeShell } from "../../shell/fake-shell.test-support.ts";
+import { shellWorkbench } from "../../shell/RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "../../shell/RightSidebar/tab-titles.ts";
-import { activityStatesOf, changeActivityState, emptyShell, rightView, type ShellState, showActivity } from "../../shell/shell-state.ts";
+import { activityStateOf, changeActivityState, newChat, rightView } from "../../shell/shell-state.ts";
 import { revealStore, tabKey } from "../../tabs.ts";
 import { previewName } from "../ItemPreview/item-preview.ts";
 import { ITEM_PANEL } from "../item-params.ts";
 import { itemNotFound } from "../reads.ts";
-import { DEFAULT_DESK, deskOf, type DeskLayout } from "./desk-layout.ts";
+import { DEFAULT_DESK, type DeskLayout } from "./desk-layout.ts";
 import { followItem, type ItemNavigator, itemTabs, openBinder } from "./item-navigation.ts";
 
 afterEach(() => {
@@ -28,15 +29,8 @@ const item = fc.nat({ max: ITEMS - 1 });
 
 /** The workbench's tab actions on a shell state of their own, with no workspace shown. */
 const shellTabs = (reveals = revealStore()) => {
-  let state: ShellState = emptyShell;
-  const actions = shellTabActions({
-    current: () => ({ state, shown: undefined }),
-    change: (update) => {
-      state = update(state);
-    },
-    reveals,
-    titles: tabTitleStore(),
-  });
+  const { current, change } = fakeShell();
+  const actions = shellWorkbench({ current, change, reveals, titles: tabTitleStore() });
   return { actions, reveals };
 };
 
@@ -89,25 +83,39 @@ const page = () => {
   };
   vi.stubGlobal("window", { wombat: { service: { request }, workspace: { get: () => Promise.resolve({ root: ws.root }) } } });
 
-  const { actions, reveals } = shellTabs();
-  const titleContext = () => ({ agents: [] });
+  // The view the follows land on: a shell state of the test's own, showing the apiary (listed first).
+  const meadow = { id: "ws-meadow0002", name: "meadow", root: "/invented/meadow", missing: false };
+  const { current, change, tickets } = fakeShell({ workspaces: [ws, meadow] });
+  const { take, land } = tickets;
+  const reveals = revealStore();
+  const actions = shellWorkbench({ current, change, reveals, titles: tabTitleStore() });
   const shownActivities: string[] = [];
   const told: string[] = [];
   let desk: DeskLayout = DEFAULT_DESK;
   const queryClient = createQueryClient();
   const navigator: ItemNavigator = {
-    workbench: { ...actions, reveals, titleContext, showActivity: (id) => shownActivities.push(id) },
+    workbench: {
+      ...actions,
+      showActivity: (id, workspace) => {
+        shownActivities.push(id);
+        actions.showActivity(id, workspace);
+      },
+    },
     queryClient,
     changeDesk: (change) => {
       desk = change(desk);
     },
     tell: (message) => told.push(message),
+    take,
+    land,
   };
   return {
     navigator,
     told,
     queryClient,
     ws: ws.id,
+    /** Shows the other listed workspace, as the user can while a read is out. */
+    showOtherWorkspace: () => change((state) => newChat(state, meadow.id)),
     /** Answers the read of `ref` once the page has asked for it. */
     answer: async (ref: string, answer: Answer): Promise<void> => {
       await vi.waitFor(() => expect([...asked.keys()]).toContain(ref));
@@ -146,30 +154,44 @@ test.each<[string, Answer, Item | undefined, unknown[]]>([
   expect(told).toEqual(tells);
 });
 
+test("a followed link whose view changed while its item was read opens nothing and tells nothing", async () => {
+  const { navigator, told, queryClient, ws, showOtherWorkspace, answer, itemTabsOpen, desk, shownActivities } = page();
+
+  followItem(navigator, ws, "HV-2");
+  showOtherWorkspace();
+  await answer("HV-2", { status: 200, body: hive(2) });
+  await vi.waitFor(() => expect(queryClient.getQueryData(keys.item(ws, "HV-2"))).toBeDefined());
+  // The follow's own step after its read is queued behind the cache's; a timer runs only once that queue is empty.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(itemTabsOpen()).toEqual([]);
+  expect(desk()).toEqual(DEFAULT_DESK);
+  expect(shownActivities).toEqual([]);
+  expect(told).toEqual([]);
+});
+
 test("openBinder of another workspace opens that workspace's Desk on the binder and leaves the shown one's alone", async () => {
   const SHOWN = "ws-apiary0001";
   const OTHER = "ws-meadow0002";
-  let state: ShellState = emptyShell;
-  const change = (update: (state: ShellState) => ShellState): void => {
-    state = update(state);
-  };
-  const reveals = revealStore();
-  const actions = shellTabActions({ current: () => ({ state, shown: SHOWN }), change, reveals, titles: tabTitleStore() });
+  const listed = (id: string, name: string) => ({ id, name, root: `/invented/${name}`, missing: false });
+  // The first listed workspace is the shown one.
+  const { current, change, tickets } = fakeShell({ workspaces: [listed(SHOWN, "apiary"), listed(OTHER, "meadow")] });
   const queryClient = createQueryClient();
   for (const ws of [SHOWN, OTHER]) queryClient.setQueryData(keys.binders(ws), { binders: [] });
-  // As the shell wires it: a Desk change and an activity name their workspace, else the shown one's.
+  // As the shell wires it: a Desk change names its workspace.
   const navigator: ItemNavigator = {
-    workbench: { ...actions, reveals, titleContext: () => ({ agents: [] }), showActivity: (id, ws) => change((current) => showActivity(current, ws ?? SHOWN, id)) },
+    workbench: shellWorkbench({ current, change, reveals: revealStore(), titles: tabTitleStore() }),
     queryClient,
-    changeDesk: (update, ws) => change((current) => changeActivityState(current, ws, DESK_ACTIVITY, (slot) => update(deskOf(slot)))),
+    changeDesk: (update, ws) => change((before) => changeActivityState(before, ws, DESK_ACTIVITY, (desk) => update(desk as DeskLayout))),
     tell: () => undefined,
+    ...tickets,
   };
-  const deskIn = (ws: string): DeskLayout => deskOf(activityStatesOf(state, ws)[DESK_ACTIVITY]);
+  const deskIn = (ws: string): DeskLayout => activityStateOf(current().state, ws, DESK_ACTIVITY) as DeskLayout;
 
   openBinder(navigator, OTHER, "hives");
 
   await vi.waitFor(() => expect(deskIn(OTHER).binderId).toBe("hives"));
-  expect(rightView(state, OTHER)).toEqual({ show: "navigator", activity: DESK_ACTIVITY });
+  expect(rightView(current().state, OTHER)).toEqual({ show: "navigator", activity: DESK_ACTIVITY });
   expect(deskIn(SHOWN)).toEqual(DEFAULT_DESK);
-  expect(rightView(state, SHOWN)).toEqual({ show: "closed" });
+  expect(rightView(current().state, SHOWN)).toEqual({ show: "closed" });
 });

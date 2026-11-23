@@ -1,32 +1,34 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { cn } from "@/lib/utils";
-import { useAgents, useProposals, useWorkspaces } from "../../data/hooks.ts";
+import { useAgents } from "../../data/hooks.ts";
 import { chooseItemsFolder } from "../../data/workspace-folders.ts";
 import { asError, asSentence } from "../../lib/errors.ts";
-// Registers the panels (the chat's among them) and the harnesses' UI.
+// Registers the activities, the tabs' panels and the harnesses' UI.
 import "../activities.ts";
-import { AGENTS_PANEL, NEEDS_ME_PANEL } from "../activity-ids.ts";
-import { CHAT_PANEL, MESSAGE_BOX, NEW_CHAT_PANEL } from "../agents/chat-params.ts";
+import { MESSAGE_BOX } from "../agents/chat-params.ts";
 import { chatRevealKey, useOpenAgentChat } from "../agents/open-agent-chat.ts";
 import { openFolderOrTell } from "../commands/open-folder.ts";
 import { registerWorkbenchCommands } from "../commands/workbench-commands.ts";
 import { ConnectionBanner } from "../ConnectionBanner/ConnectionBanner.tsx";
 import { LiveLaunchNotice } from "../LaunchNotice/LaunchNotice.tsx";
 import type { OpenAgents } from "../open-agents.ts";
-import { getPanel } from "../registry.ts";
+import { AgentsList } from "../panels/AgentsList/AgentsList.tsx";
+import { Chat } from "../panels/Chat/Chat.tsx";
+import { NewChat } from "../panels/Chat/NewChat.tsx";
+import { NeedsMe } from "../panels/NeedsMe/NeedsMe.tsx";
 import { RESIZE_HANDLE_WIDTH, ResizeHandle } from "../ResizeHandle/ResizeHandle.tsx";
 import { LiveStatusBar } from "../StatusBar/StatusBar.tsx";
 import { type Reveals, revealStore, tabKey } from "../tabs.ts";
 import { TitleBar } from "../TitleBar/TitleBar.tsx";
 import { tell, Toast } from "../Toast/Toast.tsx";
-import { WorkbenchContext, type WorkbenchContextValue } from "../workbench-context.ts";
+import { WorkbenchContext } from "../workbench-context.ts";
 import { RightSidebar } from "./RightSidebar/RightSidebar.tsx";
-import { requestClose, shellTabActions } from "./RightSidebar/tab-actions.ts";
+import { requestClose, shellWorkbench } from "./RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "./RightSidebar/tab-titles.ts";
 import { useCommandKeys, useServiceChrome } from "./service-chrome.ts";
-import { clampWidth, hideLeftSidebar, LEFT_START_WIDTH, leftBounds, middleView, newChat, rightView, showActivity as showActivityIn, shownTab } from "./shell-state.ts";
+import { clampWidth, hideLeftSidebar, LEFT_START_WIDTH, leftBounds, middleView, newChat, rightView, shownTab } from "./shell-state.ts";
 import { ShellProvider, useShell, useShownWorkspace } from "./ShellProvider.tsx";
 import { Toolbar } from "./Toolbar/Toolbar.tsx";
 import { useSavedShell } from "./use-saved-shell.ts";
@@ -42,22 +44,19 @@ const focusOnHide = (inside: boolean, message: HTMLElement | null, toggle: HTMLE
   inside ? (message ?? toggle ?? undefined) : undefined;
 
 /** The left sidebar: Needs me above the overview. */
-const LeftPanel = () => {
-  const NeedsMe = getPanel(NEEDS_ME_PANEL)?.component;
-  const Overview = getPanel(AGENTS_PANEL)?.component;
-  return (
-    <>
-      {NeedsMe === undefined ? null : <NeedsMe params={{}} />}
-      <div className="flex min-h-0 flex-1 flex-col">{Overview === undefined ? null : <Overview params={{}} />}</div>
-    </>
-  );
-};
+const LeftPanel = () => (
+  <>
+    <NeedsMe />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <AgentsList />
+    </div>
+  </>
+);
 
 const ShownChat = ({ agentId, reveals }: { agentId: string; reveals: Reveals }) => {
   const key = chatRevealKey(agentId);
   const reveal = useSyncExternalStore(reveals.subscribe, () => reveals.get(key));
-  const Chat = getPanel(CHAT_PANEL)?.component;
-  return Chat === undefined ? null : <Chat params={{ agentId }} reveal={reveal} />;
+  return <Chat agentId={agentId} reveal={reveal} />;
 };
 
 /** The open agent's chat, one at a time, or the empty chat. */
@@ -66,8 +65,7 @@ const Middle = ({ reveals }: { reveals: Reveals }) => {
   const view = middleView(state, useAgents().data?.agents);
   // Keyed by the agent, so each agent's chat starts from its own state.
   if (view.show === "chat") return <ShownChat key={view.agentId} agentId={view.agentId} reveals={reveals} />;
-  const NewChat = getPanel(NEW_CHAT_PANEL)?.component;
-  return NewChat === undefined ? null : <NewChat params={{}} />;
+  return <NewChat />;
 };
 
 /**
@@ -76,21 +74,19 @@ const Middle = ({ reveals }: { reveals: Reveals }) => {
  */
 const OpenAgentRequests = ({ openAgents, restored }: { openAgents: OpenAgents; restored: boolean }) => {
   const openAgentChat = useOpenAgentChat();
-  const agents = useAgents().data?.agents;
-  const agentsRef = useRef(agents);
-  agentsRef.current = agents;
-  const agentsKnown = agents !== undefined;
+  const { current } = useShell();
+  const agentsKnown = useAgents().data?.agents !== undefined;
   useEffect(() => {
     if (!restored || !agentsKnown) return;
     return openAgents.open((agentId) => {
-      if (!agentsRef.current?.some(({ id }) => id === agentId)) {
+      if (!current().agents?.some(({ id }) => id === agentId)) {
         // Without the id: the console may end up in a bug report.
         console.warn("Wombat was asked to open an agent the service doesn't list; nothing was opened.");
         return;
       }
       openAgentChat(agentId);
     });
-  }, [restored, agentsKnown, openAgents, openAgentChat]);
+  }, [restored, agentsKnown, openAgents, openAgentChat, current]);
   return null;
 };
 
@@ -111,7 +107,7 @@ const useWidth = (ref: RefObject<HTMLElement | null>): number => {
 const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   const queryClient = useQueryClient();
   const agents = useAgents().data?.agents;
-  const { state, change } = useShell();
+  const { state, change, current } = useShell();
   const shown = useShownWorkspace();
   const { connection, blocked, attempt, restart, noticeShown, dismissNotice } = useServiceChrome();
   const restored = useSavedShell(connection.state);
@@ -123,66 +119,37 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   const middle = useRef<HTMLElement>(null);
   const left = useRef<HTMLElement>(null);
   const leftToggle = useRef<HTMLButtonElement>(null);
-  const agentsRef = useRef(agents);
-  agentsRef.current = agents;
-  const shownRef = useRef(shown?.id);
-  shownRef.current = shown?.id;
   const blockedRef = useRef(blocked);
   blockedRef.current = blocked;
   const restartRef = useRef(restart);
   restartRef.current = restart;
 
-  const proposals = useProposals().data?.proposals;
-  const proposalsRef = useRef(proposals);
-  proposalsRef.current = proposals;
-  const workspaces = useWorkspaces().data?.workspaces;
-  const workspacesRef = useRef(workspaces);
-  workspacesRef.current = workspaces;
-  const stateRef = useRef(state);
-  stateRef.current = state;
-
   const reveals = useMemo(revealStore, []);
   const titles = useMemo(tabTitleStore, []);
-  const titleContext = useCallback(() => ({ agents: agentsRef.current, proposals: proposalsRef.current, workspaces: workspacesRef.current }), []);
-  const showActivity = useCallback(
-    (activityId: string, workspace?: string) => {
-      const target = workspace ?? shownRef.current;
-      if (target !== undefined) change((current) => showActivityIn(current, target, activityId));
-    },
-    [change],
-  );
-  const workbench = useMemo<WorkbenchContextValue>(
-    () => ({
-      ...shellTabActions({ current: () => ({ state: stateRef.current, shown: shownRef.current }), change, reveals, titles }),
-      reveals,
-      showActivity,
-      titleContext,
-    }),
-    [change, reveals, titles, titleContext, showActivity],
-  );
+  const workbench = useMemo(() => shellWorkbench({ current, change, reveals, titles }), [change, current, reveals, titles]);
 
   useEffect(
     () =>
       registerWorkbenchCommands({
-        newAgent: () => change((current) => newChat(current, shownRef.current)),
+        newAgent: () => change((before) => newChat(before, current().shown)),
         toggleLeftSidebar: () => {
-          if (!stateRef.current.leftHidden) {
+          if (!current().state.leftHidden) {
             const inside = left.current?.contains(document.activeElement) === true;
             focusOnHide(inside, middle.current?.querySelector<HTMLElement>(MESSAGE_BOX) ?? null, leftToggle.current)?.focus();
           }
-          change((current) => hideLeftSidebar(current, !current.leftHidden));
+          change((before) => hideLeftSidebar(before, !before.leftHidden));
         },
         closeActiveTab: () => {
-          const workspace = shownRef.current;
-          const tab = shownTab(stateRef.current, workspace);
+          const { state: before, shown: workspace } = current();
+          const tab = shownTab(before, workspace);
           if (workspace !== undefined && tab !== undefined) requestClose(change, workspace, tabKey(tab.panelId, tab.params));
         },
         blocked: () => blockedRef.current,
         restartService: () => restartRef.current(),
         openFolder: () =>
-          openFolderOrTell(queryClient, (id) => change((current) => newChat(current, id))),
+          openFolderOrTell(queryClient, (id) => change((before) => newChat(before, id))),
         chooseItemsFolder: async () => {
-          const workspace = shownRef.current;
+          const workspace = current().shown;
           if (workspace === undefined) {
             tell(NO_WORKSPACE_SHOWN);
             return;
@@ -192,7 +159,7 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
           );
         },
       }),
-    [queryClient, change],
+    [queryClient, change, current],
   );
   useCommandKeys();
 

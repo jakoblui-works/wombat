@@ -1,12 +1,13 @@
 // The workbench's tab actions on the shell state: each workspace's strip in the right sidebar.
 import { closeGuards, openablePanel, type revealStore, tabKey } from "../../tabs.ts";
 import type { WorkbenchActions, WorkbenchContextValue } from "../../workbench-context.ts";
-import { allTabs, closeTab, openTab, replaceTab, type ShellState, tabWorkspace } from "../shell-state.ts";
+import { allTabs, closeTab, openTab, replaceTab, type ShellState, showActivity, tabWorkspace } from "../shell-state.ts";
+import type { ShellNow } from "../ShellProvider.tsx";
 import type { TabTitles } from "./tab-titles.ts";
 
 export type TabActionDeps = {
   /** The shell state and the shown workspace's id as the page knows them now. */
-  current: () => { state: ShellState; shown: string | undefined };
+  current: () => Pick<ShellNow, "state" | "shown">;
   change: (update: (state: ShellState) => ShellState) => void;
   reveals: Pick<ReturnType<typeof revealStore>, "set">;
   titles: Pick<TabTitles, "set">;
@@ -16,11 +17,13 @@ export type TabActionDeps = {
 export const requestClose = (change: TabActionDeps["change"], workspace: string, key: string): void =>
   closeGuards().request(key, () => change((current) => closeTab(current, workspace, key)));
 
-export const shellTabActions = ({ current, change, reveals, titles }: TabActionDeps): WorkbenchActions & Pick<WorkbenchContextValue, "openTabs"> => ({
+const targetWorkspace = (named: string | undefined, shown: string | undefined): string | undefined => named ?? shown;
+
+const shellTabActions = ({ current, change, reveals, titles }: TabActionDeps): WorkbenchActions & Pick<WorkbenchContextValue, "openTabs"> => ({
   openTab: (panelId, params, reveal, options) => {
     openablePanel(panelId, params);
     const { state, shown } = current();
-    const workspace = options?.workspace ?? shown;
+    const workspace = targetWorkspace(options?.workspace, shown);
     if (workspace === undefined) return;
     const key = tabKey(panelId, params);
     const wasOpen = tabWorkspace(state, key, workspace) === workspace;
@@ -48,4 +51,14 @@ export const shellTabActions = ({ current, change, reveals, titles }: TabActionD
     });
   },
   openTabs: (panelId) => allTabs(current().state).flatMap((tab) => (tab.panelId === panelId ? [{ panelId: tab.panelId, params: tab.params }] : [])),
+});
+
+/** The workbench panels are given: the tab actions, the reveals and the activity, each in the named workspace, else the shown one's. */
+export const shellWorkbench = (deps: TabActionDeps): WorkbenchContextValue => ({
+  ...shellTabActions(deps),
+  reveals: deps.reveals,
+  showActivity: (activityId, workspace) => {
+    const target = targetWorkspace(workspace, deps.current().shown);
+    if (target !== undefined) deps.change((state) => showActivity(state, target, activityId));
+  },
 });
