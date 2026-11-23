@@ -14,7 +14,7 @@ import {
   MenubarShortcut,
   MenubarTrigger,
 } from "@/components/ui/menubar";
-import { useWorkspaces } from "../../data/hooks.ts";
+import { useNeedsMeCount, useWorkspaces } from "../../data/hooks.ts";
 import { ariaKeyShortcut, runLogged } from "../commands/registry.ts";
 import { TOGGLE_LEFT_SIDEBAR, WORKBENCH_COMMAND } from "../commands/workbench-commands.ts";
 import { newChat } from "../shell/shell-state.ts";
@@ -66,6 +66,7 @@ const MenuEntries = ({ menu, choose }: { menu: MenuModel; choose: (id: string) =
 /** The left sidebar's toggle, pressed while the sidebar is shown; it runs the toggle's command, as its key does. */
 const LeftSidebarToggle = ({ toggle }: { toggle: Ref<HTMLButtonElement> | undefined }) => {
   const shown = !useShell().state.leftHidden;
+  const waiting = useNeedsMeCount() ?? 0;
   return (
     <button
       type="button"
@@ -76,11 +77,20 @@ const LeftSidebarToggle = ({ toggle }: { toggle: Ref<HTMLButtonElement> | undefi
       ref={toggle}
       onClick={() => runLogged(WORKBENCH_COMMAND.toggleLeftSidebar)}
       className={cn(
-        "focus-ring flex size-7 items-center justify-center rounded-md text-fg-secondary transition-colors [app-region:no-drag] hover:bg-surface-2 hover:text-fg-primary",
+        "focus-ring relative flex size-7 items-center justify-center rounded-md text-fg-secondary transition-colors [app-region:no-drag] hover:bg-surface-2 hover:text-fg-primary",
         shown && "bg-surface-3 text-fg-primary",
       )}
     >
       <PanelLeft className="size-4" />
+      {shown || waiting === 0 ? null : (
+        <span
+          aria-hidden
+          data-needs-me-count
+          className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-state-waiting px-1 text-[10px] leading-none font-semibold text-surface-0 tabular-nums"
+        >
+          {waiting}
+        </span>
+      )}
     </button>
   );
 };

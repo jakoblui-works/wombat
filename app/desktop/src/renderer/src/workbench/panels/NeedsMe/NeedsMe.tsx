@@ -2,9 +2,8 @@ import { useId } from "react";
 
 import { useNow } from "../../../lib/ago";
 import { cn } from "../../../lib/utils";
-import { useAgents, useProposals, useWorkspaces } from "../../../data/hooks.ts";
+import { useAgents, useNeedsMeCount, useProposals, useWorkspaces } from "../../../data/hooks.ts";
 import { AgentHeadLine, UNDER_TITLE } from "../../agents/AgentHeadLine/AgentHeadLine.tsx";
-import { needsMeCount } from "../../../data/needs-me.ts";
 import { workspaceName } from "../../../data/workspaces.ts";
 import { proposalShows } from "../../proposals/proposal-actions.ts";
 import { PathText } from "../../proposals/PathText/PathText.tsx";
@@ -79,7 +78,7 @@ export const NeedsMe = () => {
   const now = useNow();
   const listed = proposals.data?.proposals ?? [];
   const rows = agents.data === undefined ? undefined : allRows(agents.data.agents, listed, now);
-  const count = agents.data === undefined ? undefined : needsMeCount(agents.data.agents, listed);
+  const count = useNeedsMeCount();
   const titleId = useId();
   return (
     <section aria-labelledby={titleId} className="flex max-h-1/2 shrink-0 flex-col border-b border-line">

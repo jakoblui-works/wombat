@@ -3,6 +3,7 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { ConnectionState } from "../../../shared/bridge.ts";
+import { needsMeCount } from "./needs-me.ts";
 import { agentLogQuery, agentsQuery, harnessesQuery, proposalQuery, proposalsQuery, proposalVersionQuery, reposQuery, binderItemsQuery, bindersQuery, itemQuery, workspacesQuery } from "./query-client.ts";
 
 // The workspace-keyed reads take `ws` undefined while no workspace is known: the query waits, keyed by "".
@@ -18,6 +19,13 @@ export const useWorkspaces = () => useQuery(workspacesQuery());
 export const useRepos = (ws: string | undefined) => useQuery({ ...reposQuery(ws ?? NONE), enabled: ws !== undefined, refetchOnMount: "always" });
 
 export const useProposals = () => useQuery(proposalsQuery());
+
+/** How many requests and open proposals wait on me, across workspaces; undefined until the agents are read. */
+export const useNeedsMeCount = (): number | undefined => {
+  const agents = useAgents().data?.agents;
+  const proposals = useProposals().data?.proposals ?? [];
+  return agents === undefined ? undefined : needsMeCount(agents, proposals);
+};
 
 /**
  * One proposal with its versions and the current version's content, read again by an alert for this proposal and
