@@ -7,6 +7,7 @@ import { useShell } from "../shell/ShellProvider.tsx";
 import { tabKey } from "../tabs.ts";
 import { useWorkbench } from "../workbench-context.ts";
 import { CHAT_PANEL } from "./chat-params.ts";
+import { expandShownAgent } from "./collapsed-groups.ts";
 
 /** The oldest open request: the smallest `at`, the first listed of equals. */
 const oldestPending = (agent: AgentSummary | undefined): string | undefined => {
@@ -23,16 +24,16 @@ const chatReveal = (agents: readonly AgentSummary[] | undefined, agentId: string
 /** The key the open chat reads its reveal by. */
 export const chatRevealKey = (agentId: string): string => tabKey(CHAT_PANEL, { agentId });
 
-/** Shows the agent's chat in the middle; `reveal` (a permission request's id) is revealed in it. */
+/** Shows the agent's chat in the middle and its row in the overview; `reveal` (a permission request's id) is revealed in the chat. */
 export const useOpenAgent = (): ((agentId: string, reveal?: string) => void) => {
   const { change } = useShell();
-  const { reveals } = useWorkbench();
+  const { reveals, titleContext } = useWorkbench();
   return useCallback(
     (agentId, reveal) => {
       reveals.set(chatRevealKey(agentId), reveal === undefined ? undefined : { target: reveal });
-      change((state) => openAgent(state, agentId));
+      change((state) => expandShownAgent(openAgent(state, agentId), agentId, titleContext().agents));
     },
-    [change, reveals],
+    [change, reveals, titleContext],
   );
 };
 

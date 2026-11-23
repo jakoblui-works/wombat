@@ -19,8 +19,6 @@ type Props = {
   workspaceName: string | undefined;
   now: number;
   selected: boolean;
-  /** The agent changed state in the last update (`trackStates`). */
-  stateChanged: boolean;
   onOpen: () => void;
 };
 
@@ -29,7 +27,7 @@ export const agentPlace = (workspaceName: string | undefined, repo: string): str
   [workspaceName ?? (repo === "." ? "." : undefined), repo === "." ? undefined : repo].filter((part) => part !== undefined).join(" / ");
 
 /** One agent: the row opens its chat; the menu beside it stops or deletes the agent. */
-export const AgentRow = ({ agent, workspaceName, now, selected, stateChanged, onOpen }: Props) => {
+export const AgentRow = ({ agent, workspaceName, now, selected, onOpen }: Props) => {
   const title = agentTitle(agent.id, agent);
   const actions = useAgentActions(agent.id);
   const [confirming, setConfirming] = useState(false);
@@ -47,24 +45,25 @@ export const AgentRow = ({ agent, workspaceName, now, selected, stateChanged, on
         )}
       >
         <span className="flex w-full items-center gap-2">
-          <StateMark state={agent.state} entering={stateChanged} />
-          <span className="min-w-0 flex-1 truncate text-base font-medium text-fg-primary">{title}</span>
+          <StateMark state={agent.state} />
+          <span className="min-w-0 flex-1 truncate text-base font-medium text-fg-primary">{title}</span>{" "}
           <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{ago(agent.lastUserAt ?? agent.startedAt, now)}</span>
-        </span>
+        </span>{" "}
         <span className="flex w-full min-w-0 items-center gap-1.5 pl-5.5 font-mono text-xs text-fg-tertiary">
           <span className="min-w-0 shrink-0 truncate">{agentPlace(workspaceName, agent.repo)}</span>
           {agent.branch === undefined ? null : (
             <>
+              {" "}
               <GitBranch aria-label="branch" className="size-3 shrink-0" />
               <span className="truncate">{agent.branch}</span>
             </>
           )}
-        </span>
+        </span>{" "}
         {agent.state === "working" && agent.activity != null ? (
           <span className="truncate pl-5.5 text-xs text-fg-secondary">
             {AGENT_STATES.working.label} · {activityLabel(agent.activity)}
           </span>
-        ) : null}
+        ) : null}{" "}
         {agent.lastText === undefined ? null : <span className="line-clamp-2 pl-5.5 text-sm text-fg-secondary">{agent.lastText}</span>}
       </button>
       <DropdownMenu>
