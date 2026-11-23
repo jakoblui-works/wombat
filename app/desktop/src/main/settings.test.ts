@@ -9,6 +9,7 @@ import type { AddWorkspaceRequest } from "@wombat/shared/api";
 
 import {
   loadSettings,
+  MAX_SHELL_CHARS,
   rendererSettings,
   savePageSettings,
   saveSettings,
@@ -75,6 +76,9 @@ test("the page sees and sets only askOnQuit, lastAgentFolder and shell; askOnQui
   expect(() => savePageSettings(update, memory, { layout: { panes: 3 } })).toThrow(/askOnQuit, lastAgentFolder and shell/);
   // A shell that couldn't be held as JSON is refused, so it can't block later reads.
   expect(() => savePageSettings(update, memory, { shell: { panes: 10n } })).toThrow(/settings change isn't valid/);
+  // Every start reads the saved shell, so one past the cap is refused and the last saved one stays.
+  expect(() => savePageSettings(update, memory, { shell: "x".repeat(MAX_SHELL_CHARS) })).toThrow(/layout/);
+  expect(settings.shell).toEqual({ panes: 3 });
 });
 
 test("one workspace's relative itemsRoot in a version 1 file costs only itself: the other workspaces and that workspace's layout stay", () => {

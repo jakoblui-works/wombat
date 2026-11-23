@@ -50,7 +50,7 @@ export const ComposerBar = ({ workspaces, workspace, onWorkspace, repos, repo, o
         items={workspaces.map(({ id, name }) => ({ value: id, label: name }))}
       >
         <SelectTrigger aria-label="Workspace" className={TRIGGER}>
-          <SelectValue />
+          <SelectValue placeholder="Open a folder first" />
         </SelectTrigger>
         <SelectContent>
           {workspaces.map(({ id, name, root }) => (

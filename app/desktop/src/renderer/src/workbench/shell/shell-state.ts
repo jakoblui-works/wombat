@@ -2,7 +2,7 @@
 import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import { z } from "zod";
 
-import { DESK_ACTIVITY } from "../activity-ids.ts";
+import { AGENTS_PANEL, DESK_ACTIVITY } from "../activity-ids.ts";
 import { DEFAULT_DESK, DeskLayout } from "../items/navigation/desk-layout.ts";
 import { getActivity, getPanel, type TabTest } from "../registry.ts";
 import { tabKey, tabToReplace } from "../tabs.ts";
@@ -274,9 +274,9 @@ const savedWorkspace = (shell: WorkspaceShell): SavedWorkspace => ({
 });
 
 const registeredStates = (states: Record<string, unknown>): Record<string, unknown> =>
-  Object.fromEntries(Object.entries(states).filter(([id]) => getActivity(id) !== undefined));
+  Object.fromEntries(Object.entries(states).filter(([id]) => id === AGENTS_PANEL || getActivity(id) !== undefined));
 
-/** The registered activities' saved states; a Desk state that doesn't parse is `DEFAULT_DESK`. */
+/** The saved states of the activities and the overview (its collapsed groups); a Desk state that doesn't parse is `DEFAULT_DESK`. */
 const restoredStates = (states: Record<string, unknown>): Record<string, unknown> => {
   const registered = registeredStates(states);
   if (!(DESK_ACTIVITY in registered)) return registered;
@@ -284,7 +284,7 @@ const restoredStates = (states: Record<string, unknown>): Record<string, unknown
   return { ...registered, [DESK_ACTIVITY]: desk.success ? desk.data : DEFAULT_DESK };
 };
 
-/** The shell as saved: kept tabs that `isSaved` takes, the activities' states, no widths, nor the composer bar's picks. */
+/** The shell as saved: kept tabs that `isSaved` takes, the activities' and the overview's states, no widths, nor the composer bar's picks. */
 export const savedShell = (state: ShellState, isSaved: TabTest): SavedShell => {
   const kept = dropTabsWhere(state, (tab) => !tab.kept || !isSaved(tab.panelId, tab.params));
   return {

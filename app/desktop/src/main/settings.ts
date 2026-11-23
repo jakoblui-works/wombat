@@ -193,11 +193,16 @@ export const upgradeSettings = async (
   return { waitingFor: missingCurrent(v1, usable), leftOut };
 };
 
+/** The largest saved shell, as JSON text: every start reads and parses it. */
+export const MAX_SHELL_CHARS = 1_000_000;
+
 /** What the page may change: the patch `settings.set` takes. */
 export const RendererSettingsPatch = z.strictObject({
   askOnQuit: Settings.shape.askOnQuit.unwrap().exactOptional(),
   lastAgentFolder: z.string().exactOptional(),
-  shell: Shell.exactOptional(),
+  shell: Shell.refine((shell) => JSON.stringify(shell).length <= MAX_SHELL_CHARS, {
+    message: `the window's layout is over ${MAX_SHELL_CHARS.toLocaleString("en-GB")} characters`,
+  }).exactOptional(),
 });
 export type RendererSettingsPatch = z.infer<typeof RendererSettingsPatch>;
 
