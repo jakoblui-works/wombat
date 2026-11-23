@@ -1,4 +1,4 @@
-import { getPanel, panelTitle, type ResolveContext } from "../../registry.ts";
+import { getPanel } from "../../registry.ts";
 import type { TabRef } from "../../workbench-context.ts";
 
 /**
@@ -33,9 +33,5 @@ export const tabTitleStore = () => {
 
 export type TabTitles = ReturnType<typeof tabTitleStore>;
 
-/** A tab's title: the one it holds, else its panel's for its params. */
-export const tabTitle = (tab: TabRef, held: string | undefined, ctx: ResolveContext): string => {
-  if (held !== undefined) return held;
-  const panel = getPanel(tab.panelId);
-  return panel === undefined ? tab.panelId : panelTitle(panel, tab.params, ctx);
-};
+/** A tab's title: the one it holds, else its panel's. */
+export const tabTitle = (tab: TabRef, held: string | undefined): string => held ?? getPanel(tab.panelId)?.title ?? tab.panelId;

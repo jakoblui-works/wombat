@@ -21,14 +21,10 @@ export const tabToReplace = (tabs: { key: string; temporary: boolean; unsaved: b
 /** The questions tabs with unsaved work ask before they close, by tab key: the page's one record (`closeGuards`). */
 const closeAsks = new Map<string, () => void>();
 
-/**
- * The panel a tab on (panel, params) shows; throws for a panel that isn't registered, isn't registered for a tab, or
- * whose params don't fit it.
- */
+/** The panel a tab on (panel, params) shows; throws for a panel that isn't registered or whose params don't fit it. */
 export const openablePanel = (panelId: string, params: unknown): PanelDescriptor => {
   const panel = getPanel(panelId);
   if (panel === undefined) throw new Error(`There's no panel "${panelId}" to open; register it in workbench/activities.ts.`);
-  if (!panel.locations.includes("tab")) throw new Error(`The panel "${panelId}" doesn't open as a tab; open it where it's registered to show.`);
   if (!paramsFit(panel, params)) {
     throw new Error(`The params for the panel "${panelId}" don't match its paramsSchema; pass what the panel registered.`);
   }

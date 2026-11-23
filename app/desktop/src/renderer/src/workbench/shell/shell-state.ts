@@ -458,8 +458,8 @@ export const leftBounds = (room: number, rightOpen: boolean): WidthBounds => ({
 /** The width the shown kind wants: the active tab's panel, else the navigator alone; undefined while closed. */
 export const rightWanted = (view: RightView): number | undefined => {
   if (view.show === "closed") return undefined;
-  const panelId = view.show === "navigator" ? getActivity(view.activity)?.navigator : view.tab.panelId;
-  return (panelId === undefined ? undefined : getPanel(panelId)?.wants) ?? RIGHT_DEFAULT_WANTS;
+  const wants = view.show === "navigator" ? getActivity(view.activity)?.navigator.wants : getPanel(view.tab.panelId)?.wants;
+  return wants ?? RIGHT_DEFAULT_WANTS;
 };
 
 /** `rightWidth` for what `workspace`'s right sidebar shows; undefined while it's closed. */

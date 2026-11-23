@@ -1,19 +1,17 @@
-// Every panel and activity is registered here once; the shell, its saved state and the tabs read them from here.
+// Every tab's panel and every activity is registered here once; the shell, its saved state and the tabs read them from here.
 import type { LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
 import { z, type ZodType } from "zod";
-import type { AgentSummary, Workspace } from "@wombat/shared/api";
+import type { AgentSummary } from "@wombat/shared/api";
 import type { Proposal } from "@wombat/shared/proposals";
 
 /** A rule on a tab, as `isKnown`, `isSaved` and `isRestorable` answer. */
 export type TabTest = (panelId: string, params: unknown) => boolean;
 
-export type PanelLocation = "tab" | "navigator";
-/** What a panel's title may look at; a list is undefined while it's loading (or couldn't be read). */
+/** What decides whether a tab still applies; a list is undefined while it's loading (or couldn't be read). */
 export type ResolveContext = {
   agents: AgentSummary[] | undefined;
   proposals?: readonly Proposal[] | undefined;
-  workspaces?: readonly Pick<Workspace, "id" | "name">[] | undefined;
 };
 /**
  * What `resolves` looks at: it's only asked once the agents list is known (until then a tab is kept). The proposals
@@ -39,13 +37,12 @@ export type PanelProps = {
   setTitle?: ((title: string) => void) | undefined;
 };
 
+/** A tab's panel. */
 export type PanelDescriptor = {
   id: string;
-  title: string | ((params: unknown, ctx: ResolveContext) => string);
-  icon: LucideIcon;
-  locations: PanelLocation[];
+  title: string;
   activity?: string;
-  /** The right sidebar's width, in pixels, this panel wants as the active tab, or as a navigator alone. */
+  /** The right sidebar's width, in pixels, this panel wants as the active tab. */
   wants?: number;
   component: ComponentType<PanelProps>;
   paramsSchema?: ZodType;
@@ -60,8 +57,11 @@ export type ActivityDescriptor = {
   id: string;
   title: string;
   icon: LucideIcon;
-  /** The panel shown beside the activity's tabs; its params are `NavigatorParams`. */
-  navigator: string;
+  /**
+   * The navigator shown beside the activity's tabs; its params are `NavigatorParams`. `wants` is the right sidebar's
+   * width, in pixels, it wants alone.
+   */
+  navigator: { component: ComponentType<PanelProps>; wants?: number };
 };
 
 /** A navigator's params: the workspace whose navigator it is (one per workspace, all mounted). */
@@ -82,10 +82,6 @@ export const getPanel = (id: string): PanelDescriptor | undefined => panels.get(
 export const getActivity = (id: string): ActivityDescriptor | undefined => activityList.get(id);
 /** The activities in registration order. */
 export const activities = (): ActivityDescriptor[] => [...activityList.values()];
-
-/** A panel's title for these params. */
-export const panelTitle = (panel: PanelDescriptor, params: unknown, ctx: ResolveContext): string =>
-  typeof panel.title === "string" ? panel.title : panel.title(params, ctx);
 
 /** Whether `params` pass the panel's paramsSchema (a panel without one takes any). */
 export const paramsFit = (panel: PanelDescriptor, params: unknown): boolean => panel.paramsSchema === undefined || panel.paramsSchema.safeParse(params).success;

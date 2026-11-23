@@ -5,17 +5,19 @@ import { cn } from "@/lib/utils";
 import { useAgents } from "../../data/hooks.ts";
 import { chooseItemsFolder } from "../../data/workspace-folders.ts";
 import { asError, asSentence } from "../../lib/errors.ts";
-// Registers the panels (the chat's among them) and the harnesses' UI.
+// Registers the activities, the tabs' panels and the harnesses' UI.
 import "../activities.ts";
-import { AGENTS_PANEL, NEEDS_ME_PANEL } from "../activity-ids.ts";
-import { CHAT_PANEL, MESSAGE_BOX, NEW_CHAT_PANEL } from "../agents/chat-params.ts";
+import { MESSAGE_BOX } from "../agents/chat-params.ts";
 import { chatRevealKey, useOpenAgentChat } from "../agents/open-agent-chat.ts";
 import { openFolderOrTell } from "../commands/open-folder.ts";
 import { registerWorkbenchCommands } from "../commands/workbench-commands.ts";
 import { ConnectionBanner } from "../ConnectionBanner/ConnectionBanner.tsx";
 import { LiveLaunchNotice } from "../LaunchNotice/LaunchNotice.tsx";
 import type { OpenAgents } from "../open-agents.ts";
-import { getPanel } from "../registry.ts";
+import { AgentsList } from "../panels/AgentsList/AgentsList.tsx";
+import { Chat } from "../panels/Chat/Chat.tsx";
+import { NewChat } from "../panels/Chat/NewChat.tsx";
+import { NeedsMe } from "../panels/NeedsMe/NeedsMe.tsx";
 import { RESIZE_HANDLE_WIDTH, ResizeHandle } from "../ResizeHandle/ResizeHandle.tsx";
 import { LiveStatusBar } from "../StatusBar/StatusBar.tsx";
 import { type Reveals, revealStore, tabKey } from "../tabs.ts";
@@ -42,22 +44,19 @@ const focusOnHide = (inside: boolean, message: HTMLElement | null, toggle: HTMLE
   inside ? (message ?? toggle ?? undefined) : undefined;
 
 /** The left sidebar: Needs me above the overview. */
-const LeftPanel = () => {
-  const NeedsMe = getPanel(NEEDS_ME_PANEL)?.component;
-  const Overview = getPanel(AGENTS_PANEL)?.component;
-  return (
-    <>
-      {NeedsMe === undefined ? null : <NeedsMe params={{}} />}
-      <div className="flex min-h-0 flex-1 flex-col">{Overview === undefined ? null : <Overview params={{}} />}</div>
-    </>
-  );
-};
+const LeftPanel = () => (
+  <>
+    <NeedsMe />
+    <div className="flex min-h-0 flex-1 flex-col">
+      <AgentsList />
+    </div>
+  </>
+);
 
 const ShownChat = ({ agentId, reveals }: { agentId: string; reveals: Reveals }) => {
   const key = chatRevealKey(agentId);
   const reveal = useSyncExternalStore(reveals.subscribe, () => reveals.get(key));
-  const Chat = getPanel(CHAT_PANEL)?.component;
-  return Chat === undefined ? null : <Chat params={{ agentId }} reveal={reveal} />;
+  return <Chat params={{ agentId }} reveal={reveal} />;
 };
 
 /** The open agent's chat, one at a time, or the empty chat. */
@@ -66,8 +65,7 @@ const Middle = ({ reveals }: { reveals: Reveals }) => {
   const view = middleView(state, useAgents().data?.agents);
   // Keyed by the agent, so each agent's chat starts from its own state.
   if (view.show === "chat") return <ShownChat key={view.agentId} agentId={view.agentId} reveals={reveals} />;
-  const NewChat = getPanel(NEW_CHAT_PANEL)?.component;
-  return NewChat === undefined ? null : <NewChat params={{}} />;
+  return <NewChat />;
 };
 
 /**
