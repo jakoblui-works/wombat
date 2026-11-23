@@ -1,7 +1,8 @@
 // A stand-in for the agent service that `node` runs in the main process's unit tests: it writes a discovery file,
-// answers GET /version to its token, and on POST /shutdown removes the file, answers 202 and exits
-// FAKE_EXIT_DELAY_MS later (a real service still closes its store then). Each start appends `{ pid }` to
-// FAKE_SERVICE_RECORD, so a test can tell which services ran and kill them after.
+// answers GET /version to its token, lists and adds workspaces in memory (GET and POST /workspaces), and on
+// POST /shutdown removes the file, answers 202 and exits FAKE_EXIT_DELAY_MS later (a real service still closes its
+// store then). Each start appends `{ pid }` to FAKE_SERVICE_RECORD, so a test can tell which services ran and kill
+// them after.
 //
 //   FAKE_START_DELAY_MS  how long it waits before listening and writing the discovery file
 //   FAKE_EXIT_DELAY_MS   how long it lives on after answering POST /shutdown
@@ -25,11 +26,24 @@ if (record !== undefined) {
 // Never outlives a test that forgot it.
 setTimeout(() => process.exit(0), 60_000).unref();
 
+const workspaces: { id: string; name: string; root: string; missing: boolean }[] = [];
+
 const server = createServer((req, res) => {
   if (req.headers.authorization !== `Bearer ${token}`) {
     res.writeHead(401).end();
   } else if (req.method === "GET" && req.url === "/version") {
     res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ apiVersion }));
+  } else if (req.method === "GET" && req.url === "/workspaces") {
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ workspaces }));
+  } else if (req.method === "POST" && req.url === "/workspaces") {
+    let body = "";
+    req.on("data", (chunk: Buffer) => (body += chunk.toString()));
+    req.on("end", () => {
+      const { root } = JSON.parse(body) as { root: string };
+      const workspace = workspaces.find((listed) => listed.root === root) ?? { id: `ws-${String(workspaces.length).padStart(10, "0")}`, name: root, root, missing: false };
+      if (!workspaces.includes(workspace)) workspaces.push(workspace);
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(workspace));
+    });
   } else if (req.method === "POST" && req.url === "/shutdown") {
     if (readDiscovery(file)?.pid === process.pid) rmSync(file, { force: true });
     res.writeHead(202).end(() => setTimeout(() => process.exit(0), Number(env["FAKE_EXIT_DELAY_MS"] ?? "0")));

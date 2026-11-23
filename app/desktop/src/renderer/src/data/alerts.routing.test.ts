@@ -50,6 +50,7 @@ test.each<[string, (service: FakeService) => void]>([
     },
   ],
   ["an items alert", (service) => service.alert("agent_changed", A, { type: "items", workspace: FAKE_WORKSPACE.id })],
+  ["a workspaces alert", (service) => service.alert("agent_changed", A, { type: "workspaces" })],
 ])("%s reads the binders, every cached binder's items and every cached item again", async (_name, trigger) => {
   const { service, client } = setup();
   client.setQueryData(keys.binders(FAKE_WORKSPACE.id), { binders: [] });

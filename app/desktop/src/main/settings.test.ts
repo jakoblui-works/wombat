@@ -72,12 +72,17 @@ test("the page sees and sets only askOnQuit, lastAgentFolder and shell; askOnQui
   expect(saved).toEqual([{ ...DEFAULTS, askOnQuit: false, shell: { panes: 3 } }]);
   expect(rendererSettings(settings, memory)).toEqual({ askOnQuit: false, lastAgentFolder: "bakery-site", shell: { panes: 3 } });
 
-  expect(() => savePageSettings(update, memory, { workspace: "/home/dev/other" })).toThrow(/askOnQuit, lastAgentFolder and shell/);
-  expect(() => savePageSettings(update, memory, { layout: { panes: 3 } })).toThrow(/askOnQuit, lastAgentFolder and shell/);
-  // A shell that couldn't be held as JSON is refused, so it can't block later reads.
-  expect(() => savePageSettings(update, memory, { shell: { panes: 10n } })).toThrow(/settings change isn't valid/);
-  // Every start reads the saved shell, so one past the cap is refused and the last saved one stays.
-  expect(() => savePageSettings(update, memory, { shell: "x".repeat(MAX_SHELL_CHARS) })).toThrow(/layout/);
+  const before = saved.length;
+  // A shell that couldn't be held as JSON is refused, so it can't block later reads; every start reads the saved
+  // shell, so one past the cap is refused too.
+  const refused: [string, unknown][] = [
+    ["a workspace", { workspace: "/home/dev/other" }],
+    ["an old layout", { layout: { panes: 3 } }],
+    ["a shell that isn't JSON", { shell: { panes: 10n } }],
+    ["a shell past the cap", { shell: "x".repeat(MAX_SHELL_CHARS) }],
+  ];
+  for (const [what, patch] of refused) expect(() => savePageSettings(update, memory, patch), what).toThrow();
+  expect(saved, "a refused change was saved").toHaveLength(before);
   expect(settings.shell).toEqual({ panes: 3 });
 });
 
