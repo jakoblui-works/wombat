@@ -262,11 +262,12 @@ export const createProposals = ({ store, workspaceOf, rootOf, agentFolder, onPro
     });
 
   /**
-   * Settles every proposal a service death left applying, from what its target holds: written with the intent →
-   * approved, else pending. Run before the server takes requests. An item proposal waits while its workspace has no
-   * items folder, and one whose items can't be read waits for the next start: settling it pending could make a create twice.
+   * Settles every listed proposal a service death left applying, from what its target holds: written with the intent →
+   * approved, else pending. Only safe while no approve runs (before the server takes requests, or in the decide queue).
+   * An item proposal waits while its workspace has no items folder, and one whose items can't be read waits for the
+   * next settle: settling it pending could make a create twice.
    */
-  const settleAtStart = async () => {
+  const settleApplying = async (settledEvent: string) => {
     for (const stored of store.listApplying()) {
       const target = stored.target === "file" ? fileTarget : itemsOf?.(stored.workspace)?.itemTarget;
       if (target === undefined) continue;
@@ -281,13 +282,19 @@ export const createProposals = ({ store, workspaceOf, rootOf, agentFolder, onPro
       const change = store.settle(stored.id, outcome);
       if (change === undefined) continue;
       announce(stored.id, change.seq);
-      log("proposal_settled_at_start", { proposalId: stored.id, status: outcome.status });
+      log(settledEvent, { proposalId: stored.id, status: outcome.status });
     }
   };
 
+  /** Run before the server takes requests. */
+  const settleAtStart = () => settleApplying("proposal_settled_at_start");
+
+  /** After a workspace adopted proposals stored before workspaces existed: the ones left applying become decidable. */
+  const settleAdopted = () => decide(() => settleApplying("proposal_settled_on_adopt"));
+
   const { revise, putDraft, clearDraft } = reviser({ store, decide, committed, itemsOf, holds, summaryOf });
 
-  return { proposeFile, proposeItem, revise, putDraft, clearDraft, list, get, approve, reject, settleAtStart };
+  return { proposeFile, proposeItem, revise, putDraft, clearDraft, list, get, approve, reject, settleAtStart, settleAdopted };
 };
 
 export type Proposals = ReturnType<typeof createProposals>;

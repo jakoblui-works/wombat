@@ -11,6 +11,7 @@ import type { RendererSettings } from "../shared/bridge.ts";
 import {
   asVersion2,
   isV1,
+  type LeftOutFolder,
   loadSettings,
   type PageMemory,
   rendererSettings,
@@ -74,6 +75,11 @@ export type WorkspaceControl = {
   setPageSettings: (patch: unknown) => void;
 };
 
+const leftOutLine = ({ path, use, workspace }: LeftOutFolder): string =>
+  use === "workspace"
+    ? `The workspace folder ${path} in settings.json is gone or can't be read, so Wombat didn't add it. Once it's back, add it again with File → Open Folder….`
+    : `The items folder ${path} of the workspace ${workspace} in settings.json is gone or can't be read, so the workspace was added without it. Once it's back, choose it again with Choose Items Folder….`;
+
 /** The folder picker, then `add` with the chosen folder: the added workspace's id, or undefined when it's cancelled. */
 export const addChosenWorkspace = async (
   pick: () => Promise<string | undefined>,
@@ -125,12 +131,14 @@ export const workspaceControl = ({
       if (pending === undefined) return;
       const reason = (error: unknown) => (error instanceof Error ? error.message : String(error));
       let waitingFor: string | undefined;
+      let leftOut: LeftOutFolder[];
       try {
-        waitingFor = await upgradeSettings(pending, (request) => addWorkspace(file, request), usable);
+        ({ waitingFor, leftOut } = await upgradeSettings(pending, (request) => addWorkspace(file, request), usable));
       } catch (error) {
         log(`Wombat couldn't hand the workspaces in settings.json to the service, so the file stays at version 1 and the next start tries again: ${reason(error)}`);
         return;
       }
+      for (const folder of leftOut) log(leftOutLine(folder));
       if (waitingFor !== undefined) {
         log(
           `The workspace folder ${waitingFor}, open when Wombat last ran, is gone or can't be read, so its agents and proposals from before aren't listed yet. ` +

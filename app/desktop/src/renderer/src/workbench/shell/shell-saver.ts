@@ -18,8 +18,10 @@ export const readAnswered = (state: QueryState | undefined, connection: Connecti
 export type ShellSaver = {
   /** Saves `saved` once nothing has changed for the delay, unless it is what was last saved or restored. */
   offer: (saved: SavedShell) => void;
-  /** Drops any pending save and makes every later `offer` a no-op (the page is unloading). */
+  /** Drops any pending save and makes every later `offer` a no-op. */
   stop: () => void;
+  /** Writes any pending save now, then stops (the page is unloading). */
+  flush: () => void;
 };
 
 /**
@@ -30,24 +32,38 @@ export const shellSaver = (restored: SavedShell, write: (saved: SavedShell) => v
   let last = JSON.stringify(restored);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
+  let pending: string | undefined;
+  const stop = () => {
+    stopped = true;
+    clearTimeout(timer);
+    timer = undefined;
+    pending = undefined;
+  };
+  const writePending = () => {
+    const text = pending;
+    clearTimeout(timer);
+    timer = undefined;
+    pending = undefined;
+    if (text === undefined) return;
+    last = text;
+    // Plain JSON: main refuses a shell that isn't, and a tab's params may hold a field set to undefined.
+    write(JSON.parse(text) as SavedShell);
+  };
   return {
     offer: (saved) => {
       if (stopped) return;
       clearTimeout(timer);
       timer = undefined;
       const text = JSON.stringify(saved);
-      if (text === last) return;
-      timer = setTimeout(() => {
-        timer = undefined;
-        last = text;
-        // Plain JSON: main refuses a shell that isn't, and a tab's params may hold a field set to undefined.
-        write(JSON.parse(text) as SavedShell);
-      }, delayMs);
+      pending = text === last ? undefined : text;
+      if (pending === undefined) return;
+      timer = setTimeout(writePending, delayMs);
     },
-    stop: () => {
-      stopped = true;
-      clearTimeout(timer);
-      timer = undefined;
+    stop,
+    flush: () => {
+      if (stopped) return;
+      writePending();
+      stop();
     },
   };
 };

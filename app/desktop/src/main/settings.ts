@@ -134,24 +134,31 @@ export const saveSettingsV1 = (file: string, pending: SettingsV1, { askOnQuit, q
 /** Whether `settings` is a version 1 file still to upgrade. */
 export const isV1 = (settings: Settings | SettingsV1): settings is SettingsV1 => settings.version === 1;
 
+/** A folder in a version 1 file the upgrade leaves out: a workspace root, or the items root of `workspace`. */
+export type LeftOutFolder = { path: string; use: "workspace" | "items folder"; workspace: string };
+
 /**
  * The POST /workspaces calls that carry a version 1 file's workspaces to the service, in order: the open workspace
  * first, adopting the rows stored before the service listed workspaces, then the others, each with its items root.
  * A root the service would refuse (`usable`: usableFolder, the rule it refuses by) is left out, and so is such an items root: a
- * refusal would keep the file at version 1 for good.
+ * refusal would keep the file at version 1 for good. `leftOut` names what is left out, but for the open workspace's own
+ * folder (missingCurrent's).
  */
-export const workspacesToAdd = (v1: SettingsV1, usable: (at: string) => boolean): AddWorkspaceRequest[] => {
+const upgradePlan = (v1: SettingsV1, usable: (at: string) => boolean): { requests: AddWorkspaceRequest[]; leftOut: LeftOutFolder[] } => {
   const roots = [...new Set([...(v1.workspace === undefined ? [] : [v1.workspace]), ...Object.keys(v1.workspaces)])];
-  return roots
-    .filter((root) => usable(root))
-    .map((root) => {
-      const itemsRoot = v1.workspaces[root]?.itemsRoot;
-      return {
-        root,
-        ...(itemsRoot !== undefined && usable(itemsRoot) ? { itemsRoot } : {}),
-        ...(root === v1.workspace ? { adopt: true } : {}),
-      };
-    });
+  const requests: AddWorkspaceRequest[] = [];
+  const leftOut: LeftOutFolder[] = [];
+  for (const root of roots) {
+    if (!usable(root)) {
+      if (root !== v1.workspace) leftOut.push({ path: root, use: "workspace", workspace: root });
+      continue;
+    }
+    const itemsRoot = v1.workspaces[root]?.itemsRoot;
+    const itemsUsable = itemsRoot !== undefined && usable(itemsRoot);
+    if (itemsRoot !== undefined && !itemsUsable) leftOut.push({ path: itemsRoot, use: "items folder", workspace: root });
+    requests.push({ root, ...(itemsUsable ? { itemsRoot } : {}), ...(root === v1.workspace ? { adopt: true } : {}) });
+  }
+  return { requests, leftOut };
 };
 
 /** A version 1 file's settings as version 2: what both share, without folders, the last agent folder or the layouts. */
@@ -171,18 +178,19 @@ export const missingCurrent = (v1: SettingsV1, usable: (at: string) => boolean):
   v1.workspace !== undefined && !usable(v1.workspace) ? v1.workspace : undefined;
 
 /**
- * Adds a version 1 file's workspaces through `addWorkspace` (workspacesToAdd's order, one at a time). Resolves with
- * missingCurrent's folder, when the file must stay at version 1 for it; otherwise undefined, and the caller saves the
- * settings as version 2 (asVersion2). Rejects at the first add that fails, so the caller leaves the file at version 1
+ * Adds a version 1 file's workspaces through `addWorkspace` (upgradePlan's order, one at a time). Resolves with
+ * `waitingFor`, missingCurrent's folder when the file must stay at version 1 for it (otherwise undefined, and the caller
+ * saves the settings as version 2: asVersion2), and `leftOut`, the folders the adds left out but for that one. Rejects at the first add that fails, so the caller leaves the file at version 1
  * and the next start tries again (an add of a listed root changes nothing).
  */
 export const upgradeSettings = async (
   v1: SettingsV1,
   addWorkspace: (request: AddWorkspaceRequest) => Promise<unknown>,
   usable: (at: string) => boolean,
-): Promise<string | undefined> => {
-  for (const request of workspacesToAdd(v1, usable)) await addWorkspace(request);
-  return missingCurrent(v1, usable);
+): Promise<{ waitingFor: string | undefined; leftOut: LeftOutFolder[] }> => {
+  const { requests, leftOut } = upgradePlan(v1, usable);
+  for (const request of requests) await addWorkspace(request);
+  return { waitingFor: missingCurrent(v1, usable), leftOut };
 };
 
 /** What the page may change: the patch `settings.set` takes. */

@@ -106,7 +106,7 @@ test("one workspace's relative itemsRoot in a version 1 file costs only itself: 
 // The agents stored before the service listed workspaces are adopted only by the add of the open workspace: an upgrade
 // that drops `adopt`, or rewrites the file as version 2 while that folder is gone, loses them for good. One that keeps
 // the file at version 1 once the folder is back retries forever.
-test("the version 1 upgrade hands over the open workspace first with adopt, then the others with their items roots, skips folders that are gone, and keeps version 1 while the open one is gone", async () => {
+test("the version 1 upgrade hands over the open workspace first with adopt, then the others with their items roots, skips and names folders that are gone, and keeps version 1 while the open one is gone", async () => {
   const v1: SettingsV1 = {
     ...V1_DEFAULTS,
     workspace: "/home/dev/bakery",
@@ -119,7 +119,7 @@ test("the version 1 upgrade hands over the open workspace first with adopt, then
   };
   const upgrade = async (existing: string[]) => {
     const added: AddWorkspaceRequest[] = [];
-    const keepV1For = await upgradeSettings(
+    const { waitingFor: keepV1For, leftOut } = await upgradeSettings(
       v1,
       (request) => {
         added.push(request);
@@ -127,7 +127,7 @@ test("the version 1 upgrade hands over the open workspace first with adopt, then
       },
       (at) => existing.includes(at),
     );
-    return { added, keepV1For };
+    return { added, keepV1For, leftOut: leftOut.map(({ path }) => path) };
   };
   const others = ["/home/dev/other", "/home/dev/other/docs", "/home/dev/third"];
 
@@ -138,10 +138,12 @@ test("the version 1 upgrade hands over the open workspace first with adopt, then
       { root: "/home/dev/third" },
     ],
     keepV1For: undefined,
+    leftOut: ["/home/dev/gone", "/home/dev/gone-docs"],
   });
 
   expect(await upgrade(others)).toEqual({
     added: [{ root: "/home/dev/other", itemsRoot: "/home/dev/other/docs" }, { root: "/home/dev/third" }],
     keepV1For: "/home/dev/bakery",
+    leftOut: ["/home/dev/gone", "/home/dev/gone-docs"],
   });
 });

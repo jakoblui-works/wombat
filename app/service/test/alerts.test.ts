@@ -1,10 +1,13 @@
-// The items alert through the service as a process (its real start-up wiring): a hand edit of an item file and an
-// agent's write each reach GET /events as an alert that carries exactly seq, dbId, type "items" and the workspace,
-// nothing of the item.
-import { readFileSync, writeFileSync } from "node:fs";
+// The items and workspaces alerts through the service as a process (its real start-up wiring): a hand edit of an item
+// file and an agent's write each reach GET /events as an alert that carries exactly seq, dbId, type "items" and the
+// workspace, nothing of the item; an added workspace's alert carries exactly seq, dbId and type, never its folder.
+import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
+
+import { WORKSPACES_ALERT } from "@wombat/shared/api";
 
 import { ACCESS_FILES } from "./access-fixtures.ts";
 import { TEST_TIMEOUT_MS } from "./manager-fixtures.ts";
@@ -57,5 +60,31 @@ describe("the items alert", () => {
       expect(stream.raw().includes(MARKER), "the written text on the alert stream").toBe(false);
     },
     TEST_TIMEOUT_MS * 2,
+  );
+});
+
+describe("the workspaces alert", () => {
+  test(
+    "adding a workspace reaches GET /events as a workspaces alert with exactly seq, dbId and type, and no folder path",
+    async () => {
+      const service = await startService({ items: ACCESS_FILES });
+      const stream = await openStream(service.file.port, { headers: { authorization: `Bearer ${service.file.token}`, origin: APP_ORIGIN } });
+      expect(stream.status).toBe(200);
+      const added = realpathSync(mkdtempSync(join(tmpdir(), "wombat-alerts-added-")));
+
+      const response = await service.api("POST", "/workspaces", { root: added });
+      expect(response.status, response.text).toBe(200);
+
+      const workspacesAlerts = () =>
+        stream
+          .events()
+          .filter((event) => event.data !== "")
+          .map((event) => JSON.parse(event.data) as Record<string, unknown>)
+          .filter((alert) => alert.type === WORKSPACES_ALERT);
+      await stream.until("a workspaces alert", () => workspacesAlerts().length > 0);
+      for (const alert of workspacesAlerts()) expect(Object.keys(alert).sort()).toEqual(["dbId", "seq", "type"]);
+      expect(stream.raw().includes(added), "the added folder on the alert stream").toBe(false);
+    },
+    TEST_TIMEOUT_MS,
   );
 });

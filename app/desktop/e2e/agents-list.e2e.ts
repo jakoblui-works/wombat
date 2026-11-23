@@ -29,7 +29,7 @@ const agentIds = async (sandbox: Sandbox): Promise<string[]> => {
 test.describe("Agents sidebar and New agent", () => {
   test("start an agent from New agent, see it done, open its chat, delete it (Enter on the confirmation cancels)", async ({ sandbox }) => {
     test.setTimeout(90_000);
-    // REPO as a git repo, so GET /repos offers it beside the workspace root.
+    // REPO as a git repo, so GET /workspaces/:ws/repos offers it beside the workspace root.
     mkdirSync(path.join(sandbox.workspace, REPO, ".git"), { recursive: true });
     await sandbox.startService(sandbox.workspace);
     const launched = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });

@@ -8,6 +8,7 @@ import type { Context, Hono } from "hono";
 
 import type { WorkspaceItems } from "../items/workspace-items.ts";
 import type { Store } from "../store/store.ts";
+import type { Adopted } from "../store/workspaces.ts";
 import { workspaceNotFound } from "../workspace.ts";
 import { errorResponse, WORKSPACE_STATUS } from "./errors.ts";
 import { checked, readBody } from "./request.ts";
@@ -18,6 +19,8 @@ export type WorkspaceRoutesOptions = {
   workspacesCommitted: (seq: number) => void;
   /** Opens an added workspace's items, and opens them again on an items-folder change, before the route answers. */
   items?: Pick<WorkspaceItems, "open" | "reopen">;
+  /** Called after an add adopted proposals, once the workspace's items are open, before the route answers. */
+  proposalsAdopted: () => Promise<void>;
 };
 
 type FolderUse = "workspace" | "items folder";
@@ -32,7 +35,7 @@ const folderRefusal = (path: string, use: FolderUse): string | undefined => {
 
 const refused = (c: Context, message: string) => errorResponse(c, WORKSPACE_STATUS.invalid_folder, WorkspaceErrorCode.enum.invalid_folder, message);
 
-export const workspaceRoutes = (app: Hono, { store, workspacesCommitted, items }: WorkspaceRoutesOptions) => {
+export const workspaceRoutes = (app: Hono, { store, workspacesCommitted, items, proposalsAdopted }: WorkspaceRoutesOptions) => {
   /**
    * Runs `write` and takes its alert's seq in one transaction when it changed anything; once committed, opens the
    * workspace's items with `open`, then alerts, so the app's read after the alert finds them.
@@ -58,11 +61,12 @@ export const workspaceRoutes = (app: Hono, { store, workspacesCommitted, items }
     const refusal = refusalNow();
     if (refusal !== undefined) return refused(c, refusal);
     let workspace: Workspace;
+    let adopted: Adopted | undefined;
     try {
       workspace = await alerting(
         () => {
           const { workspace: stored, added } = store.addWorkspace(root, itemsRoot);
-          const adopted = adopt === true ? store.adoptUnassigned(stored.id) : undefined;
+          adopted = adopt === true ? store.adoptUnassigned(stored.id) : undefined;
           const adoptedAny = adopted !== undefined && adopted.agents + adopted.proposals + adopted.counters > 0;
           return { workspace: stored, changed: added || adoptedAny };
         },
@@ -75,6 +79,7 @@ export const workspaceRoutes = (app: Hono, { store, workspacesCommitted, items }
       if (gone !== undefined) return refused(c, gone);
       throw error;
     }
+    if (adopted !== undefined && adopted.proposals > 0) await proposalsAdopted();
     return c.json(checked(ROUTES.addWorkspace.response, workspace) satisfies ResponseOf<typeof ROUTES.addWorkspace>);
   });
 

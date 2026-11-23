@@ -26,13 +26,13 @@ access: hidden
 
 describe("items routes", () => {
   test(
-    "GET /items/:ref answers the same item for its id, its handle and its alias",
+    "GET /workspaces/:ws/items/:ref answers the same item for its id, its handle and its alias",
     async () => {
       // BL-1 is also known by its old handle BL-3.
       const s = await serve({ itemsRoot: writeRoot(VALID_FILES) });
       const get = async (ref: string) => {
         const response = await s.api("GET", wsPath(`/items/${encodeURIComponent(ref)}`));
-        expect(response.status, `GET /items/${ref}: ${response.text}`).toBe(200);
+        expect(response.status, `GET /workspaces/:ws/items/${ref}: ${response.text}`).toBe(200);
         return response.json as { id: string };
       };
       const byHandle = await get("BL-1");
@@ -355,7 +355,7 @@ const tree = (dir: string): Record<string, string> => {
   return out;
 };
 
-describe("POST /binders", () => {
+describe("POST /workspaces/:ws/binders", () => {
   test(
     "refuses a taken id or prefix (a hidden binder's too), a folder that is a binder already, a path outside the root, and a folder a free binder's include reaches, writing nothing",
     async () => {

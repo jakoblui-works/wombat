@@ -60,8 +60,8 @@ export const useSavedShell = (connection: ConnectionState["state"]): boolean => 
       });
     });
     saver.current = current;
-    // A reload unloads the page: no save may happen from then on.
-    const unloading = () => current.stop();
+    // A quit or reload unloads the page: the pending save is written now, and none from then on.
+    const unloading = () => current.flush();
     window.addEventListener("beforeunload", unloading);
     return () => {
       window.removeEventListener("beforeunload", unloading);

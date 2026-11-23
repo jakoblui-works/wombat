@@ -144,7 +144,12 @@ export const startServer = async ({
     c.json(harnesses.map((harness) => ({ id: harness.id, name: harness.name, features: harnessFeatures(harness) })) satisfies ResponseOf<typeof ROUTES.listHarnesses>),
   );
 
-  workspaceRoutes(app, { store, workspacesCommitted: manager.workspacesCommitted, ...(items === undefined ? {} : { items }) });
+  workspaceRoutes(app, {
+    store,
+    workspacesCommitted: manager.workspacesCommitted,
+    proposalsAdopted: proposals.settleAdopted,
+    ...(items === undefined ? {} : { items }),
+  });
 
   app.get("/workspaces/:ws/repos", (c) =>
     c.json({ repos: listRepos(manager.workspaceOf(c.req.param("ws"))) } satisfies ResponseOf<typeof ROUTES.listRepos>),

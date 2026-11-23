@@ -35,10 +35,14 @@ export const keys = {
   item: (ws: string, ref: string) => [ITEM, ws, ref],
 } as const satisfies Record<string, QueryKey | ((...args: never[]) => QueryKey)>;
 
-// "" is the id hooks key a disabled query by while no workspace is shown; it names nothing to read.
+/** The workspace id a workspace-keyed read is keyed by while no workspace is known (the query waits); it names nothing to read. */
+export const NO_WORKSPACE = "";
+
 const named = (key: QueryKey, prefix: string, at: number): string | undefined => {
   const value = key[at];
-  return key[0] === prefix && key.length === at + 1 && typeof value === "string" && value !== "" && key.slice(1, at).every((part) => part !== "") ? value : undefined;
+  return key[0] === prefix && key.length === at + 1 && typeof value === "string" && value !== NO_WORKSPACE && key.slice(1, at).every((part) => part !== NO_WORKSPACE)
+    ? value
+    : undefined;
 };
 
 /** The proposal a `keys.proposal(id)` key names; undefined for any other key. */
