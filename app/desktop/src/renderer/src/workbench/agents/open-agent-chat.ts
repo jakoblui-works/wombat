@@ -29,20 +29,20 @@ export const chatRevealKey = (agentId: string): string => tabKey(CHAT_PANEL, { a
  * the chat. With `onlyIf`, nothing changes unless it holds for the shell state at the time of the change.
  */
 export const useOpenAgent = (): ((agentId: string, reveal?: string, onlyIf?: (state: ShellState) => boolean) => void) => {
-  const { change } = useShell();
-  const { reveals, titleContext } = useWorkbench();
+  const { change, current } = useShell();
+  const { reveals } = useWorkbench();
   return useCallback(
     (agentId, reveal, onlyIf) => {
       reveals.set(chatRevealKey(agentId), reveal === undefined ? undefined : { target: reveal });
-      change((state) => (onlyIf?.(state) === false ? state : expandShownAgent(openAgent(state, agentId), agentId, titleContext().agents)));
+      change((state) => (onlyIf?.(state) === false ? state : expandShownAgent(openAgent(state, agentId), agentId, current().agents)));
     },
-    [change, reveals, titleContext],
+    [change, current, reveals],
   );
 };
 
 /** Shows the agent's chat and reveals `requestId`, else its oldest open request, among the agents as the page knows them now. */
 export const useOpenAgentChat = (): ((agentId: string, requestId?: string) => void) => {
   const show = useOpenAgent();
-  const { titleContext } = useWorkbench();
-  return useCallback((agentId, requestId) => show(agentId, chatReveal(titleContext().agents, agentId, requestId)), [show, titleContext]);
+  const { current } = useShell();
+  return useCallback((agentId, requestId) => show(agentId, chatReveal(current().agents, agentId, requestId)), [show, current]);
 };

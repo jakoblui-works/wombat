@@ -90,13 +90,12 @@ const page = () => {
   vi.stubGlobal("window", { wombat: { service: { request }, workspace: { get: () => Promise.resolve({ root: ws.root }) } } });
 
   const { actions, reveals } = shellTabs();
-  const titleContext = () => ({ agents: [] });
   const shownActivities: string[] = [];
   const told: string[] = [];
   let desk: DeskLayout = DEFAULT_DESK;
   const queryClient = createQueryClient();
   const navigator: ItemNavigator = {
-    workbench: { ...actions, reveals, titleContext, showActivity: (id) => shownActivities.push(id) },
+    workbench: { ...actions, reveals, showActivity: (id) => shownActivities.push(id) },
     queryClient,
     changeDesk: (change) => {
       desk = change(desk);
@@ -159,7 +158,7 @@ test("openBinder of another workspace opens that workspace's Desk on the binder 
   for (const ws of [SHOWN, OTHER]) queryClient.setQueryData(keys.binders(ws), { binders: [] });
   // As the shell wires it: a Desk change and an activity name their workspace, else the shown one's.
   const navigator: ItemNavigator = {
-    workbench: { ...actions, reveals, titleContext: () => ({ agents: [] }), showActivity: (id, ws) => change((current) => showActivity(current, ws ?? SHOWN, id)) },
+    workbench: { ...actions, reveals, showActivity: (id, ws) => change((current) => showActivity(current, ws ?? SHOWN, id)) },
     queryClient,
     changeDesk: (update, ws) => change((current) => changeActivityState(current, ws, DESK_ACTIVITY, (slot) => update(deskOf(slot)))),
     tell: () => undefined,

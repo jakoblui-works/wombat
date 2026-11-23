@@ -1,6 +1,6 @@
 import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import { Button } from "../../../components/ui/button";
 import { Collapse } from "../../../components/ui/collapse";
@@ -64,21 +64,19 @@ const WorkspaceGroup = ({ workspace, agents, now }: GroupProps) => {
 /** The overview: every agent, by workspace, each by state with what needs me first. */
 export const AgentsList = () => {
   const agents = useAgents();
-  const { state, change } = useShell();
+  const { state, change, current } = useShell();
   const now = useNow();
   const workspaces = useWorkspaces();
 
   const list = agents.data?.agents;
-  const listRef = useRef(list);
-  listRef.current = list;
   const listed = workspaces.data?.workspaces;
   const groups = list === undefined || listed === undefined ? undefined : groupAgents(list, listed);
   const openWorkspace = list?.find(({ id }) => id === state.openAgent)?.workspace;
   // An agent shown without `useOpenAgent` (a workspace shown, the list read after the open) gets its group expanded
   // here; collapsing it again afterwards holds, as a list update doesn't rerun this.
   useEffect(() => {
-    change((current) => expandShownAgent(current, current.openAgent, listRef.current));
-  }, [state.openAgent, openWorkspace, change]);
+    change((shell) => expandShownAgent(shell, shell.openAgent, current().agents));
+  }, [state.openAgent, openWorkspace, change, current]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">

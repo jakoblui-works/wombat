@@ -1,7 +1,6 @@
 // What panels may ask of the workbench they're shown in.
 import { createContext, useCallback, useContext, useEffect, useMemo } from "react";
 
-import type { ResolveContext } from "./registry.ts";
 import type { OpenTabOptions } from "./shell/shell-state.ts";
 import { closeGuards, type revealStore, tabKey } from "./tabs.ts";
 
@@ -38,8 +37,6 @@ export type WorkbenchContextValue = WorkbenchActions & {
   reveals: Pick<ReturnType<typeof revealStore>, "set">;
   /** Opens `workspace`'s right sidebar (default: the shown workspace's) on the activity, unless it shows it already. */
   showActivity: (activityId: string, workspace?: string) => void;
-  /** The tabs' titles' context as the page knows it now. */
-  titleContext: () => ResolveContext;
 };
 
 export const WorkbenchContext = createContext<WorkbenchContextValue | undefined>(undefined);
