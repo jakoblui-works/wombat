@@ -8,7 +8,7 @@ import { ProposalStatus } from "@wombat/shared/proposals";
 
 import { atFor } from "../../../../../shared/test/log-entries.ts";
 import { proposal, summary } from "../../../../test/summaries.ts";
-import { needsMeRows } from "../workbench/panels/NeedsMe/needs-me-rows.ts";
+import { allRows, needsMeRows } from "../workbench/panels/NeedsMe/needs-me-rows.ts";
 import { proposalRows } from "../workbench/panels/NeedsMe/proposal-rows.ts";
 import { needsMe, needsMeCount } from "./needs-me.ts";
 
@@ -60,6 +60,39 @@ test("the count is the request rows plus the proposal rows, for any agents and p
       const proposals = proposalSpecs.map(({ status, at, agent: owner }, i) => ({ ...proposal(`proposal-${String(i)}`, `agent-${String(owner)}`), status, at: atFor(at) }));
       const now = Date.parse(atFor(100));
       expect(needsMeCount(agents, proposals)).toBe(needsMeRows(agents, now).length + proposalRows(proposals, agents, now).length);
+    }),
+  );
+});
+
+// Neither needsMe nor proposalRows orders its rows; Needs me's one list does.
+test("Needs me lists requests and proposals of every workspace in one list, newest first, ties by row key", () => {
+  const workspaces = ["ws-bakery0001", "ws-garden0002"];
+  const agent = fc.record({ ws: fc.nat({ max: 1 }), waiting: fc.boolean(), requests: fc.nat({ max: 2 }), at: fc.nat({ max: 4 }) });
+  const proposed = fc.record({ ws: fc.nat({ max: 1 }), status: fc.constantFrom(...ProposalStatus.options), at: fc.nat({ max: 4 }) });
+  fc.assert(
+    fc.property(fc.array(agent, { maxLength: 5 }), fc.array(proposed, { maxLength: 6 }), (agentSpecs, proposalSpecs) => {
+      // Few distinct times, so rows tie often.
+      const agents = agentSpecs.map(({ ws, waiting, requests, at }, i) =>
+        summary(`agent-${String(i)}`, {
+          workspace: workspaces[ws]!,
+          state: waiting ? "waiting" : "working",
+          lastActivityAt: atFor(at),
+          pendingPermissions: Array.from({ length: requests }, (_, r) => pending(`r${String(r)}`, atFor((at + r) % 5), "Edit notes.txt")),
+        }),
+      );
+      const proposals = proposalSpecs.map(({ ws, status, at }, i) => ({ ...proposal(`proposal-${String(i)}`), workspace: workspaces[ws]!, status, at: atFor(at) }));
+      const now = Date.parse(atFor(100));
+      const rows = allRows(agents, proposals, now);
+
+      // Every request and open proposal, of either workspace, once.
+      const keys = rows.map(({ key }) => key);
+      expect([...keys].sort()).toEqual([...needsMeRows(agents, now), ...proposalRows(proposals, agents, now)].map(({ key }) => key).sort());
+      // Newest first; rows at the same time by key, the greater first.
+      rows.slice(1).forEach((row, i) => {
+        const before = rows[i]!;
+        const order = Date.parse(before.at) - Date.parse(row.at);
+        expect(order > 0 || (order === 0 && before.key > row.key), `${before.key} at ${before.at} is listed before ${row.key} at ${row.at}`).toBe(true);
+      });
     }),
   );
 });

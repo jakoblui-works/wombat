@@ -150,9 +150,13 @@ test("text typed on a proposal's right side is saved as my draft, and Approve wr
 
 // An item proposal in its tab, on an items root (the workspace's items folder) with one `bugs` binder open to proposals: each
 // field the proposal changes is a `group` named by the field, with a "Drop" button; Approve writes only the fields I kept.
-// Its row in Needs me opens the item's tab and reveals the item's row in the Desk sidebar (`complementary` "Desk", the row a `treeitem` named by
-// the item's title inside the row's element): that element is highlighted (`data-revealed`) and holds the focus.
-test("a Needs me click on an item update highlights its row in the Desk; dropping a field and approving writes only the fields I kept", async ({ sandbox }) => {
+// The proposal is of a second workspace, listed after the one shown at launch. Its row in Needs me shows that workspace
+// (the title bar, `banner`, names the shown workspace), opens the item's tab (in the one visible `tablist`, named from
+// its handle, selected) and reveals the item's row in the Desk sidebar (`complementary` "Desk", the row a `treeitem`
+// named by the item's title inside the row's element): that element is highlighted (`data-revealed`) and holds the focus.
+test("a Needs me click on an item update of a workspace not shown shows that workspace, opens the item and highlights its row in the Desk; dropping a field and approving writes only the fields I kept", async ({
+  sandbox,
+}) => {
   const bug = { id: "0196f3c2-1a00-7000-8000-00000000c001", handle: "BUG-1", title: "Basket total ignores the coupon" };
   const items = path.join(sandbox.base, "items");
   mkdirSync(path.join(items, "bugs"), { recursive: true });
@@ -162,12 +166,20 @@ test("a Needs me click on an item update highlights its row in the Desk; droppin
   );
   const file = path.join(items, "bugs", "basket-coupon.md");
   writeFileSync(file, `---\nid: ${bug.id}\nhandle: ${bug.handle}\nstatus: open\n---\n# ${bug.title}\n\nThe coupon shows but the total stays the same.\n`);
-  await sandbox.startService(sandbox.workspace, { itemsRoot: items });
+  await sandbox.startService(sandbox.workspace);
+  await workspaceId(sandbox);
+  const orchardName = "orchard";
+  const orchard = sandbox.newWorkspace(orchardName);
+  const added = await sandbox.api("POST", "/workspaces", { root: orchard, itemsRoot: items });
+  expect(added.status, `adding ${orchardName}: ${JSON.stringify(added.json)}`).toBe(200);
+  const orchardId = await workspaceId(sandbox, orchard);
 
   type ItemRead = { body: string | null; properties: Record<string, unknown>; version: string };
-  const item = async (): Promise<ItemRead> => (await sandbox.api("GET", await itemPath(sandbox, bug.handle))).json as ItemRead;
+  const item = async (): Promise<ItemRead> => (await sandbox.api("GET", `/workspaces/${orchardId}/items/${bug.handle}`)).json as ItemRead;
   const newBody = "\nThe coupon shows but the total stays the same, only for coupons in percent.\n";
-  const agentId = await startAgent(sandbox, "fake-call-tool");
+  const started = await sandbox.api("POST", "/agents", { workspace: orchardId, harness: "fake-call-tool", repo: REPO });
+  expect(started.status, `start fake-call-tool in ${orchardName}: ${JSON.stringify(started.json)}`).toBe(201);
+  const agentId = (started.json as { id: string }).id;
   await waitUntil(`agent ${agentId} between turns`, WAIT_MS, async () => ((await agentSummary(sandbox, agentId))?.state === "working" ? undefined : true));
   const call = { tool: "propose_update", arguments: { handle: bug.handle, fields: { status: "fixed", body: newBody }, version: (await item()).version, reason: "Narrowed it down." } };
   expect((await sandbox.api("POST", `/agents/${agentId}/messages`, { text: JSON.stringify(call) })).status).toBe(202);
@@ -175,8 +187,14 @@ test("a Needs me click on an item update highlights its row in the Desk; droppin
 
   const { page } = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
   await waitForConnection(page, "connected");
-  // An item proposal's row in Needs me opens the item and the Desk on its binder; its mark there opens the proposal's tab.
+  await expect(page.getByRole("banner"), "the workspace listed first isn't shown at launch").toContainText(path.basename(sandbox.workspace), { timeout: WAIT_MS });
+  await expect(page.getByRole("banner"), `${orchardName} is shown at launch`).not.toContainText(orchardName);
+  // An item proposal's row in Needs me shows its workspace, opens the item and the Desk on its binder; its mark there
+  // opens the proposal's tab.
   await click(rowOf(page, `bugs/${bug.handle}`));
+  await expect(page.getByRole("banner"), `the row didn't show ${orchardName}`).toContainText(orchardName, { timeout: WAIT_MS });
+  const itemTab = page.getByRole("tablist").getByRole("tab", { name: new RegExp(`^\\s*${bug.handle}\\b`) });
+  await expect(itemTab, "the item's tab isn't open and selected").toHaveAttribute("aria-selected", "true", { timeout: WAIT_MS });
   const revealed = page.getByRole("complementary", { name: "Desk" }).getByRole("treeitem", { name: bug.title, exact: true }).locator("..");
   await expect(revealed, "the item's row highlighted").toHaveAttribute("data-revealed", "", { timeout: WAIT_MS });
   await expect(revealed.locator(":focus"), "the focus in the item's row").toHaveCount(1);
