@@ -1,6 +1,6 @@
 import type { BinderSummary, ItemSummary, LenientView } from "@wombat/shared/items";
 
-import type { DeskLayout } from "../../layout.ts";
+import type { DeskLayout } from "./desk-layout.ts";
 import { itemTabParams, type SavedItemParams } from "../item-params.ts";
 
 const viewsOf = (binder: BinderSummary | undefined): readonly LenientView[] => (binder === undefined || binder.id === null ? [] : binder.views);
@@ -17,9 +17,9 @@ export const binderPlace = (binder: BinderSummary | undefined, viewName?: string
 /** Where following an item lands: its binder (on its first view, `binderPlace`) with the item's row revealed, and the item's tab. */
 type FollowPlace = SavedItemParams;
 
-/** Where following `item` lands; undefined for no item or one without an id. */
-export const followPlace = (item: Pick<ItemSummary, "id" | "binder"> | undefined): FollowPlace | undefined =>
-  item === undefined || item.id === null ? undefined : itemTabParams({ binder: item.binder, id: item.id });
+/** Where following `item` of workspace `ws` lands; undefined for no item or one without an id. */
+export const followPlace = (ws: string, item: Pick<ItemSummary, "id" | "binder"> | undefined): FollowPlace | undefined =>
+  item === undefined || item.id === null ? undefined : itemTabParams(ws, { binder: item.binder, id: item.id });
 
 /** The view the sidebar shows for a binder: view `viewName`, else its first; undefined for none. */
 export const shownView = (binder: BinderSummary | undefined, viewName: string | undefined): LenientView | undefined => {

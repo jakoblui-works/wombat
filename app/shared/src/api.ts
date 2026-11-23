@@ -12,14 +12,23 @@ import { Item, ItemSummary, knownItems, Problem, BinderSummary } from "./items.t
 import { DiffLine } from "./line-diff.ts";
 import { ProposalErrorCode, Timestamp } from "./proposals.ts";
 import { queryInt } from "./query.ts";
+import { WorkspaceId } from "./workspace-id.ts";
+
+export { newWorkspaceId, WorkspaceId } from "./workspace-id.ts";
 
 const Seq = z.int().nonnegative();
 const DbId = z.string().min(1);
 
-/** `"."` (the workspace root) or relative segments: no absolute, `..`, `.`, empty segments, backslashes or control characters. */
+/** The repo path of the workspace root itself. */
+export const ROOT_REPO = ".";
+
+/** A repo path's name: the workspace root is named after its workspace, any other repo by its path. */
+export const repoName = (path: string, workspace: Pick<Workspace, "name">): string => (path === ROOT_REPO ? workspace.name : path);
+
+/** The workspace root or relative segments: no absolute, `..`, `.`, empty segments, backslashes or control characters. */
 const isRepoPath = (path: string) =>
   [...path].every((char) => char >= " ") &&
-  (path === "." ||
+  (path === ROOT_REPO ||
     path
       .split("/")
       .every((segment) => segment !== "" && segment !== "." && segment !== ".." && !segment.includes("\\")));
@@ -29,6 +38,8 @@ const PermissionKind = z.enum(["allow_once", "allow_always", "reject_once", "rej
 // Requests (strict)
 
 export const StartAgentRequest = z.strictObject({
+  /** The workspace the agent belongs to; `repo` is resolved against its root. */
+  workspace: WorkspaceId,
   harness: z.string().min(1),
   repo: z.string().refine(isRepoPath, {
     message: 'repo must be a path relative to the workspace root, like "site-web" or "." for the root itself',
@@ -70,7 +81,7 @@ export type ListLogQuery = z.infer<typeof ListLogQuery>;
 
 const ItemVersion = z.string().regex(/^[0-9a-f]{64}$/, { message: "version must be the item's version as you read it (64 hex characters)" });
 
-/** `POST /binders/:id/items`: the service checks the values against the binder, as for an agent's create. */
+/** `POST /workspaces/:ws/binders/:id/items`: the service checks the values against the binder, as for an agent's create. */
 export const CreateItemRequest = z.strictObject({
   title: z.string(),
   body: z.string(),
@@ -81,17 +92,30 @@ export const CreateItemRequest = z.strictObject({
 export type CreateItemRequest = z.infer<typeof CreateItemRequest>;
 
 /**
- * `POST /binders`: a new binder in `path` (its folder relative to the items root, with `/`; missing parent folders
- * are created), with a starter `_binder.yaml` whose id is the name's slug. Answers the BinderSummary GET /binders lists.
+ * `POST /workspaces/:ws/binders`: a new binder in `path` (its folder relative to the items root, with `/`; missing
+ * parent folders are created), with a starter `_binder.yaml` whose id is the name's slug. Answers the BinderSummary
+ * GET /workspaces/:ws/binders lists.
  */
 export const NewBinderRequest = z.strictObject({ path: z.string(), name: z.string(), prefix: z.string(), adopt: z.boolean().optional() });
 export type NewBinderRequest = z.infer<typeof NewBinderRequest>;
 
-/** `PATCH /items/:ref`: only the changed fields among title, body and property names; null clears a property. */
+/**
+ * `POST /workspaces`, main only: `root` and `itemsRoot` absolute paths of existing folders. A root already in the list
+ * answers its workspace unchanged. `adopt` gives the workspace every stored agent, proposal and handle counter that has
+ * none yet.
+ */
+export const AddWorkspaceRequest = z.strictObject({ root: z.string().min(1), itemsRoot: z.string().min(1).exactOptional(), adopt: z.boolean().exactOptional() });
+export type AddWorkspaceRequest = z.infer<typeof AddWorkspaceRequest>;
+
+/** `PUT /workspaces/:ws/items-root`, main only: `itemsRoot` the absolute path of an existing folder. */
+export const SetItemsRootRequest = z.strictObject({ itemsRoot: z.string().min(1) });
+export type SetItemsRootRequest = z.infer<typeof SetItemsRootRequest>;
+
+/** `PATCH /workspaces/:ws/items/:ref`: only the changed fields among title, body and property names; null clears a property. */
 export const UpdateItemRequest = z.strictObject({ version: ItemVersion, fields: z.record(z.string(), z.unknown()) });
 export type UpdateItemRequest = z.infer<typeof UpdateItemRequest>;
 
-/** `DELETE /items/:ref?version=`: the version the delete is based on. */
+/** `DELETE /workspaces/:ws/items/:ref?version=`: the version the delete is based on. */
 export const DeleteItemQuery = z.strictObject(
   { version: ItemVersion },
   { error: (issue) => (issue.code === "unrecognized_keys" ? "unknown query parameter; send only version" : undefined) },
@@ -149,6 +173,16 @@ export const RepoErrorCode = z.enum(["repo_not_found", "repo_outside_workspace"]
 export type RepoErrorCode = z.infer<typeof RepoErrorCode>;
 
 /**
+ * The workspace routes' error codes: `workspace_not_found` for a `:ws` or `workspace` id the list doesn't hold (the
+ * app reads the list again); `invalid_folder` for a path that isn't the
+ * absolute path of an existing folder (main shows the message and offers the folder picker again);
+ * `workspace_missing` for a start or resume of an agent, or a repo list, in a workspace whose folder is gone (the app
+ * shows the message, which names the folder; its agents stay listed).
+ */
+export const WorkspaceErrorCode = z.enum(["workspace_not_found", "invalid_folder", "workspace_missing"]);
+export type WorkspaceErrorCode = z.infer<typeof WorkspaceErrorCode>;
+
+/**
  * The agent routes' error codes, and an agent summary's `error.code`:
  * - `not_found`: no agent with that id (any `/agents/:id` route), or no open permission request with that id
  *   (`POST /agents/:id/permissions/:requestId`). The app refetches the agents or the log.
@@ -180,8 +214,8 @@ export const AgentErrorCode = z.enum([
 export type AgentErrorCode = z.infer<typeof AgentErrorCode>;
 
 /**
- * The items routes' error codes: `items_not_configured` when the service runs without an items root (the app hides
- * the items views), `binder_not_found` and `item_not_found` for an unknown binder id or handle (the app
+ * The items routes' error codes: `items_not_configured` for a workspace without an items folder (the app hides the
+ * items views), `binder_not_found` and `item_not_found` for an unknown binder id or handle (the app
  * refetches the binders). The proposal routes add the ProposalErrorCode codes. `items_not_writable`: my write to
  * an item or binder to fix by hand first (a shared handle, problems on disk, broken binder settings), sent with its
  * `problems`; or one the items root's filesystem can't take, sent without. On approve either settles the proposal as
@@ -235,6 +269,7 @@ export type AccessErrorCode = z.infer<typeof AccessErrorCode>;
 export const ErrorCode = z.union([
   ServerErrorCode,
   AgentErrorCode,
+  WorkspaceErrorCode,
   ItemsErrorCode,
   ItemWriteErrorCode,
   AccessErrorCode,
@@ -265,6 +300,17 @@ export type ListHarnessesResponse = z.infer<typeof ListHarnessesResponse>;
 export const ListReposResponse = z.object({ repos: z.array(z.object({ path: z.string(), name: z.string() })) });
 export type ListReposResponse = z.infer<typeof ListReposResponse>;
 
+/**
+ * A folder in the service's list. `root` is its real path; `name` the root's last segment; `missing` is true while the
+ * root isn't an existing folder.
+ */
+export const Workspace = z.object({ id: WorkspaceId, name: z.string(), root: z.string(), itemsRoot: z.string().exactOptional(), missing: z.boolean() });
+export type Workspace = z.infer<typeof Workspace>;
+
+/** `GET /workspaces`: in the order they were added. */
+export const ListWorkspacesResponse = z.object({ workspaces: z.array(Workspace) });
+export type ListWorkspacesResponse = z.infer<typeof ListWorkspacesResponse>;
+
 // Newer ACP tool kinds read as "other".
 const ToolKind = z
   .enum(["read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "other"])
@@ -283,7 +329,9 @@ export type Activity = z.infer<typeof Activity>;
 
 const AgentSummaryFields = z.object({
   id: z.string(),
+  workspace: WorkspaceId,
   harness: z.string(),
+  /** Relative to the root of the agent's workspace. */
   repo: z.string(),
   state: z.enum(["working", "waiting", "done", "error", "stopped"]),
   sessionId: z.string(),
@@ -607,15 +655,15 @@ export type SessionUpdate = z.infer<typeof SessionUpdate>;
 
 // Items (lenient), read by the app; the shapes live in `items.ts`, the proposals' in `proposals.ts`.
 
-/** `GET /binders`: every binder under the items root, hidden ones and broken settings included. */
+/** `GET /workspaces/:ws/binders`: every binder under the workspace's items root, hidden ones and broken settings included. */
 export const ListBindersResponse = z.object({ binders: z.array(BinderSummary) });
 export type ListBindersResponse = z.infer<typeof ListBindersResponse>;
 
-/** `GET /binders/:id/items`: every file of the binder, invalid ones included. */
+/** `GET /workspaces/:ws/binders/:id/items`: every file of the binder, invalid ones included. */
 export const ListItemsResponse = z.object({ items: z.array(ItemSummary) });
 export type ListItemsResponse = z.infer<typeof ListItemsResponse>;
 
-/** `GET /items/:ref`: one item by id, handle or alias, with its body. */
+/** `GET /workspaces/:ws/items/:ref`: one item by id, handle or alias, with its body. */
 export const GetItemResponse = Item;
 export type GetItemResponse = z.infer<typeof GetItemResponse>;
 
@@ -770,15 +818,18 @@ export const HEARTBEAT_MS = 15_000;
 
 /** The alert type of a proposal change. */
 export const PROPOSAL_ALERT = "proposal";
-/** The alert type of a change to any item or binder settings, by the service or by hand. */
+/** The alert type of a change to any item or binder settings of one workspace, by the service or by hand. */
 export const ITEMS_ALERT = "items";
+/** The alert type of a workspace added, or its items folder changed. */
+export const WORKSPACES_ALERT = "workspaces";
 
 const AgentAlertType = z.enum(["agent_added", "agent_changed", "agent_removed", "log"]);
 
 /**
  * Says that something changed, up to `seq`; the app fetches the change. An agent alert names the agent, a
- * `proposal` alert the proposal; an `items` alert names nothing, so the app reads its items again. Alerts carry ids only: unknown fields are stripped, so an alert never carries
- * agent or item content even if one is sent.
+ * `proposal` alert the proposal, an `items` alert the workspace whose items changed; a `workspaces` alert names nothing,
+ * so the app reads the workspace list again. Alerts carry ids only: unknown fields are stripped, so an alert never carries agent or item
+ * content even if one is sent.
  */
 export const Alert = z.discriminatedUnion("type", [
   z.object({
@@ -788,11 +839,12 @@ export const Alert = z.discriminatedUnion("type", [
     agentId: z.string(),
   }),
   z.object({ seq: Seq, dbId: DbId, type: z.literal(PROPOSAL_ALERT), proposalId: z.string() }),
-  z.object({ seq: Seq, dbId: DbId, type: z.literal(ITEMS_ALERT) }),
+  z.object({ seq: Seq, dbId: DbId, type: z.literal(ITEMS_ALERT), workspace: WorkspaceId }),
+  z.object({ seq: Seq, dbId: DbId, type: z.literal(WORKSPACES_ALERT) }),
 ]);
 export type Alert = z.infer<typeof Alert>;
 
-const alertTypes = new Set<unknown>([...AgentAlertType.options, PROPOSAL_ALERT, ITEMS_ALERT]);
+const alertTypes = new Set<unknown>([...AgentAlertType.options, PROPOSAL_ALERT, ITEMS_ALERT, WORKSPACES_ALERT]);
 
 /** Parses one alert. Returns undefined for alert types this app doesn't know (newer service); throws on a malformed known alert. */
 export const parseAlert = (data: unknown): Alert | undefined => {

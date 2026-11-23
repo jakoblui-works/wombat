@@ -9,17 +9,15 @@ import { startTimeOf } from "@wombat/shared/process-stat";
 import { createManager, type Manager } from "./agents/manager.ts";
 import { readConfig } from "./config.ts";
 import { newToken, removeDiscovery, writeDiscovery } from "./discovery.ts";
-import { openCatalog } from "./items/catalog.ts";
-import { openInstructions, readInstructions, refreshingWriter, type Instructions } from "./items/instructions.ts";
 import type { Harness } from "./harness/harness.ts";
 import { defaultHarnesses } from "./harness/registry.ts";
-import { openWatch, type Watch } from "./items/watch.ts";
-import { openWriter } from "./items/write.ts";
+import { openWorkspaceItems, type WorkspaceItems } from "./items/workspace-items.ts";
 import { logToStderr } from "./log.ts";
 import type { ApproveStep } from "./proposals/apply.ts";
 import { startServer } from "./server/server.ts";
 import { LockHeld, takeStartLock } from "./start-lock.ts";
 import { openStore, type Store } from "./store/store.ts";
+import { workspaceIn } from "./workspace.ts";
 
 export type MainOptions = {
   /** Default process.env. */
@@ -133,8 +131,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   let store: Store | undefined;
   let manager: Manager | undefined;
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
-  let instructions: Instructions | undefined;
-  let watch: Watch | undefined;
+  let workspaceItems: WorkspaceItems | undefined;
   const token = newToken();
   try {
     let codeId: string;
@@ -148,47 +145,26 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
     const identity = { startedAt, codeId };
     store = openStore({ path: config.storePath });
     const slice = options.slice === undefined ? {} : { slice: options.slice };
+    const { takeSeq } = store;
+    const items = openWorkspaceItems({ store, log, onChanged: (id) => manager?.itemsCommitted(id, takeSeq()) });
+    workspaceItems = items;
     manager = createManager({
       store,
-      workspaceRoot: config.workspaceRoot,
+      workspaceOf: workspaceIn(store.getWorkspace),
       harnesses,
       log,
       env,
-      readInstructions: () => readInstructions(config.workspaceRoot, log),
+      readInstructions: items.instructionsOf,
       ...slice,
     });
     try {
-      const { itemsRoot, workspaceRoot } = config;
-      const catalog = itemsRoot === undefined ? undefined : openCatalog({ root: itemsRoot, store, log });
-      watch = itemsRoot === undefined ? undefined : openWatch({ root: itemsRoot, log });
-      instructions = openInstructions({ catalog, workspaceRoot, ...(watch === undefined ? {} : { watch }), log });
-      const { refresh } = instructions;
-      // Written (or a stale one removed) before the server takes POST /agents, so the first agent gets it.
-      await refresh();
-      instructions.watch();
-      const { itemsCommitted } = manager;
-      const { takeSeq } = store;
-      const itemsChanged = () => itemsCommitted(takeSeq());
-      watch?.on(itemsChanged);
-      const afterWrite = async () => {
-        await refresh();
-        // The file is written by now: a failed alert mustn't fail the write, and the watch alerts for it anyway.
-        try {
-          itemsChanged();
-        } catch (error) {
-          log("items_alert_failed", { error: errorCode(error) });
-        }
-      };
-      // Approvals write through this writer too, so they alert here.
-      const items =
-        itemsRoot === undefined || catalog === undefined
-          ? {}
-          : { items: catalog, writer: refreshingWriter(openWriter({ root: itemsRoot, store, log }), afterWrite) };
+      // Every instructions file is written (or a stale one removed) before the server takes POST /agents, so the first
+      // agent of each workspace gets its own.
+      await Promise.all(store.listWorkspaces().map((workspace) => items.open(workspace)));
       server = await startServer({
         manager,
         store,
         harnesses,
-        workspaceRoot: config.workspaceRoot,
         token,
         port: config.port,
         log,
@@ -206,7 +182,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
             log("shutdown_step_failed", { step: "discovery", error: error instanceof Error ? error.name : "unknown" });
           }
         },
-        ...items,
+        items,
       });
     } catch (error) {
       throw listenRefusal(config.port, error) ?? error;
@@ -219,7 +195,6 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
         // The start lock has already read it (and refuses to run without it).
         processStart: startTimeOf(process.pid),
         token,
-        workspace: config.workspaceRoot,
       });
     } catch (error) {
       throw new StartRefused(
@@ -230,8 +205,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   } catch (error) {
     // Best effort: the start failure is what the user needs to see, not a follow-on error from cleaning up.
     await server?.close().catch(() => undefined);
-    await instructions?.close().catch(() => undefined);
-    watch?.close();
+    await workspaceItems?.close().catch(() => undefined);
     await manager?.shutdown().catch(() => undefined);
     try {
       store?.close();
@@ -248,8 +222,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
   const openedStore = store;
   const openedManager = manager;
   const openedServer = server;
-  const openedInstructions = instructions;
-  const openedWatch = watch;
+  const openedItems = workspaceItems;
   const heldLock = lock;
   let stopping: Promise<void> | undefined;
   /** The one stop path, for SIGINT, SIGTERM and POST /shutdown. */
@@ -268,8 +241,7 @@ export const main = async (options: MainOptions = {}): Promise<void> => {
       };
       await step("discovery", () => removeDiscovery(discoveryPath, process.pid));
       await step("server", () => openedServer.close());
-      await step("instructions", () => openedInstructions.close());
-      await step("watch", () => openedWatch?.close());
+      await step("items", () => openedItems?.close());
       await step("manager", () => openedManager.shutdown());
       await step("store", () => openedStore.close());
       // Last: a start waiting on the lock may open the store as soon as it's gone.

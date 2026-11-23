@@ -1,10 +1,6 @@
 @import "tailwindcss";
 /* Wombat's tokens: every colour, size, radius and duration (shadcn's variables below map onto them). */
 @import "./tokens.css";
-/* The editor area's panes and tabs (dockview); imported here only. */
-@import "dockview-react/dist/styles/dockview.css";
-/* Wombat's dockview theme, from the tokens. */
-@import "./dockview-theme.css";
 /* Monaco's colours, from the tokens (the editor itself loads with the diff tab). */
 @import "./monaco-theme.css";
 
@@ -182,27 +178,6 @@
   }
 }
 
-/*
- * A row that moves to another group in the agents list slides there (React's <ViewTransition>, AgentsList). The page
- * itself doesn't cross-fade under it, and the row's old and new look blend while it travels.
- */
-::view-transition {
-  pointer-events: none;
-}
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation: none;
-}
-::view-transition-group(.agent-row) {
-  animation-duration: var(--duration-enter);
-  animation-timing-function: var(--ease-out);
-}
-::view-transition-old(.agent-row),
-::view-transition-new(.agent-row) {
-  animation-duration: var(--duration-enter);
-  animation-timing-function: var(--ease-out);
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -224,9 +199,8 @@
   /*
    * The cursor rule, VS Code style, written once here (components set no cursor-* classes unless this can't reach them):
    * pointer on buttons, tabs, rows and links; default on menu items, title-bar menus, the drag strip and empty chrome;
-   * text on inputs and selectable text; not-allowed on disabled controls; col-/row-resize on dockview's sashes and
-   * grabbing on a dragged tab (dockview-theme.css, which must beat dockview's own rules). Every group but the disabled
-   * one is wrapped in :where() (no specificity), so the disabled group wins whatever the element's role.
+   * text on inputs and selectable text; not-allowed on disabled controls; col-resize on the resize handles. Every
+   * group but the disabled one is wrapped in :where() (no specificity), so the disabled group wins whatever the element's role.
    */
   :where(button, [role="button"], [role="tab"], [role="link"], a[href], summary, select, [role="checkbox"], [role="switch"], [role="radio"]) {
     cursor: pointer;
@@ -237,7 +211,6 @@
   :where(input:not([type="button"], [type="submit"], [type="checkbox"], [type="radio"], [type="range"]), textarea, [contenteditable]:not([contenteditable="false"])) {
     cursor: text;
   }
-  /* The workbench's own resize handle (dockview's sashes are in dockview-theme.css). */
   :where([role="separator"][aria-orientation="vertical"]) {
     cursor: col-resize;
   }

@@ -1,4 +1,4 @@
-// The quit decision: when the question is asked, what each answer does, and that a quit waits for a switch in
+// The quit decision: when the question is asked, what each answer does, and that a quit waits for a start in
 // progress. The question and the agent list are stubs; the workspace control runs the fake service in a sandbox.
 import type { AgentSummary } from "@wombat/shared/api";
 import { findRunningService } from "@wombat/shared/discovery";
@@ -15,7 +15,6 @@ const control = (sandbox: ServiceSandbox) =>
     settingsFile: sandbox.settingsFile,
     serviceEntry: FAKE_SERVICE_ENTRY,
     chooseFolder: () => Promise.reject(new Error("the folder dialog wasn't expected")),
-    confirmRestart: () => Promise.reject(new Error("the restart box wasn't expected")),
     log: () => undefined,
   });
 
@@ -51,7 +50,7 @@ const quit = (sandbox: ServiceSandbox, choice: QuitChoice, deps: Partial<QuitDep
 
 test("with no agent process the service stops with the app: no question, no notification, even with Keep remembered", async () => {
   const sandbox = serviceSandbox();
-  saveSettings(sandbox.settingsFile, { version: 1, workspaces: {}, askOnQuit: false, quitAnswer: "leave" });
+  saveSettings(sandbox.settingsFile, { askOnQuit: false, quitAnswer: "leave" });
   const { decided, seen, kept } = quit(sandbox, { answer: "cancel", dontAsk: false }, { agents: () => Promise.resolve([{ state: "done", hasProcess: false } as AgentSummary]) });
   expect(await decided).toBe(true);
   expect(seen).toEqual({ asked: 0, stopped: 1 });
@@ -100,21 +99,20 @@ test("a remembered Stop stops the next quit's agents without asking, until the q
   expect(third.kept, "Keep didn't announce the service still running, with its one agent").toEqual([1]);
 });
 
-test("a quit during a workspace switch waits for the switch to finish before it looks at the agents", async () => {
+test("a quit during a service start waits for the start to finish before it looks at the agents", async () => {
   const sandbox = serviceSandbox();
   sandbox.env["FAKE_START_DELAY_MS"] = "300";
-  const target = sandbox.workspace("next");
   const workspace = control(sandbox);
-  saveSettings(sandbox.settingsFile, { version: 1, workspaces: {}, askOnQuit: true });
-  const switching = workspace.switchWorkspace(target);
+  saveSettings(sandbox.settingsFile, { askOnQuit: true });
+  const starting = workspace.restart();
 
-  let runningWhenRead: string | undefined;
+  let runningWhenRead: number | undefined;
   const quitting = decideQuit({
     settings: workspace.settings,
     updateSettings: workspace.updateSettings,
     idle: workspace.idle,
     agents: async () => {
-      runningWhenRead = (await findRunningService(sandbox.discoveryPath))?.workspace;
+      runningWhenRead = (await findRunningService(sandbox.discoveryPath))?.pid;
       return [];
     },
     ask: () => Promise.reject(new Error("the question wasn't expected")),
@@ -125,8 +123,7 @@ test("a quit during a workspace switch waits for the switch to finish before it 
   });
 
   expect(await quitting).toBe(true);
-  expect(runningWhenRead, "the quit didn't wait for the switch's service").toBe(target);
-  await switching;
+  expect(runningWhenRead, "the quit didn't wait for the started service").toBe((await starting).pid);
 });
 
 test("a stop that fails fails the quit, and leaves the question on", async () => {
@@ -181,13 +178,12 @@ test("Stop Service and Agents asks with the count of agents with a process, done
   expect(stops).toBe(0);
 });
 
-test("a switch asked for while the quit question is open finishes before the answer is carried out", async () => {
+test("a start asked for while the quit question is open finishes before the answer is carried out", async () => {
   const sandbox = serviceSandbox();
   sandbox.env["FAKE_START_DELAY_MS"] = "300";
-  const target = sandbox.workspace("next");
   const workspace = control(sandbox);
-  let switching: Promise<unknown> = Promise.resolve();
-  let runningWhenStopped: string | undefined;
+  let starting: Promise<{ pid: number } | undefined> = Promise.resolve(undefined);
+  let runningWhenStopped: number | undefined;
 
   const decided = decideQuit({
     settings: workspace.settings,
@@ -195,17 +191,16 @@ test("a switch asked for while the quit question is open finishes before the ans
     idle: workspace.idle,
     agents: () => Promise.resolve([{ state: "working", hasProcess: true } as AgentSummary]),
     ask: () => {
-      switching = workspace.switchWorkspace(target);
+      starting = workspace.restart();
       return Promise.resolve({ answer: "stop", dontAsk: false });
     },
     stop: async () => {
-      runningWhenStopped = (await findRunningService(sandbox.discoveryPath))?.workspace;
+      runningWhenStopped = (await findRunningService(sandbox.discoveryPath))?.pid;
     },
     notifyKept: () => undefined,
     log: () => undefined,
   });
 
   expect(await decided).toBe(true);
-  expect(runningWhenStopped, "the stop ran before the switch's service was up").toBe(target);
-  await switching;
+  expect(runningWhenStopped, "the stop ran before the started service was up").toBe((await starting)?.pid);
 });

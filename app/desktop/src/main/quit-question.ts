@@ -14,14 +14,22 @@ const BUTTONS = [
 
 const CANCEL = BUTTONS.findIndex(([, answer]) => answer === "cancel");
 
-/** The quit question's box; `running` is undefined when the agents couldn't be read. */
-export const quitQuestion = (running: number | undefined): MessageBoxOptions => ({
+/** " in N workspaces" when the running agents span more than one workspace, else nothing. */
+const inWorkspaces = (workspaces: number | undefined): string => (workspaces !== undefined && workspaces > 1 ? ` in ${String(workspaces)} workspaces` : "");
+
+/**
+ * The quit question's box; `running` counts the agents with a process over every workspace and `workspaces` the
+ * workspaces they're in, both undefined when the agents couldn't be read.
+ */
+export const quitQuestion = (running: number | undefined, workspaces: number | undefined): MessageBoxOptions => ({
   type: "question",
   buttons: BUTTONS.map(([label]) => label),
   defaultId: 0,
   cancelId: CANCEL,
   message:
-    running === undefined ? "Agents may still be running." : `${agentCountLabel(running)} ${running === 1 ? "is" : "are"} still running.`,
+    running === undefined
+      ? "Agents may still be running."
+      : `${agentCountLabel(running)} ${running === 1 ? "is" : "are"} still running${inWorkspaces(workspaces)}.`,
   detail:
     "Keep running leaves them working in the agent service, which keeps running in the background until you stop it; " +
     "Wombat shows them again when it opens. Stop agents and quit ends their work mid-task.",

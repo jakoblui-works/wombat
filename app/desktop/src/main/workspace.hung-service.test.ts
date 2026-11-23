@@ -15,7 +15,7 @@ import { saveSettings } from "./settings.ts";
 import { FAKE_SERVICE_ENTRY, serviceSandbox, type ServiceSandbox } from "../../test/service-sandbox.ts";
 import { workspaceControl } from "./workspace.ts";
 
-const hungService = async (sandbox: ServiceSandbox, workspace: string): Promise<DiscoveryFile> => {
+const hungService = async (sandbox: ServiceSandbox): Promise<DiscoveryFile> => {
   const sockets: Socket[] = [];
   const server = createServer((socket) => {
     sockets.push(socket);
@@ -34,7 +34,6 @@ const hungService = async (sandbox: ServiceSandbox, workspace: string): Promise<
     port: (server.address() as AddressInfo).port,
     pid: process.pid,
     token: "hung-service-token-0123456789",
-    workspace,
     ...(processStart === undefined ? {} : { processStart }),
   };
   writePrivateFile(sandbox.discoveryPath, JSON.stringify(file));
@@ -45,15 +44,13 @@ test(
   "a restart next to a live service of ours that doesn't answer fails naming its pid, and starts no second service",
   async () => {
     const sandbox = serviceSandbox();
-    const workspace = sandbox.workspace("bakery");
-    saveSettings(sandbox.settingsFile, { version: 1, workspace, workspaces: {}, askOnQuit: true });
-    const hung = await hungService(sandbox, workspace);
+    saveSettings(sandbox.settingsFile, { askOnQuit: true });
+    const hung = await hungService(sandbox);
     const control = workspaceControl({
       env: sandbox.env,
       settingsFile: sandbox.settingsFile,
       serviceEntry: FAKE_SERVICE_ENTRY,
       chooseFolder: () => Promise.reject(new Error("the folder dialog wasn't expected")),
-      confirmRestart: () => Promise.reject(new Error("the restart box wasn't expected")),
       log: () => undefined,
       versionTimeoutMs: 100,
     });

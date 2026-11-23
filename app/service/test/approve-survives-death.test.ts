@@ -20,7 +20,7 @@ import { ACCESS_FILES, VISIBLE_IDS } from "./access-fixtures.ts";
 import { fakeSystemd } from "./fake-systemd.ts";
 import { writeAt } from "./items-fixtures.ts";
 import { REPO, SERVICE_SLICE, TEST_TIMEOUT_MS, waitFor } from "./manager-fixtures.ts";
-import { APP_ORIGIN, expectError, rawRequest, type Response } from "./server-fixtures.ts";
+import { APP_ORIGIN, expectError, onlyWorkspace, rawRequest, type Response } from "./server-fixtures.ts";
 
 const SERVICE_DIR = join(import.meta.dirname, "..");
 /** The real service, killing its own process (SIGKILL) at the approve step WOMBAT_TEST_STOP_AT names. */
@@ -72,8 +72,6 @@ const place = () => {
       PATH: systemd.binDir,
       HOME: home,
       XDG_RUNTIME_DIR: runtimeDir,
-      WOMBAT_WORKSPACE: workspace,
-      WOMBAT_ITEMS: itemsRoot,
       WOMBAT_STORE: storePath,
       WOMBAT_PORT: "0",
       FAKE_AGENT_PID_DIR: pidDir,
@@ -104,7 +102,7 @@ const place = () => {
     };
   };
 
-  return { repo: join(workspace, REPO), itemsRoot, storePath, start };
+  return { workspace, repo: join(workspace, REPO), itemsRoot, storePath, start };
 };
 
 type Place = ReturnType<typeof place>;
@@ -120,17 +118,17 @@ const AGENT = "agent-removed-before-the-start";
 const newBugs = (at: Place) => readdirSync(join(at.itemsRoot, "bugs")).filter((name) => name.endsWith(".md") && !Object.hasOwn(ACCESS_FILES, `bugs/${name}`));
 
 /**
- * A proposal put into the store file before the first start, as the propose tools store it, and how often its write
- * shows on its target (a count above 1 is a second write).
+ * A proposal put into the store file before the first start, as the propose tools store it in `workspace` (the id the
+ * service lists the place's workspace under), and how often its write shows on its target (a count above 1 is a second write).
  */
-type Target = { propose: (at: Place, store: Store) => string; writes: (at: Place) => number; after?: (at: Place, api: Api, id: string) => Promise<void> };
+type Target = { propose: (at: Place, store: Store, workspace: string) => string; writes: (at: Place) => number; after?: (at: Place, api: Api, id: string) => Promise<void> };
 
 const TARGETS: Record<string, Target> = {
   "a file edit": {
-    propose: (at, store) => {
+    propose: (at, store, workspace) => {
       writeFileSync(join(at.repo, "pairing-notes.md"), NOTES);
       return store.insertProposal(
-        { target: "file", path: join(at.repo, "pairing-notes.md"), binder: null, itemId: null, file: null, kind: "edit", reason: "The rule changed.", baseVersion: versionOfText(NOTES), agentId: AGENT },
+        { workspace, target: "file", path: join(at.repo, "pairing-notes.md"), binder: null, itemId: null, file: null, kind: "edit", reason: "The rule changed.", baseVersion: versionOfText(NOTES), agentId: AGENT },
         fileRevision({ text: NOTES, source: "file", chain: [] }, { edits: [NOTES_EDIT] }).content,
       ).proposal.id;
     },
@@ -142,23 +140,23 @@ const TARGETS: Record<string, Target> = {
     },
   },
   "an item create": {
-    propose: (_at, store) =>
+    propose: (_at, store, workspace) =>
       store.insertProposal(
-        { target: "item", path: null, binder: "bugs", itemId: null, file: null, kind: "create", reason: "Seen twice.", baseVersion: null, agentId: AGENT },
+        { workspace, target: "item", path: null, binder: "bugs", itemId: null, file: null, kind: "create", reason: "Seen twice.", baseVersion: null, agentId: AGENT },
         { fields: createFields({ title: NEW_BUG_TITLE }, { note: "Seen on a fresh checkout" }) },
       ).proposal.id,
     writes: (at) => newBugs(at).length,
     after: async (_at, api) => {
-      const listed = await api("GET", "/binders/bugs/items");
+      const listed = await api("GET", `/workspaces/${await onlyWorkspace(api)}/binders/bugs/items`);
       const titles = (listed.json as { items: { title: string }[] }).items.map((item) => item.title);
       expect(titles.filter((title) => title === NEW_BUG_TITLE), "exactly one item was made").toHaveLength(1);
       expect(titles).toHaveLength(3);
     },
   },
   "an item delete": {
-    propose: (_at, store) =>
+    propose: (_at, store, workspace) =>
       store.insertProposal(
-        { target: "item", path: null, binder: "bugs", itemId: BUG_2.id, file: null, kind: "delete", reason: "A duplicate.", baseVersion: versionOfText(ACCESS_FILES[BUG_2.file] ?? ""), agentId: AGENT },
+        { workspace, target: "item", path: null, binder: "bugs", itemId: BUG_2.id, file: null, kind: "delete", reason: "A duplicate.", baseVersion: versionOfText(ACCESS_FILES[BUG_2.file] ?? ""), agentId: AGENT },
         { fields: {} },
       ).proposal.id,
     writes: (at) => (existsSync(join(at.itemsRoot, BUG_2.file)) ? 0 : 1),
@@ -180,7 +178,7 @@ test.each(CASES)(
     const target = TARGETS[name] as Target;
     const at = place();
     const store = openStore({ path: at.storePath });
-    const id = target.propose(at, store);
+    const id = target.propose(at, store, store.addWorkspace(at.workspace, at.itemsRoot).workspace.id);
     store.close();
     const approve = (api: Api) => api("POST", `/proposals/${id}/approve`, { version: 1 });
     const status = async (api: Api) => ((await api("GET", `/proposals/${id}`)).json as { status?: string }).status;

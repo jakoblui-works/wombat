@@ -1,8 +1,9 @@
-import type { AgentErrorCode, ErrorBody, ErrorCode, ItemsErrorCode, ItemWriteErrorCode, ServerErrorCode } from "@wombat/shared/api";
+import type { AgentErrorCode, ErrorBody, ErrorCode, ItemsErrorCode, ItemWriteErrorCode, ServerErrorCode, WorkspaceErrorCode } from "@wombat/shared/api";
 import { Problem } from "@wombat/shared/items";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
+import type { AgentErrorCodes } from "../agents/errors.ts";
 import type { ItemWriteError } from "../items/write.ts";
 
 /** The HTTP status each code family's codes are sent with; routes look a status up here, never spell one. */
@@ -29,6 +30,20 @@ export const AGENT_STATUS: Record<AgentErrorCode, ContentfulStatusCode> = {
   agent_failed: 502,
   agent_error: 502,
   unsupported: 409,
+};
+
+export const WORKSPACE_STATUS: Record<WorkspaceErrorCode, ContentfulStatusCode> = {
+  workspace_not_found: 404,
+  invalid_folder: 400,
+  workspace_missing: 409,
+};
+
+/** A manager call's codes (AgentErrorCodes): the agent ones, `invalid_request`, and its agent's workspace not found or gone. */
+export const AGENT_CALL_STATUS: Record<AgentErrorCodes, ContentfulStatusCode> = {
+  ...AGENT_STATUS,
+  invalid_request: SERVER_STATUS.invalid_request,
+  workspace_not_found: WORKSPACE_STATUS.workspace_not_found,
+  workspace_missing: WORKSPACE_STATUS.workspace_missing,
 };
 
 export const ITEMS_STATUS: Record<ItemsErrorCode, ContentfulStatusCode> = {

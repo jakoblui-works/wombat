@@ -15,7 +15,7 @@ import { isAlive } from "@wombat/shared/process-stat";
 /** The fake service's entry (see fake-service.ts). */
 export const FAKE_SERVICE_ENTRY = path.join(import.meta.dirname, "fake-service.ts");
 
-export type Start = { pid: number; workspace: string; items: string | null };
+export type Start = { pid: number };
 
 export const serviceSandbox = () => {
   const base = realpathSync(mkdtempSync(path.join(tmpdir(), "wombat-main-")));
@@ -58,10 +58,10 @@ export const serviceSandbox = () => {
 export type ServiceSandbox = ReturnType<typeof serviceSandbox>;
 
 /**
- * A service in this process that answers GET /version to its token, with a discovery file naming `workspace` (none
- * when undefined); it's never stopped, so only tests that keep it running use it.
+ * A service in this process that answers GET /version to its token, with its discovery file; it's never stopped, so
+ * only tests that keep it running use it.
  */
-export const inProcessService = async (sandbox: ServiceSandbox, workspace: string | undefined): Promise<DiscoveryFile> => {
+export const inProcessService = async (sandbox: ServiceSandbox): Promise<DiscoveryFile> => {
   const token = "in-process-token-0123456789";
   const server = createServer((req, res) => {
     const ok = req.method === "GET" && req.url === "/version" && req.headers.authorization === `Bearer ${token}`;
@@ -74,7 +74,6 @@ export const inProcessService = async (sandbox: ServiceSandbox, workspace: strin
     port: (server.address() as AddressInfo).port,
     pid: process.pid,
     token,
-    ...(workspace === undefined ? {} : { workspace }),
   };
   writePrivateFile(sandbox.discoveryPath, JSON.stringify(file));
   return file;

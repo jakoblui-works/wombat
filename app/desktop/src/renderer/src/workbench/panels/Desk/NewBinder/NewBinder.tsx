@@ -11,6 +11,8 @@ import { problemsByField } from "../../../items/problems.ts";
 import { ADOPT, EMPTY_FORM, editForm, type NewBinderField, newBinderRequest } from "./new-binder.ts";
 
 type Props = {
+  /** The workspace the binder is made in: the one when the dialog opened, while another is shown since. */
+  ws: string;
   open: boolean;
   /** The drawer it was opened from, root-relative; "" for the items folder. */
   drawer: string;
@@ -27,9 +29,10 @@ const TextField = ({ label, hint, value, problems, onChange }: { label: string; 
   </Field>
 );
 
-const NewBinderForm = ({ drawer, onCancel, onCreated }: Omit<Props, "open">) => {
+const NewBinderForm = ({ ws: opened, drawer, onCancel, onCreated }: Omit<Props, "open">) => {
   const [form, setForm] = useState(EMPTY_FORM);
   const [askedFor, setAskedFor] = useState<string>();
+  const [ws] = useState(opened);
   const create = useCreateBinder();
   const error = create.error;
   const problems = error === null ? [] : writeProblems(error);
@@ -42,7 +45,7 @@ const NewBinderForm = ({ drawer, onCancel, onCreated }: Omit<Props, "open">) => 
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    create.mutate(request, {
+    create.mutate({ ...request, ws }, {
       onSuccess: onCreated,
       onError: (failure) => setAskedFor(adopting || writeProblems(failure).some((problem) => problem.field === ADOPT) ? request.path : undefined),
     });
@@ -75,7 +78,7 @@ const NewBinderForm = ({ drawer, onCancel, onCreated }: Omit<Props, "open">) => 
 };
 
 /** Asks for a new binder's name, prefix and folder; the service writes its starter settings, which are then edited by hand. */
-export const NewBinder = ({ open, drawer, onCancel, onCreated }: Props) => {
+export const NewBinder = ({ ws, open, drawer, onCancel, onCreated }: Props) => {
   const created = useRef(false);
   const folderName = drawer.slice(drawer.lastIndexOf("/") + 1);
   return (
@@ -93,6 +96,7 @@ export const NewBinder = ({ open, drawer, onCancel, onCreated }: Props) => {
         <DialogTitle>{drawer === "" ? "New binder" : `New binder in ${folderName}`}</DialogTitle>
         <DialogDescription>A binder is a folder with a starter {SETTINGS_FILE}, which you edit by hand to add properties and views.</DialogDescription>
         <NewBinderForm
+          ws={ws}
           drawer={drawer}
           onCancel={onCancel}
           onCreated={(binder) => {

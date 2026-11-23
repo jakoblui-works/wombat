@@ -12,7 +12,7 @@ import { activityOf, foldLog, lastMainMessage, permissionOf } from "@wombat/shar
 import { expect, test } from "vitest";
 
 import type { ReplayStep } from "../../test/fake-agent.ts";
-import { REPO, setup, TEST_TIMEOUT_MS, WAIT_MS, waitFor, type Setup } from "../../test/manager-fixtures.ts";
+import { REPO, setup, TEST_TIMEOUT_MS, WAIT_MS, waitFor, WORKSPACE, type Setup } from "../../test/manager-fixtures.ts";
 import { excerpt } from "../excerpt.ts";
 
 /**
@@ -107,7 +107,7 @@ test(
     t.manager.onCommitted((event) => {
       if (event.type === "agent_changed") alerted.set(event.agentId, rowActivity(t, event.agentId));
     });
-    const { id } = await t.manager.start("fake-replay", REPO);
+    const { id } = await t.manager.start(WORKSPACE, "fake-replay", REPO);
 
     for (const [turn, { replay, checkpoints }] of turnsIn(t.root).entries()) {
       await t.manager.send(id, { text: JSON.stringify(replay) });

@@ -50,8 +50,8 @@ export type StartedAgent = { agent: AgentSummary; sendError: Error | undefined }
  * Starts the agent, then sends it the first message. Rejects only when the agent didn't start: once it exists, a
  * failed send comes back as `sendError`, so the message is sent again to this agent rather than starting another.
  */
-export const startAgentFn = async ({ harness, repo, text, commandId }: StartAgentVars): Promise<StartedAgent> => {
-  const agent = await callRoute(ROUTES.startAgent, { body: { harness, repo } });
+export const startAgentFn = async ({ workspace, harness, repo, text, commandId }: StartAgentVars): Promise<StartedAgent> => {
+  const agent = await callRoute(ROUTES.startAgent, { body: { workspace, harness, repo } });
   try {
     await sendMessageFn({ agentId: agent.id, text, commandId });
     return { agent, sendError: undefined };
@@ -137,24 +137,29 @@ const draftFn = async (vars: DraftVars): Promise<Proposal | "changed"> => {
   }
 };
 
-export type SaveItemVars = UpdateItemRequest & { ref: string };
+/** The workspace an item command writes in. */
+type InWorkspace = { ws: string };
+
+export type SaveItemVars = UpdateItemRequest & InWorkspace & { ref: string };
 
 /** Writes my changed fields of item `ref` on the version they're based on; answers the item as written. */
-export const saveItemFn = ({ ref, version, fields }: SaveItemVars): Promise<Item> => callRoute(ROUTES.updateItem, { params: { ref }, body: { version, fields } });
+export const saveItemFn = ({ ws, ref, version, fields }: SaveItemVars): Promise<Item> => callRoute(ROUTES.updateItem, { params: { ws, ref }, body: { version, fields } });
 
-export type CreateItemVars = CreateItemRequest & { binderId: string };
+export type CreateItemVars = CreateItemRequest & InWorkspace & { binderId: string };
 
 /** Writes a new item into the binder; answers the item as written, with its id and handle. */
-export const createItemFn = ({ binderId, ...body }: CreateItemVars): Promise<Item> => callRoute(ROUTES.createItem, { params: { id: binderId }, body });
+export const createItemFn = ({ ws, binderId, ...body }: CreateItemVars): Promise<Item> => callRoute(ROUTES.createItem, { params: { ws, id: binderId }, body });
 
-/** Writes a new binder's starter settings; answers the binder as GET /binders lists it. */
-export const createBinderFn = (body: NewBinderRequest): Promise<BinderSummary> => callRoute(ROUTES.createBinder, { body });
+export type CreateBinderVars = NewBinderRequest & InWorkspace;
 
-export type DeleteItemVars = DeleteItemQuery & { ref: string };
+/** Writes a new binder's starter settings; answers the binder as GET /workspaces/:ws/binders lists it. */
+export const createBinderFn = ({ ws, ...body }: CreateBinderVars): Promise<BinderSummary> => callRoute(ROUTES.createBinder, { params: { ws }, body });
+
+export type DeleteItemVars = DeleteItemQuery & InWorkspace & { ref: string };
 
 /** Deletes item `ref`'s file if it is still at `version`. */
-export const deleteItemFn = async ({ ref, ...query }: DeleteItemVars): Promise<void> => {
-  await callRoute(ROUTES.deleteItem, { params: { ref }, query });
+export const deleteItemFn = async ({ ws, ref, ...query }: DeleteItemVars): Promise<void> => {
+  await callRoute(ROUTES.deleteItem, { params: { ws, ref }, query });
 };
 
 const refreshProposal = (queryClient: QueryClient, proposalId: string): Promise<void> =>
@@ -198,19 +203,19 @@ export const deleteAgentMutation = (queryClient: QueryClient) =>
 
 /** The one item write of the item tab; a refused or stale save rejects with the ServiceError. */
 export const saveItemMutation = (queryClient: QueryClient) =>
-  mutationOptions({ mutationFn: saveItemFn, onSettled: () => refreshItems(queryClient) });
+  mutationOptions({ mutationFn: saveItemFn, onSettled: (_data, _error, { ws }) => refreshItems(queryClient, ws) });
 
 /** A refused create rejects with the ServiceError, its problems at the fields (`file` for the file name). */
 export const createItemMutation = (queryClient: QueryClient) =>
-  mutationOptions({ mutationFn: createItemFn, onSettled: () => refreshItems(queryClient) });
+  mutationOptions({ mutationFn: createItemFn, onSettled: (_data, _error, { ws }) => refreshItems(queryClient, ws) });
 
 /** A refused create rejects with the ServiceError, its problems at `name`, `prefix` or `path`; nothing is written then. */
 export const createBinderMutation = (queryClient: QueryClient) =>
-  mutationOptions({ mutationFn: createBinderFn, onSettled: () => refreshItems(queryClient) });
+  mutationOptions({ mutationFn: createBinderFn, onSettled: (_data, _error, { ws }) => refreshItems(queryClient, ws) });
 
 /** A stale delete (the file changed since `version`) rejects with the ServiceError and deletes nothing. */
 export const deleteItemMutation = (queryClient: QueryClient) =>
-  mutationOptions({ mutationFn: deleteItemFn, onSettled: () => refreshItems(queryClient) });
+  mutationOptions({ mutationFn: deleteItemFn, onSettled: (_data, _error, { ws }) => refreshItems(queryClient, ws) });
 
 const decideMutation = (queryClient: QueryClient) =>
   mutationOptions({

@@ -190,4 +190,15 @@ describe("the files the catalog holds", () => {
     for (const [file, expected] of Object.entries(notWritten)) expect(await catalog.holds(join(root, file)), `a new ${file}`).toBe(expected);
     expect(await catalog.holds(join(dirname(root), "BUG-31-new.md")), "a new file outside the root").toBe(false);
   });
+
+  // A file proposal asks every listed workspace's catalog whether it holds the file: one workspace's items folder that
+  // is gone must answer no, not fail every workspace's file proposals.
+  test("an items folder that is gone holds no file", async () => {
+    const root = realpathSync(writeRoot(VALID_FILES));
+    const { catalog } = openItems(root);
+    rmSync(root, { recursive: true, force: true });
+
+    expect(await catalog.holds(join(root, "bugs", "BUG-1-login.md"))).toBe(false);
+    expect(await catalog.holds(join(root, SETTINGS_FILE))).toBe(false);
+  });
 });

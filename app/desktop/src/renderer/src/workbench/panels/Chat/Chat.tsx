@@ -14,7 +14,7 @@ import { usePlay } from "../../../lib/motion.ts";
 import { useReveal } from "../../../lib/use-reveal.ts";
 import { type Arrivals, NO_ARRIVALS, trackArrivals } from "./arrivals.ts";
 import { type ChatBlock, chatBlocks, streamingKey } from "./chat-blocks.ts";
-import { CHAT_PANEL, ChatParams } from "../../agents/chat-params.ts";
+import { ChatParams } from "../../agents/chat-params.ts";
 import { featuresOrAssumed, useHarnessFeatures } from "../../../data/harness-features.ts";
 import { type LiveState, liveState } from "../../approvals/live-state.ts";
 import { sameBlock } from "./same-part.ts";
@@ -24,8 +24,10 @@ import { ChatHeader } from "./ChatHeader/ChatHeader.tsx";
 import { ContextDialogHost } from "./ContextDialogHost/ContextDialogHost.tsx";
 import { Composer } from "./Composer/Composer.tsx";
 import { ComposerFooter } from "./Composer/ComposerFooter/ComposerFooter.tsx";
+import { RunningBar } from "./ComposerBar/RunningBar.tsx";
 import { LogError } from "../../approvals/LogError/LogError.tsx";
 import { ClippedMarkdown } from "./ClippedMarkdown/ClippedMarkdown.tsx";
+import { SurfaceWorkspace } from "../../items/Reference/Reference.tsx";
 import { safePrefix } from "./safe-prefix.ts";
 import { Permission } from "./Permission/Permission.tsx";
 import { Plan } from "./Plan/Plan.tsx";
@@ -182,7 +184,6 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const connected = useConnection().state === "connected";
   const answers = useAnswer(agentId);
   const harnesses = useHarnesses();
-  const harness = harnesses.data?.find(({ id }) => id === agent?.harness);
   const features = useHarnessFeatures(agent?.harness);
   // While the agent is still loading it counts as running: only a known agent without a process isn't.
   const access = agent === undefined ? "running" : chatAccess(agent, featuresOrAssumed(features));
@@ -194,7 +195,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const edits = useMemo(() => (model === undefined ? new Map<string, EditRequest>() : editRequests(model, blocks)), [model, blocks]);
   const [contextOpen, setContextOpen] = useState(false);
   const workbench = useWorkbench();
-  const openSideBySide = (requestId: string) => workbench.openBeside(DIFF_PANEL, { agentId, requestId }, { panelId: CHAT_PANEL, params: { agentId } });
+  const openSideBySide = (requestId: string) => workbench.openTab(DIFF_PANEL, { agentId, requestId });
   const live = useMemo(() => (model === undefined ? undefined : liveState(model, agent)), [model, agent]);
   const streamingBlock = streamingKey(blocks, live?.turnActive ?? false);
   const [pacingState, setPacing] = useState<Pacing>(NO_PACING);
@@ -244,7 +245,7 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
     revealed.current = reveal;
     const element = viewport.current;
     if (element !== null) {
-      // Only the chat's own viewport scrolls (scrollIntoView would also move dockview's clipped containers).
+      // Only the chat's own viewport scrolls (scrollIntoView would also move the clipped containers around it).
       element.scrollTop += centreOffset(element.getBoundingClientRect(), card.getBoundingClientRect());
       // Revealed above the end, the chat stays at the card until scrolled back down.
       following.current = atBottom(element);
@@ -261,27 +262,29 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
       ) : model === undefined ? (
         <p className="p-5 text-sm text-fg-tertiary">Loading…</p>
       ) : (
-        <ScrollArea viewportRef={viewport} className="min-h-0 flex-1">
-          <div ref={content} role="log" aria-label="Conversation" className="mx-auto flex max-w-chat flex-col gap-3 px-5 pt-2 pb-4">
-            {log.data?.truncated ? <p className="text-sm text-fg-tertiary">Earlier history wasn't kept.</p> : null}
-            {blocks.map((block) => (
-              <Block
-                key={block.key}
-                block={block}
-                live={live ?? liveState(model, agent)}
-                edits={edits}
-                connected={connected}
-                answers={answers}
-                cards={cards.current}
-                fresh={tracked.fresh.has(block.key)}
-                streaming={block.key === streamingBlock}
-                paced={stillReveals(pacing, block.key)}
-                onRevealDone={onRevealDone}
-                onOpenSideBySide={openSideBySide}
-              />
-            ))}
-          </div>
-        </ScrollArea>
+        <SurfaceWorkspace ws={agent?.workspace}>
+          <ScrollArea viewportRef={viewport} className="min-h-0 flex-1">
+            <div ref={content} role="log" aria-label="Conversation" className="mx-auto flex max-w-chat flex-col gap-3 px-5 pt-2 pb-4">
+              {log.data?.truncated ? <p className="text-sm text-fg-tertiary">Earlier history wasn't kept.</p> : null}
+              {blocks.map((block) => (
+                <Block
+                  key={block.key}
+                  block={block}
+                  live={live ?? liveState(model, agent)}
+                  edits={edits}
+                  connected={connected}
+                  answers={answers}
+                  cards={cards.current}
+                  fresh={tracked.fresh.has(block.key)}
+                  streaming={block.key === streamingBlock}
+                  paced={stillReveals(pacing, block.key)}
+                  onRevealDone={onRevealDone}
+                  onOpenSideBySide={openSideBySide}
+                />
+              ))}
+            </div>
+          </ScrollArea>
+        </SurfaceWorkspace>
       )}
       {/* The summary says whether the agent works, the log what it does; both must agree before the line shows. */}
       {agent?.state === "working" ? <WorkingLine activity={model?.activity ?? null} /> : null}
@@ -292,11 +295,11 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
         access={access}
         features={features}
         onOpenContext={() => setContextOpen(true)}
+        bar={agent === undefined ? undefined : <RunningBar agent={agent} />}
       />
       {agent === undefined ? null : (
         <ComposerFooter
           agent={agent}
-          toolName={harness?.name ?? agent.harness}
           options={model?.config}
           usage={model?.usage}
           access={access}

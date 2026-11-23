@@ -1,14 +1,20 @@
-// Every panel and activity is registered here once; the shell, the saved layout and the tabs read them from here.
+// Every panel and activity is registered here once; the shell, its saved state and the tabs read them from here.
 import type { LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
-import type { ZodType } from "zod";
-import type { AgentSummary } from "@wombat/shared/api";
+import { z, type ZodType } from "zod";
+import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import type { Proposal } from "@wombat/shared/proposals";
-import type { IsKnown } from "./layout.ts";
 
-export type PanelLocation = "left" | "editor" | "right";
+/** A rule on a tab, as `isKnown`, `isSaved` and `isRestorable` answer. */
+export type TabTest = (panelId: string, params: unknown) => boolean;
+
+export type PanelLocation = "tab" | "navigator";
 /** What a panel's title may look at; a list is undefined while it's loading (or couldn't be read). */
-export type ResolveContext = { agents: AgentSummary[] | undefined; proposals?: readonly Proposal[] | undefined };
+export type ResolveContext = {
+  agents: AgentSummary[] | undefined;
+  proposals?: readonly Proposal[] | undefined;
+  workspaces?: readonly Pick<Workspace, "id" | "name">[] | undefined;
+};
 /**
  * What `resolves` looks at: it's only asked once the agents list is known (until then a tab is kept). The proposals
  * may still be unknown: a panel that goes by them keeps its tab until they are.
@@ -39,12 +45,14 @@ export type PanelDescriptor = {
   icon: LucideIcon;
   locations: PanelLocation[];
   activity?: string;
+  /** The right sidebar's width, in pixels, this panel wants as the active tab, or as a navigator alone. */
+  wants?: number;
   component: ComponentType<PanelProps>;
   paramsSchema?: ZodType;
   resolves?: (params: unknown, ctx: KnownContext) => boolean;
   /** Whether a saved tab comes back at the next start, on top of `resolves` (checked only by the restore). */
   restores?: (params: unknown, ctx: KnownContext) => boolean;
-  /** Whether an open tab is saved with the layout (default: yes); a tab that isn't is never restored either. */
+  /** Whether an open tab is saved with the shell (default: yes); a tab that isn't is never restored either. */
   saves?: (params: unknown) => boolean;
 };
 
@@ -52,9 +60,13 @@ export type ActivityDescriptor = {
   id: string;
   title: string;
   icon: LucideIcon;
-  sidebarPanel: string;
-  emptyState?: { title: string; body: string };
+  /** The panel shown beside the activity's tabs; its params are `NavigatorParams`. */
+  navigator: string;
 };
+
+/** A navigator's params: the workspace whose navigator it is (one per workspace, all mounted). */
+export const NavigatorParams = z.object({ ws: z.string() });
+export type NavigatorParams = z.infer<typeof NavigatorParams>;
 
 const panels = new Map<string, PanelDescriptor>();
 const activityList = new Map<string, ActivityDescriptor>();
@@ -70,10 +82,6 @@ export const getPanel = (id: string): PanelDescriptor | undefined => panels.get(
 export const getActivity = (id: string): ActivityDescriptor | undefined => activityList.get(id);
 /** The activities in registration order. */
 export const activities = (): ActivityDescriptor[] => [...activityList.values()];
-/** The activity `id` names, else the first registered (Agents): what the workbench opens on. */
-export const activityOrDefault = (id: string | undefined): ActivityDescriptor | undefined =>
-  (id === undefined ? undefined : activityList.get(id)) ?? activities()[0];
-export const panelsFor = (location: PanelLocation): PanelDescriptor[] => [...panels.values()].filter((panel) => panel.locations.includes(location));
 
 /** A panel's title for these params. */
 export const panelTitle = (panel: PanelDescriptor, params: unknown, ctx: ResolveContext): string =>
@@ -87,22 +95,22 @@ export const paramsFit = (panel: PanelDescriptor, params: unknown): boolean => p
  * resolves is true. While the list is unknown a tab is kept.
  */
 export const isKnown =
-  ({ agents, proposals }: ResolveContext): IsKnown =>
+  ({ agents, proposals }: ResolveContext): TabTest =>
   (panelId, params) => {
     const panel = panels.get(panelId);
     if (panel === undefined || !paramsFit(panel, params)) return false;
     return agents === undefined || panel.resolves === undefined || panel.resolves(params, { agents, proposals });
   };
 
-/** Whether an open tab goes into the saved layout: its panel's `saves`. */
-export const isSaved: IsKnown = (panelId, params) => panels.get(panelId)?.saves?.(params) ?? true;
+/** Whether an open tab goes into the saved shell: its panel's `saves`. */
+export const isSaved: TabTest = (panelId, params) => panels.get(panelId)?.saves?.(params) ?? true;
 
 /**
  * Whether a saved tab comes back at the next start: `isKnown` and `isSaved`, plus, once the agents list is known, its panel's
  * `restores` (a diff tab of an answered request isn't restored).
  */
 export const isRestorable =
-  (ctx: ResolveContext): IsKnown =>
+  (ctx: ResolveContext): TabTest =>
   (panelId, params) => {
     if (!isKnown(ctx)(panelId, params) || !isSaved(panelId, params)) return false;
     const restores = panels.get(panelId)?.restores;

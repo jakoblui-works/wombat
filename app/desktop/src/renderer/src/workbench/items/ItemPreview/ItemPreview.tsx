@@ -1,15 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
 import type { ItemSummary } from "@wombat/shared/items";
 import type { ComponentProps, ReactNode } from "react";
 
 import { InlineMarkdown, Markdown } from "../../../components/Markdown/Markdown.tsx";
 import { Button } from "../../../components/ui/button";
 import { PreviewCardContent } from "../../../components/ui/preview-card";
-import { useBinders } from "../../../data/hooks.ts";
-import { itemQuery } from "../../../data/query-client.ts";
+import { useBinders, useItem } from "../../../data/hooks.ts";
 import { lastPathPart } from "../../../lib/path.ts";
 import { cn } from "../../../lib/utils";
 import { itemName } from "../item-params.ts";
+import { useSurfaceWorkspace } from "../surface-workspace.ts";
 import { READ_FAILED, UnparseableItem } from "../notices/notices.tsx";
 import { itemNotFound } from "../reads.ts";
 import { ProblemList } from "../ProblemList/ProblemList.tsx";
@@ -48,11 +47,12 @@ const Footer = ({ onOpen }: { onOpen: () => void }) => (
 
 const Note = ({ children }: { children: ReactNode }) => <p className={cn(PART, "text-fg-secondary")}>{children}</p>;
 
-/** The whole of item `itemRef` without opening it: its title and handle, its properties, its body, and a way to open it. */
+/** The whole of item `itemRef` of the surface's workspace without opening it: its title and handle, its properties, its body, and a way to open it. */
 export const ItemPreview = ({ itemRef, listed, onOpen }: Props) => {
   // A box opens on every hover: a ref that names no item is read again on the next items alert, not on each open.
-  const read = useQuery({ ...itemQuery(itemRef), retryOnMount: false, enabled: listed?.id !== null });
-  const binders = useBinders();
+  const ws = useSurfaceWorkspace();
+  const read = useItem(ws, itemRef, { retryOnMount: false, enabled: listed?.id !== null });
+  const binders = useBinders(ws);
   const shown = previewShown(read, listed);
 
   switch (shown.kind) {

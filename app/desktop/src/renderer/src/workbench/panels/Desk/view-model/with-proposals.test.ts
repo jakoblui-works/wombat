@@ -59,6 +59,7 @@ const proposal = ({ id, at, binder, kind, handle, status, fields }: Spec): ItemP
   id,
   status,
   agentId: "0196f3c2-7e00-7000-8000-00000000a9e1",
+  workspace: "ws-apiary0001",
   reason: "Keeps the garden tidy.",
   version: 2,
   editedByMe: false,

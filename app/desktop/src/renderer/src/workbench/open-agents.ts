@@ -1,5 +1,5 @@
-// Open-agent requests (a notification click) wait here until the saved layout is restored: restoring replaces every
-// tab, so a chat opened before it would be lost.
+// Open-agent requests (a notification click) wait here until the saved shell is restored: restoring replaces the
+// open agent, so a chat opened before it would be lost.
 export type OpenAgents = {
   /** Hands the request to the handler, or keeps it until there is one. */
   push: (agentId: string) => void;

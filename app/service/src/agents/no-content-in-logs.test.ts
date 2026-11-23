@@ -18,7 +18,7 @@ import {
   RESUME_REFUSAL_MESSAGE,
   RESUME_REFUSED_FILE,
 } from "../../test/fake-agent.ts";
-import { chunkTexts, REPO, setup, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
+import { chunkTexts, REPO, setup, TEST_TIMEOUT_MS, waitFor, WORKSPACE } from "../../test/manager-fixtures.ts";
 
 // Markers fixed by the fake scenarios' contract: the noisy scenario's stderr, and the text of the update the
 // unknown-update scenario sends (it isn't stored, so it can't be read back from the entries).
@@ -70,13 +70,13 @@ describe("no agent content in logs", () => {
       const ids: string[] = [];
 
       for (const scenario of ["reply", "noisy", "plan-thought", "unknown-update"] as const) {
-        const { id } = await t.manager.start(`fake-${scenario}`, REPO);
+        const { id } = await t.manager.start(WORKSPACE, `fake-${scenario}`, REPO);
         ids.push(id);
         await t.manager.send(id, { text: prompt(scenario) });
         await t.turnEnded(id);
       }
 
-      const permission = await t.manager.start("fake-permission", REPO);
+      const permission = await t.manager.start(WORKSPACE, "fake-permission", REPO);
       ids.push(permission.id);
       await t.manager.send(permission.id, { text: prompt("permission") });
       await waitFor("a pending permission", () => t.agent(permission.id)?.state === "waiting");
@@ -85,7 +85,7 @@ describe("no agent content in logs", () => {
       t.manager.answer(permission.id, request.requestId, "allow_once");
       await t.turnEnded(permission.id);
 
-      const crash = await t.manager.start("fake-crash", REPO);
+      const crash = await t.manager.start(WORKSPACE, "fake-crash", REPO);
       ids.push(crash.id);
       await t.manager.send(crash.id, { text: prompt("crash") });
       await waitFor("the crash recorded", () => t.agent(crash.id)?.state === "error");
@@ -113,7 +113,7 @@ describe("no agent content in logs", () => {
     "when the agent refuses a config option, its error message reaches the caller but no log line",
     async () => {
       const t = setup();
-      const { id } = await t.manager.start("fake-reply", REPO);
+      const { id } = await t.manager.start(WORKSPACE, "fake-reply", REPO);
       const refused = FAKE_CONFIG.model.values.find((value) => value.startsWith("refuse")) ?? "";
       const error = await t.manager.setConfig(id, FAKE_CONFIG.model.id, refused).then(
         () => undefined,
@@ -136,9 +136,9 @@ test(
   "a hidden /context turn's content never reaches a log line, also when the turn fails",
   async () => {
     const t = setup();
-    const reply = await t.manager.start("fake-reply", REPO);
+    const reply = await t.manager.start(WORKSPACE, "fake-reply", REPO);
     expect(await t.manager.contextBreakdown(reply.id), "the hidden turn ran").toEqual(FAKE_BREAKDOWN);
-    const failing = await t.manager.start("fake-prompt-error", REPO);
+    const failing = await t.manager.start(WORKSPACE, "fake-prompt-error", REPO);
     await expect(t.manager.contextBreakdown(failing.id), "the failing hidden turn ran").rejects.toMatchObject({ code: "agent_error" });
 
     const lines = JSON.stringify(t.logs);
@@ -155,7 +155,7 @@ test(
     const t = setup();
     const folder = join(t.root, REPO);
     const prompts = [`refused prompt ${randomUUID()}`, `resumed prompt ${randomUUID()}`];
-    const { id } = await t.manager.start("fake-reply", REPO);
+    const { id } = await t.manager.start(WORKSPACE, "fake-reply", REPO);
     await t.manager.setConfig(id, FAKE_CONFIG.effort.id, "high");
     await t.manager.stop(id);
 

@@ -1,13 +1,57 @@
-import type { LucideIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { PanelLeft } from "lucide-react";
+import { type Ref, useRef } from "react";
 
-import { lastPathPart } from "@/lib/path";
 import { openedByPointer as byPointer } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import { Menubar, MenubarContent, MenubarItem, MenubarMenu, MenubarSeparator, MenubarShortcut, MenubarTrigger } from "@/components/ui/menubar";
-import { runLogged } from "../commands/registry.ts";
-import { type MenuModel, MENUS, menuItems } from "./menus.ts";
+import {
+  Menubar,
+  MenubarContent,
+  MenubarItem,
+  MenubarMenu,
+  MenubarRadioGroup,
+  MenubarRadioItem,
+  MenubarSeparator,
+  MenubarShortcut,
+  MenubarTrigger,
+} from "@/components/ui/menubar";
+import { useNeedsMeCount, useWorkspaces } from "../../data/hooks.ts";
+import { ariaKeyShortcut, commands, runLogged } from "../commands/registry.ts";
+import { TOGGLE_LEFT_SIDEBAR, WORKBENCH_COMMAND } from "../commands/workbench-commands.ts";
+import { newChat } from "../shell/shell-state.ts";
+import { useShell, useShownWorkspace } from "../shell/ShellProvider.tsx";
+import { inTitleBarMenus, MENU_POPUP, type MenuModel, MENUS, menuItems } from "./menus.ts";
 import { WombatSymbol } from "../EmptyState/WombatSymbol.tsx";
+
+/** The workspaces by name, the shown one checked; choosing one shows the empty chat on it. */
+const WorkspaceEntries = () => {
+  const listed = useWorkspaces().data?.workspaces ?? [];
+  const shown = useShownWorkspace();
+  const { change } = useShell();
+  if (listed.length === 0) return null;
+  return (
+    <>
+      <MenubarRadioGroup
+        value={shown?.id ?? null}
+        onValueChange={(id: unknown) => typeof id === "string" && id !== shown?.id && change((state) => newChat(state, id))}
+      >
+        {listed.map(({ id, name, root }) => (
+          <MenubarRadioItem key={id} value={id} title={root}>
+            {name}
+          </MenubarRadioItem>
+        ))}
+      </MenubarRadioGroup>
+      <MenubarSeparator />
+    </>
+  );
+};
+
+const logDropped = (id: string, why: string): void => console.error(`The command "${id}" didn't run: ${why}.`);
+
+/** Whether command `id` acts on the focused element. */
+const isFocused = (id: string): boolean => commands().some((command) => command.id === id && command.focused === true);
+
+/** Whether focus is on an element of its own outside the menus, where the user put it, not the page. */
+const focusMovedOn = (active: Element | null): boolean => active !== null && active !== active.ownerDocument.body && !inTitleBarMenus(active);
 
 /**
  * A menu's items. A component of its own, so they resolve against the registry when the popup opens: the workbench
@@ -15,8 +59,10 @@ import { WombatSymbol } from "../EmptyState/WombatSymbol.tsx";
  */
 const MenuEntries = ({ menu, choose }: { menu: MenuModel; choose: (id: string) => void }) =>
   menuItems(menu).map((item, at) =>
-    item.separator ? (
+    item.kind === "separator" ? (
       <MenubarSeparator key={`separator-${String(at)}`} />
+    ) : item.kind === "workspaces" ? (
+      <WorkspaceEntries key="workspaces" />
     ) : (
       <MenubarItem key={item.id} disabled={item.disabled} onClick={() => choose(item.id)}>
         {item.label}
@@ -25,38 +71,49 @@ const MenuEntries = ({ menu, choose }: { menu: MenuModel; choose: (id: string) =
     ),
   );
 
+/** The left sidebar's toggle, pressed while the sidebar is shown; it runs the toggle's command, as its key does. */
+const LeftSidebarToggle = ({ toggle }: { toggle: Ref<HTMLButtonElement> | undefined }) => {
+  const shown = !useShell().state.leftHidden;
+  const waiting = useNeedsMeCount() ?? 0;
+  return (
+    <button
+      type="button"
+      aria-pressed={shown}
+      aria-label={shown || waiting === 0 ? TOGGLE_LEFT_SIDEBAR.title : `${TOGGLE_LEFT_SIDEBAR.title}, ${waiting} waiting on you`}
+      aria-keyshortcuts={ariaKeyShortcut(TOGGLE_LEFT_SIDEBAR.keys)}
+      title={TOGGLE_LEFT_SIDEBAR.title}
+      ref={toggle}
+      onClick={() => runLogged(WORKBENCH_COMMAND.toggleLeftSidebar)}
+      className={cn(
+        "focus-ring relative flex size-7 items-center justify-center rounded-md text-fg-secondary transition-colors [app-region:no-drag] hover:bg-surface-2 hover:text-fg-primary",
+        shown && "bg-surface-3 text-fg-primary",
+      )}
+    >
+      <PanelLeft className="size-4" />
+      {shown || waiting === 0 ? null : (
+        <span
+          aria-hidden
+          data-needs-me-count
+          className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-state-waiting px-1 text-[10px] leading-none font-semibold text-surface-0 tabular-nums"
+        >
+          {waiting}
+        </span>
+      )}
+    </button>
+  );
+};
+
 /**
- * The window's title bar, in place of the system's: the menus on the left, the symbol and workspace as the drag strip
- * in the middle, the right sidebar's toggle (named after its panel) on the right, then the room the window controls
- * (Electron's overlay) take. The bar drags the window, so each control opts out of it with `no-drag`.
+ * The window's title bar, in place of the system's: the menus on the left, the symbol and name as the drag strip
+ * in the middle, the left sidebar's toggle on the right, then the room the window controls (Electron's overlay) take.
+ * The bar drags the window, so each control opts out of it with `no-drag`. `leftToggle` gets the toggle's element.
  */
-export const TitleBar = ({
-  right,
-  count = 0,
-  rightOpen,
-  onToggleRight,
-}: {
-  right: { title: string; icon: LucideIcon } | undefined;
-  /** What waits on the user: shown after the toggle's name while above 0. */
-  count?: number;
-  rightOpen: boolean;
-  onToggleRight: () => void;
-}) => {
-  const [workspace, setWorkspace] = useState<string>();
-  useEffect(() => {
-    let live = true;
-    window.wombat.workspace.get().then(
-      ({ root }) => live && setWorkspace(lastPathPart(root)),
-      () => undefined,
-    );
-    return () => {
-      live = false;
-    };
-  }, []);
+export const TitleBar = ({ leftToggle }: { leftToggle?: Ref<HTMLButtonElement> }) => {
   // Edit commands (cut, paste, select all) act on the focused element, and opening a menu moves focus into the menubar.
   // So each time focus comes into the menubar from outside it (and outside its popups), it remembers where from. When
   // a menu closes, focus goes back there if the menu was opened with the pointer or a command was chosen (a menu
-  // opened and dismissed from the keyboard stays on its trigger, where the user was).
+  // opened and dismissed from the keyboard stays on its trigger, where the user was), unless a click put it elsewhere
+  // while the menu was closing.
   const menubar = useRef<HTMLDivElement>(null);
   const focusBefore = useRef<HTMLElement | null>(null);
   // Per menu, for the open that is under way: whether the pointer opened it; each open overwrites the last.
@@ -66,7 +123,7 @@ export const TitleBar = ({
   const openMenus = useRef(new Set<string>());
   const chosen = useRef<string | undefined>(undefined);
   const inBar = (target: EventTarget | null) => target instanceof Node && menubar.current?.contains(target) === true;
-  const inPopup = (target: EventTarget | null) => target instanceof Element && target.closest("[data-slot=menubar-content]") !== null;
+  const inPopup = (target: EventTarget | null) => target instanceof Element && target.closest(MENU_POPUP) !== null;
   const rememberFocus = (event: React.FocusEvent) => {
     // React events cross the popup's portal; only focus arriving at the bar's own DOM counts.
     if (!inBar(event.target) || inBar(event.relatedTarget) || inPopup(event.relatedTarget)) return;
@@ -91,7 +148,7 @@ export const TitleBar = ({
       document.removeEventListener("focusin", onFocusIn);
       clearTimeout(timer);
       if (dropped === undefined) runLogged(id);
-      else console.error(`The command "${id}" didn't run: ${dropped}.`);
+      else logDropped(id, dropped);
     };
     const onFocusIn = () => {
       if (inPopup(document.activeElement)) return;
@@ -105,6 +162,15 @@ export const TitleBar = ({
     const byPointer = openedByPointer.current.get(label) === true;
     const id = chosen.current;
     chosen.current = undefined;
+    if (focusMovedOn(document.activeElement)) {
+      // A click landed while the menu was closing: focus stays there. A command acting on the focused element would act
+      // on the wrong one; any other runs, leaving the focus where it is.
+      if (id !== undefined) {
+        if (isFocused(id)) logDropped(id, "focus went to another element while the menu closed");
+        else runLogged(id, { keepFocus: true });
+      }
+      return false;
+    }
     if (id === undefined && [...openMenus.current].some((open) => open !== label)) return false;
     const before = focusBefore.current?.isConnected === true ? focusBefore.current : null;
     const target = (byPointer || id !== undefined) && before !== null ? before : null;
@@ -126,29 +192,9 @@ export const TitleBar = ({
       <div className="flex min-w-0 items-center gap-2 px-4">
         <WombatSymbol className="size-5 shrink-0" />
         <span className="text-sm font-semibold text-fg-primary">Wombat</span>
-        {workspace === undefined ? null : (
-          <>
-            <span className="text-sm text-fg-tertiary">/</span>
-            <span className="truncate text-sm text-fg-secondary">{workspace}</span>
-          </>
-        )}
       </div>
       <div className="flex min-w-0 items-center justify-end gap-2">
-        {right === undefined ? null : (
-          <button
-            type="button"
-            aria-pressed={rightOpen}
-            onClick={onToggleRight}
-            className={cn(
-              "focus-ring flex h-7 items-center gap-2 rounded-md px-2 text-sm text-fg-secondary transition-colors [app-region:no-drag] hover:bg-surface-2 hover:text-fg-primary",
-              rightOpen && "bg-surface-3 text-fg-primary",
-            )}
-          >
-            <right.icon className="size-4" />
-            {right.title}{" "}
-            {count > 0 ? <span className="text-fg-tertiary tabular-nums">{count}</span> : null}
-          </button>
-        )}
+        <LeftSidebarToggle toggle={leftToggle} />
         {/* The window controls sit over the bar's right end; this keeps the toggle clear of them. */}
         <div aria-hidden className="h-full w-[calc(100vw-env(titlebar-area-x,0px)-env(titlebar-area-width,100vw))] shrink-0" />
       </div>

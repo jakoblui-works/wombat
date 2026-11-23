@@ -19,8 +19,6 @@ export const DiscoveryFile = z.object({
   port: z.int().min(1).max(65535),
   pid: z.int().positive(),
   token: z.string().min(1),
-  /** The service's workspace root; services that predate it leave it out. */
-  workspace: z.string().min(1).optional(),
   /**
    * The service process's start time (startTimeOf its pid), so a pid reused by another process isn't taken for the
    * service; services that predate it leave it out.

@@ -5,10 +5,9 @@ import { API_VERSION } from "@wombat/shared";
 import { expect, onTestFinished, test, vi } from "vitest";
 
 import { alertService } from "../../test/alert-service.ts";
-import { inProcessService, serviceSandbox, type ServiceSandbox } from "../../test/service-sandbox.ts";
+import { serviceSandbox, type ServiceSandbox } from "../../test/service-sandbox.ts";
 import type { ConnectionState } from "../shared/bridge.ts";
 import { serviceConnection, type ConnectionTiming } from "./service-connection.ts";
-import { startService } from "./service-start.ts";
 
 const WAIT = { timeout: 5_000, interval: 10 };
 
@@ -81,19 +80,6 @@ test("a service that's gone shows reconnecting, then failed once it stays gone; 
   expect(second?.streams()).toBe(1);
   // Requests go to the new service.
   expect((await connection.request("GET", "/version", undefined)).status).toBe(200);
-});
-
-test("a start that finds a service from before this app (no workspace in its file) is incompatible, saying it predates the app", async () => {
-  const sandbox = serviceSandbox();
-  await inProcessService(sandbox, undefined);
-  const { connection, states } = connect(sandbox);
-  // As a start that finds the lock held: it exits 0 and leaves the old service running.
-  await connection.reconnect(() => startService({ env: sandbox.env, entry: sandbox.exitingEntry(), workspace: sandbox.workspace("main") }));
-
-  const last = states.at(-1);
-  expect(last?.state).toBe("incompatible");
-  expect(last?.message).toContain("predates this app");
-  expect(last?.message).toContain("Restart");
 });
 
 test("a service that keeps dropping the stream right after opening it is retried with growing waits, then failed", async () => {

@@ -20,6 +20,7 @@ import path from "node:path";
 import { _electron as electron, test as base, expect, type ElectronApplication, type Locator, type Page } from "@playwright/test";
 import { APP_ORIGIN } from "@wombat/shared";
 import { fakeSystemd, type Call, type FakeSystemd, type FakeSystemdOptions } from "../../service/test/fake-systemd.ts";
+import { agentTitle } from "../src/renderer/src/lib/agent-title.ts";
 import { CHANNELS } from "../src/shared/bridge.ts";
 import { E2E_NOTIFICATIONS } from "../src/main/e2e-switches.ts";
 import { SWITCH } from "../src/shared/e2e-switch-names.ts";
@@ -34,7 +35,7 @@ export const REPO = "bakery-site";
 
 /**
  * The window's content size. Under the headless platform a hidden window's content is 1x1, too small for anything
- * laid out (dockview's groups, a drag between them); every launch gets this size.
+ * laid out (the sidebars beside the chat, a drag between them); every launch gets this size.
  */
 export const VIEWPORT = { width: 1440, height: 900 };
 
@@ -50,7 +51,16 @@ const HEADLESS_ARGS = ["--ozone-platform=headless"];
 // desktop notifications and shell.showItemInFolder can't reach the desktop.
 const DROPPED_ENV = /^(DISPLAY|WAYLAND_.*|XAUTHORITY|ELECTRON_OZONE_PLATFORM_HINT|ELECTRON_RUN_AS_NODE|DBUS_SESSION_BUS_ADDRESS|HOME|PATH|XDG_.*|WOMBAT_.*|ANTHROPIC_.*|CLAUDE.*|NODE_OPTIONS|ASDF_.*|SSH_AUTH_SOCK|GIT_.*)$/;
 
-export type Discovery = { apiVersion: number; port: number; pid: number; token: string; workspace?: string };
+export type Discovery = { apiVersion: number; port: number; pid: number; token: string };
+
+export type StartServiceOptions = {
+  /** More env for the service. */
+  env?: Record<string, string>;
+  /** The service's entry (default the sandbox's): another checkout's (see app-copy.ts). */
+  entry?: string;
+  /** The workspace's items folder, given when the workspace is added. */
+  itemsRoot?: string;
+};
 
 export type LaunchOptions = {
   /** XDG_CONFIG_HOME for this app (default the sandbox's first profile); see `Sandbox.newProfile`. */
@@ -77,6 +87,8 @@ export type LaunchedApp = {
   isRunning: () => boolean;
   /** Electron's pid, taken at launch (Playwright's handle may be gone once the app has exited). */
   pid: number | undefined;
+  /** The sandbox's service API, as `Sandbox.api`. */
+  api: Sandbox["api"];
 };
 
 export type Sandbox = {
@@ -101,10 +113,10 @@ export type Sandbox = {
   readSettings: (profile?: string) => Record<string, unknown> | undefined;
   launch: (options?: LaunchOptions) => Promise<LaunchedApp>;
   /**
-   * Starts a service directly (as one left running from before), for `workspace`; resolves once it's found. `entry`
-   * (default the sandbox's service entry) runs it from another checkout (see app-copy.ts).
+   * Starts a service directly (as one left running from before) and adds `workspace` to it, as the app would through
+   * its main-only route; resolves once both are done.
    */
-  startService: (workspace: string, env?: Record<string, string>, entry?: string) => Promise<Discovery>;
+  startService: (workspace: string, options?: StartServiceOptions) => Promise<Discovery>;
   /** The discovery file's content, raw (so fields the shared schema doesn't know yet are kept); undefined when absent. */
   discovery: () => Discovery | undefined;
   /** Waits for a discovery file whose service is alive and answers /version with its token, and that passes `check`. */
@@ -338,6 +350,7 @@ const createSandbox = (systemdOptions: SandboxOptions): { sandbox: Sandbox; tear
         ]),
       isRunning: () => child.exitCode === null && child.signalCode === null,
       pid: child.pid,
+      api,
     };
     apps.push(launched);
     // Safety net, after the fact: by now the app has started up, so this only reports a profile outside the sandbox
@@ -363,15 +376,18 @@ const createSandbox = (systemdOptions: SandboxOptions): { sandbox: Sandbox; tear
     return launched;
   };
 
-  const startService: Sandbox["startService"] = async (forWorkspace, extra = {}, entry = serviceEntry()) => {
+  const startService: Sandbox["startService"] = async (forWorkspace, { env: extra = {}, entry = serviceEntry(), itemsRoot } = {}) => {
     const log = openSync(path.join(root, `direct-service-${String(directServices.length)}.log`), "a", 0o600);
     const child = spawn(process.execPath, [entry], {
-      env: env({ WOMBAT_WORKSPACE: forWorkspace, ...extra }),
+      env: env(extra),
       detached: true,
       stdio: ["ignore", log, log],
     });
     directServices.push(child);
-    return waitForService((file) => file.pid === child.pid);
+    const file = await waitForService((found) => found.pid === child.pid);
+    const added = await api("POST", "/workspaces", { root: forWorkspace, ...(itemsRoot === undefined ? {} : { itemsRoot }) });
+    if (added.status !== 200) throw new Error(`adding the workspace ${forWorkspace} failed: ${JSON.stringify(added.json)}`);
+    return file;
   };
 
   const sandbox: Sandbox = {
@@ -502,8 +518,8 @@ const WHEELED = "data-e2e-wheeled";
 /**
  * Wheels over the scroller holding `inside` (it, or its nearest ancestor whose overflow-y is auto or scroll) until
  * that scroller is at its top or end, then once more past it, and returns what around it scrolled or overflows
- * vertically, described: each element from the scroller's parent up to the document, every sidebar (<aside>) and
- * dockview view (`.dv-view`), and the document's scrolling element. Empty when only the scroller moved. Throws when
+ * vertically, described: each element from the scroller's parent up to the document, every sidebar (<aside>),
+ * and the document's scrolling element. Empty when only the scroller moved. Throws when
  * the scroller has nothing to scroll, or something covers it.
  */
 export const wheelPastEnd = async (inside: Locator, way: "up" | "down"): Promise<string[]> => {
@@ -557,7 +573,7 @@ export const wheelPastEnd = async (inside: Locator, way: "up" | "down"): Promise
   return scroller.evaluate((element) => {
     const around = new Set<Element>();
     for (let up = element.parentElement; up !== null; up = up.parentElement) around.add(up);
-    for (const other of document.querySelectorAll("aside, .dv-view")) around.add(other);
+    for (const other of document.querySelectorAll("aside")) around.add(other);
     if (document.scrollingElement !== null) around.add(document.scrollingElement);
     const name = (el: Element) =>
       `<${el.tagName.toLowerCase()}${el.getAttribute("aria-label") === null ? "" : ` "${el.getAttribute("aria-label") ?? ""}"`}${typeof el.className === "string" && el.className !== "" ? ` .${el.className.split(/\s+/).slice(0, 4).join(".")}` : ""}>`;
@@ -628,19 +644,32 @@ export const bridgeRequest = (
     [method, pathname, body] as const,
   );
 
-/** Starts a fake agent through the test's own client and returns its id. */
+/** The id of the workspace the service lists at `root` (default the sandbox's), once it lists it. */
+export const workspaceId = (sandbox: Sandbox, root = sandbox.workspace): Promise<string> =>
+  until(`the service to list the workspace ${root}`, WAIT_MS, async () => {
+    const listed = await sandbox.api("GET", "/workspaces");
+    return (listed.json as { workspaces?: { id: string; root: string }[] } | undefined)?.workspaces?.find((workspace) => workspace.root === root)?.id;
+  });
+
+/** Starts a fake agent in the sandbox's workspace through the test's own client and returns its id. */
 export const startAgent = async (sandbox: Sandbox, harness: "fake-reply" | "fake-permission" | "fake-hang" | "fake-hostile" | "fake-call-tool"): Promise<string> => {
-  const started = await sandbox.api("POST", "/agents", { harness, repo: REPO });
+  const started = await sandbox.api("POST", "/agents", { workspace: await workspaceId(sandbox), harness, repo: REPO });
   expect(started.status, `start ${harness}: ${JSON.stringify(started.json)}`).toBe(201);
   return (started.json as { id: string }).id;
 };
 
-type Summary = { id: string; state: string; title?: string; lastText?: string; pendingPermissions?: { title: string }[] };
+type Summary = { id: string; workspace: string; state: string; title?: string; repo: string; lastText?: string; pendingPermissions?: { title: string }[] };
 
 /** The agent's summary from GET /agents. */
-export const agentSummary = async (sandbox: Sandbox, agentId: string): Promise<Summary | undefined> => {
+export const agentSummary = async (sandbox: Pick<Sandbox, "api">, agentId: string): Promise<Summary | undefined> => {
   const listed = await sandbox.api("GET", "/agents");
   return (listed.json as { agents: Summary[] }).agents.find((agent) => agent.id === agentId);
+};
+
+/** The agent's title as the app shows it, from GET /agents and GET /workspaces. */
+export const agentTitleOf = async (sandbox: Pick<Sandbox, "api">, agentId: string): Promise<string> => {
+  const listed = await sandbox.api("GET", "/workspaces");
+  return agentTitle(agentId, await agentSummary(sandbox, agentId), (listed.json as { workspaces: { id: string; name: string }[] }).workspaces);
 };
 
 /** Starts a `fake-permission` agent, prompts it, and waits until it's waiting on a permission answer. */
@@ -652,9 +681,6 @@ export const startWaitingAgent = async (sandbox: Sandbox, prompt: string): Promi
   return agentId;
 };
 
-/** One editor group as the page shows it: its tabs' text and the active tab's. */
-export type GroupView = { tabs: string[]; active: string | undefined };
-
 /** Asks the page to open an agent's chat, as main does for a notification click. */
 export const sendOpenAgent = (app: ElectronApplication, agentId: string): Promise<void> =>
   app.evaluate(
@@ -664,32 +690,18 @@ export const sendOpenAgent = (app: ElectronApplication, agentId: string): Promis
     [CHANNELS.openAgent, agentId] as const,
   );
 
-// 0 while the page is still loading (its context may be replaced under the count).
-export const tabCount = (page: Page): Promise<number> => page.locator(".dv-tab").count().catch(() => 0);
+/** The titles of the tabs in the shown workspace's strip (the one visible `tablist`), in order. */
+export const tabTitles = async (page: Page): Promise<string[]> => (await page.getByRole("tablist").getByRole("tab").allInnerTexts()).map((title) => title.trim());
 
-/** Opens the agent's chat once, as one notification click would, and waits for its tab (the `tabsAfter`th). */
-export const openAgent = async (launched: LaunchedApp, agentId: string, tabsAfter: number): Promise<void> => {
+/** Opens the agent's chat once, as one notification click would, and waits for its header (its title) in the middle (`main`). */
+export const openAgent = async (launched: LaunchedApp, agentId: string): Promise<void> => {
   await sendOpenAgent(launched.app, agentId);
-  await until(`the chat tab of ${agentId}`, WAIT_MS, async () => ((await tabCount(launched.page)) >= tabsAfter ? true : undefined));
+  await until(`the chat of ${agentId}`, WAIT_MS, async () => {
+    const title = await agentTitleOf(launched, agentId);
+    const header = launched.page.getByRole("main").getByRole("heading", { level: 2, name: title, exact: true });
+    return (await header.count().catch(() => 0)) >= 1 ? true : undefined;
+  });
 };
-
-/** The editor's groups, left to right then top to bottom, each with its tabs' text and the active tab's. */
-export const layoutOf = (page: Page): Promise<GroupView[]> =>
-  page.evaluate(() =>
-    [...document.querySelectorAll<HTMLElement>(".dv-groupview")]
-      .map((group) => {
-        const box = group.getBoundingClientRect();
-        const tabs = [...group.querySelectorAll<HTMLElement>(".dv-tab")];
-        return {
-          x: box.x,
-          y: box.y,
-          tabs: tabs.map((tab) => (tab.textContent ?? "").trim()),
-          active: group.querySelector<HTMLElement>(".dv-tab.dv-active-tab")?.textContent?.trim(),
-        };
-      })
-      .sort((a, b) => a.x - b.x || a.y - b.y)
-      .map(({ tabs, active }) => ({ tabs, active })),
-  );
 
 type CommandWindow = {
   wombat?: { command?: (id: unknown) => Promise<void>; onZoom?: (cb: (level: number) => void) => unknown };

@@ -7,7 +7,7 @@ import type { FoldEntry } from "@wombat/shared/log-fold";
 import { ROUTES } from "@wombat/shared/routes";
 import { bySeq } from "./by-seq.ts";
 import { callRoute, callRouteWith } from "./client.ts";
-import { keys, logAgentId, proposalIdOf, binderIdOf, itemRefOf } from "./keys.ts";
+import { binderIdOf, bindersWorkspaceOf, itemRefOf, keys, logAgentId, proposalIdOf, reposWorkspaceOf } from "./keys.ts";
 
 /** A parsed entry, or an unreadable one kept in its place (the log fold's entry). */
 export type AgentLogEntry = FoldEntry;
@@ -27,26 +27,30 @@ export const createQueryClient = (): QueryClient =>
 
 const readAgents = () => callRoute(ROUTES.listAgents);
 const readHarnesses = () => callRoute(ROUTES.listHarnesses);
-const readRepos = () => callRoute(ROUTES.listRepos);
+const readWorkspaces = () => callRoute(ROUTES.listWorkspaces);
+const readRepos = (ws: string) => () => callRoute(ROUTES.listRepos, { params: { ws } });
 const readProposals = () => callRoute(ROUTES.listProposals);
-const readBinders = () => callRoute(ROUTES.listBinders);
-const readBinderItems = (binderId: string) => () => callRoute(ROUTES.binderItems, { params: { id: binderId } });
-const readItem = (ref: string) => () => callRoute(ROUTES.getItem, { params: { ref } });
+const readBinders = (ws: string) => () => callRoute(ROUTES.listBinders, { params: { ws } });
+const readBinderItems = (ws: string, binderId: string) => () => callRoute(ROUTES.binderItems, { params: { ws, id: binderId } });
+const readItem = (ws: string, ref: string) => () => callRoute(ROUTES.getItem, { params: { ws, ref } });
 
 const readProposal = (proposalId: string, version?: number) => () =>
   callRoute(ROUTES.getProposal, { params: { id: proposalId }, query: version === undefined ? {} : { version } });
 
 export const agentsQuery = () => queryOptions({ queryKey: keys.agents, queryFn: readAgents });
 export const harnessesQuery = () => queryOptions({ queryKey: keys.harnesses, queryFn: readHarnesses });
-export const reposQuery = () => queryOptions({ queryKey: keys.repos, queryFn: readRepos });
+/** The service's workspaces, in the order they were added. */
+export const workspacesQuery = () => queryOptions({ queryKey: keys.workspaces, queryFn: readWorkspaces });
+/** The folders an agent may start in, in workspace `ws`. */
+export const reposQuery = (ws: string) => queryOptions({ queryKey: keys.repos(ws), queryFn: readRepos(ws) });
 export const proposalsQuery = () => queryOptions({ queryKey: keys.proposals, queryFn: readProposals });
 export const proposalQuery = (proposalId: string) => queryOptions({ queryKey: keys.proposal(proposalId), queryFn: readProposal(proposalId) });
-/** The items' binders, hidden ones included. */
-export const bindersQuery = () => queryOptions({ queryKey: keys.binders, queryFn: readBinders });
+/** Workspace `ws`'s binders, hidden ones included. */
+export const bindersQuery = (ws: string) => queryOptions({ queryKey: keys.binders(ws), queryFn: readBinders(ws) });
 /** One binder's items, without their bodies. */
-export const binderItemsQuery = (binderId: string) => queryOptions({ queryKey: keys.binderItems(binderId), queryFn: readBinderItems(binderId) });
-/** One item with its body, by id, handle or old handle. */
-export const itemQuery = (ref: string) => queryOptions({ queryKey: keys.item(ref), queryFn: readItem(ref) });
+export const binderItemsQuery = (ws: string, binderId: string) => queryOptions({ queryKey: keys.binderItems(ws, binderId), queryFn: readBinderItems(ws, binderId) });
+/** One item of workspace `ws` with its body, by id, handle or old handle. */
+export const itemQuery = (ws: string, ref: string) => queryOptions({ queryKey: keys.item(ws, ref), queryFn: readItem(ws, ref) });
 /** One version of a proposal (`?version=`); its `current` is the target as it was at the read. */
 export const proposalVersionQuery = (proposalId: string, version: number) =>
   queryOptions({ queryKey: keys.proposalVersion(proposalId, version), queryFn: readProposal(proposalId, version) });
@@ -116,11 +120,15 @@ export const queryFor = (queryClient: QueryClient, key: QueryKey): (() => Promis
   if (agentId !== undefined) return again(agentLogQuery(queryClient, agentId)).read;
   const proposalId = proposalIdOf(key);
   if (proposalId !== undefined) return again(proposalQuery(proposalId)).read;
-  const binderId = binderIdOf(key);
-  if (binderId !== undefined) return again(binderItemsQuery(binderId)).read;
-  const itemRef = itemRefOf(key);
-  if (itemRef !== undefined) return again(itemQuery(itemRef)).read;
-  const lists = [again(agentsQuery()), again(harnessesQuery()), again(reposQuery()), again(proposalsQuery()), again(bindersQuery())];
+  const reposOf = reposWorkspaceOf(key);
+  if (reposOf !== undefined) return again(reposQuery(reposOf)).read;
+  const bindersOf = bindersWorkspaceOf(key);
+  if (bindersOf !== undefined) return again(bindersQuery(bindersOf)).read;
+  const binder = binderIdOf(key);
+  if (binder !== undefined) return again(binderItemsQuery(binder.ws, binder.binderId)).read;
+  const item = itemRefOf(key);
+  if (item !== undefined) return again(itemQuery(item.ws, item.ref)).read;
+  const lists = [again(agentsQuery()), again(harnessesQuery()), again(workspacesQuery()), again(proposalsQuery())];
   return lists.find((list) => hashKey(list.queryKey) === hashKey(key))?.read;
 };
 

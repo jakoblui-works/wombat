@@ -5,6 +5,7 @@ import {
   parseLogEntry,
   PROPOSAL_ALERT,
   SERVICE_STOP_REASON,
+  WORKSPACES_ALERT,
   type AgentSummary,
   type Alert,
   type ErrorBody,
@@ -42,6 +43,17 @@ export type AgentRecordDeps = {
 
 type HeldUpdate = { sessionId: string; update: unknown };
 
+/**
+ * A stored agent as this run takes it over, or undefined when nothing changes. An agent stored by an earlier run (or
+ * adopted from one) has no process any more, so no open requests either: working, waiting and done become stopped. An
+ * error agent may still be stored as having one (a failed turn) by a service that died.
+ */
+export const recovered = (agent: AgentSummary): AgentSummary | undefined => {
+  const live = agent.state === "working" || agent.state === "waiting" || agent.state === "done";
+  if (!live && agent.pendingPermissions.length === 0 && !agent.hasProcess) return undefined;
+  return { ...agent, state: live ? "stopped" : agent.state, pendingPermissions: pendingPermissions(undefined), activity: null };
+};
+
 /** The agents' summaries and logs as stored, and the listeners told of each change once it can be read. */
 export const createAgentRecord = (deps: AgentRecordDeps) => {
   const { store, log, hasProcess, isCurrent, shuttingDown, appendConfig } = deps;
@@ -59,7 +71,11 @@ export const createAgentRecord = (deps: AgentRecordDeps) => {
         listener(event);
       } catch {
         const subject =
-          event.type === PROPOSAL_ALERT ? { proposalId: event.proposalId } : event.type === ITEMS_ALERT ? {} : { agentId: event.agentId };
+          event.type === PROPOSAL_ALERT
+            ? { proposalId: event.proposalId }
+            : event.type === ITEMS_ALERT || event.type === WORKSPACES_ALERT
+              ? {}
+              : { agentId: event.agentId };
         log("listener_failed", { ...subject, seq: event.seq, type: event.type });
       }
     }
@@ -302,22 +318,35 @@ export const createAgentRecord = (deps: AgentRecordDeps) => {
     return known;
   };
 
-  const markStored = () => {
-    // Agents stored by an earlier run have no process any more, so no open requests either; an error agent may still
-    // be stored as having one (a failed turn) by a service that died.
+  /** Writes each agent as `recovered` leaves it: every one when `announce`, else only those it changes. */
+  const recover = (agents: AgentSummary[], announce: "agent_added" | undefined) => {
     let marked = 0;
-    for (const agent of [...summaries.values()]) {
-      const live = agent.state === "working" || agent.state === "waiting" || agent.state === "done";
-      if (live || agent.pendingPermissions.length > 0 || agent.hasProcess) {
-        const state = live ? "stopped" : agent.state;
-        putSummary({ ...agent, state, pendingPermissions: pendingPermissions(undefined), activity: null }, "agent_changed");
-      }
-      if (live) {
+    for (const agent of agents) {
+      const next = recovered(agent);
+      if (next !== undefined || announce !== undefined) putSummary(next ?? agent, announce ?? "agent_changed");
+      if (next?.state === "stopped" && agent.state !== "stopped") {
         log("agent_state", { agentId: agent.id, state: "stopped" });
         marked += 1;
       }
     }
+    return marked;
+  };
+
+  const markStored = () => {
+    const marked = recover([...summaries.values()], undefined);
     log("agents_loaded", { count: summaries.size, markedStopped: marked });
+  };
+
+  /**
+   * Loads the agents the store lists that this record doesn't hold yet (rows a workspace adopted while the service
+   * runs), recovers them as `markStored` does at start, and announces each with `agent_added`.
+   */
+  const loadAdopted = () => {
+    const adopted = store.listAgents().filter((agent) => !summaries.has(agent.id));
+    if (adopted.length === 0) return;
+    for (const agent of adopted) summaries.set(agent.id, agent);
+    const marked = recover(adopted, "agent_added");
+    log("agents_adopted", { count: adopted.length, markedStopped: marked });
   };
 
   return {
@@ -339,6 +368,7 @@ export const createAgentRecord = (deps: AgentRecordDeps) => {
     recordSession,
     recordClosed,
     markStored,
+    loadAdopted,
   };
 };
 

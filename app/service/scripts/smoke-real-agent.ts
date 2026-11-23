@@ -7,7 +7,7 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 
-import { AgentSummary, Alert, ListLogResponse, VersionResponse, type LogEntry } from "@wombat/shared/api";
+import { AgentSummary, Alert, ListLogResponse, VersionResponse, Workspace, type LogEntry } from "@wombat/shared/api";
 import { DiscoveryFile, discoveryPath } from "@wombat/shared/discovery";
 import { ListProposalsResponse, Proposal } from "@wombat/shared/proposals";
 
@@ -197,7 +197,7 @@ const main = async (): Promise<boolean> => {
   try {
     child = spawn("node", ["src/main.ts"], {
       cwd: serviceDir,
-      env: { ...env, WOMBAT_WORKSPACE: scratch, WOMBAT_STORE: join(tempStore, "service.db"), WOMBAT_PORT: "0" },
+      env: { ...env, WOMBAT_STORE: join(tempStore, "service.db"), WOMBAT_PORT: "0" },
       stdio: ["ignore", "ignore", "pipe"],
     });
     const service = child;
@@ -236,7 +236,9 @@ const main = async (): Promise<boolean> => {
     const streamResponse = await fetch(`${base}/events`, { headers, signal: events.signal });
     if (!streamResponse.ok || streamResponse.body === null) throw new Error(`GET /events answered ${String(streamResponse.status)}.`);
 
-    agent = AgentSummary.parse(await api("POST", "/agents", { harness: "claude-code", repo: "." }));
+    // Added as the app's main process adds a folder the picker answered.
+    const workspace = Workspace.parse(await api("POST", "/workspaces", { root: scratch }));
+    agent = AgentSummary.parse(await api("POST", "/agents", { workspace: workspace.id, harness: "claude-code", repo: "." }));
     const agentId = agent.id;
     const unit = `wombat-agent-${agentId}.scope`;
 

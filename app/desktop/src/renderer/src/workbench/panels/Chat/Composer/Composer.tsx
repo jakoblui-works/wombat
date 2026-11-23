@@ -1,13 +1,14 @@
 import type { ChatAccess } from "@wombat/shared/api";
 import { ArrowUp, Square } from "lucide-react";
-import { useEffect, useReducer, useState } from "react";
+import { type ReactNode, useEffect } from "react";
 
 import { Button } from "../../../../components/ui/button";
 import { sendMessageVars, useCancelTurn, useSendMessage } from "../../../../data/commands.ts";
-import { appCommand, canSend, composerReducer, keyAction } from "./composer-state.ts";
+import { messageBoxMark } from "../../../agents/chat-params.ts";
+import { appCommand, canSend, type ComposerEntryEvent, keyAction } from "./composer-state.ts";
 import { ReferenceChip } from "./ReferenceChip.tsx";
 import { sendFailure } from "./send-failure.ts";
-import { forgetUnsent, onReference, openingComposer, takeReference } from "./unsent.ts";
+import { composerEvent, useComposerEntry } from "./unsent.ts";
 
 type Props = {
   agentId: string;
@@ -21,23 +22,14 @@ type Props = {
   /** The agent's harness features (`GET /harnesses`): which app commands the text may be; undefined until they are known. */
   features: readonly string[] | undefined;
   onOpenContext: () => void;
+  /** Shown above the box, at its width. */
+  bar?: ReactNode;
 };
 
 /** The message box: Send, and Cancel while a turn runs. */
-export const Composer = ({ agentId, turnActive, connected, access, features, onOpenContext }: Props) => {
-  // A message handed over (the first one, when it wasn't sent) shows as a failed send, its text in the box.
-  const [state, dispatch] = useReducer(composerReducer, agentId, openingComposer);
-  useEffect(() => forgetUnsent(agentId), [agentId]);
-  // The proposal this message is about (Ask for changes puts it there); kept until a send is accepted or it's removed.
-  const [reference, setReference] = useState<string>();
-  useEffect(() => {
-    const pick = () => {
-      const taken = takeReference(agentId);
-      if (taken !== undefined) setReference(taken);
-    };
-    pick();
-    return onReference(pick);
-  }, [agentId]);
+export const Composer = ({ agentId, turnActive, connected, access, features, onOpenContext, bar }: Props) => {
+  const { composer: state, reference } = useComposerEntry(agentId);
+  const dispatch = (event: ComposerEntryEvent) => composerEvent(agentId, event);
   const sending = useSendMessage();
   const cancelling = useCancelTurn();
   const sendable = canSend(state, { turnActive, connected, access });
@@ -57,20 +49,20 @@ export const Composer = ({ agentId, turnActive, connected, access, features, onO
     dispatch({ type: "send" });
     cancelling.reset();
     const about = reference;
-    sending.mutate(sendMessageVars(agentId, state.text, about), {
-      onSuccess: () => {
-        dispatch({ type: "sent" });
-        setReference((now) => (now === about ? undefined : now));
-      },
-      onError: (error) => dispatch({ type: "failed", message: sendFailure(error, about !== undefined) }),
-    });
+    // Settled through the promise, not mutate's callbacks: those skip a box that stopped showing meanwhile.
+    sending.mutateAsync(sendMessageVars(agentId, state.text, about)).then(
+      () => composerEvent(agentId, { type: "sent", about }),
+      (error: Error) => composerEvent(agentId, { type: "failed", message: sendFailure(error, about !== undefined) }),
+    );
   };
 
   return (
     <div className="shrink-0 px-5 pt-3 pb-2.5">
-      {reference === undefined ? null : <ReferenceChip proposalId={reference} onRemove={() => setReference(undefined)} />}
+      {bar === undefined ? null : <div className="mx-auto max-w-chat">{bar}</div>}
+      {reference === undefined ? null : <ReferenceChip proposalId={reference} onRemove={() => dispatch({ type: "refer", proposalId: undefined })} />}
       <div className="mx-auto flex max-w-chat items-end gap-2 rounded-lg border border-line-strong bg-surface-2 py-1.5 pr-1.5 pl-3 transition-colors focus-within:border-focus">
         <textarea
+          {...messageBoxMark}
           aria-label="Message"
           rows={1}
           placeholder="Reply to the agent…"

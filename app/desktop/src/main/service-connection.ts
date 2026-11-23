@@ -11,7 +11,7 @@ import { findRunningService, type DiscoveryFile } from "@wombat/shared/discovery
 import { requestTo, ROUTES } from "@wombat/shared/routes";
 import type { ConnectionState, ConnectionUpdate, ServiceAnswer } from "../shared/bridge.ts";
 import { callService, listAgents, requestService } from "./service-client.ts";
-import { pageMessage, ServiceTooOld } from "./service-start.ts";
+import { pageMessage } from "./service-start.ts";
 
 export type ConnectionTiming = {
   /** The wait before the second try after a drop; each wait after doubles, up to `maxRetryMs`. */
@@ -61,13 +61,15 @@ export type ServiceConnection = {
   /** The page's request, to the connected service (see requestService). */
   request: (method: unknown, path: unknown, body: unknown) => Promise<ServiceAnswer>;
   /**
-   * Drops the current connection, runs `start` (a start, restart or switch of the service; its failure is the
-   * `failed` state with pageMessage's message, or `incompatible` for a ServiceTooOld), then connects to the service
+   * Drops the current connection, runs `start` (a start or restart of the service; its failure is the `failed`
+   * state with pageMessage's message), then connects to the service
    * the discovery file names. Settles once the newest reconnect has (connected, incompatible or failed); never rejects.
    */
   reconnect: (start: () => Promise<unknown>) => Promise<void>;
   /** The connected service's agents (for main's own use); rejects while not connected. */
   agents: () => Promise<AgentSummary[]>;
+  /** Runs main's own `call` on the connected service; rejects while not connected. */
+  withService: <T>(call: (file: DiscoveryFile) => Promise<T>) => Promise<T>;
   /**
    * Drops the connection (`connecting`, "Stopping the service…") and runs `stopIt` (a stop of the service), then
    * shows `failed`, with Restart. When `stopIt` fails it connects again (the service may still run) and rejects with
@@ -77,6 +79,9 @@ export type ServiceConnection = {
   /** Stops the stream and every retry wait, for good. */
   close: () => void;
 };
+
+/** Whether the service `file` names speaks this app's API version; the connection refuses one that doesn't. */
+export const speaksOurApi = (file: DiscoveryFile): boolean => file.apiVersion === API_VERSION;
 
 type Probe = { found: DiscoveryFile } | { incompatible: string } | { missing: true };
 
@@ -121,7 +126,7 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, codeIdOnDis
       return { missing: true };
     }
     if (file === undefined) return { missing: true };
-    if (file.apiVersion === API_VERSION) return { found: file };
+    if (speaksOurApi(file)) return { found: file };
     return {
       incompatible:
         `The running service speaks API version ${String(file.apiVersion)}; this app needs version ${String(API_VERSION)}. ` +
@@ -289,13 +294,16 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, codeIdOnDis
     return run;
   };
 
+  const withService = <T>(call: (file: DiscoveryFile) => Promise<T>): Promise<T> =>
+    connected === undefined ? Promise.reject(new Error("The service isn't connected yet; try again once it is.")) : call(connected);
+
   const attempt = async (mine: number, start: () => Promise<unknown>): Promise<void> => {
     try {
       await start();
     } catch (error) {
       if (mine !== run) return;
       log(`The service isn't running: ${error instanceof Error ? error.message : String(error)}`);
-      set({ state: error instanceof ServiceTooOld ? "incompatible" : "failed", message: pageMessage(error) });
+      set({ state: "failed", message: pageMessage(error) });
       return;
     }
     if (mine === run) await connect(mine);
@@ -304,7 +312,8 @@ export const serviceConnection = ({ discoveryFile, onState, onAlert, codeIdOnDis
   return {
     current: () => update,
     request: (method, pathname, body) => requestService(connected, method, pathname, body),
-    agents: () => (connected === undefined ? Promise.reject(new Error("The service isn't connected.")) : listAgents(connected)),
+    agents: () => withService(listAgents),
+    withService,
     shutdown: async (stopIt) => {
       const mine = stop();
       set({ state: "connecting", message: "Stopping the service…" });

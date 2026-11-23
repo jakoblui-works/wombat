@@ -1,5 +1,8 @@
 import type { PointerEvent } from "react";
 
+/** The room a handle takes in its row, in pixels. */
+export const RESIZE_HANDLE_WIDTH = 1;
+
 /** A vertical line between regions that reports how far it's dragged sideways, in pixels since the last report. */
 export const ResizeHandle = ({ label, onDrag }: { label: string; onDrag: (dx: number) => void }) => {
   const start = (event: PointerEvent<HTMLDivElement>) => {
@@ -13,7 +16,8 @@ export const ResizeHandle = ({ label, onDrag }: { label: string; onDrag: (dx: nu
       role="separator"
       aria-orientation="vertical"
       aria-label={label}
-      className="relative z-10 w-px shrink-0 bg-line transition-colors after:absolute after:inset-y-0 after:-left-1 after:w-3 hover:bg-line-strong"
+      className="relative z-10 shrink-0 bg-line transition-colors after:absolute after:inset-y-0 after:-left-1 after:w-3 hover:bg-line-strong"
+      style={{ width: RESIZE_HANDLE_WIDTH }}
       onPointerDown={start}
       onPointerMove={move}
     />

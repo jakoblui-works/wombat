@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { AgentSummary, SERVICE_STOP_REASON, type LogEntry } from "@wombat/shared/api";
 import { describe, expect, onTestFinished, test } from "vitest";
 
-import { summary, textChunk } from "../../test/store-fixtures.ts";
+import { summary, textChunk, WORKSPACE } from "../../test/store-fixtures.ts";
 import { FAKE_CONFIG, NO_RESUME_CAPABILITY_FILE, RESUME_REFUSED_FILE } from "../../test/fake-agent.ts";
 import {
   childPidOf,
@@ -25,7 +25,7 @@ import { fakeHarness } from "../../test/fake-harness.ts";
 /** Starts the spawn-child scenario and runs one turn; returns the agent id and the pids it caused. */
 const withChild = async (t: Setup) => {
   const before = new Set(t.pids());
-  const { id } = await t.manager.start("fake-spawn-child", REPO);
+  const { id } = await t.manager.start(WORKSPACE, "fake-spawn-child", REPO);
   await t.manager.send(id, { text: "Start a helper" });
   await t.turnEnded(id);
   const [agentPid] = t.pids().filter((pid) => !before.has(pid));
@@ -43,7 +43,7 @@ describe("start", () => {
     "auth required: start fails with auth_required and the harness's login hint, records no agent and leaves no process",
     async () => {
       const t = setup();
-      await expect(t.manager.start("fake-auth", REPO)).rejects.toMatchObject({
+      await expect(t.manager.start(WORKSPACE, "fake-auth", REPO)).rejects.toMatchObject({
         code: "auth_required",
         hint: fakeHarness("auth").loginHint,
       });
@@ -60,7 +60,7 @@ describe("commandId", () => {
     "a repeated commandId returns the original seq and isn't sent again, also after stop and a restart; a new one is sent",
     async () => {
       const t = setup();
-      const { id } = await t.manager.start("fake-reply", REPO);
+      const { id } = await t.manager.start(WORKSPACE, "fake-reply", REPO);
       const first = await t.manager.send(id, { text: "Say hello", commandId: "cmd_a" });
       await t.turnEnded(id);
 
@@ -104,7 +104,7 @@ describe("stop and delete", () => {
     async () => {
       const t = setup();
       const { id, agentPid, childPid } = await withChild(t);
-      const other = await t.manager.start("fake-reply", REPO);
+      const other = await t.manager.start(WORKSPACE, "fake-reply", REPO);
 
       await t.manager.delete(id);
       await gone("the deleted agent's process group", [agentPid, childPid], [agentPid]);
@@ -127,6 +127,7 @@ describe("start-up and shutdown", () => {
       for (const state of states) {
         t.store.putAgent(
           summary(state, {
+            workspace: WORKSPACE,
             state,
             // As a service that died left them: a process and an open request that no longer exist.
             hasProcess: true,
@@ -156,7 +157,7 @@ describe("start-up and shutdown", () => {
     "stop resolves and records stopped even when a detached grandchild still holds the agent's stderr",
     async () => {
       const t = setup();
-      const { id } = await t.manager.start("fake-detached-holder", REPO);
+      const { id } = await t.manager.start(WORKSPACE, "fake-detached-holder", REPO);
       await t.manager.send(id, { text: "Start a background helper" });
       await t.turnEnded(id);
       const holderPid = childPidOf(t.entries(id));
@@ -204,7 +205,7 @@ describe("resume", () => {
   };
   /** A fake-reply agent that answered one message and was stopped; its stored session id and log. */
   const stoppedAfterOneTurn = async (t: Setup) => {
-    const { id } = await t.manager.start("fake-reply", REPO);
+    const { id } = await t.manager.start(WORKSPACE, "fake-reply", REPO);
     await t.manager.send(id, { text: "Say hello to the bakery" });
     await t.turnEnded(id);
     const sessionId = t.agent(id)?.sessionId;
@@ -292,7 +293,7 @@ describe("resume", () => {
     "a send and two settings on a stopped agent share one resume (one new process); a second send meanwhile is busy",
     async () => {
       const t = setup();
-      const { id } = await t.manager.start("fake-reply", REPO);
+      const { id } = await t.manager.start(WORKSPACE, "fake-reply", REPO);
       await t.manager.stop(id);
       await gone("the first process", t.pids());
       const spawned = t.pids().length;

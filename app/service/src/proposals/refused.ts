@@ -4,6 +4,7 @@ import { canDecide, canDraft, canReject, canRevise, nextStatus, ProposalErrorCod
 
 import { currentVersion } from "../store/proposal-rules.ts";
 import type { Store, StoredProposal } from "../store/store.ts";
+import { itemsNotConfigured, noItemsFolder } from "../workspace.ts";
 
 /** A propose call refused for a reason the agent can act on, which the message states; nothing was stored. */
 export class ProposalRefused extends Error {
@@ -46,10 +47,16 @@ export class ProposalError extends Error {
   }
 }
 
-export const ITEMS_NOT_CONFIGURED = "The items aren't set up. Choose the items folder in the app (Choose Items Folder… in the File menu), or, when you run the service on its own, set WOMBAT_ITEMS to the absolute path of the items folder and restart the service.";
+/** How a refusal names a workspace: by its folder; by its id only when it isn't listed. */
+export const workspaceFolder = (store: Pick<Store, "getWorkspace">, id: string): string => store.getWorkspace(id)?.root ?? id;
 
-/** An item proposal read or decided while the service has no items root. */
-export const itemsNotConfigured = () => new ProposalError(ItemsErrorCode.enum.items_not_configured, ITEMS_NOT_CONFIGURED);
+/** What an agent of the workspace at `folder` is told when it has no items folder. */
+export const itemsNotConfiguredForAgent = (folder: string) =>
+  `${noItemsFolder(folder)} Ask the user to choose an items folder for it in the app (File → Choose Items Folder…).`;
+
+/** An item proposal read or decided while its workspace, `workspaceId`, has no items folder. */
+export const itemsNotConfiguredIn = (store: Pick<Store, "getWorkspace">, workspaceId: string) =>
+  new ProposalError(ItemsErrorCode.enum.items_not_configured, itemsNotConfigured(store.getWorkspace(workspaceId) ?? { name: workspaceId, root: workspaceId }));
 
 export const notFound = (id: string) =>
   new ProposalError(ProposalErrorCode.enum.proposal_not_found, `No proposal has the id ${id}. Refresh the proposals to see the current ones.`);

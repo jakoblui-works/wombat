@@ -14,19 +14,20 @@ import { useItemNavigation } from "./navigation/item-navigation.ts";
  * Deletes an item from the UI: `ask` opens the question (`dialog`, to be rendered by the caller), and Delete there
  * deletes the file at the version `ask` was given, then closes the item's tabs, whichever binder they were opened
  * from, unsaved edits and all (the question says so). A stale version deletes nothing and the question says the file changed.
+ * The item is workspace `ws`'s.
  */
-export const useItemDelete = (): { ask: (item: DeletableItem) => void; dialog: ReactNode } => {
+export const useItemDelete = (ws: string | undefined): { ask: (item: DeletableItem) => void; dialog: ReactNode } => {
   const remove = useDeleteItem();
   const { closeTab } = useWorkbench();
   const { itemTabs } = useItemNavigation();
   const [question, setQuestion] = useState<DeleteQuestion>();
 
   const confirm = () => {
-    if (!confirmable(question, remove.isPending) || question === undefined) return;
+    if (!confirmable(question, remove.isPending) || question === undefined || ws === undefined) return;
     const { item } = question;
     setQuestion(sending);
     remove.mutate(
-      { ref: item.id, version: item.version },
+      { ws, ref: item.id, version: item.version },
       {
         onSuccess: () => {
           setQuestion(closed);

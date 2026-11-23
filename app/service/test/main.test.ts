@@ -21,7 +21,7 @@ import { expect, onTestFinished, test } from "vitest";
 import { openStore } from "../src/store/store.ts";
 import { fakeSystemd, killedUnits, type FakeSystemd } from "./fake-systemd.ts";
 import { isAlive, REPO, SERVICE_SLICE, TEST_TIMEOUT_MS, WAIT_MS, waitFor } from "./manager-fixtures.ts";
-import { APP_ORIGIN, rawRequest } from "./server-fixtures.ts";
+import { addWorkspace, APP_ORIGIN, rawRequest } from "./server-fixtures.ts";
 
 const SERVICE_DIR = join(import.meta.dirname, "..");
 const MAIN = join(SERVICE_DIR, "src", "main.ts");
@@ -110,7 +110,6 @@ const place = (): Place => {
       PATH: systemd.binDir,
       HOME: home,
       XDG_RUNTIME_DIR: runtimeDir,
-      WOMBAT_WORKSPACE: workspace,
       WOMBAT_STORE: join(base, "state", "service.db"),
       WOMBAT_PORT: "0",
       ...extra,
@@ -145,6 +144,14 @@ const waitForDiscovery = async (service: Spawned, path: string) => {
 const api = (file: DiscoveryFile, method: string, path: string, body?: unknown) =>
   rawRequest(file.port, { method, path, body, headers: { authorization: `Bearer ${file.token}`, origin: APP_ORIGIN } });
 
+/** POST /agents for a fake-reply agent in the place's workspace, added first as the app's main process adds it. */
+const startReply = async (file: DiscoveryFile, at: Place) =>
+  api(file, "POST", "/agents", {
+    workspace: await addWorkspace((method, path, body) => api(file, method, path, body), at.workspace),
+    harness: "fake-reply",
+    repo: REPO,
+  });
+
 test(
   "start-up: one instance, a discovery file the app can read, and SIGTERM ends the service and its agents",
   async () => {
@@ -173,7 +180,7 @@ test(
     expect(identity.codeId, "codeId isn't codeIdOf the checkout the service runs from").toBe(codeIdOf(join(SERVICE_DIR, "..")));
     expect(Date.parse(identity.startedAt ?? ""), "startedAt isn't a time").not.toBeNaN();
 
-    const started = await api(file, "POST", "/agents", { harness: "fake-reply", repo: REPO });
+    const started = await startReply(file, at);
     expect(started.status, started.text).toBeLessThan(300);
     await waitFor("the agent's process", () => at.pids().length > 0);
 
@@ -335,7 +342,7 @@ test(
     await waitForDiscovery(service, at.discoveryPath);
     const file = DiscoveryFile.parse(JSON.parse(readFileSync(at.discoveryPath, "utf8")));
 
-    const started = await api(file, "POST", "/agents", { harness: "fake-reply", repo: REPO });
+    const started = await startReply(file, at);
     expect(started.status, started.text).toBe(201);
     const agentId = (started.json as { id: string }).id;
     const sent = await api(file, "POST", `/agents/${agentId}/messages`, { text: "Say hello" });
@@ -378,7 +385,7 @@ test(
     const service = spawnService(ENTRY, at.env(systemd, { FAKE_AGENT_PID_DIR: at.pidDir, WOMBAT_TEST_SLICE: at.slice }));
     await waitForDiscovery(service, at.discoveryPath);
     const file = DiscoveryFile.parse(JSON.parse(readFileSync(at.discoveryPath, "utf8")));
-    const started = await api(file, "POST", "/agents", { harness: "fake-reply", repo: REPO });
+    const started = await startReply(file, at);
     expect(started.status, started.text).toBe(201);
     await waitFor("the agent's process", () => at.pids().length > 0);
 
@@ -409,7 +416,7 @@ test(
   TEST_TIMEOUT_MS * 2,
 );
 
-// Silent failure (switching workspaces: the app stops the service, then starts one for the new workspace): while
+// Silent failure (Restart: the app stops the running service, then starts its own): while
 // POST /shutdown is still stopping agents, a new start must not take the old service's discovery file for a running
 // service. If it did, it would say "already running" and exit 0, the old one would exit next, and nothing would run.
 test(
@@ -427,7 +434,7 @@ test(
     const old = spawnService(ENTRY, env(oldSystemd));
     await waitForDiscovery(old, at.discoveryPath);
     const oldFile = DiscoveryFile.parse(JSON.parse(readFileSync(at.discoveryPath, "utf8")));
-    const started = await api(oldFile, "POST", "/agents", { harness: "fake-reply", repo: REPO });
+    const started = await startReply(oldFile, at);
     expect(started.status, started.text).toBe(201);
     await waitFor("the agent's process", () => at.pids().length > 0);
 

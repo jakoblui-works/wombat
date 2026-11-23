@@ -6,7 +6,7 @@
 import { mkdir, readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { errorCode, isMissing } from "@wombat/shared/errno";
+import { errorCode, isAlreadyThere, isMissing, isMissingPath } from "@wombat/shared/errno";
 
 import { logToStderr, type Log } from "../log.ts";
 import { agentView, type AgentViewItem } from "./access.ts";
@@ -198,7 +198,19 @@ export const writeInstructions = async ({ catalog, workspaceRoot, log = logToStd
   // Nothing changed: the file stays as it is, so watchers of it see no write.
   if (current === text) return;
   try {
-    await mkdir(dirname(path), { recursive: true });
+    // Only `.wombat`, never the workspace root: a render must not bring back a renamed or deleted workspace.
+    await mkdir(dirname(path));
+  } catch (error) {
+    if (isMissingPath(error)) {
+      log("instructions_skipped", { reason: "workspace_missing" });
+      return;
+    }
+    if (!isAlreadyThere(error)) {
+      log("instructions_failed", { step: "write", error: errorCode(error) });
+      return;
+    }
+  }
+  try {
     // Replacing the old read-only file by rename needs only the folder writable.
     await writeAtomic(path, text, { mode: 0o444 });
     log("instructions_written", { bytes: Buffer.byteLength(text) });

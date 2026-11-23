@@ -8,6 +8,7 @@ import { describe, expect, test } from "vitest";
 
 import { ALL_SCENARIOS, REPO, setup, TEST_TIMEOUT_MS, trackedHarness, WAIT_MS } from "../../test/manager-fixtures.ts";
 import { APP_ORIGIN, appRoutes as routes, expectError, serve } from "../../test/server-fixtures.ts";
+import { WORKSPACE } from "../../test/store-fixtures.ts";
 import { startServer } from "./server.ts";
 
 
@@ -16,7 +17,7 @@ describe("port rules", () => {
     "every route refuses a request without the token, with a wrong token, a foreign Origin or a foreign Host, and nothing changes",
     async () => {
       const s = await serve();
-      const { id } = await s.manager.start("fake-hang", REPO);
+      const { id } = await s.manager.start(WORKSPACE, "fake-hang", REPO);
       const seq = s.store.currentSeq();
       const pids = s.pids().length;
 
@@ -62,7 +63,8 @@ describe("port rules", () => {
       // Control: the same agent answers with the token.
       expect((await s.api("GET", `/agents/${id}/log`)).status).toBe(200);
       // Control: the items routes exist (not configured on this server), so the refusals above came from the rules.
-      for (const path of ["/binders", "/binders/bugs/items", "/items/BUG-1"]) {
+      const { workspace: listed } = s.store.addWorkspace(s.root);
+      for (const path of ["/binders", "/binders/bugs/items", "/items/BUG-1"].map((route) => `/workspaces/${listed.id}${route}`)) {
         expectError(await s.api("GET", path), 409, "items_not_configured", path);
       }
       // Control: the proposal routes exist too: with the token they answer anything but the unknown-route error.
@@ -202,7 +204,6 @@ describe("port rules", () => {
         manager: t.manager,
         store: t.store,
         harnesses: ALL_SCENARIOS.map((scenario) => trackedHarness(scenario, t.pidDir)),
-        workspaceRoot: t.root,
       };
       for (const token of ["", "short-token-15c"]) {
         const outcome = await startServer({ ...options, token }).then(

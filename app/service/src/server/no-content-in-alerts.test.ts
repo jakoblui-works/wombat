@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import type { LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
-import { REPO, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
+import { REPO, TEST_TIMEOUT_MS, waitFor, WORKSPACE } from "../../test/manager-fixtures.ts";
 import { serve } from "../../test/server-fixtures.ts";
 
 const contentBlock = (block: { type: string; text?: string; data?: string }) =>
@@ -47,7 +47,7 @@ describe("no agent content in alerts", () => {
       expect(stream.status).toBe(200);
       const ids: string[] = [];
       const start = async (scenario: string) => {
-        const response = await s.api("POST", "/agents", { harness: `fake-${scenario}`, repo: REPO });
+        const response = await s.api("POST", "/agents", { workspace: WORKSPACE, harness: `fake-${scenario}`, repo: REPO });
         const { id } = response.json as { id: string };
         ids.push(id);
         const sent = await s.api("POST", `/agents/${id}/messages`, { text: `${scenario} prompt ${randomUUID()}` });

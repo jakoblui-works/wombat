@@ -2,13 +2,13 @@
 import type { LogEntry } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
-import { REPO, setup, TEST_TIMEOUT_MS, thrown, waitFor, type Setup } from "../../test/manager-fixtures.ts";
+import { REPO, setup, TEST_TIMEOUT_MS, thrown, waitFor, WORKSPACE, type Setup } from "../../test/manager-fixtures.ts";
 
 type Requested = Extract<LogEntry, { type: "permission_requested" }>;
 
 /** Starts the permission scenario and waits until its request is pending. */
 const pendingRequest = async (t: Setup) => {
-  const { id } = await t.manager.start("fake-permission", REPO);
+  const { id } = await t.manager.start(WORKSPACE, "fake-permission", REPO);
   await t.manager.send(id, { text: "Edit the notes" });
   await waitFor("state waiting", () => t.agent(id)?.state === "waiting");
   const request = t.entries(id).find((entry): entry is Requested => entry.type === "permission_requested");

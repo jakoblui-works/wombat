@@ -3,47 +3,41 @@ import type { AddressInfo } from "node:net";
 
 import { getRequestListener, type HttpBindings } from "@hono/node-server";
 import { API_VERSION } from "@wombat/shared";
-import {
-  BODY_OVER_CAP_MESSAGE,
-  HEARTBEAT_MS,
-  ItemsErrorCode,
-  ServerErrorCode,
-  type AgentSummary,
-  type ErrorBody,
-} from "@wombat/shared/api";
+import { BODY_OVER_CAP_MESSAGE, HEARTBEAT_MS, ServerErrorCode, type AgentSummary, type ErrorBody } from "@wombat/shared/api";
 import { errorCode } from "@wombat/shared/errno";
 import { MAX_BODY_BYTES, ROUTES, type ResponseOf } from "@wombat/shared/routes";
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
 import { requireAgent } from "../agents/errors.ts";
 import { AgentError, type Manager } from "../agents/manager.ts";
-import { folderOf } from "../agents/resume.ts";
-import { handlesById, summarize, withLinks } from "../items/api-shape.ts";
-import { findByRef, type Catalog } from "../items/catalog.ts";
-import type { Writer } from "../items/write.ts";
+import type { WorkspaceItems } from "../items/workspace-items.ts";
 import type { Harness } from "../harness/harness.ts";
 import { harnessFeatures } from "../harness/registry.ts";
 import { logToStderr, type Log } from "../log.ts";
 import type { ApproveStep } from "../proposals/apply.ts";
 import { openProposals } from "../proposals/proposals.ts";
-import { ITEMS_NOT_CONFIGURED, ProposalError } from "../proposals/refused.ts";
+import { ProposalError, workspaceFolder } from "../proposals/refused.ts";
 import type { Store } from "../store/store.ts";
-import { listRepos, RepoError } from "../workspace.ts";
-import { AGENT_STATUS, errorResponse, ITEMS_STATUS, SERVER_STATUS } from "./errors.ts";
+import { listRepos, RepoError, WorkspaceError } from "../workspace.ts";
+import { AGENT_CALL_STATUS, AGENT_STATUS, errorResponse, ITEMS_STATUS, SERVER_STATUS, WORKSPACE_STATUS } from "./errors.ts";
 import { createAlertStreams } from "./events.ts";
-import { itemRoutes, noItem } from "./item-routes.ts";
+import { itemRoutes } from "./item-routes.ts";
 import { mcpRoutes } from "./mcp.ts";
 import { portRules } from "./port-rules.ts";
 import { proposalRoutes } from "./proposal-routes.ts";
-import { checked, InvalidRequest, readBody, readQuery } from "./request.ts";
+import { InvalidRequest, readBody, readQuery } from "./request.ts";
+import { workspaceRoutes } from "./workspace-routes.ts";
 
 export type ServerOptions = {
   manager: Manager;
   store: Store;
   harnesses: readonly Harness[];
-  /** The workspace's root, for `GET /repos`. */
-  workspaceRoot: string;
+  /**
+   * Each workspace's items (workspace-items.ts): the items routes, the proposals and an agent's /mcp tools ask it, and
+   * the workspace routes open a workspace's items before they answer. Without it no workspace has items.
+   */
+  items?: Pick<WorkspaceItems, "of" | "open" | "reopen">;
   /** The bearer token every request must carry. */
   token: string;
   /** 0 (the default) picks a free port. */
@@ -53,10 +47,6 @@ export type ServerOptions = {
   defaultLogLimit?: number;
   /** Ids and names only, like the manager's log. */
   log?: Log;
-  /** The items; without it the items routes answer items_not_configured. */
-  items?: Catalog;
-  /** Writes the items; with `items`, it opens the agents' write tools on /mcp. */
-  writer?: Writer;
   /**
    * Called once POST /shutdown has stopped every agent and its response is out: the service's own stop path,
    * which main passes. Without it the route still stops the agents, but the service keeps running.
@@ -80,14 +70,12 @@ export const startServer = async ({
   manager,
   store,
   harnesses,
-  workspaceRoot,
   token,
   port = 0,
   heartbeatMs = HEARTBEAT_MS,
   defaultLogLimit = 1000,
   log = logToStderr,
   items,
-  writer,
   onShutdown,
   onShutdownStart,
   identity,
@@ -110,15 +98,21 @@ export const startServer = async ({
   // Proposal changes reach the alert stream through the manager's listeners, like agent changes.
   const onProposal = (id: string, seq: number) => manager.proposalCommitted(id, seq);
   const findAgent = (id: string) => store.listAgents().find((agent) => agent.id === id);
-  const { access, proposals, notes } = openProposals({
+  const { accessOf, proposals, notes } = openProposals({
     store,
-    workspace: workspaceRoot,
-    agentFolder: (agentId) => folderOf(workspaceRoot, requireAgent(agentId, findAgent).repo),
+    workspaceOf: (agentId) => requireAgent(agentId, findAgent).workspace,
+    rootOf: manager.rootOf,
+    agentFolder: (agentId) => manager.agentFolder(requireAgent(agentId, findAgent)),
     onProposal,
     log,
-    items: items && writer ? { catalog: items, writer } : undefined,
+    ...(items === undefined ? {} : { itemsOf: items.of }),
     onApproveStep,
   });
+  /** The running agent a token belongs to, with its workspace. */
+  const agentForToken = (token: string) => {
+    const agentId = manager.agentForToken(token);
+    return agentId === undefined ? undefined : findAgent(agentId);
+  };
   // Before the server listens: no request may see a proposal a service death left applying.
   await proposals.settleAtStart();
 
@@ -126,9 +120,10 @@ export const startServer = async ({
   app.route(
     "/",
     mcpRoutes({
-      access,
+      accessOf,
+      folderOf: (workspaceId) => workspaceFolder(store, workspaceId),
       proposals,
-      agentForToken: manager.agentForToken,
+      agentForToken,
       port: () => boundPort,
       maxBodyBytes: MAX_BODY_BYTES,
       log,
@@ -149,15 +144,24 @@ export const startServer = async ({
     c.json(harnesses.map((harness) => ({ id: harness.id, name: harness.name, features: harnessFeatures(harness) })) satisfies ResponseOf<typeof ROUTES.listHarnesses>),
   );
 
-  app.get("/repos", (c) => c.json({ repos: listRepos(workspaceRoot) } satisfies ResponseOf<typeof ROUTES.listRepos>));
+  workspaceRoutes(app, {
+    store,
+    workspacesCommitted: manager.workspacesCommitted,
+    proposalsAdopted: proposals.settleAdopted,
+    ...(items === undefined ? {} : { items }),
+  });
+
+  app.get("/workspaces/:ws/repos", (c) =>
+    c.json({ repos: listRepos(manager.workspaceOf(c.req.param("ws"))) } satisfies ResponseOf<typeof ROUTES.listRepos>),
+  );
 
   app.get("/agents", (c) =>
     c.json({ dbId: store.dbId, seq: store.currentSeq(), agents: store.listAgents().map(withLiveCache) } satisfies ResponseOf<typeof ROUTES.listAgents>),
   );
 
   app.post("/agents", async (c) => {
-    const { harness, repo } = await readBody(c, ROUTES.startAgent.body);
-    return c.json(await manager.start(harness, repo) satisfies ResponseOf<typeof ROUTES.startAgent>, 201);
+    const { workspace: workspaceId, harness, repo } = await readBody(c, ROUTES.startAgent.body);
+    return c.json(await manager.start(workspaceId, harness, repo) satisfies ResponseOf<typeof ROUTES.startAgent>, 201);
   });
 
   app.get("/agents/:id/log", (c) => {
@@ -219,51 +223,8 @@ export const startServer = async ({
     return c.json({} satisfies ResponseOf<typeof ROUTES.shutdown>, 202);
   });
 
-  const notConfigured = (c: Context) =>
-    errorResponse(
-      c,
-      ITEMS_STATUS.items_not_configured,
-      ItemsErrorCode.enum.items_not_configured,
-      ITEMS_NOT_CONFIGURED,
-    );
-
-  app.get("/binders", async (c) => {
-    if (!items) return notConfigured(c);
-    const { binders, items: all } = await items.snapshot();
-    const body = { binders: binders.map((binder) => summarize(binder, all)) };
-    return c.json(checked(ROUTES.listBinders.response, body) satisfies ResponseOf<typeof ROUTES.listBinders>);
-  });
-
-  app.get("/binders/:id/items", async (c) => {
-    if (!items) return notConfigured(c);
-    const id = c.req.param("id");
-    const { binders, items: all } = await items.snapshot();
-    if (!binders.some((binder) => binder.id === id)) {
-      return errorResponse(
-        c,
-        ITEMS_STATUS.binder_not_found,
-        ItemsErrorCode.enum.binder_not_found,
-        `There's no binder ${id}. List the binders to see which exist.`,
-      );
-    }
-    const handles = handlesById(all);
-    // The schema drops each item's body: a list carries none.
-    const listed = all.filter((item) => item.binder === id).map((item) => withLinks(item, binders, handles));
-    return c.json(checked(ROUTES.binderItems.response, { items: listed }) satisfies ResponseOf<typeof ROUTES.binderItems>);
-  });
-
-  app.get("/items/:ref", async (c) => {
-    if (!items) return notConfigured(c);
-    const ref = c.req.param("ref");
-    const { binders, items: all } = await items.snapshot();
-    const found = findByRef(all, ref);
-    if (!found) return noItem(c, ref);
-    const handles = handlesById(all);
-    return c.json(checked(ROUTES.getItem.response, withLinks(found, binders, handles)) satisfies ResponseOf<typeof ROUTES.getItem>);
-  });
-
   manager.setNoteSource(notes);
-  itemRoutes(app, items && writer ? { catalog: items, writer } : undefined, notConfigured);
+  itemRoutes(app, { of: (workspaceId) => items?.of(workspaceId), getWorkspace: store.getWorkspace });
   proposalRoutes(app, proposals);
 
   app.get("/events", (c) => {
@@ -289,10 +250,8 @@ export const startServer = async ({
     if (error instanceof InvalidRequest) return errorResponse(c, SERVER_STATUS.invalid_request, ServerErrorCode.enum.invalid_request, error.message, undefined, error.problems);
     if (error instanceof ProposalError) return errorResponse(c, ITEMS_STATUS[error.code], error.code, error.message);
     if (error instanceof RepoError) return errorResponse(c, AGENT_STATUS[error.code], error.code, error.message);
-    if (error instanceof AgentError) {
-      const status = error.code === ServerErrorCode.enum.invalid_request ? SERVER_STATUS.invalid_request : AGENT_STATUS[error.code];
-      return errorResponse(c, status, error.code, error.message, error.hint);
-    }
+    if (error instanceof WorkspaceError) return errorResponse(c, WORKSPACE_STATUS[error.code], error.code, error.message);
+    if (error instanceof AgentError) return errorResponse(c, AGENT_CALL_STATUS[error.code], error.code, error.message, error.hint);
     // The details stay in the service: an error's message may quote agent content or paths.
     // An errno code, when there is one, names no path.
     const code = errorCode(error);

@@ -19,10 +19,11 @@ import { ProblemList } from "../../items/ProblemList/ProblemList.tsx";
 import { type Listed, useLinkLists } from "../../items/use-link-lists.ts";
 import { problemsByField } from "../../items/problems.ts";
 import { linkValue } from "../../items/values.ts";
-import { type ItemChange, proposalsOnItem } from "../../items/item-proposals.ts";
+import { type ItemChange, ofWorkspace, proposalsOnItem } from "../../items/item-proposals.ts";
 import { type FieldValue, linkTarget, valueText } from "../../items/field-input.ts";
 import { draftStart } from "../../items/draft-start.ts";
 import { useItemNavigation } from "../../items/navigation/item-navigation.ts";
+import { SurfaceWorkspace } from "../../items/Reference/Reference.tsx";
 import { Body } from "./Body/Body.tsx";
 import { CloseDialog } from "./CloseDialog/CloseDialog.tsx";
 import { Conflict } from "./Conflict/Conflict.tsx";
@@ -73,11 +74,12 @@ type Editing = { kind: "saved"; tab: SavedItemParams } | { kind: "draft"; tab: D
  * An item tab's content, for both kinds of tab: the read's notice, and the form (`itemForm`) from the first read until
  * the tab closes, so my edits and the close guard outlive an item or binder that can't be shown for a while.
  */
-const ItemTabBody = ({ shown, editing, proposals = [] }: { shown: ItemShown; editing: Editing; proposals?: readonly ItemChange<ItemProposal>[] }) => {
+const ItemTabBody = ({ ws, shown, editing, proposals = [] }: { ws: string; shown: ItemShown; editing: Editing; proposals?: readonly ItemChange<ItemProposal>[] }) => {
   const { followItem } = useItemNavigation();
+  const follow = useCallback((ref: string) => followItem(ws, ref), [followItem, ws]);
   const form = itemForm(shown, useLastListed(listedBinder(shown)), editing.kind === "draft");
   const properties = form?.binder?.properties ?? NO_PROPERTIES;
-  const links = useLinkLists(properties);
+  const links = useLinkLists(ws, properties);
   const [start, setStart] = useState<Record<string, FieldValue>>();
   if (editing.kind === "draft" && start === undefined && form !== undefined && !links.pending) setStart(draftStart(editing.tab.context, properties, links.listed));
   const ready = form !== undefined && (editing.kind === "saved" || start !== undefined);
@@ -92,13 +94,14 @@ const ItemTabBody = ({ shown, editing, proposals = [] }: { shown: ItemShown; edi
         ))}
         {ready ? (
           <EditItem
+            ws={ws}
             editing={editing}
             form={form}
             fresh={editing.kind === "saved" && shown.kind === "item" ? shown.item : undefined}
             start={start}
             properties={properties}
             listed={links.listed}
-            onFollowItem={followItem}
+            onFollowItem={follow}
           />
         ) : null}
       </article>
@@ -106,10 +109,10 @@ const ItemTabBody = ({ shown, editing, proposals = [] }: { shown: ItemShown; edi
   );
 };
 
-const ItemTab = ({ binderId, itemId, setTitle }: SavedItemParams & { setTitle: PanelProps["setTitle"] }) => {
-  const item = useItem(itemId);
-  const binders = useBinders();
-  const [own] = useBinderItems([binderId]);
+const ItemTab = ({ ws, binderId, itemId, setTitle }: SavedItemParams & { setTitle: PanelProps["setTitle"] }) => {
+  const item = useItem(ws, itemId);
+  const binders = useBinders(ws);
+  const [own] = useBinderItems(ws, [binderId]);
   const shown = itemShown(itemId, binderId, {
     item: { data: item.data, error: item.error },
     binders: { data: binders.data?.binders, error: binders.error },
@@ -119,19 +122,19 @@ const ItemTab = ({ binderId, itemId, setTitle }: SavedItemParams & { setTitle: P
   const known = lastKnown(shown);
   const title = known === undefined ? undefined : itemTitle(known);
   const listedProposals = useProposals();
-  const proposals = proposalsOnItem(listedProposals.data?.proposals ?? [], known?.binder ?? binderId, known?.handle ?? null);
+  const proposals = proposalsOnItem(ofWorkspace(listedProposals.data?.proposals ?? [], ws), known?.binder ?? binderId, known?.handle ?? null);
   useEffect(() => {
     if (title !== undefined) setTitle?.(title);
   }, [title, setTitle]);
 
-  return <ItemTabBody shown={shown} editing={{ kind: "saved", tab: { binderId, itemId } }} proposals={proposals} />;
+  return <ItemTabBody ws={ws} shown={shown} editing={{ kind: "saved", tab: { ws, binderId, itemId } }} proposals={proposals} />;
 };
 
 /** A new item's tab: the item form on no file, its context's values set, written on the first Save. */
 const DraftTab = (params: DraftItemParams) => {
-  const binders = useBinders();
+  const binders = useBinders(params.ws);
   const shown = draftShown(params.binderId, { data: binders.data?.binders, error: binders.error });
-  return <ItemTabBody shown={shown} editing={{ kind: "draft", tab: params }} />;
+  return <ItemTabBody ws={params.ws} shown={shown} editing={{ kind: "draft", tab: params }} />;
 };
 
 const Meta = ({ item, binderName }: { item: ItemData; binderName: string | undefined }) => (
@@ -150,6 +153,7 @@ const fieldLabel = (field: string): string => (field === "title" ? "Title" : fie
  * the item's. Decisions are `itemEdit`'s; this runs the saves, the reread and the delete.
  */
 const EditItem = ({
+  ws,
   editing,
   form: { item, binder, savable },
   fresh,
@@ -158,6 +162,7 @@ const EditItem = ({
   listed,
   onFollowItem,
 }: {
+  ws: string;
   editing: Editing;
   form: ItemForm;
   /** The item as read now; undefined while the tab can't show it (and for a draft). */
@@ -188,14 +193,14 @@ const EditItem = ({
     dispatch({ type: "saving" });
     if (editing.kind === "draft") {
       create.mutate(
-        { binderId: tab.binderId, ...createRequest(from, asksFile ? fileName : "") },
+        { ws, binderId: tab.binderId, ...createRequest(from, asksFile ? fileName : "") },
         {
           onSuccess: (written) => {
             if (written.id === null) {
               dispatch({ type: "refused", problems: [{ message: "The item was saved, but the service sent no id for it. Find it in the binder's list." }] });
               return;
             }
-            replaceTab({ panelId: ITEM_PANEL, params: tab }, { panelId: ITEM_PANEL, params: { binderId: tab.binderId, itemId: written.id } satisfies SavedItemParams });
+            replaceTab({ panelId: ITEM_PANEL, params: tab }, { panelId: ITEM_PANEL, params: { ws: tab.ws, binderId: tab.binderId, itemId: written.id } satisfies SavedItemParams });
           },
           onError: refuse,
         },
@@ -204,7 +209,7 @@ const EditItem = ({
     }
     const { itemId } = editing.tab;
     save.mutate(
-      { ref: itemId, ...saveRequest(from) },
+      { ws, ref: itemId, ...saveRequest(from) },
       {
         onSuccess: (written) => dispatch({ type: "saved", item: written }),
         onError: (error) => {
@@ -212,7 +217,7 @@ const EditItem = ({
             refuse(error);
             return;
           }
-          queryClient.fetchQuery({ ...itemQuery(itemId), staleTime: 0 }).then(
+          queryClient.fetchQuery({ ...itemQuery(ws, itemId), staleTime: 0 }).then(
             (now) => dispatch({ type: "stale", item: now }),
             (reread: unknown) => dispatch({ type: "refused", problems: [{ message: asError(reread).message }] }),
           );
@@ -253,7 +258,7 @@ const EditItem = ({
             <Button type="button" disabled={!savable || !canSave(state)} onClick={() => send(state)}>
               Save
             </Button>
-            {editing.kind === "saved" && fresh !== undefined ? <ItemActions tab={editing.tab} item={fresh} /> : null}
+            {editing.kind === "saved" && fresh !== undefined ? <ItemActions ws={ws} tab={editing.tab} item={fresh} /> : null}
           </div>
         </div>
         <Field label="Title" hideLabel problems={refused.at.get("title") ?? []} file={file}>
@@ -322,9 +327,13 @@ const EditItem = ({
   );
 };
 
-/** An item tab names no item or names a draft; each reads what it shows itself. */
+/** An item tab names no item or names a draft, in its workspace; each reads what it shows itself. */
 export const Item = ({ params, setTitle }: PanelProps) => {
   const parsed = ItemParams.safeParse(params);
   if (!parsed.success) return <Note>This tab names no item; close it.</Note>;
-  return "itemId" in parsed.data ? <ItemTab {...parsed.data} setTitle={setTitle} /> : <DraftTab {...parsed.data} />;
+  return (
+    <SurfaceWorkspace ws={parsed.data.ws}>
+      {"itemId" in parsed.data ? <ItemTab {...parsed.data} setTitle={setTitle} /> : <DraftTab {...parsed.data} />}
+    </SurfaceWorkspace>
+  );
 };

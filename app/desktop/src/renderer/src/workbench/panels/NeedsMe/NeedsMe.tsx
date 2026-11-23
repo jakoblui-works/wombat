@@ -1,116 +1,99 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useId } from "react";
 
-import { ScrollArea } from "../../../components/ui/scroll-area";
 import { useNow } from "../../../lib/ago";
-import { StateMark } from "../../../lib/state-mark";
-import { useAgents, useProposals } from "../../../data/hooks.ts";
-import { needsMeCount } from "../../../data/needs-me.ts";
-import { bindersQuery } from "../../../data/query-client.ts";
-import { DecideButtons } from "../../proposals/DecideButtons/DecideButtons.tsx";
+import { cn } from "../../../lib/utils";
+import { useAgents, useNeedsMeCount, useProposals, useWorkspaces } from "../../../data/hooks.ts";
+import { AgentHeadLine, UNDER_TITLE } from "../../agents/AgentHeadLine/AgentHeadLine.tsx";
+import { workspaceName } from "../../../data/workspaces.ts";
 import { proposalShows } from "../../proposals/proposal-actions.ts";
 import { PathText } from "../../proposals/PathText/PathText.tsx";
 import { OutsideWorkspace } from "../../proposals/OutsideWorkspace/OutsideWorkspace.tsx";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
-import { useItemNavigation } from "../../items/navigation/item-navigation.ts";
-import { useOpenAgentChat } from "../../agents/open-agent-chat.ts";
-import { useOpenProposal } from "../../proposals/use-open-proposal.ts";
 import { AgentsError } from "../../approvals/LogError/LogError.tsx";
 import { KIND_ICONS } from "../Chat/ToolCall/ToolCall.tsx";
-import { binderOf } from "../../items/binders.ts";
-import { type NeedsMeRow, needsMeRows } from "./needs-me-rows.ts";
-import { type ProposalRow, proposalRows } from "./proposal-rows.ts";
+import { allRows, type NeedsMeRow, type RequestRow } from "./needs-me-rows.ts";
+import { useOpenRow } from "./open-row.ts";
+import type { ProposalRow } from "./proposal-rows.ts";
 
-/** One request as a single clickable item: which agent, what it asks, when. Answering happens in the agent's chat. */
-const RequestRow = ({ row, onOpen }: { row: NeedsMeRow; onOpen: () => void }) => {
+const ROW = "focus-ring flex w-full min-w-0 flex-col gap-1 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-surface-2";
+
+const WorkspaceName = ({ name }: { name: string | undefined }) =>
+  name === undefined ? null : <span className="ml-auto shrink-0 pl-2 text-xs text-fg-tertiary">{name}</span>;
+
+/** A request: which agent, what it asks, when, in which workspace. */
+const RequestRowView = ({ row, workspace }: { row: RequestRow; workspace: string | undefined }) => {
   const KindIcon = row.kind === undefined ? undefined : KIND_ICONS[row.kind];
   return (
-    <button type="button" onClick={onOpen} className="focus-ring flex w-full flex-col gap-1 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-surface-2">
-      <span className="flex w-full items-center gap-2">
-        <StateMark state={row.agent?.state ?? "waiting"} />
-        <span className="min-w-0 flex-1 truncate text-base font-medium text-fg-primary">{row.title}</span>
-        <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{row.ago}</span>
-      </span>
-      <span className="flex w-full min-w-0 items-center gap-1.5 pl-5.5 text-sm text-fg-secondary">
+    <>
+      <AgentHeadLine state={row.agent.state} title={row.title} ago={row.ago} />
+      <span className={cn("flex w-full min-w-0 items-center gap-1.5 text-sm text-fg-secondary", UNDER_TITLE)}>
         {KindIcon === undefined ? null : <KindIcon aria-hidden className="size-3 shrink-0 text-fg-tertiary" />}
         <span className="min-w-0 truncate">{row.ask}</span>
+        <WorkspaceName name={workspace} />
       </span>
-    </button>
+    </>
   );
 };
 
-/**
- * One open proposal: what it changes, whose it is, its age, and Approve and Reject, unless it is a notification (decided
- * where it is shown; its row only points there).
- */
-const ProposalRowView = ({ row, onOpen }: { row: ProposalRow; onOpen: () => void }) => {
+/** An open proposal: what it changes, whose it is, its age, in which workspace. */
+const ProposalRowView = ({ row, workspace }: { row: ProposalRow; workspace: string | undefined }) => {
   const shows = proposalShows(row.proposal.status);
   return (
-    <div role="group" aria-label={row.label} className="flex flex-col gap-1 rounded-md px-2.5 py-2 transition-colors hover:bg-surface-2">
-      <button type="button" onClick={onOpen} className="focus-ring flex w-full min-w-0 flex-col gap-1 rounded-sm text-left">
-        <span className="flex w-full min-w-0 items-center gap-2">
+    <>
+      <span className="flex w-full min-w-0 items-center gap-2">
+        {row.proposal.target === "file" ? (
           <PathText path={row.label} className="flex-1 text-sm font-medium text-fg-primary" />
-          {row.kind === undefined ? null : <span className="shrink-0 text-xs text-fg-tertiary">{row.kind}</span>}
-          <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{row.ago}</span>
-        </span>
-        <span className="flex w-full min-w-0 items-center gap-1.5 text-sm text-fg-secondary">
-          <span className="min-w-0 truncate">{row.agentTitle}</span>
-          {row.outsideWorkspace ? <OutsideWorkspace /> : null}
-          {row.edited ? <span className="shrink-0 text-xs text-fg-tertiary">edited</span> : null}
-          {shows.mark === undefined ? null : <span className="shrink-0 text-xs text-fg-tertiary">{shows.mark}</span>}
-        </span>
-      </button>
-      {row.notification ? null : <DecideButtons proposal={row.proposal} mark={false} />}
-    </div>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg-primary">{row.label}</span>
+        )}
+        {row.kind === undefined ? null : <span className="shrink-0 text-xs text-fg-tertiary">{row.kind}</span>}
+        <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{row.ago}</span>
+      </span>
+      <span className="flex w-full min-w-0 items-center gap-1.5 text-sm text-fg-secondary">
+        <span className="min-w-0 truncate">{row.agentTitle}</span>
+        {row.outsideWorkspace ? <OutsideWorkspace /> : null}
+        {row.edited ? <span className="shrink-0 text-xs text-fg-tertiary">edited</span> : null}
+        {shows.mark === undefined ? null : <span className="shrink-0 text-xs text-fg-tertiary">{shows.mark}</span>}
+        <WorkspaceName name={workspace} />
+      </span>
+    </>
   );
 };
 
+const Row = ({ row, workspace, onOpen }: { row: NeedsMeRow; workspace: string | undefined; onOpen: () => void }) => (
+  <button type="button" onClick={onOpen} className={ROW}>
+    {row.type === "request" ? <RequestRowView row={row} workspace={workspace} /> : <ProposalRowView row={row} workspace={workspace} />}
+  </button>
+);
+
 /**
- * The right sidebar: every waiting agent's request, newest first, then the open proposals. A click opens the agent's
- * chat at the request, or the proposal's tab.
+ * The top of the left sidebar: every request and open proposal of every workspace, newest first. A click opens where
+ * it is decided.
  */
 export const NeedsMe = () => {
   const agents = useAgents();
-  const { openBinder } = useItemNavigation();
-  const openAgentChat = useOpenAgentChat();
-  const openProposal = useOpenProposal();
-  const queryClient = useQueryClient();
   const proposals = useProposals();
+  const workspaces = useWorkspaces().data?.workspaces;
+  const openRow = useOpenRow();
   const now = useNow();
-  const rows = agents.data === undefined ? undefined : needsMeRows(agents.data.agents, now);
-  const proposalList = agents.data === undefined ? [] : proposalRows(proposals.data?.proposals ?? [], agents.data.agents, now);
-  const count = agents.data === undefined ? undefined : needsMeCount(agents.data.agents, proposals.data?.proposals ?? []);
-  // An item proposal opens its binder's view with it revealed; one whose binder isn't usable opens its tab.
-  const open = ({ proposal, notification }: ProposalRow) => {
-    if (!notification || proposal.target !== "item") return openProposal(proposal.id);
-    void queryClient.ensureQueryData(bindersQuery()).then(
-      ({ binders }) => (binderOf(proposal.binder, binders).kind === "binder" ? openBinder(proposal.binder, proposal.id) : openProposal(proposal.id)),
-      () => openProposal(proposal.id),
-    );
-  };
+  const listed = proposals.data?.proposals ?? [];
+  const rows = agents.data === undefined ? undefined : allRows(agents.data.agents, listed, workspaces, now);
+  const count = useNeedsMeCount();
+  const titleId = useId();
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <SidebarHeader title="Needs me" {...(count === undefined ? {} : { count })} />
+    <section aria-labelledby={titleId} className="flex max-h-1/2 shrink-0 flex-col border-b border-line">
+      <SidebarHeader title="Needs me" titleId={titleId} {...(count === undefined ? {} : { count })} />
       {agents.error && rows === undefined ? (
         <AgentsError error={agents.error} />
-      ) : rows === undefined ? null : rows.length === 0 && proposalList.length === 0 ? (
-        <p className="px-3 pt-3 text-sm text-fg-tertiary">Nothing needs you</p>
+      ) : rows === undefined ? null : rows.length === 0 ? (
+        <p className="px-3 py-3 text-sm text-fg-tertiary">Nothing needs you</p>
       ) : (
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="flex flex-col px-1.5 py-1.5">
-            {rows.map((row) => (
-              <RequestRow key={row.key} row={row} onOpen={() => openAgentChat(row.agentId, row.requestId)} />
-            ))}
-            {proposalList.length === 0 ? null : (
-              <section className="flex flex-col">
-                <h3 className="px-2.5 pt-3 pb-1 text-xs font-semibold text-fg-tertiary">Proposals</h3>
-                {proposalList.map((row) => (
-                  <ProposalRowView key={row.key} row={row} onOpen={() => open(row)} />
-                ))}
-              </section>
-            )}
-          </div>
-        </ScrollArea>
+        <div className="flex min-h-0 flex-col overflow-y-auto px-1.5 py-1.5">
+          {rows.map((row) => (
+            <Row key={row.key} row={row} workspace={workspaceName(workspaces, row.workspace)} onOpen={() => openRow(row)} />
+          ))}
+        </div>
       )}
-    </div>
+    </section>
   );
 };

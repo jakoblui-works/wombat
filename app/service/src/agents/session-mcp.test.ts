@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { describe, expect, onTestFinished, test } from "vitest";
 
 import { fakeHarness } from "../../test/fake-harness.ts";
-import { TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
+import { TEST_TIMEOUT_MS, waitFor, workspaceOfOne } from "../../test/manager-fixtures.ts";
+import { WORKSPACE } from "../../test/store-fixtures.ts";
 import { claudeCode } from "../harness/claude-code.ts";
 import type { Harness } from "../harness/harness.ts";
 import { startServer } from "../server/server.ts";
@@ -42,14 +43,14 @@ const startResumable = async () => {
   const instructions = { now: "Bakery site: keep the opening hours in one place." };
   const manager = createManager({
     store,
-    workspaceRoot: workspace,
+    workspaceOf: workspaceOfOne(workspace),
     harnesses: [harness],
     log: () => undefined,
     env: { ...process.env, PATH: join(base, "bin") },
     readInstructions: () => Promise.resolve(instructions.now),
     slice: `wombattest${randomUUID().replaceAll("-", "")}.slice`,
   });
-  const server = await startServer({ manager, store, harnesses: [harness], workspaceRoot: workspace, token: randomBytes(24).toString("base64url"), log: () => undefined });
+  const server = await startServer({ manager, store, harnesses: [harness], token: randomBytes(24).toString("base64url"), log: () => undefined });
   onTestFinished(async () => {
     await server.close();
     await manager.shutdown();
@@ -75,7 +76,7 @@ describe("session/resume", () => {
     "carries the stored session id, the same cwd, _meta and wombat /mcp server as session/new, and the instructions as they are now",
     async () => {
       const { manager, store, harness, instructions, report } = await startResumable();
-      const { id } = await manager.start(harness.id, "repo");
+      const { id } = await manager.start(WORKSPACE, harness.id, "repo");
       const started = await report(id);
       await manager.stop(id);
       instructions.now = "Bakery site: the opening hours now live in hours.md.";

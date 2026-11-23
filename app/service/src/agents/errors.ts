@@ -1,7 +1,13 @@
-import { AgentErrorCode, type ServerErrorCode } from "@wombat/shared/api";
+import { AgentErrorCode, type ServerErrorCode, type WorkspaceErrorCode } from "@wombat/shared/api";
 
-/** A manager call's error codes: the agent ones, and `invalid_request` for a config value the option doesn't take. */
-export type AgentErrorCodes = AgentErrorCode | typeof ServerErrorCode.enum.invalid_request;
+/**
+ * A manager call's error codes: the agent ones, `invalid_request` for a config value the option doesn't take, and
+ * `workspace_not_found` or `workspace_missing` for an agent whose workspace isn't listed or whose folder is gone.
+ */
+export type AgentErrorCodes =
+  | AgentErrorCode
+  | typeof ServerErrorCode.enum.invalid_request
+  | Exclude<WorkspaceErrorCode, typeof WorkspaceErrorCode.enum.invalid_folder>;
 
 /** A failed manager call; the server maps `code` to its HTTP status. */
 export class AgentError extends Error {

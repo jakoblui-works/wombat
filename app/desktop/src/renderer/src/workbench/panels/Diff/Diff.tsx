@@ -43,7 +43,7 @@ const EditDiff = ({ agentId, requestId, setTitle }: DiffParams & { setTitle: Pan
   const { pending, error } = answers.stateOf(requestId);
   return (
     <section aria-label="Edit approval" className="flex h-full min-h-0 flex-col bg-surface-1">
-      <header className="flex h-10 items-center gap-2 border-b border-line pr-1.5 pl-3">
+      <header className="flex min-h-10 flex-wrap items-center gap-x-2 gap-y-1 border-b border-line py-1 pr-1.5 pl-3">
         <FilePen className="size-3.5 shrink-0 text-fg-secondary" />
         <EditTarget path={request.path} />
         <DecisionSlot waiting={<Waiting />} outcome={answer === undefined ? undefined : <Outcome answer={answer} />}>

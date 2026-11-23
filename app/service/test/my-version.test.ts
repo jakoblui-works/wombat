@@ -14,6 +14,7 @@ import { IDS, VALID_FILES, writeRoot } from "./items-fixtures.ts";
 import { REPO, TEST_TIMEOUT_MS } from "./manager-fixtures.ts";
 import { callTool, STUB_AGENT, STUB_TOKEN } from "./mcp-fixtures.ts";
 import { expectError, serve, type Response, type Served } from "./server-fixtures.ts";
+import { WORKSPACE } from "./store-fixtures.ts";
 
 const NOTES = "# Pairing notes\n\n- Driver and navigator swap every half hour.\n- The navigator keeps the notes.\n\n## Review\n\nOpen one pull request per finished test.\n";
 const EDIT = { old: "swap every half hour", new: "swap after each finished test" };
@@ -102,7 +103,7 @@ test(
   async () => {
     const s = await serve({ itemsRoot: writeRoot(VALID_FILES) });
     const { proposal } = s.store.insertProposal(
-      { target: "item", path: null, binder: "bugs", itemId: IDS.bug1, kind: "update", file: null, reason: "Seen again on staging.", baseVersion: "9f2c", agentId: STUB_AGENT },
+      { workspace: WORKSPACE, target: "item", path: null, binder: "bugs", itemId: IDS.bug1, kind: "update", file: null, reason: "Seen again on staging.", baseVersion: "9f2c", agentId: STUB_AGENT },
       { fields: { note: "Also seen in Firefox" } },
     );
     const before = stateOf(s, proposal.id);

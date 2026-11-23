@@ -20,7 +20,7 @@ import { SETTINGS_FILE } from "../items/binders.ts";
 import { ItemIdentityError, ItemWriteError, presentValues, type Writer } from "../items/write.ts";
 import type { VersionAuthor } from "../store/proposal-rules.ts";
 import { fieldsOf } from "../store/proposals.ts";
-import type { NewProposal, ProposalVersionHead, Store, StoredProposal } from "../store/store.ts";
+import type { ProposalForInsert, ProposalVersionHead, Store, StoredProposal } from "../store/store.ts";
 import { askAgain, BY_HAND, conflict, failureOutcome, NOTHING_WRITTEN, type Applied, type ApplyTarget, type Written } from "./apply.ts";
 import { itemRevisions, type ItemRevisions } from "./item-revisions.ts";
 import { createFields, createInputOf, itemById, targetItem, type StoredItemProposal } from "./item-target.ts";
@@ -43,7 +43,7 @@ export type ProposedItemChange =
   | { kind: "delete"; handle: string; version: string };
 
 /** An item proposal that passed its checks: what to store, and its first version's fields. */
-type CheckedItemProposal = { proposal: Extract<NewProposal, { target: "item" }>; fields: Record<string, unknown> };
+type CheckedItemProposal = { proposal: Extract<ProposalForInsert, { target: "item" }>; fields: Record<string, unknown> };
 
 export type ItemProposals = ItemRevisions & {
   /** Runs `change`'s checks as `agentId` proposes it; throws the agent's refusal. Stores nothing. */

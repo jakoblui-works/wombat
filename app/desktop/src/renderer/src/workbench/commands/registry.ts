@@ -1,4 +1,4 @@
-// Every action the page offers, by id: keys, menus, buttons and the tab context menu run them through here, so each
+// Every action the page offers, by id: keys, menus, buttons and context menus run them through here, so each
 // entry point does the same thing and a custom key or a palette needs nothing but this registry. Importing this
 // module registers the main commands; it touches no `window` until a command runs.
 import { useCallback } from "react";
@@ -6,10 +6,11 @@ import { useCallback } from "react";
 import { MAIN_COMMAND_IDS, type MainCommandId } from "../../../../shared/bridge.ts";
 
 /**
- * What a command acts on when it isn't the active group or tab: the clicked tab's or group's ids, or a scoped command's
- * element. `keep`: what the command opens is kept, not temporary (a menu's Open sets it; keys never do).
+ * What a scoped command acts on: its element. `keep`: what the command opens is kept, not temporary (a menu's Open sets
+ * it; keys never do). `keepFocus`: the user put the focus somewhere else after choosing the command (a click while its menu
+ * closed), so the command leaves the focus where it is.
  */
-export type CommandTarget = { groupId?: string; panelId?: string; element?: Element; keep?: boolean };
+export type CommandTarget = { element?: Element; keep?: boolean; keepFocus?: boolean };
 
 /**
  * An action the user can take. `keys` are written like VS Code's keybindings (`"ctrl+shift+w"`, `"ctrl+="`,
@@ -17,10 +18,11 @@ export type CommandTarget = { groupId?: string; panelId?: string; element?: Elem
  * (other than a function key) needs a `scope`. A scoped command takes its key only on an element inside a root marked
  * with its scope (`useCommandScope`) that has a handler for it, and never in an editable element or a button there.
  * `when` decides, at each key, whether the command takes its key; `run` gets the target the entry point passed (none
- * for menus, the element for a scoped command's key: the command acts on the active group or tab when the target names
- * none; a scoped command runs its root's handler through `runInScope`). `shownKeys` are shown in menus
+ * for menus, the element for a scoped command's key; a scoped command runs its root's handler through `runInScope`). `shownKeys` are shown in menus
  * without being bound: for a command the page's own elements already handle on those keys (the edit commands, which
- * a text field runs itself), where a binding would run it twice.
+ * a text field runs itself), where a binding would run it twice. `focused`: the command acts on the focused element (the
+ * edit commands), so an entry point that can't tell where the user's focus is (a menu closing after a click elsewhere)
+ * drops it.
  */
 export type Command = {
   id: string;
@@ -29,6 +31,7 @@ export type Command = {
   shownKeys?: readonly string[];
   when?: () => boolean;
   scope?: string;
+  focused?: boolean;
   run: (target: CommandTarget) => void | Promise<void>;
 };
 
@@ -118,10 +121,17 @@ const SYMBOL_LABELS: Record<string, string> = Object.fromEntries(
     .map(([name, code]) => [code, name]),
 );
 
+/** A physical key as a label shows it: "W", "=", "Numpad0". */
+const keyLabel = (code: string): string => KEY_LABELS[code] ?? SYMBOL_LABELS[code] ?? code.replace(/^(Key|Digit)/, "");
+
 /** A chord as a menu shows it: "Ctrl+Shift+W", "Ctrl+=", "Ctrl+Numpad0". */
-const chordLabel = ({ ctrl, shift, alt, meta, code }: KeyChord): string => {
-  const key = KEY_LABELS[code] ?? SYMBOL_LABELS[code] ?? code.replace(/^(Key|Digit)/, "");
-  return [ctrl && "Ctrl", shift && "Shift", alt && "Alt", meta && "Meta", key].filter(Boolean).join("+");
+const chordLabel = ({ ctrl, shift, alt, meta, code }: KeyChord): string =>
+  [ctrl && "Ctrl", shift && "Shift", alt && "Alt", meta && "Meta", keyLabel(code)].filter(Boolean).join("+");
+
+/** A key string as `aria-keyshortcuts` writes it: "ctrl+b" as "Control+B". */
+export const ariaKeyShortcut = (keys: string): string => {
+  const { ctrl, shift, alt, meta, code } = parseKeys(keys);
+  return [ctrl && "Control", shift && "Shift", alt && "Alt", meta && "Meta", keyLabel(code)].filter(Boolean).join("+");
 };
 
 /** The command's first key (else its first shown key) as a menu shows it; undefined when it has none. */
@@ -279,8 +289,6 @@ const MAIN_COMMAND_TITLES: Record<MainCommandId, string> = {
   "window.minimize": "Minimize",
   "window.maximize": "Maximize",
   "window.close": "Close Window",
-  "workspace.switch": "Switch Workspace…",
-  "items.chooseFolder": "Choose Items Folder…",
   "service.stop": "Stop Service and Agents",
   "app.quit": "Quit",
 };
@@ -304,8 +312,33 @@ const MAIN_COMMAND_SHOWN_KEYS: Partial<Record<MainCommandId, readonly string[]>>
   "edit.selectAll": ["ctrl+a"],
 };
 
+// Main runs these on the page's focused element.
+const FOCUSED_MAIN_COMMANDS: Record<MainCommandId, boolean> = {
+  "zoom.in": false,
+  "zoom.out": false,
+  "zoom.reset": false,
+  "edit.undo": true,
+  "edit.redo": true,
+  "edit.cut": true,
+  "edit.copy": true,
+  "edit.paste": true,
+  "edit.selectAll": true,
+  "window.minimize": false,
+  "window.maximize": false,
+  "window.close": false,
+  "service.stop": false,
+  "app.quit": false,
+};
+
 for (const id of MAIN_COMMAND_IDS) {
   const keys = MAIN_COMMAND_KEYS[id];
   const shownKeys = MAIN_COMMAND_SHOWN_KEYS[id];
-  registerCommand({ id, title: MAIN_COMMAND_TITLES[id], ...(keys === undefined ? {} : { keys }), ...(shownKeys === undefined ? {} : { shownKeys }), run: () => window.wombat.command(id) });
+  registerCommand({
+    id,
+    title: MAIN_COMMAND_TITLES[id],
+    ...(keys === undefined ? {} : { keys }),
+    ...(shownKeys === undefined ? {} : { shownKeys }),
+    ...(FOCUSED_MAIN_COMMANDS[id] ? { focused: true } : {}),
+    run: () => window.wombat.command(id),
+  });
 }

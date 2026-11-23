@@ -65,7 +65,8 @@ export type AgentProcessDeps = {
   env: NodeJS.ProcessEnv;
   log: Log;
   scopes: Pick<ReturnType<typeof createScopes>, "kill">;
-  readInstructions: () => Promise<string | undefined>;
+  /** The instructions file's text of a workspace, by its id. */
+  readInstructions: (workspaceId: string) => Promise<string | undefined>;
   mcpServersFor: McpTokens["mcpServersFor"];
   revokeToken: McpTokens["revokeToken"];
   handlers: ProcHandlers;
@@ -86,12 +87,13 @@ export const createAgentProcess = ({ env, log, scopes, readInstructions, mcpServ
   const liveProcs = () => [...procs.values()];
 
   /** Starts the agent's process and makes it the agent's live one. */
-  const spawnAgent = (agentId: string, harness: Harness, cwd: string, scope: AgentScope | undefined): Proc => {
+  const spawnAgent = (agentId: string, workspace: string, harness: Harness, cwd: string, scope: AgentScope | undefined): Proc => {
     const spec = harness.spawn(cwd, env);
     const child: ChildProcessWithoutNullStreams = startAgentProcess(spec, scope ? { scope } : {});
     const { promise: closed, resolve: markClosed } = Promise.withResolvers<void>();
     const proc: Proc = {
       agentId,
+      workspace,
       harness,
       home: spec.env.HOME,
       cwd,
@@ -180,7 +182,7 @@ export const createAgentProcess = ({ env, log, scopes, readInstructions, mcpServ
    */
   const sessionExtra = async (proc: Proc) => {
     const { harness } = proc;
-    const instructions = harness.sessionParams === undefined ? undefined : await readInstructions();
+    const instructions = harness.sessionParams === undefined ? undefined : await readInstructions(proc.workspace);
     return {
       mcpServers: mcpServersFor(proc),
       ...(harness.sessionMeta === undefined ? {} : { _meta: harness.sessionMeta }),

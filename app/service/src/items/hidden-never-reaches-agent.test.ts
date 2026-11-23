@@ -22,6 +22,7 @@ import { AccessError } from "./refusals.ts";
 import { ACCESS_FILES, AGENT, HIDDEN, MARKER, VISIBLE_IDS, expectRefused, extraProblemKeys, leaks, openAccessRoot, refusal } from "../../test/access-fixtures.ts";
 import { UUID } from "../../test/instructions-fixtures.ts";
 import { readAt, writeAt } from "../../test/items-fixtures.ts";
+import { WORKSPACE } from "../../test/store-fixtures.ts";
 import { SETTINGS_FILE } from "./binders.ts";
 
 /** The message with the name the agent typed replaced, so two refusals can be compared. */
@@ -478,7 +479,7 @@ describe("hidden never reaches an agent", () => {
     // At the cap through proposals on a binder that was hidden since: the refusal counts them and names none.
     for (let n = 0; n < MAX_OPEN_PROPOSALS; n += 1) {
       store.insertProposal(
-        { target: "item", path: null, binder: HIDDEN.binder, itemId: HIDDEN.ids[0], kind: "update", file: null, reason: `About the ${MARKER} plan`, baseVersion: "9f2c", agentId: AGENT },
+        { workspace: WORKSPACE, target: "item", path: null, binder: HIDDEN.binder, itemId: HIDDEN.ids[0], kind: "update", file: null, reason: `About the ${MARKER} plan`, baseVersion: "9f2c", agentId: AGENT },
         { fields: { codename: MARKER } },
       );
     }
@@ -499,7 +500,7 @@ describe("hidden never reaches an agent", () => {
     /** A proposal on an item of a binder hidden since it was stored. */
     const onHidden = () =>
       store.insertProposal(
-        { target: "item", path: null, binder: HIDDEN.binder, itemId: HIDDEN.ids[0], kind: "update", file: null, reason: "A new codename", baseVersion: "9f2c", agentId: AGENT },
+        { workspace: WORKSPACE, target: "item", path: null, binder: HIDDEN.binder, itemId: HIDDEN.ids[0], kind: "update", file: null, reason: "A new codename", baseVersion: "9f2c", agentId: AGENT },
         { fields: { codename: "Osprey" } },
       ).proposal.id;
 

@@ -10,6 +10,7 @@ const OPEN_EDIT: ProposalDetail = {
   id: "p-1",
   status: "pending",
   agentId: "a-1",
+  workspace: "ws-apiary0001",
   reason: "The bakery's hours changed.",
   version: 1,
   editedByMe: false,

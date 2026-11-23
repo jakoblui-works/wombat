@@ -2,7 +2,19 @@
 // it reaches the network, so a path trick must never match.
 import { describe, expect, test } from "vitest";
 
-import { APP_ROUTES, appRoute, pathOf, type AppRoute } from "./routes.ts";
+import { APP_ROUTES, appRoute, pathOf, ROUTES, type AppRoute } from "./routes.ts";
+import { newWorkspaceId, WorkspaceId } from "./workspace-id.ts";
+
+// The maker's ids and pathOf's parameter rule have different owners and must agree: an id the rule refuses makes every
+// `/workspaces/:ws` call throw, and only at runtime.
+test("every workspace id the maker makes fills a :ws parameter and parses as a WorkspaceId", () => {
+  for (let i = 0; i < 2000; i++) {
+    const id = newWorkspaceId();
+    expect(WorkspaceId.safeParse(id).success, id).toBe(true);
+    const path = pathOf(ROUTES.listBinders, { ws: id });
+    expect(appRoute(ROUTES.listBinders.method, path), path).toBe(ROUTES.listBinders);
+  }
+});
 
 describe("appRoute", () => {
   test("takes every page route's path as pathOf builds it, with a query on the routes that take one", () => {

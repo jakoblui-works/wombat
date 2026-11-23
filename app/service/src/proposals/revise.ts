@@ -8,8 +8,19 @@ import type { ProposalChange, ProposalContent, Store, StoredProposal } from "../
 import type { DistributiveOmit } from "../store/values.ts";
 import { checkText, textProblemClause } from "./file-target.ts";
 import type { ItemProposalRecord, ItemProposals } from "./item-proposals.ts";
-import { reviseFile, type Revision } from "./propose-file.ts";
-import { DraftRefused, itemsNotConfigured, notOwnOpenProposal, ownOpenProposal, PROPOSAL_UNCHANGED, ProposalError, ProposalRefused, toDraft } from "./refused.ts";
+import { heldIn, reviseFile, type Revision } from "./propose-file.ts";
+import {
+  DraftRefused,
+  itemsNotConfiguredForAgent,
+  itemsNotConfiguredIn,
+  notOwnOpenProposal,
+  ownOpenProposal,
+  PROPOSAL_UNCHANGED,
+  ProposalError,
+  ProposalRefused,
+  toDraft,
+  workspaceFolder,
+} from "./refused.ts";
 
 /** My draft as the route takes it: a file's whole text, or an item's fields. */
 type DraftContent = DistributiveOmit<DraftRequest, "onVersion">;
@@ -60,7 +71,8 @@ const draftChanged = (id: string, onVersion: number) =>
     `Version ${String(onVersion)} isn't the agent's latest version of proposal ${id}. Refresh the proposal and edit its current version.`,
   );
 
-const ITEMS_GONE = `The service has no items set up now, so an item proposal can't be revised. Tell the user. ${PROPOSAL_UNCHANGED}`;
+/** The revise refusal for an item proposal whose workspace, at `folder`, has no items folder now. */
+const itemsGone = (folder: string) => `${itemsNotConfiguredForAgent(folder)} Your item proposal can't be revised until then. ${PROPOSAL_UNCHANGED}`;
 
 type ReviserOptions = {
   store: Store;
@@ -68,13 +80,14 @@ type ReviserOptions = {
   decide: <T>(job: () => Promise<T>) => Promise<T>;
   /** Announces a committed change and returns the proposal. */
   committed: (id: string, change: ProposalChange | undefined) => StoredProposal;
-  items: ItemProposals | undefined;
-  /** Whether the items catalog holds a file; undefined without items. */
-  holds: ((realPath: string) => Promise<boolean>) | undefined;
+  /** A workspace's item side, while it has an items folder. */
+  itemsOf: ((workspaceId: string) => ItemProposals | undefined) | undefined;
+  /** Whether the items catalog of the workspace or of any listed one holds a file; undefined without items. */
+  holds: ((realPath: string, workspaceId: string) => Promise<boolean>) | undefined;
   summaryOf: (stored: StoredProposal) => Promise<FileProposal | ItemProposalRecord>;
 };
 
-export const reviser = ({ store, decide, committed, items, holds, summaryOf }: ReviserOptions) => {
+export const reviser = ({ store, decide, committed, itemsOf, holds, summaryOf }: ReviserOptions) => {
   const currentOf = (id: string) => {
     const n = currentVersion(store.listVersionHeads(id))?.n;
     const current = n === undefined ? undefined : store.getVersion(id, n);
@@ -84,10 +97,11 @@ export const reviser = ({ store, decide, committed, items, holds, summaryOf }: R
 
   const nextVersion = async (stored: StoredProposal, revision: Revision): Promise<NextVersion> => {
     const current = currentOf(stored.id);
-    if (stored.target === "file") return reviseFile(stored, current, revision, holds);
+    if (stored.target === "file") return reviseFile(stored, current, revision, heldIn(holds, stored.workspace));
     const asked = itemRevisionOf(revision);
     if ("refusal" in asked) throw new ProposalRefused(asked.refusal);
-    if (items === undefined) throw new ProposalRefused(ITEMS_GONE);
+    const items = itemsOf?.(stored.workspace);
+    if (items === undefined) throw new ProposalRefused(itemsGone(workspaceFolder(store, stored.workspace)));
     const { fields, ...based } = await items.checkItemRevision(stored, asked.fields, fieldsOf(current.content));
     return { content: { fields }, ...based };
   };
@@ -117,7 +131,8 @@ export const reviser = ({ store, decide, committed, items, holds, summaryOf }: R
       return { text: checked.text };
     }
     if (stored.target === "item") {
-      if (items === undefined) throw itemsNotConfigured();
+      const items = itemsOf?.(stored.workspace);
+      if (items === undefined) throw itemsNotConfiguredIn(store, stored.workspace);
       await items.checkItemDraft(stored, content.fields);
     }
     return { fields: content.fields };

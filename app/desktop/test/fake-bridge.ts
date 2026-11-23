@@ -18,6 +18,9 @@ import { summary } from "./summaries.ts";
 
 export type FakeRequest = { method: string; path: string };
 
+/** The one workspace GET /workspaces lists. */
+export const FAKE_WORKSPACE = { id: "ws-fake000001", name: "bakery", root: "/fake/bakery", missing: false };
+
 export type FakeService = {
   bridge: WombatBridge;
   /** The current store's id; `newStore()` changes it. */
@@ -36,8 +39,6 @@ export type FakeService = {
   connection: (state: ConnectionState["state"]) => void;
   /** Sets fields of an agent's summary (listed by GET /agents from then on, log or not). */
   setAgent: (agentId: string, fields: Partial<AgentSummary>) => void;
-  /** Sets the folders GET /repos lists (the workspace root, ".", alone by default). */
-  setRepos: (repos: { path: string; name: string }[]) => void;
   /** Adds a proposal to GET /proposals. */
   addProposal: (proposal: Proposal) => void;
   /** Main's refusal while not connected: request() rejects unless the last connection state is `connected`. */
@@ -72,7 +73,6 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
   const logReads = new Map<string, number>();
   let refusing = false;
   const proposals: Proposal[] = [];
-  let repos = [{ path: ".", name: "workspace" }];
 
   const answer = (method: string, path: string): { status: number; body: unknown } => {
     const url = new URL(path, "http://service.invalid");
@@ -80,7 +80,10 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
       const ids = [...new Set([...logs.keys(), ...agentFields.keys()])];
       return { status: 200, body: { dbId, seq, agents: ids.map((id) => summary(id, agentFields.get(id))) } };
     }
-    if (method === "GET" && url.pathname === "/repos") return { status: 200, body: { repos } };
+    if (method === "GET" && url.pathname === "/workspaces") return { status: 200, body: { workspaces: [FAKE_WORKSPACE] } };
+    if (method === "GET" && url.pathname === `/workspaces/${FAKE_WORKSPACE.id}/repos`) {
+      return { status: 200, body: { repos: [{ path: ".", name: FAKE_WORKSPACE.name }] } };
+    }
     if (method === "GET" && url.pathname === "/proposals") return { status: 200, body: { proposals } };
     const logMatch = /^\/agents\/([^/]+)\/log$/.exec(url.pathname);
     if (method === "GET" && logMatch) {
@@ -151,7 +154,7 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
       },
       restart: notImplemented("restart"),
     },
-    workspace: { get: notImplemented("workspace.get"), switch: notImplemented("workspace.switch") },
+    workspace: { add: notImplemented("workspace.add"), chooseItemsFolder: notImplemented("workspace.chooseItemsFolder") },
     settings: { get: notImplemented("settings.get"), set: notImplemented("settings.set") },
     onOpenAgent: () => () => undefined,
   };
@@ -190,9 +193,6 @@ export const fakeService = (initialDbId = "db-1"): FakeService => {
     },
     setAgent: (agentId, fields) => {
       agentFields.set(agentId, { ...agentFields.get(agentId), ...fields });
-    },
-    setRepos: (listed) => {
-      repos = listed;
     },
     addProposal: (added) => {
       proposals.push(added);

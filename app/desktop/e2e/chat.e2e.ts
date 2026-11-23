@@ -1,6 +1,7 @@
 // The chat, against the built app and the fake agents (app-fixtures.ts).
 // What these checks rely on in the page (roles and names, not looks; the approved design's structure):
-// - a chat tab's content is the active panel of its editor group (agent-panels.ts `groupWithTab`);
+// - the open agent's chat is the middle (agent-panels.ts `chatTitled`); a diff tab's content is the `tabpanel` named
+//   by its tab's title;
 // - collapsed parts (reasoning, a tool call) are buttons with `aria-expanded="false"`; expanding shows their text (a
 //   tool call's text content through Markdown, the same rules as agent text);
 // - a clipped text says how many characters were left out, in digits (group separators allowed);
@@ -10,12 +11,14 @@
 //   message starts it again" on hover; the settings button is a `button` named "Settings: …" that opens a `dialog`
 //   listing a select's values by name, the current one carrying aria-checked, aria-selected or aria-current "true";
 //   the message box is the textbox "Message", and Enter sends.
+// - a running agent's composer bar has one toggle button, named "Hide composer bar" while shown and "Show composer
+//   bar" while hidden.
 import type { ElectronApplication, Page } from "@playwright/test";
 
 import { FAKE_CONFIG, fakeConfigOptions, HOSTILE } from "../../service/test/fake-agent.ts";
 import { MAX_SHOWN_CHARS } from "../src/renderer/src/workbench/panels/Chat/clip-text.ts";
-import { agentSummary, click, current, expect, layoutOf, openAgent, REPO, type Sandbox, startAgent, SWITCH, tabCount, test, waitForConnection, waitUntil, WAIT_MS, wheelPastEnd } from "./app-fixtures.ts";
-import { groupWithTab, logOf, prompt, waitForState } from "./agent-panels.ts";
+import { agentSummary, click, current, expect, openAgent, REPO, type Sandbox, startAgent, SWITCH, tabTitles, test, waitForConnection, waitUntil, WAIT_MS, wheelPastEnd } from "./app-fixtures.ts";
+import { chatTitled, logOf, prompt, waitForState } from "./agent-panels.ts";
 
 // Main hands https links to the host's browser through `shell.openExternal`; the check records those calls instead
 // (as trust-boundary.e2e.ts does), so a test never opens the real browser.
@@ -34,7 +37,7 @@ const openedExternally = (app: ElectronApplication): Promise<string[]> =>
 const marker = (page: Page): Promise<unknown> => page.evaluate((name) => (window as unknown as Record<string, unknown>)[name], HOSTILE.marker);
 
 /** Expands every collapsed part of `root` (reasoning, tool calls), however deep, a bounded number of rounds. */
-const expandAll = async (root: ReturnType<typeof groupWithTab>): Promise<void> => {
+const expandAll = async (root: ReturnType<typeof chatTitled>): Promise<void> => {
   const collapsed = root.getByRole("log", { name: "Conversation" }).locator('[aria-expanded="false"]');
   for (let round = 0; round < 10 && (await collapsed.count()) > 0; round += 1) await click(collapsed.first());
   await expect(collapsed, "parts of the chat stay collapsed").toHaveCount(0);
@@ -43,21 +46,24 @@ const expandAll = async (root: ReturnType<typeof groupWithTab>): Promise<void> =
 /**
  * What in the React root could run, load or navigate: offending elements and attributes, described. The one image
  * the app shows of its own is exempt, and only that one: the logo in the title bar (the page's top-level <header>,
- * outside every sidebar, editor group and dialog, where no agent content goes), with an empty alt and a same-origin
- * src. Agent images render as their alt text, so any other <img> anywhere is agent content loading something.
+ * outside every sidebar, the chat, the tabs and dialogs, where no agent content goes), with an empty alt and a same-origin
+ * src, and the same symbol (same src, empty alt) in an empty state, such as the Desk navigator's without an items
+ * folder. Agent images render as their alt text, so any other <img> anywhere is agent content loading something.
  */
 const activeContent = (page: Page): Promise<string[]> =>
   page.evaluate((hostileMarker) => {
     const found: string[] = [];
     const root = document.getElementById("root");
     if (root === null) return ["no #root"];
-    const titleBar = [...root.querySelectorAll("header")].find((header) => header.closest("aside, .dv-groupview, [role='dialog'], [role='alertdialog']") === null);
+    const titleBar = [...root.querySelectorAll("header")].find((header) => header.closest("aside, main, [role='tabpanel'], [role='dialog'], [role='alertdialog']") === null);
     const titleImages = titleBar === undefined ? [] : [...titleBar.querySelectorAll("img")];
     const appLogo =
       titleImages.length === 1 && titleImages[0]?.getAttribute("alt") === "" && new URL(titleImages[0].src).origin === location.origin ? titleImages[0] : undefined;
     const banned = new Set(["SCRIPT", "IFRAME", "FRAME", "OBJECT", "EMBED", "IMG", "VIDEO", "AUDIO", "SOURCE", "FORM", "BASE", "META", "LINK"]);
+    const isAppSymbol = (element: Element): boolean =>
+      appLogo !== undefined && element instanceof HTMLImageElement && element.getAttribute("alt") === "" && element.src === appLogo.src && element.attributes.length === appLogo.attributes.length;
     for (const element of root.querySelectorAll("*")) {
-      if (element === appLogo) continue;
+      if (isAppSymbol(element)) continue;
       if (banned.has(element.tagName.toUpperCase())) found.push(`<${element.tagName.toLowerCase()}>`);
       if (element.tagName.toUpperCase() === "STYLE" && /__wombatHostile|example\.invalid/.test(element.textContent ?? "")) found.push("<style> with agent content");
       for (const { name, value } of element.attributes) {
@@ -93,23 +99,26 @@ test.describe("chat", () => {
     });
     await waitForConnection(page, "connected");
     const startUrl = page.url();
-    await openAgent(launched, agentId, 1);
-    const chat = groupWithTab(page, REPO);
+    await openAgent(launched, agentId);
+    const chat = chatTitled(page, REPO);
     await expect(chat.getByText("Hostile message starts.")).toBeVisible({ timeout: WAIT_MS });
     await expandAll(chat);
 
     // Every other place agent content shows: Needs me (the requests' titles), the Agents list (the message's
     // excerpt), and the edit's diff tab (its title from the agent's path, its texts in Monaco).
-    const needsMeToggle = page.getByRole("button", { name: /^Needs me\b/ });
-    if ((await needsMeToggle.getAttribute("aria-pressed")) !== "true") await click(needsMeToggle);
-    const needsMe = page.getByRole("complementary", { name: "Needs me", exact: true });
+    const needsMe = page
+      .getByRole("complementary", { name: "Agents", exact: true })
+      .locator("*")
+      .filter({ has: page.getByRole("heading", { name: "Needs me", exact: true }) })
+      .filter({ hasNot: page.getByRole("heading", { name: "Agents", exact: true }) })
+      .first();
     await expect(needsMe.getByRole("button")).toHaveCount(2, { timeout: WAIT_MS });
     const diffTab = `${HOSTILE.editFileName()} (diff)`;
     await click(chat.getByRole("region", { name: "Edit approval" }).getByRole("button", { name: "Open side by side" }));
-    const diff = groupWithTab(page, diffTab);
+    const diff = page.getByRole("tabpanel", { name: diffTab, exact: true });
     await expect(diff.locator(".monaco-diff-editor")).toHaveCount(1, { timeout: WAIT_MS });
     await expect(diff).toContainText("Opening hours", { timeout: WAIT_MS });
-    expect((await layoutOf(page)).flatMap((group) => group.tabs), "the diff tab's title, as text").toContain(diffTab);
+    expect(await tabTitles(page), "the diff tab's title, as text").toContain(diffTab);
     const needsMeText = await needsMe.innerText();
     for (const where of ["permission title", "edit title"]) expect(needsMeText, `Needs me: the ${where} as text`).toContain(`<b>${where}</b>`);
     expect(await page.getByRole("complementary", { name: "Agents", exact: true }).innerText(), "the Agents list's excerpt").toContain("Hostile message starts.");
@@ -182,8 +191,8 @@ test.describe("chat", () => {
     const problems: string[] = [];
     page.on("pageerror", (error) => problems.push(`page error: ${error.message}`));
     await waitForConnection(page, "connected");
-    await openAgent(launched, agentId, 1);
-    const chat = groupWithTab(page, REPO);
+    await openAgent(launched, agentId);
+    const chat = chatTitled(page, REPO);
     await expect(chat.getByRole("region", { name: "Edit approval" })).toBeVisible({ timeout: WAIT_MS });
     await expandAll(chat);
 
@@ -191,6 +200,21 @@ test.describe("chat", () => {
     expect(await wheelPastEnd(conversation, "up"), "scrolled or overflowing around the chat, past its top").toEqual([]);
     expect(await wheelPastEnd(conversation, "down"), "scrolled or overflowing around the chat, past its end").toEqual([]);
     expect(problems).toEqual([]);
+  });
+
+  test("the composer bar's toggle keeps the focus as it hides and shows the bar", async ({ sandbox }) => {
+    await sandbox.startService(sandbox.workspace);
+    const agentId = await startAgent(sandbox, "fake-reply");
+    const launched = await sandbox.launch({ env: { [SWITCH.quitAnswer]: "leave" } });
+    const { page } = launched;
+    await waitForConnection(page, "connected");
+    await openAgent(launched, agentId);
+    const chat = chatTitled(page, REPO);
+    await chat.getByRole("button", { name: "Hide composer bar" }).focus();
+    await page.keyboard.press("Space");
+    await expect(chat.getByRole("button", { name: "Show composer bar" })).toBeFocused();
+    await page.keyboard.press("Space");
+    await expect(chat.getByRole("button", { name: "Hide composer bar" })).toBeFocused();
   });
 
   // A stopped agent's chat goes on. Its footer says it
@@ -211,8 +235,8 @@ test.describe("chat", () => {
       if (message.type() === "error") problems.push(`console: ${message.text()}`);
     });
     await waitForConnection(page, "connected");
-    await openAgent(launched, agentId, 1);
-    const chat = groupWithTab(page, REPO);
+    await openAgent(launched, agentId);
+    const chat = chatTitled(page, REPO);
     const replies = chat.getByText("Hello from the fake agent.", { exact: true });
     await expect(replies, "the first reply").toHaveCount(1, { timeout: WAIT_MS });
     const notRunning = chat.getByText("Not running", { exact: true });
@@ -248,14 +272,12 @@ test.describe("chat", () => {
     await expect(mode, "so does Mode").toBeEnabled();
     await notRunning.hover();
     await expect(page.getByText("Your next message starts it again", { exact: true }), "the indicator's tooltip").toBeVisible({ timeout: WAIT_MS });
-    const tabs = await tabCount(page);
     const box = chat.getByRole("textbox", { name: "Message", exact: true });
     await box.fill("Are you still there?");
     await box.press("Enter");
     await expect(chat.getByText("Are you still there?", { exact: true }), "the message, in the chat").toBeVisible({ timeout: WAIT_MS });
     await expect(replies, "the second reply, in the same chat").toHaveCount(2, { timeout: WAIT_MS });
     await expect(notRunning, "running again").toHaveCount(0, { timeout: WAIT_MS });
-    expect(await tabCount(page), "no new tab").toBe(tabs);
     const listed = await sandbox.api("GET", "/agents");
     expect((listed.json as { agents: { id: string }[] }).agents.map((agent) => agent.id), "no second agent").toEqual([agentId]);
     expect(await loggedModel(sandbox, agentId), "the model it had, after the resume").toBe("fake-large");

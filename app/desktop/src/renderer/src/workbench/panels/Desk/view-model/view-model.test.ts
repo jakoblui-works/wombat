@@ -212,6 +212,7 @@ test("a group counts its items, not a proposed create nor a missing item", () =>
     id: idOf(90 + (handle === null ? 0 : 1)),
     status: "pending",
     agentId: idOf(99),
+    workspace: "ws-apiary0001",
     reason: "Invented reason.",
     version: 1,
     editedByMe: false,

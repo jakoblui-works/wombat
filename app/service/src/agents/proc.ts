@@ -22,6 +22,8 @@ export const now = () => new Date().toISOString();
 /** One agent process, from spawn until it closed. */
 export type Proc = {
   agentId: string;
+  /** The id of the agent's workspace, whose instructions its sessions get. */
+  workspace: string;
   harness: Harness;
   /** The agent's HOME from its spawn environment, for its harness (`ContextAgent.home`). */
   home: string | undefined;

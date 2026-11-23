@@ -1,17 +1,13 @@
 // The commands main runs for the page (window.wombat.command), the app's zoom, and the application menu. The keys are
 // the page's (its command registry); main's menu has no accelerator whose key the page also binds, or one key press
 // would run a command twice.
-import { BrowserWindow, Menu, type WebContents } from "electron";
+import { BrowserWindow, Menu } from "electron";
 import { CHANNELS, isMainCommandId, type MainCommandId } from "../shared/bridge.ts";
 import { type TitleBarOverlay } from "./title-bar.ts";
-import { isUserInput, pageMayRun, refusalWithoutInput } from "./user-input.ts";
+import type { InputGate } from "./user-input.ts";
 import { clampZoom, ZOOM_STEP } from "./zoom.ts";
 
 export type MainCommandDeps = {
-  /** The File menu's Switch Workspace: the folder picker, modal to `parent`, then the switch; reports its own errors. */
-  switchWorkspace: (parent: BrowserWindow | undefined) => Promise<void>;
-  /** Choose Items Folder…: the folder picker, modal to `parent`, then the save and the service's restart; reports its own errors. */
-  chooseItemsFolder: (parent: BrowserWindow | undefined) => Promise<void>;
   /** The File menu's Stop Service and Agents: asks, then stops; reports its own errors. */
   stopService: () => Promise<void>;
   /** The app's quit, through its before-quit question. */
@@ -20,6 +16,8 @@ export type MainCommandDeps = {
   zoom: { level: () => number; save: (level: number) => void };
   /** The window controls' overlay for a zoom level, kept in step with the zoom; undefined when windows have none. */
   titleBarOverlay?: ((level: number) => TitleBarOverlay) | undefined;
+  /** The user-input record that `fromPage` checks and `watchWindow` feeds; the bridge's picker calls check the same one. */
+  gate: InputGate;
   log?: (line: string) => void;
 };
 
@@ -31,7 +29,7 @@ export type MainCommands = {
   runMainCommand: (id: MainCommandId, win: BrowserWindow | undefined) => Promise<void>;
   /**
    * The bridge's command(): `id` is the page's, so anything outside MAIN_COMMAND_IDS is refused and nothing runs, and
-   * so is a clipboard command or the items folder picker without the user's input to `win` just before (`pageMayRun`).
+   * so is a clipboard command or a folder picker without the user's input to `win` just before (`gate`).
    */
   fromPage: (id: unknown, win: BrowserWindow | undefined) => Promise<void>;
   /** The zoom level the windows show. */
@@ -45,10 +43,9 @@ export type MainCommands = {
   applicationMenu: () => Menu | null;
 };
 
-export const mainCommands = ({ switchWorkspace, chooseItemsFolder, stopService, quit, zoom, titleBarOverlay, log = console.error }: MainCommandDeps): MainCommands => {
+export const mainCommands = ({ stopService, quit, zoom, titleBarOverlay, gate, log = console.error }: MainCommandDeps): MainCommands => {
   // The level the windows show; the saved one is only for the next start, so a failed save doesn't hold it back.
   let level = zoom.level();
-  const lastInputAt = new WeakMap<WebContents, number>();
   const setZoom = (to: number): void => {
     const next = clampZoom(to);
     level = next;
@@ -94,10 +91,6 @@ export const mainCommands = ({ switchWorkspace, chooseItemsFolder, stopService, 
         return;
       case "window.close":
         return win?.close();
-      case "workspace.switch":
-        return switchWorkspace(win);
-      case "items.chooseFolder":
-        return chooseItemsFolder(win);
       case "service.stop":
         return stopService();
       case "app.quit":
@@ -111,17 +104,17 @@ export const mainCommands = ({ switchWorkspace, chooseItemsFolder, stopService, 
       if (!isMainCommandId(id)) {
         return Promise.reject(new Error("Wombat's main process has no such command; send one of MAIN_COMMAND_IDS (src/shared/bridge.ts)."));
       }
-      if (!pageMayRun(id, win === undefined ? undefined : lastInputAt.get(win.webContents), Date.now())) {
-        return Promise.reject(new Error(refusalWithoutInput(id)));
+      try {
+        gate.check(id, win?.webContents);
+      } catch (error) {
+        return Promise.reject(error instanceof Error ? error : new Error(String(error)));
       }
       return runMainCommand(id, win);
     },
     zoomLevel: () => level,
     watchWindow: (win) => {
       const contents = win.webContents;
-      contents.on("input-event", (_event, input) => {
-        if (isUserInput(input.type)) lastInputAt.set(contents, Date.now());
-      });
+      gate.watch(contents);
       contents.on("did-finish-load", () => {
         contents.setZoomLevel(level);
         if (titleBarOverlay !== undefined) win.setTitleBarOverlay(titleBarOverlay(level));

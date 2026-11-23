@@ -357,7 +357,7 @@ const binderListing = {
 };
 
 /**
- * A binder as the service lists it (`GET /binders`) for the app, hidden ones included. `id` is null
+ * A binder as the service lists it (`GET /workspaces/:ws/binders`) for the app, hidden ones included. `id` is null
  * when its `_binder.yaml` fails to parse or validate: then only its path and problems are known, and its
  * files aren't listed.
  */
@@ -402,10 +402,10 @@ const itemFields = {
   problems: z.array(Problem),
 };
 
-/** An item as a binder's list sends it (`GET /binders/:id/items`), invalid ones included; no body. */
+/** An item as a binder's list sends it (`GET /workspaces/:ws/binders/:id/items`), invalid ones included; no body. */
 export const ItemSummary = z.object(itemFields);
 export type ItemSummary = z.infer<typeof ItemSummary>;
 
-/** One item (`GET /items/:ref`, by id, handle or alias): the summary plus its body, everything after the title line. */
+/** One item (`GET /workspaces/:ws/items/:ref`, by id, handle or alias): the summary plus its body, everything after the title line. */
 export const Item = z.object({ ...itemFields, body: z.string().nullable() });
 export type Item = z.infer<typeof Item>;

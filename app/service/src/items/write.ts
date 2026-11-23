@@ -81,6 +81,7 @@ export type ItemChange =
   | { kind: "update"; handle: string; fields: Record<string, unknown>; baseVersion: string }
   | { kind: "delete"; handle: string; baseVersion: string };
 
+/** `root`: the items folder's real path, as the store holds it; its handle counters are the folder's, keyed by it. */
 export type WriterOptions = { root: string; store: Store; log?: Log };
 
 /** A value as one line of YAML that reads back as the same value. */
@@ -407,7 +408,7 @@ export const openWriter = ({ root, store, log }: WriterOptions): Writer => ({
     queueWrite(root, async () => {
       const { read, binder, title, textFor } = await checkCreate(root, binderId, item);
       const { settings } = binder;
-      const handle = formatHandle(settings.prefix, store.nextHandleNumber(settings.id, read.floors.get(settings.prefix) ?? 0));
+      const handle = formatHandle(settings.prefix, store.nextHandleNumber(root, settings.id, read.floors.get(settings.prefix) ?? 0));
       const text = textFor(id, handle);
       if (text === undefined) throw new Error(`The new item ${handle} passed its read-back check with stand-in values but not with the real ones.`);
       const file = settings.naming === "free" ? (item.file ?? "") : [handle, slugOf(title)].filter(Boolean).join("-") + ".md";

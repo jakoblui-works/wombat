@@ -1,35 +1,47 @@
-// The app's settings: `<userData>/settings.json`, private to the user (it names their folders), written atomically
-// so a crash never leaves half a file. A field that doesn't parse falls back to its default alone; a file that isn't
-// settings at all is moved aside, never overwritten.
+// The app's settings: `<userData>/settings.json`, private to the user, written atomically so a crash never leaves half
+// a file. A field that doesn't parse falls back to its default alone; a file that isn't settings at all is moved aside,
+// never overwritten. Version 2 holds no folder: the service keeps the workspaces. A version 1 file (it named the
+// workspaces) is read once, its workspaces handed to the service (upgradeSettings), then rewritten as version 2.
 import { readFileSync, renameSync } from "node:fs";
 import path from "node:path";
+import type { AddWorkspaceRequest } from "@wombat/shared/api";
 import { writePrivateFile } from "@wombat/shared/private-file";
 import { z } from "zod";
 import type { RendererSettings } from "../shared/bridge.ts";
 import { clampZoom } from "./zoom.ts";
 
-const VERSION = 1;
+const VERSION = 2;
 
 const AbsolutePath = z.string().refine((value) => path.isAbsolute(value), "must be an absolute path");
 
-/** One workspace root's settings. */
-const WorkspaceSettings = z.object({ itemsRoot: AbsolutePath.optional(), layout: z.unknown().optional() });
-
-export const Settings = z.object({
-  version: z.literal(VERSION).default(VERSION),
-  /** The workspace root the service runs for; unset until the user picks one. */
-  workspace: AbsolutePath.optional(),
-  /** Per workspace root. */
-  workspaces: z.record(z.string(), WorkspaceSettings).default({}),
+/** The fields version 1 and 2 share. */
+const SHARED = {
   /** False: a quit with agent processes applies `quitAnswer` without asking (decideQuit). */
   askOnQuit: z.boolean().default(true),
   /** The quit answer remembered with "Don't ask again"; unset with askOnQuit false (an older file) reads as "leave". */
   quitAnswer: z.enum(["stop", "leave"]).optional(),
-  lastAgentFolder: z.string().optional(),
   /** Main's alone: the page changes it only through the zoom commands. */
   zoomLevel: z.number().transform(clampZoom).default(0),
-});
+};
+
+/** The page's saved shell: JSON only, since a value that can't be held would block every later read. */
+const Shell = z.json();
+
+export const Settings = z.object({ version: z.literal(VERSION).default(VERSION), ...SHARED, shell: Shell.optional() });
 export type Settings = z.infer<typeof Settings>;
+
+/** One workspace root's settings in a version 1 file. */
+const WorkspaceSettingsV1 = z.object({ itemsRoot: AbsolutePath.optional(), layout: z.unknown().optional() });
+
+/** A version 1 file: the workspaces by root, the open one, and the page's last folder. Read only to upgrade it. */
+export const SettingsV1 = z.object({
+  version: z.literal(1).default(1),
+  workspace: AbsolutePath.optional(),
+  workspaces: z.record(z.string(), WorkspaceSettingsV1).default({}),
+  lastAgentFolder: z.string().optional(),
+  ...SHARED,
+});
+export type SettingsV1 = z.infer<typeof SettingsV1>;
 
 export const SETTINGS_FILE = "settings.json";
 
@@ -57,36 +69,39 @@ const validFields = (shape: Record<string, z.ZodType>, raw: Record<string, unkno
 };
 
 /** Each workspace and each of its fields on its own; the log names the field, never the workspace's folder. */
-const parseWorkspaces = (raw: unknown, log: (line: string) => void): Settings["workspaces"] => {
+const parseWorkspacesV1 = (raw: unknown, log: (line: string) => void): SettingsV1["workspaces"] => {
   if (raw === undefined) return {};
   if (!isObject(raw)) {
     logInvalid(log, "workspaces");
     return {};
   }
-  const workspaces: Settings["workspaces"] = {};
+  const workspaces: SettingsV1["workspaces"] = {};
   for (const [root, entry] of Object.entries(raw)) {
-    if (isObject(entry)) workspaces[root] = WorkspaceSettings.parse(validFields(WorkspaceSettings.shape, entry, log, "workspaces."));
+    if (isObject(entry)) workspaces[root] = WorkspaceSettingsV1.parse(validFields(WorkspaceSettingsV1.shape, entry, log, "workspaces."));
     else logInvalid(log, "workspaces");
   }
   return workspaces;
 };
 
 /** Each field on its own, so one bad field costs only itself; the log names the field, never its value. */
-const parseFields = (raw: Record<string, unknown>, log: (line: string) => void): Settings => {
+const parseV1 = (raw: Record<string, unknown>, log: (line: string) => void): SettingsV1 => {
   // Fields that failed are left out, so their defaults apply here.
-  const fields = validFields(Settings.omit({ workspaces: true }).shape, raw, log);
-  return Settings.parse({ ...fields, workspaces: parseWorkspaces(raw["workspaces"], log) });
+  const fields = validFields(SettingsV1.omit({ workspaces: true, version: true }).shape, raw, log);
+  return SettingsV1.parse({ ...fields, workspaces: parseWorkspacesV1(raw["workspaces"], log) });
 };
+
+const parseV2 = (raw: Record<string, unknown>, log: (line: string) => void): Settings =>
+  Settings.parse(validFields(Settings.omit({ version: true }).shape, raw, log));
 
 /** A newer app's settings: this one can't tell which fields it would lose by rewriting them. */
 const isNewer = (raw: Record<string, unknown>): boolean => typeof raw["version"] === "number" && raw["version"] > VERSION;
 
 /**
- * The settings at `file`; defaults when it's missing. A file that can't be read, isn't a JSON object or comes from a
- * newer app is renamed to `settings.json.bad` (replacing an older one) and the defaults are returned, so the next
- * save doesn't lose it.
+ * The settings at `file`; version 2 defaults when it's missing. A file without a version or at version 1 is read as
+ * version 1, for upgradeSettings. A file that can't be read, isn't a JSON object or comes from a newer app is renamed
+ * to `settings.json.bad` (replacing an older one) and the defaults are returned, so the next save doesn't lose it.
  */
-export const loadSettings = (file: string, log: (line: string) => void = console.warn): Settings => {
+export const loadSettings = (file: string, log: (line: string) => void = console.warn): Settings | SettingsV1 => {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(file, "utf8"));
@@ -94,7 +109,7 @@ export const loadSettings = (file: string, log: (line: string) => void = console
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return defaults();
     raw = undefined;
   }
-  if (isObject(raw) && !isNewer(raw)) return parseFields(raw, log);
+  if (isObject(raw) && !isNewer(raw)) return raw["version"] === VERSION ? parseV2(raw, log) : parseV1(raw, log);
   const aside = `${file}.bad`;
   try {
     renameSync(file, aside);
@@ -105,23 +120,91 @@ export const loadSettings = (file: string, log: (line: string) => void = console
   return defaults();
 };
 
-/** Writes `settings` to `file`, private to the user and atomically; a field left out is saved as its default. */
+/** Writes `settings` to `file` as version 2, private to the user and atomically; a field left out is saved as its default. */
 export const saveSettings = (file: string, settings: z.input<typeof Settings>): void =>
   writePrivateFile(file, `${JSON.stringify(Settings.parse(settings), null, 2)}\n`);
 
-/** `settings` with `itemsRoot` as the items root of `workspace` alone; its other fields and other workspaces are kept. */
-export const withItemsRoot = (settings: Settings, workspace: string, itemsRoot: string): Settings => ({
-  ...settings,
-  workspaces: { ...settings.workspaces, [workspace]: { ...settings.workspaces[workspace], itemsRoot } },
+/**
+ * Writes `settings` to `file` as version 1, with `pending`'s workspaces: a change saved before the upgrade has run
+ * keeps the workspaces it still has to hand over.
+ */
+export const saveSettingsV1 = (file: string, pending: SettingsV1, { askOnQuit, quitAnswer, zoomLevel }: Settings): void =>
+  writePrivateFile(file, `${JSON.stringify(SettingsV1.parse({ ...pending, askOnQuit, quitAnswer, zoomLevel }), null, 2)}\n`);
+
+/** Whether `settings` is a version 1 file still to upgrade. */
+export const isV1 = (settings: Settings | SettingsV1): settings is SettingsV1 => settings.version === 1;
+
+/** A folder in a version 1 file the upgrade leaves out: a workspace root, or the items root of `workspace`. */
+export type LeftOutFolder = { path: string; use: "workspace" | "items folder"; workspace: string };
+
+/**
+ * The POST /workspaces calls that carry a version 1 file's workspaces to the service, in order: the open workspace
+ * first, adopting the rows stored before the service listed workspaces, then the others, each with its items root.
+ * A root the service would refuse (`usable`: usableFolder, the rule it refuses by) is left out, and so is such an items root: a
+ * refusal would keep the file at version 1 for good. `leftOut` names what is left out, but for the open workspace's own
+ * folder (missingCurrent's).
+ */
+const upgradePlan = (v1: SettingsV1, usable: (at: string) => boolean): { requests: AddWorkspaceRequest[]; leftOut: LeftOutFolder[] } => {
+  const roots = [...new Set([...(v1.workspace === undefined ? [] : [v1.workspace]), ...Object.keys(v1.workspaces)])];
+  const requests: AddWorkspaceRequest[] = [];
+  const leftOut: LeftOutFolder[] = [];
+  for (const root of roots) {
+    if (!usable(root)) {
+      if (root !== v1.workspace) leftOut.push({ path: root, use: "workspace", workspace: root });
+      continue;
+    }
+    const itemsRoot = v1.workspaces[root]?.itemsRoot;
+    const itemsUsable = itemsRoot !== undefined && usable(itemsRoot);
+    if (itemsRoot !== undefined && !itemsUsable) leftOut.push({ path: itemsRoot, use: "items folder", workspace: root });
+    requests.push({ root, ...(itemsUsable ? { itemsRoot } : {}), ...(root === v1.workspace ? { adopt: true } : {}) });
+  }
+  return { requests, leftOut };
+};
+
+/** A version 1 file's settings as version 2: what both share, without folders, the last agent folder or the layouts. */
+export const asVersion2 = ({ askOnQuit, quitAnswer, zoomLevel }: SettingsV1): Settings => ({
+  version: VERSION,
+  askOnQuit,
+  ...(quitAnswer === undefined ? {} : { quitAnswer }),
+  zoomLevel,
 });
+
+/**
+ * A version 1 file's open workspace when the service would refuse its folder (`usable`); undefined when it wouldn't or
+ * the file names none. The rows stored before the service listed workspaces are adopted only by adding that folder, so
+ * the file stays at version 1 until it's back.
+ */
+export const missingCurrent = (v1: SettingsV1, usable: (at: string) => boolean): string | undefined =>
+  v1.workspace !== undefined && !usable(v1.workspace) ? v1.workspace : undefined;
+
+/**
+ * Adds a version 1 file's workspaces through `addWorkspace` (upgradePlan's order, one at a time). Resolves with
+ * `waitingFor`, missingCurrent's folder when the file must stay at version 1 for it (otherwise undefined, and the caller
+ * saves the settings as version 2: asVersion2), and `leftOut`, the folders the adds left out but for that one. Rejects at the first add that fails, so the caller leaves the file at version 1
+ * and the next start tries again (an add of a listed root changes nothing).
+ */
+export const upgradeSettings = async (
+  v1: SettingsV1,
+  addWorkspace: (request: AddWorkspaceRequest) => Promise<unknown>,
+  usable: (at: string) => boolean,
+): Promise<{ waitingFor: string | undefined; leftOut: LeftOutFolder[] }> => {
+  const { requests, leftOut } = upgradePlan(v1, usable);
+  for (const request of requests) await addWorkspace(request);
+  return { waitingFor: missingCurrent(v1, usable), leftOut };
+};
+
+/** The largest saved shell, as JSON text: every start reads and parses it. */
+export const MAX_SHELL_CHARS = 1_000_000;
 
 /** What the page may change: the patch `settings.set` takes. */
 export const RendererSettingsPatch = z.strictObject({
   askOnQuit: Settings.shape.askOnQuit.unwrap().exactOptional(),
-  lastAgentFolder: Settings.shape.lastAgentFolder.unwrap().exactOptional(),
-  // JSON only: a value that can't be written would block every later save.
-  layout: z.json().exactOptional(),
+  lastAgentFolder: z.string().exactOptional(),
+  shell: Shell.refine((shell) => JSON.stringify(shell).length <= MAX_SHELL_CHARS, {
+    message: `the window's layout is over ${MAX_SHELL_CHARS.toLocaleString("en-GB")} characters`,
+  }).exactOptional(),
 });
+export type RendererSettingsPatch = z.infer<typeof RendererSettingsPatch>;
 
 /**
  * True when `Patch` has exactly the fields of `Page`, each with a value `Page` takes. The bridge's RendererSettings
@@ -138,52 +221,52 @@ export type PatchMatches<Page, Patch> = [keyof Page] extends [keyof Patch]
 /** Fails to compile when RendererSettings and RendererSettingsPatch drift apart. */
 export const RENDERER_PATCH_MATCHES: PatchMatches<RendererSettings, z.infer<typeof RendererSettingsPatch>> = true;
 
-/** The settings the page sees: no workspace paths but the current workspace's layout. */
-export const rendererSettings = (settings: Settings): RendererSettings => {
-  const layout = settings.workspace === undefined ? undefined : settings.workspaces[settings.workspace]?.layout;
-  return {
-    askOnQuit: settings.askOnQuit,
-    ...(settings.lastAgentFolder === undefined ? {} : { lastAgentFolder: settings.lastAgentFolder }),
-    ...(layout === undefined ? {} : { layout }),
-  };
-};
+/**
+ * The page's own settings that version 2 doesn't save (no folder): main holds them while it runs, so a reloaded page
+ * gets them back, and they're gone at the next start.
+ */
+export type PageMemory = Pick<RendererSettings, "lastAgentFolder">;
 
-/** "askOnQuit, lastAgentFolder and layout": the fields the page may change, for the refusal. */
+/** The settings the page sees. */
+export const rendererSettings = (settings: Settings, memory: PageMemory): RendererSettings => ({
+  askOnQuit: settings.askOnQuit,
+  ...(memory.lastAgentFolder === undefined ? {} : { lastAgentFolder: memory.lastAgentFolder }),
+  ...(settings.shell === undefined ? {} : { shell: settings.shell }),
+});
+
+/** "askOnQuit, lastAgentFolder and shell": the fields the page may change, for the refusal. */
 const PATCH_FIELDS = new Intl.ListFormat("en-GB", { type: "conjunction" }).format(Object.keys(RendererSettingsPatch.shape));
 
 /** A change from the page that doesn't fit; its message is safe to show the page. */
 export class SettingsChangeRefused extends Error {}
 
-/**
- * `settings` with the page's `patch` applied; throws SettingsChangeRefused when it doesn't fit RendererSettingsPatch.
- * With `keepLayout` false the patch's layout is checked but not kept.
- */
-export const withRendererPatch = (settings: Settings, patch: unknown, keepLayout = true): Settings => {
+/** The page's `patch`, parsed; throws SettingsChangeRefused when it doesn't fit RendererSettingsPatch. */
+export const parseRendererPatch = (patch: unknown): RendererSettingsPatch => {
   const parsed = RendererSettingsPatch.safeParse(patch);
   if (!parsed.success) throw new SettingsChangeRefused(`The settings change isn't valid (${z.prettifyError(parsed.error)}); send only ${PATCH_FIELDS}.`);
-  const { layout, ...rest } = parsed.data;
-  const next: Settings = { ...settings, ...rest };
-  if (layout === undefined || !keepLayout) return next;
-  const { workspace } = settings;
-  if (workspace === undefined) throw new SettingsChangeRefused("There's no workspace yet to keep a layout for; choose one first.");
-  return { ...next, workspaces: { ...settings.workspaces, [workspace]: { ...settings.workspaces[workspace], layout } } };
+  return parsed.data;
 };
 
 /**
- * Applies the page's `patch` through `update` (the workspace control's). A save that fails is logged here in full and
- * rejected with a message that names no path: the error itself names the settings file.
+ * Applies the page's `patch`: its askOnQuit and shell saved through `update` (the workspace control's), the rest kept
+ * in `memory`. A save that fails is logged here in full and rejected with a message that names no path (the error
+ * itself names the settings file); `memory` changes only once the save went through.
  */
 export const savePageSettings = (
   update: (change: (current: Settings) => Settings) => void,
+  memory: PageMemory,
   patch: unknown,
   log: (line: string) => void = console.error,
-  keepLayout = true,
-): void => {
-  try {
-    update((current) => withRendererPatch(current, patch, keepLayout));
-  } catch (error) {
-    if (error instanceof SettingsChangeRefused) throw error;
-    log(`Wombat couldn't save the settings: ${error instanceof Error ? error.message : String(error)}`);
-    throw new Error("Wombat couldn't save the settings. Check that its settings folder is yours and writable, then try again.", { cause: error });
+): PageMemory => {
+  const { askOnQuit, shell, ...rest } = parseRendererPatch(patch);
+  const saved = { ...(askOnQuit === undefined ? {} : { askOnQuit }), ...(shell === undefined ? {} : { shell }) };
+  if (Object.keys(saved).length > 0) {
+    try {
+      update((current) => ({ ...current, ...saved }));
+    } catch (error) {
+      log(`Wombat couldn't save the settings: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error("Wombat couldn't save the settings. Check that its settings folder is yours and writable, then try again.", { cause: error });
+    }
   }
+  return { ...memory, ...rest };
 };

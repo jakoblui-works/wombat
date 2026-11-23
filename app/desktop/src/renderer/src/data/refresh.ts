@@ -52,10 +52,15 @@ export const refresh = (queryClient: QueryClient, queryKey: QueryKey): Promise<v
   return entry.done;
 };
 
-/** Reads the binders, every cached binder's items and every cached single item again. */
-export const refreshItems = (queryClient: QueryClient): void => {
-  void refresh(queryClient, keys.binders);
-  for (const prefix of [keys.binderItemLists, keys.itemDetails]) {
+/** Reads every cached query under each of `prefixes` again. */
+export const refreshAll = (queryClient: QueryClient, prefixes: readonly QueryKey[]): void => {
+  for (const prefix of prefixes) {
     for (const query of queryClient.getQueryCache().findAll({ queryKey: prefix })) void refresh(queryClient, query.queryKey);
   }
+};
+
+/** Reads workspace `ws`'s binders, cached binder items and cached items again; every workspace's without `ws`. */
+export const refreshItems = (queryClient: QueryClient, ws?: string): void => {
+  if (ws === undefined) refreshAll(queryClient, [keys.binderLists, keys.binderItemLists, keys.itemDetails]);
+  else refreshAll(queryClient, [keys.binders(ws), keys.workspaceBinderItems(ws), keys.workspaceItems(ws)]);
 };

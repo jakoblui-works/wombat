@@ -3,7 +3,7 @@
 import { parseAlert } from "@wombat/shared/api";
 import { describe, expect, test } from "vitest";
 
-import { REPO, TEST_TIMEOUT_MS, waitFor, WAIT_MS } from "../../test/manager-fixtures.ts";
+import { REPO, TEST_TIMEOUT_MS, waitFor, WAIT_MS, WORKSPACE } from "../../test/manager-fixtures.ts";
 import { rawRequest, serve, type Stream } from "../../test/server-fixtures.ts";
 
 const alertsOf = (stream: Stream) => stream.events().filter((event) => event.data !== "");
@@ -13,14 +13,14 @@ describe("GET /events", () => {
     "sends one alert per committed change, with its seq as the SSE id, from the moment it is opened, and replays nothing",
     async () => {
       const s = await serve();
-      await s.manager.start("fake-reply", REPO);
+      await s.manager.start(WORKSPACE, "fake-reply", REPO);
       const openedAt = s.store.currentSeq();
 
       const stream = await s.stream();
       expect(stream.status).toBe(200);
       expect(String(stream.headers["content-type"])).toMatch(/^text\/event-stream/);
 
-      const created = await s.api("POST", "/agents", { harness: "fake-reply", repo: REPO });
+      const created = await s.api("POST", "/agents", { workspace: WORKSPACE, harness: "fake-reply", repo: REPO });
       const { id } = created.json as { id: string };
       expect((await s.api("POST", `/agents/${id}/messages`, { text: "Say hello" })).status).toBe(202);
       await s.turnEnded(id);

@@ -4,22 +4,41 @@ import { afterEach, expect, test, vi } from "vitest";
 import { ItemsErrorCode } from "@wombat/shared/api";
 import type { Item } from "@wombat/shared/items";
 
-import { fakeHost, item, itemTab } from "../../../../../../test/fake-tab-host.ts";
 import { keys } from "../../../data/keys.ts";
 import { createQueryClient } from "../../../data/query-client.ts";
 import "../../activities.ts";
 import { DESK_ACTIVITY } from "../../activity-ids.ts";
-import { DEFAULT_DESK, type DeskLayout } from "../../layout.ts";
-import { keepAllTabs, openTab, openTabs, revealStore, tabKey, workbenchActions } from "../../tabs.ts";
+import { shellTabActions } from "../../shell/RightSidebar/tab-actions.ts";
+import { tabTitleStore } from "../../shell/RightSidebar/tab-titles.ts";
+import { activityStatesOf, changeActivityState, emptyShell, rightView, type ShellState, showActivity } from "../../shell/shell-state.ts";
+import { revealStore, tabKey } from "../../tabs.ts";
 import { previewName } from "../ItemPreview/item-preview.ts";
 import { ITEM_PANEL } from "../item-params.ts";
 import { itemNotFound } from "../reads.ts";
-import { followItem, type ItemNavigator, itemTabs } from "./item-navigation.ts";
+import { DEFAULT_DESK, deskOf, type DeskLayout } from "./desk-layout.ts";
+import { followItem, type ItemNavigator, itemTabs, openBinder } from "./item-navigation.ts";
 
 afterEach(() => {
-  keepAllTabs();
   vi.unstubAllGlobals();
 });
+
+const ITEMS = 5;
+const itemTab = (n: number) => ({ ws: "ws-chores0001", binderId: "chores", itemId: `0196f3c2-5a00-7000-8000-${n.toString(16).padStart(12, "0")}` });
+const item = fc.nat({ max: ITEMS - 1 });
+
+/** The workbench's tab actions on a shell state of their own, with no workspace shown. */
+const shellTabs = (reveals = revealStore()) => {
+  let state: ShellState = emptyShell;
+  const actions = shellTabActions({
+    current: () => ({ state, shown: undefined }),
+    change: (update) => {
+      state = update(state);
+    },
+    reveals,
+    titles: tabTitleStore(),
+  });
+  return { actions, reveals };
+};
 
 test("an item's tabs are found by its id, whichever binder they were opened from, and no draft's or other item's tab", () => {
   const binderArb = fc.constantFrom("tasks", "archive", "notes", "chores");
@@ -27,19 +46,15 @@ test("an item's tabs are found by its id, whichever binder they were opened from
   const openArb = fc.array(fc.oneof(fc.record({ n: item, binderId: binderArb }), fc.record({ draft: fc.nat({ max: 3 }), binderId: binderArb })), { maxLength: 12 });
   fc.assert(
     fc.property(openArb, item, (opened, wanted) => {
-      const { host } = fakeHost();
-      try {
-        const showing = new Set<string>();
-        for (const each of opened) {
-          const params = "n" in each ? { ...itemTab(each.n), binderId: each.binderId } : { binderId: each.binderId, draft: `draft-${String(each.draft)}`, context: {} };
-          openTab(host, ITEM_PANEL, params);
-          if ("n" in each && each.n === wanted) showing.add(tabKey(ITEM_PANEL, params));
-        }
-        const found = itemTabs({ workbench: { host } }, itemTab(wanted).itemId).map((tab) => tabKey(tab.panelId, tab.params));
-        expect(new Set(found), `item ${String(wanted)} among ${JSON.stringify(opened)}`).toEqual(showing);
-      } finally {
-        keepAllTabs();
+      const { actions } = shellTabs();
+      const showing = new Set<string>();
+      for (const each of opened) {
+        const params = "n" in each ? { ...itemTab(each.n), binderId: each.binderId } : { ws: itemTab(0).ws, binderId: each.binderId, draft: `draft-${String(each.draft)}`, context: {} };
+        actions.openTab(ITEM_PANEL, params, undefined, { workspace: params.ws });
+        if ("n" in each && each.n === wanted) showing.add(tabKey(ITEM_PANEL, params));
       }
+      const found = itemTabs({ workbench: actions }, itemTab(wanted).itemId).map((tab) => tabKey(tab.panelId, tab.params));
+      expect(new Set(found), `item ${String(wanted)} among ${JSON.stringify(opened)}`).toEqual(showing);
     }),
     { numRuns: 300 },
   );
@@ -66,19 +81,22 @@ const tabOf = (shown: Item) => ({ binderId: shown.binder, itemId: shown.id });
 /** A page whose item reads the test answers itself, one ref at a time; the service lists no binders. */
 const page = () => {
   const asked = new Map<string, (answer: Answer) => void>();
-  const request = (_method: string, path: string): Promise<Answer> =>
-    path === "/binders" ? Promise.resolve({ status: 200, body: { binders: [] } }) : new Promise((resolve) => asked.set(decodeURIComponent(path.replace("/items/", "")), resolve));
-  vi.stubGlobal("window", { wombat: { service: { request } } });
+  const ws = { id: "ws-apiary0001", name: "apiary", root: "/invented/apiary", missing: false };
+  const request = (_method: string, path: string): Promise<Answer> => {
+    if (path === "/workspaces") return Promise.resolve({ status: 200, body: { workspaces: [ws] } });
+    if (path === `/workspaces/${ws.id}/binders`) return Promise.resolve({ status: 200, body: { binders: [] } });
+    return new Promise((resolve) => asked.set(decodeURIComponent(path.replace(`/workspaces/${ws.id}/items/`, "")), resolve));
+  };
+  vi.stubGlobal("window", { wombat: { service: { request }, workspace: { get: () => Promise.resolve({ root: ws.root }) } } });
 
-  const { host } = fakeHost();
-  const reveals = revealStore();
+  const { actions, reveals } = shellTabs();
   const titleContext = () => ({ agents: [] });
   const shownActivities: string[] = [];
   const told: string[] = [];
   let desk: DeskLayout = DEFAULT_DESK;
   const queryClient = createQueryClient();
   const navigator: ItemNavigator = {
-    workbench: { ...workbenchActions(host, reveals, titleContext), host, reveals, titleContext, showActivity: (id) => shownActivities.push(id) },
+    workbench: { ...actions, reveals, titleContext, showActivity: (id) => shownActivities.push(id) },
     queryClient,
     changeDesk: (change) => {
       desk = change(desk);
@@ -89,12 +107,13 @@ const page = () => {
     navigator,
     told,
     queryClient,
+    ws: ws.id,
     /** Answers the read of `ref` once the page has asked for it. */
     answer: async (ref: string, answer: Answer): Promise<void> => {
       await vi.waitFor(() => expect([...asked.keys()]).toContain(ref));
       asked.get(ref)?.(answer);
     },
-    itemTabsOpen: () => openTabs(host, ITEM_PANEL).map((tab) => tab.params),
+    itemTabsOpen: () => actions.openTabs(ITEM_PANEL).map((tab) => tab.params),
     desk: () => desk,
     shownActivities,
   };
@@ -108,21 +127,49 @@ test.each<[string, Answer, Item | undefined, unknown[]]>([
   ["finds no item", { status: 404, body: { error: { code: ItemsErrorCode.enum.item_not_found, message: "No item HV-2." } } }, undefined, [NOT_FOUND]],
   ["fails", { status: 500, body: { error: { code: "internal_error", message: UNREADABLE } } }, undefined, [expect.stringContaining(UNREADABLE)]],
 ])("only the latest follow lands, though an earlier one's read comes back after it: the later read %s", async (_name, laterAnswer, lands, tells) => {
-  const { navigator, told, queryClient, answer, itemTabsOpen, desk, shownActivities } = page();
+  const { navigator, told, queryClient, ws, answer, itemTabsOpen, desk, shownActivities } = page();
   const earlier = hive(1);
 
-  followItem(navigator, "HV-1");
-  followItem(navigator, "HV-2");
+  followItem(navigator, ws, "HV-1");
+  followItem(navigator, ws, "HV-2");
   await answer("HV-2", laterAnswer);
-  if (lands === undefined) await vi.waitFor(() => expect(queryClient.getQueryState(keys.item("HV-2"))?.status).toBe("error"));
+  if (lands === undefined) await vi.waitFor(() => expect(queryClient.getQueryState(keys.item(ws, "HV-2"))?.status).toBe("error"));
   else await vi.waitFor(() => expect(desk().binderId).toBe(lands.binder));
   await answer("HV-1", { status: 200, body: earlier });
-  await vi.waitFor(() => expect(queryClient.getQueryData(keys.item("HV-1"))).toBeDefined());
+  await vi.waitFor(() => expect(queryClient.getQueryData(keys.item(ws, "HV-1"))).toBeDefined());
   // The earlier follow's own step after its read is queued behind the cache's; a timer runs only once that queue is empty.
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  expect(itemTabsOpen()).toEqual(lands === undefined ? [] : [tabOf(lands)]);
+  expect(itemTabsOpen()).toEqual(lands === undefined ? [] : [{ ws, ...tabOf(lands) }]);
   expect(desk()).toEqual(lands === undefined ? DEFAULT_DESK : { ...DEFAULT_DESK, binderId: lands.binder });
   expect(shownActivities).toEqual(lands === undefined ? [] : [DESK_ACTIVITY]);
   expect(told).toEqual(tells);
+});
+
+test("openBinder of another workspace opens that workspace's Desk on the binder and leaves the shown one's alone", async () => {
+  const SHOWN = "ws-apiary0001";
+  const OTHER = "ws-meadow0002";
+  let state: ShellState = emptyShell;
+  const change = (update: (state: ShellState) => ShellState): void => {
+    state = update(state);
+  };
+  const reveals = revealStore();
+  const actions = shellTabActions({ current: () => ({ state, shown: SHOWN }), change, reveals, titles: tabTitleStore() });
+  const queryClient = createQueryClient();
+  for (const ws of [SHOWN, OTHER]) queryClient.setQueryData(keys.binders(ws), { binders: [] });
+  // As the shell wires it: a Desk change and an activity name their workspace, else the shown one's.
+  const navigator: ItemNavigator = {
+    workbench: { ...actions, reveals, titleContext: () => ({ agents: [] }), showActivity: (id, ws) => change((current) => showActivity(current, ws ?? SHOWN, id)) },
+    queryClient,
+    changeDesk: (update, ws) => change((current) => changeActivityState(current, ws, DESK_ACTIVITY, (slot) => update(deskOf(slot)))),
+    tell: () => undefined,
+  };
+  const deskIn = (ws: string): DeskLayout => deskOf(activityStatesOf(state, ws)[DESK_ACTIVITY]);
+
+  openBinder(navigator, OTHER, "hives");
+
+  await vi.waitFor(() => expect(deskIn(OTHER).binderId).toBe("hives"));
+  expect(rightView(state, OTHER)).toEqual({ show: "navigator", activity: DESK_ACTIVITY });
+  expect(deskIn(SHOWN)).toEqual(DEFAULT_DESK);
+  expect(rightView(state, SHOWN)).toEqual({ show: "closed" });
 });

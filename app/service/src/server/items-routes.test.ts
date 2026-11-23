@@ -13,7 +13,7 @@ import { extraProblemKeys, openAccessRoot } from "../../test/access-fixtures.ts"
 import { FIXTURE_FILES, IDS, VALID_FILES, writeAt, writeRoot } from "../../test/items-fixtures.ts";
 import { TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
 import { callTool, STUB_AGENT, STUB_TOKEN } from "../../test/mcp-fixtures.ts";
-import { serve, type Response, type Served } from "../../test/server-fixtures.ts";
+import { serve, wsPath, type Response, type Served } from "../../test/server-fixtures.ts";
 import { AccessError } from "../items/refusals.ts";
 import { OLD_SETTINGS_FILE, SETTINGS_FILE } from "../items/binders.ts";
 
@@ -26,13 +26,13 @@ access: hidden
 
 describe("items routes", () => {
   test(
-    "GET /items/:ref answers the same item for its id, its handle and its alias",
+    "GET /workspaces/:ws/items/:ref answers the same item for its id, its handle and its alias",
     async () => {
       // BL-1 is also known by its old handle BL-3.
       const s = await serve({ itemsRoot: writeRoot(VALID_FILES) });
       const get = async (ref: string) => {
-        const response = await s.api("GET", `/items/${encodeURIComponent(ref)}`);
-        expect(response.status, `GET /items/${ref}: ${response.text}`).toBe(200);
+        const response = await s.api("GET", wsPath(`/items/${encodeURIComponent(ref)}`));
+        expect(response.status, `GET /workspaces/:ws/items/${ref}: ${response.text}`).toBe(200);
         return response.json as { id: string };
       };
       const byHandle = await get("BL-1");
@@ -54,7 +54,7 @@ describe("items routes", () => {
 
       /** A route's JSON as sent (a schema parse would drop extra keys), and the number of problems in it. */
       const sent = async (path: string) => {
-        const response = await s.api("GET", path);
+        const response = await s.api("GET", wsPath(path));
         expect(response.status, `${path}: ${response.text}`).toBe(200);
         return { json: response.json, problems: (response.text.match(/"message":/g) ?? []).length };
       };
@@ -195,7 +195,7 @@ const agentOutcome = async (write: Promise<unknown>): Promise<Outcome> => {
 };
 
 const versionOf = async (s: Served, ref: string) => {
-  const response = await s.api("GET", `/items/${encodeURIComponent(ref)}`);
+  const response = await s.api("GET", wsPath(`/items/${encodeURIComponent(ref)}`));
   expect(response.status, response.text).toBe(200);
   return (response.json as { version: string }).version;
 };
@@ -241,12 +241,12 @@ describe("my item writes", () => {
         if (theirs.code === "invalid_fields") expect(mine.problems, `${what}: the agent's problems`).toEqual(theirs.problems);
       };
 
-      const mineUpdate = routeOutcome(await s.api("PATCH", "/items/INT-1", { version: await versionOf(s, "INT-1"), fields: properties }), 200);
+      const mineUpdate = routeOutcome(await s.api("PATCH", wsPath("/items/INT-1"), { version: await versionOf(s, "INT-1"), fields: properties }), 200);
       const agentUpdate = await agentOutcome(agent.access.update("agent-intake", "INT-1", properties, (await agent.access.get("INT-1")).version));
       expectSame(mineUpdate, agentUpdate, "PATCH against update_item");
 
       const input = { title: "Status badges in the README", body: "", properties };
-      const mineCreate = routeOutcome(await s.api("POST", "/binders/intake/items", input), 201);
+      const mineCreate = routeOutcome(await s.api("POST", wsPath("/binders/intake/items"), input), 201);
       const agentCreate = await agentOutcome(agent.access.create("agent-intake", "intake", input));
       expectSame(mineCreate, agentCreate, "POST against create_item");
     },
@@ -259,7 +259,7 @@ describe("my item writes", () => {
       const s = await serve({ itemsRoot: writeRoot(files) });
       const agent = openAccessRoot(files);
 
-      const mine = await s.api("PATCH", "/items/INT-1", { version: await versionOf(s, "INT-1"), fields: { effort: 2 } });
+      const mine = await s.api("PATCH", wsPath("/items/INT-1"), { version: await versionOf(s, "INT-1"), fields: { effort: 2 } });
       expect(mine.status, mine.text).toBe(409);
       expect(routeOutcome(mine, 200)).toEqual({ written: false, code: "items_not_writable", problems: expect.arrayContaining([expect.objectContaining({ field })]) as unknown });
 
@@ -279,8 +279,8 @@ describe("my item writes", () => {
       writeFileSync(join(root, INT1_PATH), handEdited);
 
       for (const [what, response] of [
-        ["PATCH", await s.api("PATCH", "/items/INT-1", { version: read, fields: { area: "site" } })],
-        ["DELETE", await s.api("DELETE", `/items/INT-1?version=${encodeURIComponent(read)}`)],
+        ["PATCH", await s.api("PATCH", wsPath("/items/INT-1"), { version: read, fields: { area: "site" } })],
+        ["DELETE", await s.api("DELETE", wsPath(`/items/INT-1?version=${encodeURIComponent(read)}`))],
       ] as const) {
         expect(response.status, `${what}: ${response.text}`).toBe(409);
         expect(errorOf(response).code, `${what}: ${response.text}`).toBe("stale_version");
@@ -308,13 +308,13 @@ describe("my item writes", () => {
         expect(response.status, response.text).toBe(status);
       };
 
-      expect(await authors(async () => ok(201)(await s.api("POST", "/binders/intake/items", { title: "Search in the docs", body: "", properties: {} }))), "my create").toEqual([
+      expect(await authors(async () => ok(201)(await s.api("POST", wsPath("/binders/intake/items"), { title: "Search in the docs", body: "", properties: {} }))), "my create").toEqual([
         { event: "item_created", by: "me" },
       ]);
-      expect(await authors(async () => ok(200)(await s.api("PATCH", "/items/INT-1", { version: await versionOf(s, "INT-1"), fields: { effort: 2 } }))), "my update").toEqual([
+      expect(await authors(async () => ok(200)(await s.api("PATCH", wsPath("/items/INT-1"), { version: await versionOf(s, "INT-1"), fields: { effort: 2 } }))), "my update").toEqual([
         { event: "item_updated", by: "me" },
       ]);
-      expect(await authors(async () => ok(204)(await s.api("DELETE", `/items/INT-1?version=${encodeURIComponent(await versionOf(s, "INT-1"))}`))), "my delete").toEqual([
+      expect(await authors(async () => ok(204)(await s.api("DELETE", wsPath(`/items/INT-1?version=${encodeURIComponent(await versionOf(s, "INT-1"))}`)))), "my delete").toEqual([
         { event: "item_deleted", by: "me" },
       ]);
 
@@ -355,7 +355,7 @@ const tree = (dir: string): Record<string, string> => {
   return out;
 };
 
-describe("POST /binders", () => {
+describe("POST /workspaces/:ws/binders", () => {
   test(
     "refuses a taken id or prefix (a hidden binder's too), a folder that is a binder already, a path outside the root, and a folder a free binder's include reaches, writing nothing",
     async () => {
@@ -380,7 +380,7 @@ describe("POST /binders", () => {
         { what: "a path that climbs out of the root", body: { path: "work/../../escaped", name: "Escaped", prefix: "ESC" }, field: "path" },
       ];
       for (const { what, body, field } of refusals) {
-        const response = await s.api("POST", "/binders", body);
+        const response = await s.api("POST", wsPath("/binders"), body);
         expect(response.status, `${what}: ${response.text}`).toBe(400);
         expect(errorOf(response).code, `${what}: ${response.text}`).toBe("invalid_fields");
         expect((errorOf(response).problems ?? []).map((problem) => problem.field), `${what}: ${response.text}`).toContain(field);
@@ -399,14 +399,14 @@ describe("POST /binders", () => {
       const body = { path: "notes", name: "Notes", prefix: "NOTE" };
       const before = tree(root);
 
-      const asked = await s.api("POST", "/binders", body);
+      const asked = await s.api("POST", wsPath("/binders"), body);
       expect(asked.status, asked.text).toBe(400);
       expect((errorOf(asked).problems ?? []).map((problem) => problem.field), asked.text).toEqual(["adopt"]);
       expect(tree(root), "nothing written while not adopted").toStrictEqual(before);
 
-      const created = await s.api("POST", "/binders", { ...body, adopt: true });
+      const created = await s.api("POST", wsPath("/binders"), { ...body, adopt: true });
       expect(created.status, created.text).toBe(201);
-      const listed = await s.api("GET", "/binders/notes/items");
+      const listed = await s.api("GET", wsPath("/binders/notes/items"));
       expect(listed.status, listed.text).toBe(200);
       expect((listed.json as { items: { title: string; handle: string | null }[] }).items.map(({ title, handle }) => ({ title, handle }))).toEqual([{ title: "Groceries", handle: "NOTE-1" }]);
     },

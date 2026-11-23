@@ -1,4 +1,4 @@
-import type { AgentSummary } from "@wombat/shared/api";
+import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import type { FileProposalKind, ItemProposalKind, Proposal, ProposalDetail } from "@wombat/shared/proposals";
 
 import { agentTitle } from "../../lib/agent-title.ts";
@@ -26,9 +26,13 @@ export const proposedTitle = (fields: Readonly<Record<string, unknown>>): string
 const AGENT_DELETED = "agent deleted";
 
 /** Whose proposal it is: its agent's title, or AGENT_DELETED once the agent is gone from `agents`. */
-export const proposalAgentTitle = (proposal: Pick<Proposal, "agentId">, agents: readonly AgentSummary[]): string => {
+export const proposalAgentTitle = (
+  proposal: Pick<Proposal, "agentId">,
+  agents: readonly AgentSummary[],
+  workspaces: readonly Pick<Workspace, "id" | "name">[] | undefined,
+): string => {
   const agent = agents.find(({ id }) => id === proposal.agentId);
-  return agent === undefined ? AGENT_DELETED : agentTitle(agent.id, agent);
+  return agent === undefined ? AGENT_DELETED : agentTitle(agent.id, agent, workspaces);
 };
 
 /** Whether the proposal changes a file outside the workspace (an item never is). */

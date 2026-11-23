@@ -9,27 +9,36 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type { AgentSummary, LogEntry } from "@wombat/shared/api";
+import { isFolder } from "@wombat/shared/folder";
 import { onTestFinished } from "vitest";
 
 import { createManager, type Committed } from "../src/agents/manager.ts";
 import { readInstructions } from "../src/items/instructions.ts";
 import type { Harness } from "../src/harness/harness.ts";
 import { openStore, type Store, type StoreOptions } from "../src/store/store.ts";
+import { workspaceOf } from "../src/store/workspaces.ts";
+import { workspaceIn } from "../src/workspace.ts";
 import { SCENARIOS, type FakeScenario } from "./fake-agent.ts";
 import { fakeHarness, type FakeHarnessOptions } from "./fake-harness.ts";
 import { fakeSystemd, type FakeSystemd, type FakeSystemdOptions } from "./fake-systemd.ts";
+import { WORKSPACE } from "./store-fixtures.ts";
 
 /** Per-test timeout and how long a test waits for an agent to get somewhere, in one place. */
 export const TEST_TIMEOUT_MS = 15_000;
 export const WAIT_MS = 8_000;
 
 export const REPO = "site-web";
+export { WORKSPACE };
 
 export type Manager = ReturnType<typeof createManager>;
 export type LogLine = { event: string; fields: Record<string, string | number | boolean> };
 export type { Committed };
 
 const RECORD_PID = pathToFileURL(join(import.meta.dirname, "record-pid.ts")).href;
+
+/** The manager's `workspaceOf` for one workspace, WORKSPACE at `root`, without a store holding it. */
+export const workspaceOfOne = (root: string) =>
+  workspaceIn((id) => (id === WORKSPACE ? workspaceOf({ id, root, items_root: null }, isFolder) : undefined));
 
 /** The fake agent on `scenario`, with id `fake-<scenario>`, recording its pid in `pidDir`. */
 export const trackedHarness = (scenario: FakeScenario, pidDir: string, options: FakeHarnessOptions = {}): Harness => {
@@ -167,7 +176,7 @@ export const setup = ({ systemd = "none", fake, storeOptions = {}, configSetTime
   const make = (store: Store) => {
     const manager = createManager({
       store,
-      workspaceRoot: root,
+      workspaceOf: workspaceOfOne(root),
       harnesses,
       log: (event: string, fields: LogLine["fields"]) => logs.push({ event, fields }),
       env,

@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
 
 import { CONFIG_SILENT_FILE, FAKE_CONFIG, type FakeConfig } from "../../test/fake-agent.ts";
-import { REPO, setup, TEST_TIMEOUT_MS } from "../../test/manager-fixtures.ts";
+import { REPO, setup, TEST_TIMEOUT_MS, WORKSPACE } from "../../test/manager-fixtures.ts";
 
 const refusal = (promise: Promise<unknown>) =>
   promise.then(
@@ -24,7 +24,7 @@ test(
   "after a resume, the agent runs on the model, effort, mode and fast mode it had, not on the defaults its resume answered",
   async () => {
     const t = setup();
-    const { id } = await t.manager.start("fake-mcp-config", REPO);
+    const { id } = await t.manager.start(WORKSPACE, "fake-mcp-config", REPO);
     const chosen: FakeConfig = { model: "fake-large", fast: true, effort: "high", mode: "plan" };
     for (const [configId, value] of Object.entries(chosen)) await t.manager.setConfig(id, configId, value);
     await t.manager.stop(id);
@@ -51,7 +51,7 @@ test(
   "a setting change the agent never answers fails with agent_error, and the agent then takes a following message",
   async () => {
     const t = setup({ configSetTimeoutMs: 300 });
-    const { id } = await t.manager.start("fake-reply", REPO);
+    const { id } = await t.manager.start(WORKSPACE, "fake-reply", REPO);
     writeFileSync(join(t.root, REPO, CONFIG_SILENT_FILE), "");
 
     expect(await refusal(t.manager.setConfig(id, FAKE_CONFIG.model.id, "fake-large"))).toMatchObject({ code: "agent_error" });

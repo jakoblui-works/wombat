@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { describe, expect, onTestFinished, test } from "vitest";
 
 import { killedUnits, option, runs, sliceStops, type FakeSystemd } from "../../test/fake-systemd.ts";
-import { childPidOf, isAlive, REPO, setup, TEST_TIMEOUT_MS, waitFor, type Setup } from "../../test/manager-fixtures.ts";
+import { childPidOf, isAlive, REPO, setup, TEST_TIMEOUT_MS, waitFor, WORKSPACE, type Setup } from "../../test/manager-fixtures.ts";
 import { managerAvailability } from "./scope.ts";
 
 const unitOf = (agentId: string) => `wombat-agent-${agentId}.scope`;
@@ -24,8 +24,8 @@ describe("agents in scopes (fake systemd)", () => {
     async () => {
       const t = setup({ systemd: "fake" });
       const fakes = fakesOf(t);
-      const one = await t.manager.start("fake-reply", REPO);
-      const two = await t.manager.start("fake-reply", REPO);
+      const one = await t.manager.start(WORKSPACE, "fake-reply", REPO);
+      const two = await t.manager.start(WORKSPACE, "fake-reply", REPO);
 
       const started = runs(fakes.calls());
       expect(started.map((run) => option(run.options, "unit")).sort()).toEqual([unitOf(one.id), unitOf(two.id)].sort());
@@ -50,8 +50,8 @@ describe("agents in scopes (fake systemd)", () => {
     async () => {
       const t = setup({ systemd: "fake" });
       const fakes = fakesOf(t);
-      const one = await t.manager.start("fake-reply", REPO);
-      const two = await t.manager.start("fake-reply", REPO);
+      const one = await t.manager.start(WORKSPACE, "fake-reply", REPO);
+      const two = await t.manager.start(WORKSPACE, "fake-reply", REPO);
 
       await t.manager.shutdown();
       await waitFor(
@@ -98,8 +98,8 @@ describe("detection", () => {
     "$name: scoped=$scoped; without scopes, agents run as process groups and every start warns scope_unavailable",
     async ({ systemd, state, scoped }) => {
       const t = setup(state === undefined ? { systemd } : { systemd, fake: { state } });
-      const one = await t.manager.start("fake-reply", REPO);
-      const two = await t.manager.start("fake-reply", REPO);
+      const one = await t.manager.start(WORKSPACE, "fake-reply", REPO);
+      const two = await t.manager.start(WORKSPACE, "fake-reply", REPO);
       await t.manager.send(two.id, { text: "Still answering?" });
       await t.turnEnded(two.id);
 
@@ -130,7 +130,7 @@ describe("real systemd", () => {
     async () => {
       const t = setup({ systemd: "real" });
       // Node's `detached: true` runs the helper under setsid: out of the agent's process group and session.
-      const { id } = await t.manager.start("fake-detached-holder", REPO);
+      const { id } = await t.manager.start(WORKSPACE, "fake-detached-holder", REPO);
       await t.manager.send(id, { text: "Start a background helper" });
       await t.turnEnded(id);
       const helperPid = childPidOf(t.entries(id));

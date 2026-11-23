@@ -2,39 +2,42 @@
 import { createContext, useCallback, useContext, useEffect, useMemo } from "react";
 
 import type { ResolveContext } from "./registry.ts";
-import { closeGuards, type OpenTabOptions, type revealStore, tabKey, type TabHost } from "./tabs.ts";
+import type { OpenTabOptions } from "./shell/shell-state.ts";
+import { closeGuards, type revealStore, tabKey } from "./tabs.ts";
 
 /** A tab: the panel it shows and its params (its identity, with `tabKey`). */
 export type TabRef = { panelId: string; params: unknown };
 
 /** How a tab opens: as a temporary tab (a row's click), or kept. */
-export type OpenOptions = Pick<OpenTabOptions, "temporary">;
+export type OpenOptions = { temporary?: OpenTabOptions["temporary"] | undefined };
+
+/**
+ * Where and how a tab opens: in `workspace`'s strip (default: the shown workspace's), temporary or kept (default), and
+ * with the start `title` it has until its panel reports one (else its panel's title).
+ */
+export type TabOpenOptions = OpenOptions & { workspace?: string | undefined; title?: string | undefined };
 
 export type WorkbenchActions = {
   /**
-   * Opens (or focuses) the tab for this panel and params in the editor area. `reveal` (a permission request's id)
-   * reaches the tab's panel as its `reveal` prop; it isn't part of the tab's identity.
+   * Opens (or focuses) the tab for this panel and params in the right sidebar's strip. `reveal` (a permission request's
+   * id) reaches the tab's panel as its `reveal` prop; it isn't part of the tab's identity.
    */
-  openTab: (panelId: string, params: unknown, reveal?: string) => void;
-  /**
-   * Opens (or focuses) the tab for this panel and params beside the tab `beside`: in the group to the right of that
-   * tab's group, or a new group there (the diff tab beside its chat).
-   */
-  openBeside: (panelId: string, params: unknown, beside: TabRef) => void;
-  /** Closes the tab for this panel and params, if it's open. */
+  openTab: (panelId: string, params: unknown, reveal?: string, options?: TabOpenOptions) => void;
+  /** Closes the tab for this panel and params, if it's open, without asking its close guard. */
   closeTab: (panelId: string, params: unknown) => void;
   /**
-   * Opens tab `to` where tab `from` is (same group, same position) and closes `from` without asking its close guard;
+   * Opens tab `to` where tab `from` is (same strip, same position) and closes `from` without asking its close guard;
    * with `from` not open, opens `to` as openTab does.
    */
   replaceTab: (from: TabRef, to: TabRef) => void;
 };
 
 export type WorkbenchContextValue = WorkbenchActions & {
-  /** Undefined until dockview is ready; a navigation does nothing until then. */
-  host: TabHost | undefined;
+  /** Every workspace's open tabs on panel `panelId`. */
+  openTabs: (panelId: string) => TabRef[];
   reveals: Pick<ReturnType<typeof revealStore>, "set">;
-  showActivity: (activityId: string) => void;
+  /** Opens `workspace`'s right sidebar (default: the shown workspace's) on the activity, unless it shows it already. */
+  showActivity: (activityId: string, workspace?: string) => void;
   /** The tabs' titles' context as the page knows it now. */
   titleContext: () => ResolveContext;
 };
@@ -47,7 +50,7 @@ export const useWorkbench = (): WorkbenchContextValue => {
   return workbench;
 };
 
-/** The tab that's active in the editor area; undefined while no tab is open. */
+/** The tab the right sidebar shows; undefined while it shows none. */
 export type ActiveTab = TabRef;
 
 export const ActiveTabContext = createContext<ActiveTab | undefined>(undefined);
@@ -58,14 +61,14 @@ export const useActiveTab = (): ActiveTab | undefined => useContext(ActiveTabCon
 /** Each activity's state as the user left it, by activity id; an activity's own wrapper gives it a type. */
 export type ActivityStates = Record<string, unknown>;
 
-/** Changes one activity's state; the layout is saved after it, as after any change the user makes. */
+/** Changes one activity's state; the shell is saved after it, as after any change the user makes. */
 export type ChangeActivityStates = (activityId: string, change: (state: unknown) => unknown) => void;
 
 export type ActivityState = { state: unknown; change: (change: (state: unknown) => unknown) => void };
 
 export const ActivityStateContext = createContext<ActivityStates | undefined>(undefined);
 
-/** Its value keeps its identity for the Workbench's life, so a reader doesn't re-render on a state change. */
+/** Its value keeps its identity while its workspace does, so a reader doesn't re-render on a state change. */
 export const ChangeActivityStateContext = createContext<ChangeActivityStates | undefined>(undefined);
 
 /** Only the activity's own change function: the caller doesn't re-render when any activity's state changes. */

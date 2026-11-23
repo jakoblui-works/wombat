@@ -10,7 +10,7 @@ import { ListAgentsResponse } from "@wombat/shared/api";
 import { expect, test } from "vitest";
 
 import type { ReplayStep } from "../../test/fake-agent.ts";
-import { REPO, TEST_TIMEOUT_MS, WAIT_MS } from "../../test/manager-fixtures.ts";
+import { REPO, TEST_TIMEOUT_MS, WAIT_MS, WORKSPACE } from "../../test/manager-fixtures.ts";
 import { serve, type Served } from "../../test/server-fixtures.ts";
 
 const CACHE = { ttlSeconds: 3600, lastRequestAt: "2026-03-14T09:26:53.000Z" };
@@ -29,7 +29,7 @@ const listed = async (s: Served, agentId: string) => {
 
 /** Starts a fake-replay agent, plays one turn that reports CACHE mid-way, and waits for the turn's end on GET /agents. */
 const cachedTurn = async (s: Served): Promise<string> => {
-  const started = await s.api("POST", "/agents", { harness: "fake-replay", repo: REPO });
+  const started = await s.api("POST", "/agents", { workspace: WORKSPACE, harness: "fake-replay", repo: REPO });
   expect(started.status, started.text).toBe(201);
   const agentId = (started.json as { id: string }).id;
   const sent = await s.api("POST", `/agents/${agentId}/messages`, { text: JSON.stringify(STEPS) });
@@ -76,7 +76,7 @@ test(
     const s = await serve();
     const folder = join(s.root, REPO);
     const [first, second] = [join(folder, ".hold-before-cache"), join(folder, ".hold-after-cache")];
-    const started = await s.api("POST", "/agents", { harness: "fake-replay", repo: REPO });
+    const started = await s.api("POST", "/agents", { workspace: WORKSPACE, harness: "fake-replay", repo: REPO });
     expect(started.status, started.text).toBe(201);
     const id = (started.json as { id: string }).id;
     const steps: ReplayStep[] = [{ awaitFile: first }, { cache: CACHE }, { awaitFile: second }];

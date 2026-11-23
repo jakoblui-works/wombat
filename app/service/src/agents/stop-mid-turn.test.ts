@@ -3,13 +3,13 @@
 import { SERVICE_STOP_REASON } from "@wombat/shared/api";
 import { expect, test } from "vitest";
 
-import { REPO, setup, TEST_TIMEOUT_MS, waitFor } from "../../test/manager-fixtures.ts";
+import { REPO, setup, TEST_TIMEOUT_MS, waitFor, WORKSPACE } from "../../test/manager-fixtures.ts";
 
 test(
   "a turn the agent fails while being stopped ends stopped, not error",
   async () => {
     const t = setup();
-    const { id } = await t.manager.start("fake-stop-error", REPO);
+    const { id } = await t.manager.start(WORKSPACE, "fake-stop-error", REPO);
     await t.manager.send(id, { text: "Work on it" });
     await waitFor("the agent's message", () =>
       t.entries(id).some((entry) => entry.type === "session_update" && entry.update.sessionUpdate === "agent_message_chunk"),

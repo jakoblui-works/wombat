@@ -1,41 +1,72 @@
-// What is handed to an agent's message box from outside it. A message: the New agent dialog's first one when the agent
-// started but the message wasn't sent; the box opens on it in its failed-send state, so the user sends it from there.
-import { type ComposerState, composerReducer, EMPTY_COMPOSER } from "./composer-state.ts";
+// Each agent's message box, kept outside it: its text, a send's error and the reference survive the chat not showing,
+// and a send under way settles here even when no box shows. Also what is handed to the box from outside it: the empty
+// chat's first message when the started agent didn't take it, and the proposal Ask for changes puts above it.
+import { useSyncExternalStore } from "react";
 
-const unsent = new Map<string, ComposerState>();
+import {
+  type ComposerEntry,
+  type ComposerEntryEvent,
+  composerEntryReducer,
+  type ComposerState,
+  composerReducer,
+  EMPTY_ENTRY,
+  isEmptyEntry,
+} from "./composer-state.ts";
 
-/** Leaves `text` in the agent's message box, with why sending it failed, for when the box opens. */
-export const handOverUnsent = (agentId: string, text: string, error: Error): void => {
-  unsent.set(agentId, composerReducer({ text }, { type: "failed", message: error.message }));
-};
+/** The key the empty chat's message box is kept under, beside the agents' ids (which never take it). */
+export const NEW_CHAT_BOX = "new-chat";
 
-/** What the agent's message box opens on: a handed-over message, else empty. */
-export const openingComposer = (agentId: string): ComposerState => unsent.get(agentId) ?? EMPTY_COMPOSER;
+/** The empty chat's composer bar picks: the repo picked in each workspace, by workspace id, and the harness picked. */
+export type NewChatPicks = { repos: Readonly<Record<string, string>>; harness?: string };
 
-/** Drops a handed-over message once the box holds it, so a box opened later starts empty. */
-export const forgetUnsent = (agentId: string): void => {
-  unsent.delete(agentId);
-};
-
-// A proposal Ask for changes puts above the box, to be sent along with the next message.
-const references = new Map<string, string>();
+const entries = new Map<string, ComposerEntry>();
+let newChatPicks: NewChatPicks = { repos: {} };
 const listeners = new Set<() => void>();
 
-/** Puts a proposal above the agent's message box as its reference; the open box picks it up at once. */
-export const setReference = (agentId: string, proposalId: string): void => {
-  references.set(agentId, proposalId);
+const notify = (): void => {
   for (const listener of [...listeners]) listener();
 };
 
-/** The proposal waiting as the agent's reference, handed over once: a box that holds it keeps it. */
-export const takeReference = (agentId: string): string | undefined => {
-  const proposalId = references.get(agentId);
-  references.delete(agentId);
-  return proposalId;
+const entryOf = (agentId: string): ComposerEntry => entries.get(agentId) ?? EMPTY_ENTRY;
+
+const put = (agentId: string, entry: ComposerEntry): void => {
+  if (isEmptyEntry(entry)) entries.delete(agentId);
+  else entries.set(agentId, entry);
+  notify();
 };
 
-/** Calls `listener` whenever a reference is set; returns how to stop. */
-export const onReference = (listener: () => void): (() => void) => {
+const subscribe = (listener: () => void): (() => void) => {
   listeners.add(listener);
   return () => listeners.delete(listener);
 };
+
+export const composerEvent = (agentId: string, event: ComposerEntryEvent): void => put(agentId, composerEntryReducer(entryOf(agentId), event));
+
+export const useNewChatPicks = (): NewChatPicks => useSyncExternalStore(subscribe, () => newChatPicks);
+
+export const pickNewChatRepo = (workspace: string, path: string): void => {
+  newChatPicks = { ...newChatPicks, repos: { ...newChatPicks.repos, [workspace]: path } };
+  notify();
+};
+
+export const pickNewChatHarness = (harness: string): void => {
+  newChatPicks = { ...newChatPicks, harness };
+  notify();
+};
+
+/** The agent's message box and reference, as kept; re-renders on every change to them. */
+export const useComposerEntry = (agentId: string): ComposerEntry => useSyncExternalStore(subscribe, () => entryOf(agentId));
+
+/** Leaves `text` in the agent's message box as a failed send, with why it failed. */
+export const handOverUnsent = (agentId: string, text: string, error: Error): void => {
+  const entry = entryOf(agentId);
+  put(agentId, { ...entry, composer: composerReducer({ text }, { type: "failed", message: error.message }) });
+};
+
+export const openingComposer = (agentId: string): ComposerState => entryOf(agentId).composer;
+
+/** Drops everything kept for the agent's message box. */
+export const forgetUnsent = (agentId: string): void => put(agentId, EMPTY_ENTRY);
+
+/** Puts a proposal above the agent's message box as its reference, to be sent along with the next message. */
+export const setReference = (agentId: string, proposalId: string): void => composerEvent(agentId, { type: "refer", proposalId });

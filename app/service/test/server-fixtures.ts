@@ -10,11 +10,24 @@ import { ErrorBody } from "@wombat/shared/api";
 import { expect, onTestFinished } from "vitest";
 
 import { openCatalog } from "../src/items/catalog.ts";
+import type { WorkspaceItems } from "../src/items/workspace-items.ts";
 import { openWriter } from "../src/items/write.ts";
+import type { Log } from "../src/log.ts";
 import { startServer } from "../src/server/server.ts";
+import type { Store } from "../src/store/store.ts";
 import { fixtureHarnesses, type LogLine, REPO, setup, WAIT_MS, type Setup, type SetupOptions } from "./manager-fixtures.ts";
+import { summary, WORKSPACE } from "./store-fixtures.ts";
 
 export { APP_ORIGIN };
+
+/** The path of an items route of the fixtures' workspace: `/workspaces/<WORKSPACE><path>`. */
+export const wsPath = (path: string) => `/workspaces/${WORKSPACE}${path}`;
+
+/** The items of WORKSPACE alone, on `itemsRoot`; adds and items-folder changes open nothing. */
+const oneWorkspaceItems = (itemsRoot: string, store: Store, log: Log): Pick<WorkspaceItems, "of" | "open" | "reopen"> => {
+  const items = { catalog: openCatalog({ root: itemsRoot, store }), writer: openWriter({ root: itemsRoot, store, log }) };
+  return { of: (id) => (id === WORKSPACE ? items : undefined), open: () => Promise.resolve(), reopen: () => Promise.resolve() };
+};
 
 /**
  * Every route of the app's contract, on a real agent and request id, plus a path no route has: the port rules
@@ -23,9 +36,12 @@ export { APP_ORIGIN };
 export const appRoutes = (agentId: string): { method: string; path: string; body?: unknown }[] => [
   { method: "GET", path: "/version" },
   { method: "GET", path: "/harnesses" },
-  { method: "GET", path: "/repos" },
+  { method: "GET", path: "/workspaces" },
+  { method: "POST", path: "/workspaces", body: { root: "/refused/workspace" } },
+  { method: "PUT", path: "/workspaces/ws-a1b2c3d4e5/items-root", body: { itemsRoot: "/refused/items" } },
+  { method: "GET", path: `/workspaces/${WORKSPACE}/repos` },
   { method: "GET", path: "/agents" },
-  { method: "POST", path: "/agents", body: { harness: "fake-reply", repo: REPO } },
+  { method: "POST", path: "/agents", body: { workspace: WORKSPACE, harness: "fake-reply", repo: REPO } },
   { method: "GET", path: `/agents/${agentId}/log` },
   { method: "POST", path: `/agents/${agentId}/messages`, body: { text: "Refused prompt" } },
   { method: "POST", path: `/agents/${agentId}/permissions/req_1`, body: { kind: "allow_once" } },
@@ -36,13 +52,13 @@ export const appRoutes = (agentId: string): { method: string; path: string; body
   { method: "DELETE", path: `/agents/${agentId}` },
   { method: "POST", path: "/shutdown" },
   { method: "GET", path: "/events" },
-  { method: "GET", path: "/binders" },
-  { method: "POST", path: "/binders", body: { path: "refused", name: "Refused", prefix: "REF" } },
-  { method: "GET", path: "/binders/bugs/items" },
-  { method: "GET", path: "/items/BUG-1" },
-  { method: "POST", path: "/binders/bugs/items", body: { title: "Refused item", body: "", properties: {} } },
-  { method: "PATCH", path: "/items/BUG-1", body: { version: "0".repeat(64), fields: { title: "Refused title" } } },
-  { method: "DELETE", path: `/items/BUG-1?version=${"0".repeat(64)}` },
+  { method: "GET", path: wsPath("/binders") },
+  { method: "POST", path: wsPath("/binders"), body: { path: "refused", name: "Refused", prefix: "REF" } },
+  { method: "GET", path: wsPath("/binders/bugs/items") },
+  { method: "GET", path: wsPath("/items/BUG-1") },
+  { method: "POST", path: wsPath("/binders/bugs/items"), body: { title: "Refused item", body: "", properties: {} } },
+  { method: "PATCH", path: wsPath("/items/BUG-1"), body: { version: "0".repeat(64), fields: { title: "Refused title" } } },
+  { method: "DELETE", path: wsPath(`/items/BUG-1?version=${"0".repeat(64)}`) },
   { method: "GET", path: "/proposals" },
   { method: "POST", path: "/proposals/prop_1/approve", body: { version: 1 } },
   { method: "POST", path: "/proposals/prop_1/reject", body: {} },
@@ -70,6 +86,30 @@ export type RequestOptions = {
   body?: unknown;
   /** The Host header: default `127.0.0.1:<port>`; null sends none. */
   host?: string | null;
+};
+
+/**
+ * Adds `root` (with `itemsRoot` as its items folder, when given) as the app's main process does, through
+ * POST /workspaces with the service's token; answers the workspace's id. The route opens its items before it answers.
+ */
+export const addWorkspace = async (
+  api: (method: string, path: string, body?: unknown) => Promise<Response>,
+  root: string,
+  itemsRoot?: string,
+): Promise<string> => {
+  const added = await api("POST", "/workspaces", { root, ...(itemsRoot === undefined ? {} : { itemsRoot }) });
+  const id = (added.json as { id?: unknown } | undefined)?.id;
+  if (added.status >= 300 || typeof id !== "string") throw new Error(`adding the workspace ${root} failed (${String(added.status)}): ${added.text}`);
+  return id;
+};
+
+/** The id of the one workspace a service lists: the one the test added. */
+export const onlyWorkspace = async (api: (method: string, path: string) => Promise<Response>): Promise<string> => {
+  const listed = await api("GET", "/workspaces");
+  const workspaces = (listed.json as { workspaces?: { id: string }[] } | undefined)?.workspaces ?? [];
+  const [only] = workspaces;
+  if (workspaces.length !== 1 || only === undefined) throw new Error(`expected the service to list one workspace: ${listed.text}`);
+  return only.id;
 };
 
 /** Fails the test if a response carries any CORS header. */
@@ -250,8 +290,18 @@ export type ServeOptions = SetupOptions & {
    * `logs`), for the items and proposal routes and the agents' /mcp tools; without it they aren't configured.
    */
   itemsRoot?: string;
-  /** Stub agent tokens (token → agent id) /mcp takes besides the live agents' own, so a test needs no agent for one. */
+  /**
+   * Stub agent tokens (token → agent id) /mcp takes besides the live agents' own, so a test needs no running agent for
+   * one; each stub agent is stored as a done agent of WORKSPACE, which decides the items its tools reach.
+   */
   agentTokens?: Record<string, string>;
+};
+
+/** Stores each stub agent not stored yet, as a done agent of WORKSPACE. */
+const storeStubAgents = (store: Store, agentIds: readonly string[]) => {
+  for (const agentId of new Set(agentIds)) {
+    if (!store.listAgents().some((agent) => agent.id === agentId)) store.putAgent(summary(agentId, { workspace: WORKSPACE }));
+  }
 };
 
 export type Served = Setup & {
@@ -271,6 +321,7 @@ export type Served = Setup & {
 /** A manager fixture behind a running server; everything is torn down after the test. */
 export const serve = async ({ heartbeatMs, sendFails, itemsRoot, agentTokens = {}, ...setupOptions }: ServeOptions = {}): Promise<Served> => {
   const t = setup(setupOptions);
+  storeStubAgents(t.store, Object.values(agentTokens));
   const token = randomBytes(24).toString("base64url");
   const harnesses = fixtureHarnesses(t.pidDir);
   // The server gets the manager with onCommitted counted, so tests can see subscriptions it leaves behind, and with
@@ -304,16 +355,13 @@ export const serve = async ({ heartbeatMs, sendFails, itemsRoot, agentTokens = {
     manager,
     store: t.store,
     harnesses,
-    workspaceRoot: t.root,
     token,
     log,
     onShutdown: () => {
       shutdownRequests += 1;
     },
     ...(heartbeatMs === undefined ? {} : { heartbeatMs }),
-    ...(itemsRoot === undefined
-      ? {}
-      : { items: openCatalog({ root: itemsRoot, store: t.store }), writer: openWriter({ root: itemsRoot, store: t.store, log }) }),
+    ...(itemsRoot === undefined ? {} : { items: oneWorkspaceItems(itemsRoot, t.store, log) }),
   });
   let closed: Promise<void> | undefined;
   const close = () => (closed ??= server.close());

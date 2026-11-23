@@ -47,7 +47,7 @@ describe("IDs never change on read", () => {
     // Whatever the interleaving, two concurrent first sights of one file take one number: with no other bug
     // that is number 1, so the next number is 2.
     expect(handleNumber(frontmatterValue(onDisk, "handle") ?? null)).toBe(1);
-    expect(store.nextHandleNumber("bugs", 0), "numbers taken by the reads").toBe(2);
+    expect(store.nextHandleNumber(root, "bugs", 0), "numbers taken by the reads").toBe(2);
   });
 
   test("a read rewrites no file that already has an id (duplicate ids included) and none in a broken binder", async () => {

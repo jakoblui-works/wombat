@@ -8,7 +8,7 @@ test("a service whose code changed on disk after it started is reported stale; R
   test.setTimeout(90_000);
   const copy = appCopy(sandbox);
   const beforeStart = Date.now();
-  const old = await sandbox.startService(sandbox.workspace, {}, copy.entry);
+  const old = await sandbox.startService(sandbox.workspace, { entry: copy.entry });
   const afterStart = Date.now();
   copy.changeServiceCode();
 

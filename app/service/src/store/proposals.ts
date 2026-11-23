@@ -36,6 +36,8 @@ export type ProposalVersionHead = Omit<ProposalVersionRecord, "content">;
  */
 export type StoredProposal = {
   id: string;
+  /** The workspace the proposal belongs to: its agent's. */
+  workspace: string;
   itemId: string | null;
   /** The item's handle as the applying commit found it, so an approved delete still names its item; absent before. */
   itemHandle?: string;
@@ -59,6 +61,9 @@ export type StoredProposal = {
 
 /** A proposal as handed to `insertProposal`: the store adds the id, `at` and the status. */
 export type NewProposal = DistributiveOmit<StoredProposal, "id" | "itemHandle" | "status" | "at" | "decidedAt" | "problem" | "rejectReason" | "intent">;
+
+/** A new proposal as its checks build it; the proposals module's `insert` adds the workspace. */
+export type ProposalForInsert = DistributiveOmit<NewProposal, "workspace">;
 
 /** A proposal write and the seq it took, to alert about once it's committed. */
 export type ProposalChange = { proposal: StoredProposal; seq: number };
@@ -129,6 +134,7 @@ const proposalOf = (row: Record<string, unknown>): StoredProposal => {
   const { decided_at: decidedAt, problem, reject_reason: rejectReason, intent, item_handle: itemHandle } = row;
   const common = {
     id: asString(row.id),
+    workspace: asString(row.workspace),
     itemId: asNullableString(row.item_id),
     file: asNullableString(row.file),
     reason: asString(row.reason),
@@ -154,8 +160,8 @@ type MoveColumns = { problem: string | null; rejectReason: string | null; intent
 export const openProposalStore = (db: DatabaseSync, transaction: Transaction, takeSeq: () => number, now: () => Date): ProposalStore => {
   const statements = {
     insert: db.prepare(
-      `INSERT INTO proposals (id, target, path, binder, item_id, kind, file, reason, base_version, status, agent_id, at, last_version)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      `INSERT INTO proposals (id, workspace, target, path, binder, item_id, kind, file, reason, base_version, status, agent_id, at, last_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
     ),
     insertVersion: db.prepare("INSERT INTO proposal_versions (proposal_id, n, by, content, reason, at) VALUES (?, ?, ?, ?, ?, ?)"),
     setBase: db.prepare("UPDATE proposals SET base_version = ? WHERE id = ?"),
@@ -165,12 +171,13 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
     versions: db.prepare("SELECT n, by, content, reason, at FROM proposal_versions WHERE proposal_id = ? ORDER BY n"),
     version: db.prepare("SELECT n, by, content, reason, at FROM proposal_versions WHERE proposal_id = ? AND n = ?"),
     versionHeads: db.prepare("SELECT n, by, reason, at FROM proposal_versions WHERE proposal_id = ? ORDER BY n"),
-    get: db.prepare("SELECT * FROM proposals WHERE id = ?"),
-    list: db.prepare("SELECT * FROM proposals ORDER BY at, rowid"),
-    listIn: db.prepare("SELECT * FROM proposals WHERE status IN (SELECT value FROM json_each(?)) ORDER BY at, rowid"),
+    // Every read of proposals leaves out those without a workspace (stored before workspaces existed).
+    get: db.prepare("SELECT * FROM proposals WHERE id = ? AND workspace IS NOT NULL"),
+    list: db.prepare("SELECT * FROM proposals WHERE workspace IS NOT NULL ORDER BY at, rowid"),
+    listIn: db.prepare("SELECT * FROM proposals WHERE workspace IS NOT NULL AND status IN (SELECT value FROM json_each(?)) ORDER BY at, rowid"),
     countIn: db.prepare("SELECT count(*) AS n FROM proposals WHERE agent_id = ? AND status IN (SELECT value FROM json_each(?))"),
     undelivered: db.prepare(
-      `SELECT * FROM proposals WHERE agent_id = ? AND noted_seq IS NULL AND status IN (SELECT value FROM json_each(?))
+      `SELECT * FROM proposals WHERE agent_id = ? AND workspace IS NOT NULL AND noted_seq IS NULL AND status IN (SELECT value FROM json_each(?))
        ORDER BY decided_at, rowid`,
     ),
     markDelivered: db.prepare(
@@ -243,6 +250,7 @@ export const openProposalStore = (db: DatabaseSync, transaction: Transaction, ta
       const at = now().toISOString();
       statements.insert.run(
         id,
+        proposal.workspace,
         proposal.target,
         proposal.path,
         proposal.binder,

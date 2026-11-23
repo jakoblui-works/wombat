@@ -6,8 +6,8 @@ import type { SavedItemParams } from "../../../items/item-params.ts";
 import { useItemDelete } from "../../../items/use-item-delete.tsx";
 
 /** The item's menu: Delete… deletes the item shown (`useItemDelete`) and closes this tab. */
-export const ItemActions = ({ tab, item }: { tab: SavedItemParams; item: Item }) => {
-  const remove = useItemDelete();
+export const ItemActions = ({ ws, tab, item }: { ws: string; tab: SavedItemParams; item: Item }) => {
+  const remove = useItemDelete(ws);
   return (
     <>
       <DropdownMenu>

@@ -6,7 +6,7 @@ There are two kinds. A file proposal changes a plain text file. An item proposal
 
 ## Wombat tools
 
-An agent gets all of these tools over `/mcp`. `propose_change` and `revise_proposal` work with or without an items folder (chosen in the app, or `WOMBAT_ITEMS` when the service runs on its own); the item tools need one. Every refusal is a tool error that says what went wrong and what to do next. A refused call stores nothing: a refused propose makes no proposal, and a refused revise leaves the proposal as it was. For a refused `propose_change` or `revise_proposal` the service logs one `tool_refused` line with the agent and the tool, nothing of the call. A `reason` longer than the reason limit (see [Limits](#limits)) is refused by the tool's input check, for every propose tool and `revise_proposal`.
+An agent gets all of these tools over `/mcp`. `propose_change` and `revise_proposal` work with or without an items folder (chosen in the app, per workspace); the item tools need one. Every refusal is a tool error that says what went wrong and what to do next. A refused call stores nothing: a refused propose makes no proposal, and a refused revise leaves the proposal as it was. For a refused `propose_change` or `revise_proposal` the service logs one `tool_refused` line with the agent and the tool, nothing of the call. A `reason` longer than the reason limit (see [Limits](#limits)) is refused by the tool's input check, for every propose tool and `revise_proposal`.
 
 ### `propose_change`
 
@@ -183,7 +183,7 @@ Every route needs the service's token, like the rest of the API. An error answer
 | `PUT /proposals/:id/draft` | `{ onVersion, text }` for a file, `{ onVersion, fields }` for an item | the proposal with your version current. Item fields that don't pass the writer's checks answer `invalid_request` with `problems`: `[{ field?, line?, message }]`, the problems the [items](items.md) API lists, one per problem: `field` the field it is about (`title`, `body` or a property's name) and `line` the file's line, when it has them; the message lists the same problems. Your version saved before stays current |
 | `DELETE /proposals/:id/draft` | | the proposal with the agent's version current |
 
-Every proposal has `target` (`file` or `item`), `id`, `status`, `agentId`, `reason`, `version`, `editedByMe`, `at`, and when set `decidedAt`, `rejectReason` and `problem`. A file proposal adds `path` (its real path, symlinks resolved), `outsideWorkspace` and `kind` (`edit` or `create`). An item proposal adds `binder` (its id), `kind` (`create`, `update` or `delete`), `handle` (`null` for a create until it is approved) and `file` (a create's file path in a free-named binder, else `null`). Every change to a proposal sends a `proposal` alert.
+Every proposal has `target` (`file` or `item`), `id`, `status`, `agentId`, `workspace` (the id of its agent's workspace), `reason`, `version`, `editedByMe`, `at`, and when set `decidedAt`, `rejectReason` and `problem`. A file proposal adds `path` (its real path, symlinks resolved), `outsideWorkspace` and `kind` (`edit` or `create`). An item proposal adds `binder` (its id), `kind` (`create`, `update` or `delete`), `handle` (`null` for a create until it is approved) and `file` (a create's file path in a free-named binder, else `null`). Every change to a proposal sends a `proposal` alert.
 
 Error codes:
 
@@ -193,7 +193,7 @@ Error codes:
 | `proposal_not_pending` | 409 | the proposal can't be decided now: it is being applied or already decided; for a draft, it isn't `pending` |
 | `proposal_changed` | 409 | an approve names a version that isn't current, or a `PUT` draft names an `onVersion` that isn't the agent's latest version. Fetch the proposal and try again |
 | `invalid_request` | 400 | the body or query is wrong, or a draft can't be made or dropped (see Versions), including `DELETE` when you have no draft |
-| `items_not_configured` | 409 | an item proposal while the service has no items |
+| `items_not_configured` | 409 | an item proposal while its workspace has no items folder; the message names the workspace's folder |
 
 ## What the agent is told
 

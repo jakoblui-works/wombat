@@ -1,32 +1,29 @@
-import type { AgentSummary } from "@wombat/shared/api";
+import { ROOT_REPO, type AgentSummary } from "@wombat/shared/api";
 import { Ellipsis, GitBranch } from "lucide-react";
 import { useState } from "react";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../../components/ui/dropdown-menu";
+import { useWorkspaces } from "../../../data/hooks.ts";
 import { activityLabel } from "../../../lib/activity";
 import { AGENT_STATES } from "../../../lib/agent-state";
 import { ago } from "../../../lib/ago";
-import { StateMark } from "../../../lib/state-mark";
 import { cn } from "../../../lib/utils";
 import { agentTitle } from "../../../lib/agent-title.ts";
+import { AgentHeadLine, UNDER_TITLE } from "../../agents/AgentHeadLine/AgentHeadLine.tsx";
 import { useActionError } from "../Chat/DeleteAgentDialog/action-error.ts";
 import { DeleteAgentDialog } from "../Chat/DeleteAgentDialog/DeleteAgentDialog.tsx";
 import { canStop, useAgentActions } from "./agent-actions.ts";
 
 type Props = {
   agent: AgentSummary;
-  /** What a "." folder is called: the workspace folder's name. */
-  workspaceName: string;
   now: number;
   selected: boolean;
-  /** The agent changed state in the last update (`trackStates`). */
-  stateChanged: boolean;
   onOpen: () => void;
 };
 
 /** One agent: the row opens its chat; the menu beside it stops or deletes the agent. */
-export const AgentRow = ({ agent, workspaceName, now, selected, stateChanged, onOpen }: Props) => {
-  const title = agentTitle(agent.id, agent);
+export const AgentRow = ({ agent, now, selected, onOpen }: Props) => {
+  const title = agentTitle(agent.id, agent, useWorkspaces().data?.workspaces);
   const actions = useAgentActions(agent.id);
   const [confirming, setConfirming] = useState(false);
   const error = useActionError(actions.error, agent.state, confirming);
@@ -42,26 +39,23 @@ export const AgentRow = ({ agent, workspaceName, now, selected, stateChanged, on
           selected && "bg-surface-2",
         )}
       >
-        <span className="flex w-full items-center gap-2">
-          <StateMark state={agent.state} entering={stateChanged} />
-          <span className="min-w-0 flex-1 truncate text-base font-medium text-fg-primary">{title}</span>
-          <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{ago(agent.lastUserAt ?? agent.startedAt, now)}</span>
-        </span>
-        <span className="flex w-full min-w-0 items-center gap-1.5 pl-5.5 font-mono text-xs text-fg-tertiary">
-          <span className="shrink-0">{agent.repo === "." ? workspaceName : agent.repo}</span>
+        <AgentHeadLine state={agent.state} title={title} ago={ago(agent.lastUserAt ?? agent.startedAt, now)} />{" "}
+        <span className={cn("flex w-full min-w-0 items-center gap-1.5 font-mono text-xs text-fg-tertiary", UNDER_TITLE)}>
+          {agent.repo === ROOT_REPO ? null : <span className="min-w-0 shrink-0 truncate">{agent.repo}</span>}
           {agent.branch === undefined ? null : (
             <>
+              {" "}
               <GitBranch aria-label="branch" className="size-3 shrink-0" />
               <span className="truncate">{agent.branch}</span>
             </>
           )}
-        </span>
+        </span>{" "}
         {agent.state === "working" && agent.activity != null ? (
-          <span className="truncate pl-5.5 text-xs text-fg-secondary">
+          <span className={cn("truncate text-xs text-fg-secondary", UNDER_TITLE)}>
             {AGENT_STATES.working.label} · {activityLabel(agent.activity)}
           </span>
-        ) : null}
-        {agent.lastText === undefined ? null : <span className="line-clamp-2 pl-5.5 text-sm text-fg-secondary">{agent.lastText}</span>}
+        ) : null}{" "}
+        {agent.lastText === undefined ? null : <span className={cn("line-clamp-2 text-sm text-fg-secondary", UNDER_TITLE)}>{agent.lastText}</span>}
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger

@@ -16,6 +16,7 @@ import type { ItemProposalDetail, ItemProposalRecord, ProposalResult } from "../
 import type { NoteSource } from "../src/proposals/note-source.ts";
 import { openProposals, type Proposals } from "../src/proposals/proposals.ts";
 import { openItems, writeRoot, type Opened } from "./items-fixtures.ts";
+import { WORKSPACE } from "./store-fixtures.ts";
 import { SETTINGS_FILE } from "../src/items/binders.ts";
 
 /** In every name, title, body and value of the hidden binder, in mixed case; never in a visible one. */
@@ -184,7 +185,17 @@ export const withProposals = (
   { root, catalog, writer, store }: Pick<Opened, "root" | "catalog" | "writer" | "store">,
   { onProposal = () => undefined, log = logToStderr }: { onProposal?: (id: string, seq: number) => void; log?: Log } = {},
 ): { access: TestAccess; proposals: Proposals; notes: NoteSource } => {
-  const { access, proposals, notes } = openProposals({ store, workspace: root, agentFolder: () => root, onProposal, log, items: { catalog, writer } });
+  const items = { catalog, writer };
+  const { accessOf, proposals, notes } = openProposals({
+    store,
+    workspaceOf: () => WORKSPACE,
+    rootOf: () => root,
+    agentFolder: () => root,
+    onProposal,
+    log,
+    itemsOf: (workspaceId) => (workspaceId === WORKSPACE ? items : undefined),
+  });
+  const access = accessOf(WORKSPACE);
   if (access === undefined) throw new Error("openProposals gave no item access although the items were given.");
   return {
     proposals,

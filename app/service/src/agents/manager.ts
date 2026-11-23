@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { AgentErrorCode, ITEMS_ALERT, PROPOSAL_ALERT, type AgentSummary } from "@wombat/shared/api";
+import { AgentErrorCode, ITEMS_ALERT, PROPOSAL_ALERT, WORKSPACES_ALERT, type AgentSummary, type Workspace } from "@wombat/shared/api";
 import { emptyFold } from "@wombat/shared/log-fold";
 
 import type { CacheState, Harness } from "../harness/harness.ts";
@@ -17,7 +17,7 @@ import { createMcpTokens } from "./mcp-tokens.ts";
 import { createPermissions, pendingPermissions } from "./permissions.ts";
 import { next, type EndRequest } from "./phase.ts";
 import { now, type Proc } from "./proc.ts";
-import { createResume, folderOf } from "./resume.ts";
+import { createResume } from "./resume.ts";
 import { createScopes, DEFAULT_SLICE } from "./scope.ts";
 import { createTurns } from "./turns.ts";
 
@@ -26,23 +26,26 @@ export type { Committed } from "./agent-record.ts";
 
 export type ManagerOptions = {
   store: Store;
-  /** Repo paths are relative to this folder, and must resolve inside it. */
-  workspaceRoot: string;
+  /**
+   * A workspace by its id (`workspaceIn(store.getWorkspace)` in the service): an agent's repo is relative to its
+   * workspace's root and must resolve inside it. Throws `workspace_not_found` or `workspace_missing`.
+   */
+  workspaceOf: (workspaceId: string) => Workspace;
   harnesses?: readonly Harness[];
   log?: Log;
   /** What each agent's environment is filtered from (see `agentEnv`). */
   env?: NodeJS.ProcessEnv;
   /** The systemd slice agents' scopes go in; everything in it is stopped at start-up and shutdown. */
   slice?: string;
-  /** The instructions file's text for a new session, or undefined when there is none: then nothing is sent. */
-  readInstructions: () => Promise<string | undefined>;
+  /** The instructions file's text of a workspace for a new session, or undefined when there is none: then nothing is sent. */
+  readInstructions: (workspaceId: string) => Promise<string | undefined>;
   /** How long a setting change waits for the agent's answer before failing. */
   configSetTimeoutMs?: number;
 };
 
 export const createManager = ({
   store,
-  workspaceRoot,
+  workspaceOf,
   harnesses = defaultHarnesses,
   log = logToStderr,
   env = process.env,
@@ -50,6 +53,7 @@ export const createManager = ({
   readInstructions,
   configSetTimeoutMs = CONFIG_SET_TIMEOUT_MS,
 }: ManagerOptions) => {
+  const rootOf = (workspaceId: string) => workspaceOf(workspaceId).root;
   let shuttingDown: Promise<void> | undefined;
   const isShuttingDown = () => shuttingDown !== undefined;
   const scopes = createScopes({ slice, env, log });
@@ -76,6 +80,7 @@ export const createManager = ({
     recordSession,
     recordClosed,
     markStored,
+    loadAdopted,
   } = createAgentRecord({
     store,
     log,
@@ -146,8 +151,8 @@ export const createManager = ({
 
   markStored();
 
-  const { ensureRunning, liveProc, canResumeAgent, resumeOf } = createResume({
-    workspaceRoot,
+  const { ensureRunning, liveProc, canResumeAgent, resumeOf, agentFolder, startFolder } = createResume({
+    rootOf,
     harnesses,
     log,
     readLog: store.readLog,
@@ -192,23 +197,26 @@ export const createManager = ({
     liveProc,
     canResumeAgent,
     ensureRunning,
+    resumeOf,
+    agentFolder,
     notes: () => notes,
     markDelivered: store.markDelivered,
     markNotDelivered: store.markNotDelivered,
   });
 
-  const start = async (harnessId: string, repo: string): Promise<AgentSummary> => {
+  /** Starts an agent in `repo` of `workspace`; the workspace is checked first, so an unknown one is refused as such. */
+  const start = async (workspace: string, harnessId: string, repo: string): Promise<AgentSummary> => {
     assertOpen();
+    const cwd = startFolder(workspace, repo);
     const harness = findHarness(harnessId, harnesses);
     if (!harness) {
       throw new AgentError(AgentErrorCode.enum.unknown_harness, `There's no harness "${harnessId}". List the harnesses to see which exist.`);
     }
-    const cwd = folderOf(workspaceRoot, repo);
     const agentId = randomUUID();
     const scope = await scopes.scopeFor(agentId);
     // Shutdown may have begun while the scopes were being set up.
     assertOpen();
-    const proc = spawnAgent(agentId, harness, cwd, scope);
+    const proc = spawnAgent(agentId, workspace, harness, cwd, scope);
     log("agent_starting", { agentId, harness: harness.id });
     const tooSlow = () =>
       new AgentError(
@@ -227,6 +235,7 @@ export const createManager = ({
         const startedAt = now();
         const summary: Omit<AgentSummary, "hasProcess"> = {
           id: agentId,
+          workspace,
           harness: harness.id,
           repo,
           state: "done",
@@ -300,8 +309,17 @@ export const createManager = ({
   /** Tells the listeners about a committed proposal change (stored, approved, rejected, conflict). */
   const proposalCommitted = (proposalId: string, seq: number) => emit({ seq, type: PROPOSAL_ALERT, proposalId });
 
-  /** Tells the listeners that an item or a binder's settings changed (a write of the service's or one by hand). */
-  const itemsCommitted = (seq: number) => emit({ seq, type: ITEMS_ALERT });
+  /** Tells the listeners that an item or a binder's settings of a workspace changed (a write of the service's or one by hand). */
+  const itemsCommitted = (workspace: string, seq: number) => emit({ seq, type: ITEMS_ALERT, workspace });
+
+  /**
+   * Tells the listeners that a workspace was added or its items folder changed, then takes over the agents the change
+   * gave a workspace (`POST /workspaces { adopt: true }`), so they answer commands without a restart.
+   */
+  const workspacesCommitted = (seq: number) => {
+    emit({ seq, type: WORKSPACES_ALERT });
+    loadAdopted();
+  };
 
   /** The agent's live cache state (`AgentSummary.cache`): undefined without a process, null when none is known. */
   const liveCache = (agentId: string): CacheState | null | undefined => procOf(agentId)?.cache;
@@ -322,7 +340,11 @@ export const createManager = ({
     agentForToken,
     proposalCommitted,
     itemsCommitted,
+    workspacesCommitted,
     liveCache,
+    workspaceOf,
+    rootOf,
+    agentFolder,
   };
 };
 

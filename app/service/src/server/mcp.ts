@@ -1,7 +1,7 @@
 // `/mcp`: the tools for agents, over MCP's streamable HTTP (stateless, JSON answers). Only an agent's own token
-// opens it. Every item call is checked by Access as that agent, so access levels, locks and hidden binders hold
-// exactly as Access decides them; every propose tool stores through the proposals, under one cap. Answers and refusals
-// are tool results; nothing here names a binder id, so the tool list carries nothing of a hidden one.
+// opens it, and the agent's workspace decides whose items its tools reach. Every item call is checked by that
+// workspace's Access as that agent, so access levels, locks and hidden binders hold exactly as Access decides them;
+// every propose tool stores through the proposals, under one cap. Answers and refusals are tool results; nothing here names a binder id, so the tool list carries nothing of a hidden one.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -17,20 +17,25 @@ import { AccessError, type ItemInput } from "../items/refusals.ts";
 import { TOOL } from "../items/tools.ts";
 import { errorName, type Log } from "../log.ts";
 import type { Proposals } from "../proposals/proposals.ts";
-import { ProposalRefused } from "../proposals/refused.ts";
+import { itemsNotConfiguredForAgent, ProposalRefused } from "../proposals/refused.ts";
 import { REBUILT, type RevisedResult } from "../proposals/revise.ts";
 import { errorResponse, SERVER_STATUS } from "./errors.ts";
 import { refuseForeignHost } from "./port-rules.ts";
 
-type McpEnv = { Variables: { agentId: string } };
+/** The agent a live token belongs to, and the workspace whose items its tools reach. */
+export type McpAgent = { id: string; workspace: string };
+
+type McpEnv = { Variables: { agent: McpAgent } };
 
 export type McpOptions = {
-  /** Without it (no items configured) every item tool answers that the items aren't set up. */
-  access: Access | undefined;
+  /** A workspace's item access, asked on every call; undefined (no items folder) makes every item tool say so. */
+  accessOf: (workspaceId: string) => Access | undefined;
+  /** A workspace's folder, which names it in the answer of a workspace without items. */
+  folderOf: (workspaceId: string) => string;
   /** Works with or without items. */
   proposals: Pick<Proposals, "proposeFile" | "proposeItem" | "revise">;
-  /** The agent a bearer token belongs to, while it runs: the manager's live token map. */
-  agentForToken: (token: string) => string | undefined;
+  /** The agent a bearer token belongs to, while it runs. */
+  agentForToken: (token: string) => McpAgent | undefined;
   port: () => number;
   maxBodyBytes: number;
   log: Log;
@@ -46,8 +51,8 @@ const mcpRules =
   ({ agentForToken, port }: Pick<McpOptions, "agentForToken" | "port">): MiddlewareHandler<McpEnv> =>
   async (c, next) => {
     const token = BEARER.exec(c.req.header("authorization") ?? "")?.[1];
-    const agentId = token === undefined ? undefined : agentForToken(token);
-    if (agentId === undefined) {
+    const agent = token === undefined ? undefined : agentForToken(token);
+    if (agent === undefined) {
       return errorResponse(
         c,
         SERVER_STATUS.unauthorized,
@@ -66,7 +71,7 @@ const mcpRules =
     }
     const foreignHost = refuseForeignHost(c, port());
     if (foreignHost) return foreignHost;
-    c.set("agentId", agentId);
+    c.set("agent", agent);
     await next();
   };
 
@@ -155,8 +160,10 @@ const text = (value: string, isError = false, aside?: string): CallToolResult =>
 /** The tools whose refusals leave a trace in the service's log: the agent id and the tool, nothing of the call. */
 const REFUSALS_LOGGED: ReadonlySet<string> = new Set([TOOL.proposeChange, TOOL.reviseProposal]);
 
-/** One McpServer for one request, every tool bound to the calling agent. */
-const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "proposals" | "log">, agentId: string) => {
+/** One McpServer for one request, every tool bound to the calling agent and its workspace's items as they are now. */
+const toolServer = ({ accessOf, folderOf, proposals, log }: Pick<McpOptions, "accessOf" | "folderOf" | "proposals" | "log">, agent: McpAgent) => {
+  const agentId = agent.id;
+  const access = accessOf(agent.workspace);
   const server = new McpServer({ name: "wombat", version: String(API_VERSION) }, { capabilities: { tools: {} } });
 
   /** Runs one tool: its answer as JSON in one text block (then `asideOf` its answer, if any, in a second), a refusal as an error with its message. */
@@ -181,12 +188,7 @@ const toolServer = ({ access, proposals, log }: Pick<McpOptions, "access" | "pro
   const run =
     <A>(tool: string, call: (access: Access, args: A) => Promise<unknown>) =>
     async (args: A): Promise<CallToolResult> => {
-      if (access === undefined) {
-        return text(
-          "The Wombat service has no items set up, so there are none to read or change. Ask the user to choose the items folder in the app (Choose Items Folder… in the File menu), or, when they run the service on its own, to set WOMBAT_ITEMS and restart the service.",
-          true,
-        );
-      }
+      if (access === undefined) return text(itemsNotConfiguredForAgent(folderOf(agent.workspace)), true);
       return answer(tool, (a: A) => call(access, a))(args);
     };
 
@@ -332,7 +334,7 @@ export const mcpRoutes = (options: McpOptions) => {
   const app = new Hono<McpEnv>();
   app.use("/mcp", mcpRules(options));
   app.post("/mcp", async (c) => {
-    const server = toolServer(options, c.get("agentId"));
+    const server = toolServer(options, c.get("agent"));
     // No sessionIdGenerator: stateless, so no session and no `initialize` needed first.
     const transport = new WebStandardStreamableHTTPServerTransport({
       enableJsonResponse: true,

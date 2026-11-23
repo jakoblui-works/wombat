@@ -7,6 +7,9 @@ import { ensurePrivateFile, tightenPrivateFile } from "@wombat/shared/private-fi
 import { openProposalStore, type ProposalStore } from "./proposals.ts";
 import { SCHEMA_VERSION, upgradeSchema } from "./schema.ts";
 import { asNumber, asString, type DistributiveOmit } from "./values.ts";
+import { openWorkspaceStore, type WorkspaceStore } from "./workspaces.ts";
+
+export type { Adopted } from "./workspaces.ts";
 
 export type {
   ApplyOutcome,
@@ -14,6 +17,7 @@ export type {
   NewProposal,
   ProposalChange,
   ProposalContent,
+  ProposalForInsert,
   ProposalVersionHead,
   ProposalVersionRecord,
   StoredProposal,
@@ -32,7 +36,7 @@ export type StoreOptions = {
   newDbId?: () => string;
 };
 
-export type Store = ProposalStore & {
+export type Store = ProposalStore & WorkspaceStore & {
   /** Random per database file; a different one means the history was deleted or replaced. */
   readonly dbId: string;
   /** The last seq handed out; 0 for a fresh database. */
@@ -42,16 +46,18 @@ export type Store = ProposalStore & {
   /** Stores the entries as one transaction and returns their seqs; throws, storing nothing, on failure. */
   append: (agentId: string, entries: NewLogEntry[]) => number[];
   putAgent: (summary: AgentSummary) => number;
+  /** Every agent with a workspace. */
   listAgents: () => AgentSummary[];
   /** Removes the agent and all its entries; undefined (and no seq taken) when it isn't stored. */
   deleteAgent: (agentId: string) => number | undefined;
   /** `truncated` is true exactly when an entry of this agent after `after` was dropped by the cap. */
   readLog: (agentId: string, after?: number, limit?: number) => { entries: LogEntry[]; truncated: boolean };
   /**
-   * The next handle number of a binder: one above both the last number it gave and `floor` (the highest
-   * number on disk), remembered so a deleted item's number is never given again.
+   * The next handle number of a binder in the items folder `itemsRoot` (its real path, as the workspaces hold it): one
+   * above the last number it gave, `floor` (the highest number on disk) and an unadopted counter of that binder,
+   * remembered so a deleted item's number is never given again.
    */
-  nextHandleNumber: (binder: string, floor: number) => number;
+  nextHandleNumber: (itemsRoot: string, binder: string, floor: number) => number;
   /**
    * Runs `fn` as one transaction; store writes called inside it join it instead of committing on their own. `fn` must
    * be synchronous. There's no savepoint: catching a store error inside `fn` keeps that call's earlier writes.
@@ -71,7 +77,7 @@ const makePrivate = (path: string) => {
 
 /**
  * Opens (or creates) the database at `path`: agent summaries and an append-only log of their entries, with one
- * seq counter across all agents, and the items' handle counters and proposals. An older schema is upgraded in place.
+ * seq counter across all agents, the items' handle counters and proposals, and the workspace list. An older schema is upgraded in place.
  */
 export const openStore = ({
   path,
@@ -127,7 +133,7 @@ export const openStore = ({
       `INSERT INTO agents (id, started_at, summary) VALUES (?, ?, ?)
        ON CONFLICT (id) DO UPDATE SET started_at = excluded.started_at, summary = excluded.summary`,
     ),
-    listAgents: db.prepare("SELECT summary FROM agents ORDER BY started_at, id"),
+    listAgents: db.prepare("SELECT summary FROM agents WHERE json_extract(summary, '$.workspace') IS NOT NULL ORDER BY started_at, id"),
     deleteAgent: db.prepare("DELETE FROM agents WHERE id = ?"),
     deleteAgentLog: db.prepare("DELETE FROM log_entries WHERE agent_id = ?"),
     insertLogEntry: db.prepare("INSERT INTO log_entries (seq, agent_id, bytes, body) VALUES (?, ?, ?, ?)"),
@@ -140,8 +146,9 @@ export const openStore = ({
     logEntries: db.prepare("SELECT seq, body FROM log_entries WHERE agent_id = ? AND seq > ? ORDER BY seq LIMIT ?"),
     droppedThrough: db.prepare("SELECT dropped_through FROM agents WHERE id = ?"),
     nextHandleNumber: db.prepare(
-      `INSERT INTO item_counters (binder, last) VALUES (?, ? + 1)
-       ON CONFLICT (binder) DO UPDATE SET last = max(last, excluded.last - 1) + 1 RETURNING last`,
+      `INSERT INTO item_counters (items_root, binder, last)
+       VALUES (:root, :binder, max(:floor, coalesce((SELECT last FROM item_counters WHERE items_root IS NULL AND binder = :binder), 0)) + 1)
+       ON CONFLICT (items_root, binder) DO UPDATE SET last = max(last, excluded.last - 1) + 1 RETURNING last`,
     ),
   };
 
@@ -229,8 +236,8 @@ export const openStore = ({
 
   const takeSeq = () => transaction(() => takeSeqs(1)[0] ?? 0);
 
-  const nextHandleNumber = (binder: string, floor: number) =>
-    transaction(() => asNumber(statements.nextHandleNumber.get(binder, floor)?.last));
+  const nextHandleNumber = (itemsRoot: string, binder: string, floor: number) =>
+    transaction(() => asNumber(statements.nextHandleNumber.get({ root: itemsRoot, binder, floor })?.last));
 
   return {
     dbId,
@@ -243,6 +250,7 @@ export const openStore = ({
     readLog,
     nextHandleNumber,
     ...openProposalStore(db, transaction, takeSeq, now),
+    ...openWorkspaceStore(db, transaction, now),
     transaction,
     close: () => db.close(),
   };

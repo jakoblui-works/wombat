@@ -1,9 +1,10 @@
 // The service's routes the app calls, each with its schemas, and the page's allow-list among them. The service's
 // side is checked by service/src/server/app-routes.test.ts: every route on the allow-list is served, every app route
-// the service serves is on it (except the ones only the app's main process calls: /events, /shutdown; and /mcp).
+// the service serves is on it (except MAIN_ROUTES, which only the app's main process calls, and /mcp).
 import type { z } from "zod";
 
 import {
+  AddWorkspaceRequest,
   AgentSummary,
   AnswerPermissionRequest,
   ContextBreakdown,
@@ -17,15 +18,18 @@ import {
   ListLogQuery,
   ListLogResponse,
   ListReposResponse,
+  ListWorkspacesResponse,
   NewBinderRequest,
   NoContent,
   SendMessageRequest,
   SendMessageResponse,
   SetConfigRequest,
+  SetItemsRootRequest,
   ShutdownResponse,
   StartAgentRequest,
   UpdateItemRequest,
   VersionResponse,
+  Workspace,
 } from "./api.ts";
 import { BinderSummary } from "./items.ts";
 import {
@@ -56,7 +60,8 @@ export type AppRoute = {
 const PAGE_ROUTES = {
   version: { method: "GET", pattern: "/version", response: VersionResponse },
   listHarnesses: { method: "GET", pattern: "/harnesses", response: ListHarnessesResponse },
-  listRepos: { method: "GET", pattern: "/repos", response: ListReposResponse },
+  listWorkspaces: { method: "GET", pattern: "/workspaces", response: ListWorkspacesResponse },
+  listRepos: { method: "GET", pattern: "/workspaces/:ws/repos", response: ListReposResponse },
   listAgents: { method: "GET", pattern: "/agents", response: ListAgentsResponse },
   startAgent: { method: "POST", pattern: "/agents", body: StartAgentRequest, response: AgentSummary },
   agentLog: { method: "GET", pattern: "/agents/:id/log", query: ListLogQuery, response: ListLogResponse },
@@ -67,13 +72,13 @@ const PAGE_ROUTES = {
   cancelTurn: { method: "POST", pattern: "/agents/:id/cancel", response: NoContent },
   stopAgent: { method: "POST", pattern: "/agents/:id/stop", response: NoContent },
   deleteAgent: { method: "DELETE", pattern: "/agents/:id", response: NoContent },
-  listBinders: { method: "GET", pattern: "/binders", response: ListBindersResponse },
-  createBinder: { method: "POST", pattern: "/binders", body: NewBinderRequest, response: BinderSummary },
-  binderItems: { method: "GET", pattern: "/binders/:id/items", response: ListItemsResponse },
-  getItem: { method: "GET", pattern: "/items/:ref", response: GetItemResponse },
-  createItem: { method: "POST", pattern: "/binders/:id/items", body: CreateItemRequest, response: GetItemResponse },
-  updateItem: { method: "PATCH", pattern: "/items/:ref", body: UpdateItemRequest, response: GetItemResponse },
-  deleteItem: { method: "DELETE", pattern: "/items/:ref", query: DeleteItemQuery, response: NoContent },
+  listBinders: { method: "GET", pattern: "/workspaces/:ws/binders", response: ListBindersResponse },
+  createBinder: { method: "POST", pattern: "/workspaces/:ws/binders", body: NewBinderRequest, response: BinderSummary },
+  binderItems: { method: "GET", pattern: "/workspaces/:ws/binders/:id/items", response: ListItemsResponse },
+  getItem: { method: "GET", pattern: "/workspaces/:ws/items/:ref", response: GetItemResponse },
+  createItem: { method: "POST", pattern: "/workspaces/:ws/binders/:id/items", body: CreateItemRequest, response: GetItemResponse },
+  updateItem: { method: "PATCH", pattern: "/workspaces/:ws/items/:ref", body: UpdateItemRequest, response: GetItemResponse },
+  deleteItem: { method: "DELETE", pattern: "/workspaces/:ws/items/:ref", query: DeleteItemQuery, response: NoContent },
   listProposals: { method: "GET", pattern: "/proposals", query: ListProposalsQuery, response: ListProposalsResponse },
   getProposal: { method: "GET", pattern: "/proposals/:id", query: ProposalDetailQuery, response: ProposalDetail },
   saveDraft: { method: "PUT", pattern: "/proposals/:id/draft", body: DraftRequest, response: Proposal },
@@ -85,6 +90,9 @@ const PAGE_ROUTES = {
 const MAIN_ROUTES = {
   events: { method: "GET", pattern: "/events", response: "stream" },
   shutdown: { method: "POST", pattern: "/shutdown", response: ShutdownResponse },
+  // They take a folder path, which only main may send: a page script mustn't point an agent at any folder it names.
+  addWorkspace: { method: "POST", pattern: "/workspaces", body: AddWorkspaceRequest, response: Workspace },
+  setItemsRoot: { method: "PUT", pattern: "/workspaces/:ws/items-root", body: SetItemsRootRequest, response: Workspace },
 } as const satisfies Record<string, AppRoute>;
 
 const disjoint = <A extends object, B extends object>(a: A, b: B & Partial<Record<keyof A, never>>): A & B => ({ ...a, ...b });

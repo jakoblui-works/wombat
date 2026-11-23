@@ -36,6 +36,8 @@ export type TurnsDeps = {
   liveProc: Resume["liveProc"];
   canResumeAgent: Resume["canResumeAgent"];
   ensureRunning: Resume["ensureRunning"];
+  resumeOf: Resume["resumeOf"];
+  agentFolder: Resume["agentFolder"];
   /** What the next message tells the agent about its proposals. */
   notes: () => NoteSource;
   markDelivered: Store["markDelivered"];
@@ -61,6 +63,8 @@ export const createTurns = ({
   liveProc,
   canResumeAgent,
   ensureRunning,
+  resumeOf,
+  agentFolder,
   notes,
   markDelivered,
   markNotDelivered,
@@ -169,6 +173,8 @@ export const createTurns = ({
     const summary = requireAgent(agentId, summaryOf);
     if (pendingTurns.has(agentId)) throw busy(STILL_WORKING);
     if (!canResumeAgent(summary)) throw notResumable();
+    // An agent whose folder is gone is refused before its message is stored; a resume under way has its folder already.
+    if (resumeOf(agentId) === undefined) agentFolder(summary);
     // A resume that has folded the log already (it is setting the agent's config again) folds the message too.
     const current = procOf(agentId);
     const resumed = current && takesCalls(current.phase) ? current : undefined;
