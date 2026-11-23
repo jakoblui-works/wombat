@@ -2,7 +2,6 @@
 import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import { z } from "zod";
 
-import { AGENTS_PANEL } from "../activity-ids.ts";
 import { getActivity, getPanel, type TabTest } from "../registry.ts";
 import { type TabEntry, type TabRef, tabKey, tabToReplace } from "../tabs.ts";
 
@@ -14,6 +13,8 @@ export type WorkspaceShell = {
   navigatorHidden: boolean;
   rightOpen: boolean;
   activityStates: Record<string, unknown>;
+  /** The overview's group for this workspace collapsed. */
+  overviewCollapsed?: boolean;
   /** Each activity's last active tab, by activity id. */
   lastActive?: Record<string, string>;
   /** The right sidebar's width evidence; never saved. */
@@ -248,6 +249,7 @@ const SavedWorkspace = parsing<SavedWorkspace>()(
     navigatorHidden: z.boolean(),
     rightOpen: z.boolean(),
     activityStates: z.record(z.string(), z.unknown()),
+    overviewCollapsed: z.boolean().exactOptional(),
     lastActive: z.record(z.string(), z.string()).exactOptional(),
   }),
 );
@@ -263,9 +265,9 @@ const savedWorkspace = (shell: WorkspaceShell): SavedWorkspace => ({
 });
 
 const registeredStates = (states: Record<string, unknown>): Record<string, unknown> =>
-  Object.fromEntries(Object.entries(states).filter(([id]) => id === AGENTS_PANEL || getActivity(id) !== undefined));
+  Object.fromEntries(Object.entries(states).filter(([id]) => getActivity(id) !== undefined));
 
-/** The saved states of the activities and the overview (its collapsed groups); an activity's state that doesn't parse by its schema is its initial. */
+/** The saved states of the registered activities; a state that doesn't parse by its activity's schema is its initial. */
 const restoredStates = (states: Record<string, unknown>): Record<string, unknown> =>
   Object.fromEntries(
     Object.entries(registeredStates(states)).map(([id, saved]) => {
@@ -276,7 +278,7 @@ const restoredStates = (states: Record<string, unknown>): Record<string, unknown
     }),
   );
 
-/** The shell as saved: kept tabs that `isSaved` takes, the activities' and the overview's states, no widths, nor the composer bar's picks. */
+/** The shell as saved: kept tabs that `isSaved` takes, the activities' states and the overview's collapse, no widths, nor the composer bar's picks. */
 export const savedShell = (state: ShellState, isSaved: TabTest): SavedShell => {
   const kept = dropTabsWhere(state, (tab) => !tab.kept || !isSaved(tab.panelId, tab.params));
   return {
@@ -333,12 +335,9 @@ export const pressToolbarButton = (state: ShellState, workspace: string, activit
 export const showActivity = (state: ShellState, workspace: string, activityId: string): ShellState =>
   activeToolbarButton(state, workspace) === activityId ? state : pressToolbarButton(state, workspace, activityId);
 
-export const activityStatesOf = (state: ShellState, workspace: string | undefined): Record<string, unknown> =>
-  workspace === undefined ? emptyWorkspace.activityStates : workspaceShell(state, workspace).activityStates;
-
 /** The activity's state in `workspace` as stored, else its registered initial. */
 export const activityStateOf = (state: ShellState, workspace: string | undefined, activityId: string): unknown => {
-  const stored = activityStatesOf(state, workspace)[activityId];
+  const stored = (workspace === undefined ? emptyWorkspace : workspaceShell(state, workspace)).activityStates[activityId];
   return stored === undefined ? getActivity(activityId)?.state?.initial : stored;
 };
 
@@ -347,6 +346,9 @@ export const changeActivityState = (state: ShellState, workspace: string, activi
     ...shell,
     activityStates: { ...shell.activityStates, [activityId]: change(activityStateOf(state, workspace, activityId)) },
   }));
+
+export const setOverviewCollapsed = (state: ShellState, workspace: string, collapsed: boolean): ShellState =>
+  withWorkspace(state, workspace, (shell) => ({ ...shell, overviewCollapsed: collapsed }));
 
 export const hideNavigator = (state: ShellState, workspace: string, hidden: boolean): ShellState =>
   withWorkspace(state, workspace, (shell) => ({ ...shell, navigatorHidden: hidden }));

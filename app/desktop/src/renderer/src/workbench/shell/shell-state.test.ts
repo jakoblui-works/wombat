@@ -5,7 +5,7 @@ import { describe, expect, test } from "vitest";
 
 import { proposal as listedProposal, summary } from "../../../../../test/summaries.ts";
 import "../activities.ts";
-import { AGENTS_PANEL, DESK_ACTIVITY } from "../activity-ids.ts";
+import { DESK_ACTIVITY } from "../activity-ids.ts";
 import { ITEM_PANEL } from "../items/item-params.ts";
 import { DEFAULT_DESK } from "../items/navigation/desk-layout.ts";
 import { PROPOSAL_PANEL } from "../proposals/proposal-params.ts";
@@ -305,7 +305,7 @@ describe("the saved shell across a quit and a start", () => {
           navigatorHidden: shell.navigatorHidden,
           rightOpen: shell.rightOpen,
           desk: shell.activityStates[DESK_ACTIVITY],
-          overview: shell.activityStates[AGENTS_PANEL],
+          overview: shell.overviewCollapsed,
         },
       ]),
     ),
@@ -324,7 +324,8 @@ describe("the saved shell across a quit and a start", () => {
             activity: DESK_ACTIVITY,
             navigatorHidden: true,
             rightOpen: true,
-            activityStates: { [DESK_ACTIVITY]: DESK, [AGENTS_PANEL]: { collapsed: true } },
+            activityStates: { [DESK_ACTIVITY]: DESK },
+            overviewCollapsed: true,
             right: { width: 733, dragged: true },
           }),
           [GARDEN]: workspace({ tabs: [entry(item(3, GARDEN))], active: key(item(3, GARDEN)), activity: DESK_ACTIVITY }),
