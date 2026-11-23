@@ -1,32 +1,24 @@
 import { useCallback, useMemo } from "react";
 
 import { DESK_ACTIVITY } from "../../activity-ids.ts";
-import { type DeskLayout, deskOf } from "./desk-layout.ts";
-import { changeActivityState } from "../../shell/shell-state.ts";
-import { useShell } from "../../shell/ShellProvider.tsx";
-import { useActivityState } from "../../workbench-context.ts";
+import { useActivityState } from "../../shell/activity-state.ts";
+import type { DeskLayout } from "./desk-layout.ts";
 
 type DeskChange = (desk: DeskLayout) => DeskLayout;
 
-/** The Desk as the user left it, and the one way to change it (saved with the shell). */
-export type DeskState = { desk: DeskLayout; changeDesk: (change: DeskChange) => void };
+/** Changes workspace `ws`'s Desk (saved with the shell). */
+export type ChangeDesk = (change: DeskChange, ws: string) => void;
 
-/** Changes workspace `ws`'s Desk, whichever workspace's activity states the caller sits in. */
-export type ChangeDeskOf = (change: DeskChange, ws: string) => void;
+/** Each workspace's Desk as the user left it, and the one way to change it. */
+export type DeskState = { deskOf: (ws: string) => DeskLayout; changeDesk: ChangeDesk };
 
-const onDeskSlot =
-  (change: DeskChange) =>
-  (slot: unknown): DeskLayout =>
-    change(deskOf(slot));
+// The Desk's state is its registered initial, what the shell's restore parsed by `DeskLayout`, or what the Desk wrote.
+const asDesk = (state: unknown): DeskLayout => state as DeskLayout;
 
-/** For the Desk's own panel: it re-renders on every change of the activities' states. */
+/** `changeDesk` keeps its identity; `deskOf` changes with the shell state. */
 export const useDesk = (): DeskState => {
-  const { state, change } = useActivityState(DESK_ACTIVITY);
-  const changeDesk = useCallback((update: DeskChange) => change(onDeskSlot(update)), [change]);
-  return useMemo(() => ({ desk: deskOf(state), changeDesk }), [state, changeDesk]);
-};
-
-export const useChangeDeskOf = (): ChangeDeskOf => {
-  const { change } = useShell();
-  return useCallback((update, ws) => change((state) => changeActivityState(state, ws, DESK_ACTIVITY, onDeskSlot(update))), [change]);
+  const { of, change } = useActivityState(DESK_ACTIVITY);
+  const deskOf = useCallback((ws: string) => asDesk(of(ws)), [of]);
+  const changeDesk = useCallback<ChangeDesk>((update, ws) => change(ws, (state) => update(asDesk(state))), [change]);
+  return useMemo(() => ({ deskOf, changeDesk }), [deskOf, changeDesk]);
 };

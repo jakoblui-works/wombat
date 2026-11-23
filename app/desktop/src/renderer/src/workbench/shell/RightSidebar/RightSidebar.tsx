@@ -26,7 +26,6 @@ import {
   type WorkspaceShell,
 } from "../shell-state.ts";
 import { useShell } from "../ShellProvider.tsx";
-import { WorkspaceActivityStates } from "../WorkspaceActivityStates.tsx";
 import { tabElementIds } from "./tab-ids.ts";
 import { TabStrip } from "./TabStrip.tsx";
 import type { TabTitles } from "./tab-titles.ts";
@@ -96,45 +95,43 @@ const WorkspaceTabs = ({
   const navigator = shownNavigator(state, workspace);
   const activeTab = useMemo(() => (active === undefined || !shown ? undefined : { panelId: active.panelId, params: active.params }), [active, shown]);
   return (
-    <WorkspaceActivityStates workspace={workspace}>
-      <ActiveTabContext value={activeTab}>
-        <div hidden={!shown} className="flex min-h-0 flex-1 flex-col">
-          {shell.tabs.length === 0 ? null : (
-            <div className="flex h-tab-strip shrink-0 border-b border-line bg-surface-0">
-              <TabStrip workspace={workspace} strip={strip} shown={shown && open} titles={stores.titles} />
-              <NavigatorToggle workspace={workspace} />
-            </div>
-          )}
-          <div className="flex min-h-0 flex-1">
-            <div hidden={active === undefined} className="flex min-w-0 flex-1 flex-col">
-              {shell.tabs.map((tab, at) => {
-                const key = tabKey(tab.panelId, tab.params);
-                return (
-                  <TabContent
-                    key={key}
-                    tab={tab}
-                    ids={tabElementIds(strip, at)}
-                    shown={active !== undefined && key === tabKey(active.panelId, active.params)}
-                    {...stores}
-                  />
-                );
-              })}
-            </div>
-            {activities().map((activity) => (
-              <Navigator
-                key={activity.id}
-                workspace={workspace}
-                activity={activity}
-                visible={navigator === activity.id}
-                alone={active === undefined}
-                shown={shown}
-                reveals={stores.reveals}
-              />
-            ))}
+    <ActiveTabContext value={activeTab}>
+      <div hidden={!shown} className="flex min-h-0 flex-1 flex-col">
+        {shell.tabs.length === 0 ? null : (
+          <div className="flex h-tab-strip shrink-0 border-b border-line bg-surface-0">
+            <TabStrip workspace={workspace} strip={strip} shown={shown && open} titles={stores.titles} />
+            <NavigatorToggle workspace={workspace} />
           </div>
+        )}
+        <div className="flex min-h-0 flex-1">
+          <div hidden={active === undefined} className="flex min-w-0 flex-1 flex-col">
+            {shell.tabs.map((tab, at) => {
+              const key = tabKey(tab.panelId, tab.params);
+              return (
+                <TabContent
+                  key={key}
+                  tab={tab}
+                  ids={tabElementIds(strip, at)}
+                  shown={active !== undefined && key === tabKey(active.panelId, active.params)}
+                  {...stores}
+                />
+              );
+            })}
+          </div>
+          {activities().map((activity) => (
+            <Navigator
+              key={activity.id}
+              workspace={workspace}
+              activity={activity}
+              visible={navigator === activity.id}
+              alone={active === undefined}
+              shown={shown}
+              reveals={stores.reveals}
+            />
+          ))}
         </div>
-      </ActiveTabContext>
-    </WorkspaceActivityStates>
+      </div>
+    </ActiveTabContext>
   );
 };
 

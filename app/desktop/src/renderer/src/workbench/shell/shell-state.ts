@@ -2,8 +2,7 @@
 import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import { z } from "zod";
 
-import { AGENTS_PANEL, DESK_ACTIVITY } from "../activity-ids.ts";
-import { DEFAULT_DESK, DeskLayout } from "../items/navigation/desk-layout.ts";
+import { AGENTS_PANEL } from "../activity-ids.ts";
 import { getActivity, getPanel, type TabTest } from "../registry.ts";
 import { type TabEntry, type TabRef, tabKey, tabToReplace } from "../tabs.ts";
 
@@ -266,13 +265,16 @@ const savedWorkspace = (shell: WorkspaceShell): SavedWorkspace => ({
 const registeredStates = (states: Record<string, unknown>): Record<string, unknown> =>
   Object.fromEntries(Object.entries(states).filter(([id]) => id === AGENTS_PANEL || getActivity(id) !== undefined));
 
-/** The saved states of the activities and the overview (its collapsed groups); a Desk state that doesn't parse is `DEFAULT_DESK`. */
-const restoredStates = (states: Record<string, unknown>): Record<string, unknown> => {
-  const registered = registeredStates(states);
-  if (!(DESK_ACTIVITY in registered)) return registered;
-  const desk = DeskLayout.safeParse(registered[DESK_ACTIVITY]);
-  return { ...registered, [DESK_ACTIVITY]: desk.success ? desk.data : DEFAULT_DESK };
-};
+/** The saved states of the activities and the overview (its collapsed groups); an activity's state that doesn't parse by its schema is its initial. */
+const restoredStates = (states: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(registeredStates(states)).map(([id, saved]) => {
+      const registered = getActivity(id)?.state;
+      if (registered === undefined) return [id, saved];
+      const parsed = registered.schema.safeParse(saved);
+      return [id, parsed.success ? parsed.data : registered.initial];
+    }),
+  );
 
 /** The shell as saved: kept tabs that `isSaved` takes, the activities' and the overview's states, no widths, nor the composer bar's picks. */
 export const savedShell = (state: ShellState, isSaved: TabTest): SavedShell => {
@@ -334,8 +336,17 @@ export const showActivity = (state: ShellState, workspace: string, activityId: s
 export const activityStatesOf = (state: ShellState, workspace: string | undefined): Record<string, unknown> =>
   workspace === undefined ? emptyWorkspace.activityStates : workspaceShell(state, workspace).activityStates;
 
+/** The activity's state in `workspace` as stored, else its registered initial. */
+export const activityStateOf = (state: ShellState, workspace: string | undefined, activityId: string): unknown => {
+  const stored = activityStatesOf(state, workspace)[activityId];
+  return stored === undefined ? getActivity(activityId)?.state?.initial : stored;
+};
+
 export const changeActivityState = (state: ShellState, workspace: string, activityId: string, change: (activityState: unknown) => unknown): ShellState =>
-  withWorkspace(state, workspace, (shell) => ({ ...shell, activityStates: { ...shell.activityStates, [activityId]: change(shell.activityStates[activityId]) } }));
+  withWorkspace(state, workspace, (shell) => ({
+    ...shell,
+    activityStates: { ...shell.activityStates, [activityId]: change(activityStateOf(state, workspace, activityId)) },
+  }));
 
 export const hideNavigator = (state: ShellState, workspace: string, hidden: boolean): ShellState =>
   withWorkspace(state, workspace, (shell) => ({ ...shell, navigatorHidden: hidden }));

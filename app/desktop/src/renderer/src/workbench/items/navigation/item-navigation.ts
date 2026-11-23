@@ -14,13 +14,13 @@ import { previewName } from "../ItemPreview/item-preview.ts";
 import { ITEM_PANEL, type ItemParams, NEW_ITEM_TITLE, type SavedItemParams, showsItem } from "../item-params.ts";
 import { READ_FAILED } from "../notices/notices.tsx";
 import { isItemNotFound, itemNotFound } from "../reads.ts";
-import { type ChangeDeskOf, useChangeDeskOf } from "./desk-state.ts";
+import { type ChangeDesk, useDesk } from "./desk-state.ts";
 import { binderPlace, followPlace, showBinder } from "./places.ts";
 
 export type ItemNavigator = {
   workbench: WorkbenchContextValue;
   queryClient: QueryClient;
-  changeDesk: ChangeDeskOf;
+  changeDesk: ChangeDesk;
   tell: (message: string) => void;
 };
 
@@ -111,7 +111,7 @@ type ItemNavigation = {
 export const useItemNavigation = (): ItemNavigation => {
   const workbench = useWorkbench();
   const queryClient = useQueryClient();
-  const changeDesk = useChangeDeskOf();
+  const { changeDesk } = useDesk();
   return useMemo(() => {
     const navigator: ItemNavigator = { workbench, queryClient, changeDesk, tell };
     return {

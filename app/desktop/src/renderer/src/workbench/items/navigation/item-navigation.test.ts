@@ -10,12 +10,12 @@ import "../../activities.ts";
 import { DESK_ACTIVITY } from "../../activity-ids.ts";
 import { shellTabActions } from "../../shell/RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "../../shell/RightSidebar/tab-titles.ts";
-import { activityStatesOf, changeActivityState, emptyShell, rightView, type ShellState, showActivity } from "../../shell/shell-state.ts";
+import { activityStateOf, changeActivityState, emptyShell, rightView, type ShellState, showActivity } from "../../shell/shell-state.ts";
 import { revealStore, tabKey } from "../../tabs.ts";
 import { previewName } from "../ItemPreview/item-preview.ts";
 import { ITEM_PANEL } from "../item-params.ts";
 import { itemNotFound } from "../reads.ts";
-import { DEFAULT_DESK, deskOf, type DeskLayout } from "./desk-layout.ts";
+import { DEFAULT_DESK, type DeskLayout } from "./desk-layout.ts";
 import { followItem, type ItemNavigator, itemTabs, openBinder } from "./item-navigation.ts";
 
 afterEach(() => {
@@ -160,10 +160,10 @@ test("openBinder of another workspace opens that workspace's Desk on the binder 
   const navigator: ItemNavigator = {
     workbench: { ...actions, reveals, showActivity: (id, ws) => change((current) => showActivity(current, ws ?? SHOWN, id)) },
     queryClient,
-    changeDesk: (update, ws) => change((current) => changeActivityState(current, ws, DESK_ACTIVITY, (slot) => update(deskOf(slot)))),
+    changeDesk: (update, ws) => change((current) => changeActivityState(current, ws, DESK_ACTIVITY, (desk) => update(desk as DeskLayout))),
     tell: () => undefined,
   };
-  const deskIn = (ws: string): DeskLayout => deskOf(activityStatesOf(state, ws)[DESK_ACTIVITY]);
+  const deskIn = (ws: string): DeskLayout => activityStateOf(state, ws, DESK_ACTIVITY) as DeskLayout;
 
   openBinder(navigator, OTHER, "hives");
 

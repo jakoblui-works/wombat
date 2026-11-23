@@ -7,9 +7,3 @@ export type DeskLayout = z.infer<typeof DeskLayout>;
 
 /** The Desk until the user changes it: the tree, every drawer closed. */
 export const DEFAULT_DESK: Readonly<DeskLayout> = { openDrawers: [] };
-
-/**
- * The Desk's slot holds only what the shell's restore (which parses it) and the Desk wrote, so it's trusted as it is;
- * an empty slot is `DEFAULT_DESK`.
- */
-export const deskOf = (slot: unknown): DeskLayout => (slot === undefined ? DEFAULT_DESK : (slot as DeskLayout));

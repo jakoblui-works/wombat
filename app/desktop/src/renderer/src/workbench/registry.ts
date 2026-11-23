@@ -53,7 +53,7 @@ export type PanelDescriptor = {
   saves?: (params: unknown) => boolean;
 };
 
-export type ActivityDescriptor = {
+export type ActivityDescriptor<T = unknown> = {
   id: string;
   title: string;
   icon: LucideIcon;
@@ -62,6 +62,8 @@ export type ActivityDescriptor = {
    * width, in pixels, it wants alone.
    */
   navigator: { component: ComponentType<PanelProps>; wants?: number };
+  /** Its state in each workspace, saved with the shell: `initial` until changed, and again when the saved one doesn't parse. */
+  state?: { schema: ZodType<T>; initial: T };
 };
 
 /** A navigator's params: the workspace whose navigator it is (one per workspace, all mounted). */
@@ -77,7 +79,7 @@ const addOnce = <T extends { id: string }>(registry: Map<string, T>, kind: strin
 };
 
 export const registerPanel = (panel: PanelDescriptor): void => addOnce(panels, "panel", panel);
-export const registerActivity = (activity: ActivityDescriptor): void => addOnce(activityList, "activity", activity);
+export const registerActivity = <T>(activity: ActivityDescriptor<T>): void => addOnce<ActivityDescriptor>(activityList, "activity", activity);
 export const getPanel = (id: string): PanelDescriptor | undefined => panels.get(id);
 export const getActivity = (id: string): ActivityDescriptor | undefined => activityList.get(id);
 /** The activities in registration order. */

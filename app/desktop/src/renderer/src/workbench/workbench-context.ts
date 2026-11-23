@@ -1,5 +1,5 @@
 // What panels may ask of the workbench they're shown in.
-import { createContext, useCallback, useContext, useEffect, useMemo } from "react";
+import { createContext, useContext, useEffect } from "react";
 
 import { closeGuards, type revealStore, type TabRef, tabKey } from "./tabs.ts";
 
@@ -50,35 +50,6 @@ export const ActiveTabContext = createContext<ActiveTab | undefined>(undefined);
 
 /** The active tab, for a panel that marks what's open (the agent list marks the active chat). */
 export const useActiveTab = (): ActiveTab | undefined => useContext(ActiveTabContext);
-
-/** Each activity's state as the user left it, by activity id; an activity's own wrapper gives it a type. */
-export type ActivityStates = Record<string, unknown>;
-
-/** Changes one activity's state; the shell is saved after it, as after any change the user makes. */
-export type ChangeActivityStates = (activityId: string, change: (state: unknown) => unknown) => void;
-
-export type ActivityState = { state: unknown; change: (change: (state: unknown) => unknown) => void };
-
-export const ActivityStateContext = createContext<ActivityStates | undefined>(undefined);
-
-/** Its value keeps its identity while its workspace does, so a reader doesn't re-render on a state change. */
-export const ChangeActivityStateContext = createContext<ChangeActivityStates | undefined>(undefined);
-
-/** Only the activity's own change function: the caller doesn't re-render when any activity's state changes. */
-export const useChangeActivityState = (activityId: string): ActivityState["change"] => {
-  const changeStates = useContext(ChangeActivityStateContext);
-  if (changeStates === undefined) throw new Error("useChangeActivityState is used outside the Workbench; render the panel inside it.");
-  return useCallback((change) => changeStates(activityId, change), [changeStates, activityId]);
-};
-
-/** For the activity's own panel: it re-renders on every activity's state change. */
-export const useActivityState = (activityId: string): ActivityState => {
-  const states = useContext(ActivityStateContext);
-  if (states === undefined) throw new Error("useActivityState is used outside the Workbench; render the panel inside it.");
-  const change = useChangeActivityState(activityId);
-  const state = states[activityId];
-  return useMemo(() => ({ state, change }), [state, change]);
-};
 
 /** While `ask` is given, a close of the tab (its X, Close, Ctrl+W) runs `ask` instead; the panel closes it itself. */
 export const useCloseGuard = (tab: TabRef, ask: (() => void) | undefined): void => {

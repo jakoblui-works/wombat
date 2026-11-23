@@ -13,6 +13,7 @@ import { PROPOSAL_TITLE, PROPOSAL_PANEL, ProposalParams, proposalResolves, propo
 import { Desk } from "./panels/Desk/Desk.tsx";
 import { Item } from "./panels/Item/Item.tsx";
 import { ITEM_PANEL, ITEM_TITLE, ItemParams, itemTabSaved } from "./items/item-params.ts";
+import { DEFAULT_DESK, DeskLayout } from "./items/navigation/desk-layout.ts";
 
 const register = (): void => {
   registerPanel({
@@ -37,7 +38,13 @@ const register = (): void => {
     restores: proposalRestores,
   });
 
-  registerActivity({ id: DESK_ACTIVITY, title: "Desk", icon: LibraryBig, navigator: { component: Desk, wants: 280 } });
+  registerActivity({
+    id: DESK_ACTIVITY,
+    title: "Desk",
+    icon: LibraryBig,
+    navigator: { component: Desk, wants: 280 },
+    state: { schema: DeskLayout, initial: DEFAULT_DESK },
+  });
   registerPanel({
     id: ITEM_PANEL,
     // The panel reports the item's handle and title once it has read the item.
