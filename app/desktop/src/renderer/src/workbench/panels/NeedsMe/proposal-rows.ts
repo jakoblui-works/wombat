@@ -21,11 +21,10 @@ export type ProposalRow = {
   ago: string;
 };
 
-/** The open proposals' rows, newest first. */
+/** The open proposals' rows, in the list's order (`allRows` orders Needs me). */
 export const proposalRows = (proposals: readonly Proposal[], agents: readonly AgentSummary[], now: number): ProposalRow[] =>
   proposals
     .filter(({ status }) => isOpen(status))
-    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
     .map((proposal) => {
       const agent = agents.find(({ id }) => id === proposal.agentId);
       return {

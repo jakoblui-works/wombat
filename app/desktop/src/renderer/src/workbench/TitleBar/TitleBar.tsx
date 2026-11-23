@@ -1,6 +1,8 @@
-import { useRef } from "react";
+import { PanelLeft } from "lucide-react";
+import { type Ref, useRef } from "react";
 
 import { openedByPointer as byPointer } from "@/lib/motion";
+import { cn } from "@/lib/utils";
 import {
   Menubar,
   MenubarContent,
@@ -13,7 +15,8 @@ import {
   MenubarTrigger,
 } from "@/components/ui/menubar";
 import { useWorkspaces } from "../../data/hooks.ts";
-import { runLogged } from "../commands/registry.ts";
+import { ariaKeyShortcut, runLogged } from "../commands/registry.ts";
+import { TOGGLE_LEFT_SIDEBAR, WORKBENCH_COMMAND } from "../commands/workbench-commands.ts";
 import { newChat } from "../shell/shell-state.ts";
 import { useShell, useShownWorkspace } from "../shell/ShellProvider.tsx";
 import { type MenuModel, MENUS, menuItems } from "./menus.ts";
@@ -60,12 +63,34 @@ const MenuEntries = ({ menu, choose }: { menu: MenuModel; choose: (id: string) =
     ),
   );
 
+/** The left sidebar's toggle, pressed while the sidebar is shown; it runs the toggle's command, as its key does. */
+const LeftSidebarToggle = ({ toggle }: { toggle: Ref<HTMLButtonElement> | undefined }) => {
+  const shown = !useShell().state.leftHidden;
+  return (
+    <button
+      type="button"
+      aria-pressed={shown}
+      aria-label={TOGGLE_LEFT_SIDEBAR.title}
+      aria-keyshortcuts={ariaKeyShortcut(TOGGLE_LEFT_SIDEBAR.keys)}
+      title={TOGGLE_LEFT_SIDEBAR.title}
+      ref={toggle}
+      onClick={() => runLogged(WORKBENCH_COMMAND.toggleLeftSidebar)}
+      className={cn(
+        "focus-ring flex size-7 items-center justify-center rounded-md text-fg-secondary transition-colors [app-region:no-drag] hover:bg-surface-2 hover:text-fg-primary",
+        shown && "bg-surface-3 text-fg-primary",
+      )}
+    >
+      <PanelLeft className="size-4" />
+    </button>
+  );
+};
+
 /**
  * The window's title bar, in place of the system's: the menus on the left, the symbol and workspace as the drag strip
- * in the middle, then on the right the room the window controls (Electron's overlay) take. The bar drags the window,
- * so each control opts out of it with `no-drag`.
+ * in the middle, the left sidebar's toggle on the right, then the room the window controls (Electron's overlay) take.
+ * The bar drags the window, so each control opts out of it with `no-drag`. `leftToggle` gets the toggle's element.
  */
-export const TitleBar = () => {
+export const TitleBar = ({ leftToggle }: { leftToggle?: Ref<HTMLButtonElement> }) => {
   const workspace = useShownWorkspace()?.name;
   // Edit commands (cut, paste, select all) act on the focused element, and opening a menu moves focus into the menubar.
   // So each time focus comes into the menubar from outside it (and outside its popups), it remembers where from. When
@@ -148,7 +173,8 @@ export const TitleBar = () => {
         )}
       </div>
       <div className="flex min-w-0 items-center justify-end gap-2">
-        {/* The window controls sit over the bar's right end; this keeps the bar's grid clear of them. */}
+        <LeftSidebarToggle toggle={leftToggle} />
+        {/* The window controls sit over the bar's right end; this keeps the toggle clear of them. */}
         <div aria-hidden className="h-full w-[calc(100vw-env(titlebar-area-x,0px)-env(titlebar-area-width,100vw))] shrink-0" />
       </div>
     </header>

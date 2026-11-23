@@ -1,8 +1,9 @@
 import { useId } from "react";
 
 import { useNow } from "../../../lib/ago";
-import { StateMark } from "../../../lib/state-mark";
+import { cn } from "../../../lib/utils";
 import { useAgents, useProposals, useWorkspaces } from "../../../data/hooks.ts";
+import { AgentHeadLine, UNDER_TITLE } from "../../agents/AgentHeadLine/AgentHeadLine.tsx";
 import { needsMeCount } from "../../../data/needs-me.ts";
 import { workspaceName } from "../../../data/workspaces.ts";
 import { proposalShows } from "../../proposals/proposal-actions.ts";
@@ -25,12 +26,8 @@ const RequestRowView = ({ row, workspace }: { row: RequestRow; workspace: string
   const KindIcon = row.kind === undefined ? undefined : KIND_ICONS[row.kind];
   return (
     <>
-      <span className="flex w-full items-center gap-2">
-        <StateMark state={row.agent.state} />
-        <span className="min-w-0 flex-1 truncate text-base font-medium text-fg-primary">{row.title}</span>
-        <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{row.ago}</span>
-      </span>
-      <span className="flex w-full min-w-0 items-center gap-1.5 pl-5.5 text-sm text-fg-secondary">
+      <AgentHeadLine state={row.agent.state} title={row.title} ago={row.ago} />
+      <span className={cn("flex w-full min-w-0 items-center gap-1.5 text-sm text-fg-secondary", UNDER_TITLE)}>
         {KindIcon === undefined ? null : <KindIcon aria-hidden className="size-3 shrink-0 text-fg-tertiary" />}
         <span className="min-w-0 truncate">{row.ask}</span>
         <WorkspaceName name={workspace} />

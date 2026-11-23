@@ -11,6 +11,8 @@ export type WorkbenchCommandDeps = {
   api: () => DockviewApi | undefined;
   activities: readonly ActivityDescriptor[];
   showActivity: (id: string) => void;
+  /** Hides or shows the left sidebar; without it (the old workbench) the toggle isn't registered. */
+  toggleLeftSidebar?: () => void;
   /** Whether the connection banner has made the panels inert: no key may change them then. */
   blocked: () => boolean;
   /** Closes a tab the user asked to close; a tab with unsaved work asks first (default: closes it). */
@@ -32,8 +34,15 @@ export const WORKBENCH_COMMAND = {
   chooseItemsFolder: "items.chooseFolder",
   closeTab: "view.closeTab",
   closeGroup: "view.closeGroup",
+  toggleLeftSidebar: "view.toggleLeftSidebar",
   restartService: "service.restart",
 } as const;
+
+/**
+ * The left sidebar toggle's title and key, also its title bar button's name and `aria-keyshortcuts` (the button renders
+ * before the command registers). VS Code's toggle for its primary side bar.
+ */
+export const TOGGLE_LEFT_SIDEBAR = { title: "Toggle Left Sidebar", keys: "ctrl+b" } as const;
 
 /** The id of the command that shows activity `id`. */
 export const activityCommandId = (id: string): string => `view.activity.${id}`;
@@ -54,6 +63,7 @@ export const registerWorkbenchCommands = ({
   api,
   activities,
   showActivity,
+  toggleLeftSidebar,
   blocked,
   restartService,
   closePanel,
@@ -118,6 +128,10 @@ export const registerWorkbenchCommands = ({
         },
       }),
     ),
+    // Hiding the sidebar is harmless while the panels are inert, so it has no `when`: the key, menu and button agree.
+    ...(toggleLeftSidebar === undefined
+      ? []
+      : [registerCommand({ id: WORKBENCH_COMMAND.toggleLeftSidebar, title: TOGGLE_LEFT_SIDEBAR.title, keys: [TOGGLE_LEFT_SIDEBAR.keys], run: toggleLeftSidebar })]),
     // Restart works whatever the connection's state (it is the way out of a failed one), so it has no `when`.
     registerCommand({
       id: WORKBENCH_COMMAND.restartService,

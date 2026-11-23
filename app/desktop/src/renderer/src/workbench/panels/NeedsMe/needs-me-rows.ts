@@ -27,7 +27,7 @@ export type RequestRow = {
 
 export type NeedsMeRow = RequestRow | ProposalRow;
 
-/** The request rows, from `needsMe` only: newest first. */
+/** The request rows, from `needsMe` only. */
 export const needsMeRows = (agents: AgentSummary[], now: number): RequestRow[] =>
   needsMe(agents).flatMap((item): RequestRow[] => {
     const agent = agents.find(({ id }) => id === item.agentId);
@@ -50,6 +50,8 @@ export const needsMeRows = (agents: AgentSummary[], now: number): RequestRow[] =
     ];
   });
 
-/** Needs me's one list: the requests and the open proposals of every workspace, newest first. */
+/** Needs me's one list: the requests and the open proposals of every workspace, newest first, ties by key (newest id first). */
 export const allRows = (agents: AgentSummary[], proposals: readonly Proposal[], now: number): NeedsMeRow[] =>
-  [...needsMeRows(agents, now), ...proposalRows(proposals, agents, now)].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  [...needsMeRows(agents, now), ...proposalRows(proposals, agents, now)].sort(
+    (a, b) => Date.parse(b.at) - Date.parse(a.at) || (a.key < b.key ? 1 : a.key > b.key ? -1 : 0),
+  );

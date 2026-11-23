@@ -2,13 +2,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { cn } from "@/lib/utils";
-import { useAgents, useProposals } from "../../data/hooks.ts";
+import { useAgents, useProposals, useWorkspaces } from "../../data/hooks.ts";
 import { chooseItemsFolder, openFolder } from "../../data/shown-workspace.ts";
 import { asError, asSentence } from "../../lib/errors.ts";
 // Registers the panels (the chat's among them) and the harnesses' UI.
 import "../activities.ts";
 import { AGENTS_PANEL, NEEDS_ME_PANEL } from "../activity-ids.ts";
-import { CHAT_PANEL } from "../agents/chat-params.ts";
+import { CHAT_PANEL, MESSAGE_BOX } from "../agents/chat-params.ts";
 import { chatRevealKey, useOpenAgentChat } from "../agents/open-agent-chat.ts";
 import { registerWorkbenchCommands } from "../commands/workbench-commands.ts";
 import { ConnectionBanner } from "../ConnectionBanner/ConnectionBanner.tsx";
@@ -26,7 +26,7 @@ import { RightSidebar } from "./RightSidebar/RightSidebar.tsx";
 import { requestClose, shellTabActions } from "./RightSidebar/tab-actions.ts";
 import { tabTitleStore } from "./RightSidebar/tab-titles.ts";
 import { useCommandKeys, useServiceChrome } from "./service-chrome.ts";
-import { clampWidth, LEFT_START_WIDTH, leftBounds, middleView, newChat, rightView, showActivity as showActivityIn, shownTab } from "./shell-state.ts";
+import { clampWidth, hideLeftSidebar, LEFT_START_WIDTH, leftBounds, middleView, rightView, showActivity as showActivityIn, shownTab, showWorkspace } from "./shell-state.ts";
 import { ShellProvider, useShell, useShownWorkspace } from "./ShellProvider.tsx";
 import { Toolbar } from "./Toolbar/Toolbar.tsx";
 
@@ -35,6 +35,10 @@ import { Toolbar } from "./Toolbar/Toolbar.tsx";
 const SIDEBAR = "flex shrink-0 flex-col overflow-clip bg-surface-0";
 
 const NO_WORKSPACE_SHOWN = "Wombat couldn't choose the items folder: no workspace is shown. Open one with File → Open Folder…, then try again.";
+
+/** Where the focus goes as the left sidebar hides: when it's inside, to the message box, else the toggle; else it stays. */
+const focusOnHide = (inside: boolean, message: HTMLElement | null, toggle: HTMLElement | null): HTMLElement | undefined =>
+  inside ? (message ?? toggle ?? undefined) : undefined;
 
 /** The left sidebar: Needs me above the overview. */
 const LeftPanel = () => {
@@ -111,6 +115,11 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   const row = useRef<HTMLDivElement>(null);
   const rowWidth = useWidth(row);
   const middle = useRef<HTMLElement>(null);
+  const left = useRef<HTMLElement>(null);
+  const leftToggle = useRef<HTMLButtonElement>(null);
+  const workspaces = useWorkspaces().data?.workspaces;
+  const workspacesRef = useRef(workspaces);
+  workspacesRef.current = workspaces;
 
   const agentsRef = useRef(agents);
   agentsRef.current = agents;
@@ -153,6 +162,13 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
         api: () => undefined,
         activities: activities(),
         showActivity,
+        toggleLeftSidebar: () => {
+          if (!stateRef.current.leftHidden) {
+            const inside = left.current?.contains(document.activeElement) === true;
+            focusOnHide(inside, middle.current?.querySelector<HTMLElement>(MESSAGE_BOX) ?? null, leftToggle.current)?.focus();
+          }
+          change((current) => hideLeftSidebar(current, !current.leftHidden));
+        },
         closeActiveTab: () => {
           const workspace = shownRef.current;
           const tab = shownTab(stateRef.current, workspace);
@@ -161,7 +177,8 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
         blocked: () => blockedRef.current,
         restartService: () => restartRef.current(),
         openFolder: () =>
-          openFolder(queryClient, (id) => change((current) => newChat(current, id))).catch((error: unknown) =>
+          // A folder already listed answers its workspace: shown as a Needs me row shows one, its open agent kept.
+          openFolder(queryClient, (id) => change((current) => showWorkspace(current, id, agentsRef.current, workspacesRef.current))).catch((error: unknown) =>
             tell(`Wombat couldn't open the folder: ${asSentence(asError(error).message)}`),
           ),
         chooseItemsFolder: async () => {
@@ -185,18 +202,21 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
     <WorkbenchContext value={workbench}>
       <OpenAgentRequests openAgents={openAgents} />
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-surface-0 text-fg-primary">
-        <TitleBar />
+        <TitleBar leftToggle={leftToggle} />
         {blocked ? <ConnectionBanner connection={connection.state} message={connection.message} attempt={attempt} onRestart={restart} /> : null}
         {noticeShown ? <LiveLaunchNotice connection={connection} onRestart={restart} onDismiss={dismissNotice} /> : null}
         {/* Always here, so the panels never remount: while blocked it is inert and the scrim over it shows. */}
         <div ref={row} inert={blocked} className="relative flex min-h-0 min-w-0 flex-1">
-          <aside aria-label="Agents" className={SIDEBAR} style={{ width: leftWidth }}>
+          {/* Hidden, not removed, so its panels keep their state while the chat takes the space. */}
+          <aside ref={left} aria-label="Agents" hidden={state.leftHidden} className={SIDEBAR} style={{ width: leftWidth }}>
             <LeftPanel />
           </aside>
-          <ResizeHandle
-            label="Resize the left sidebar"
-            onDrag={(dx) => setLeftWidth((width) => clampWidth(width + dx, leftBounds(rowWidth - RESIZE_HANDLE_WIDTH * (rightOpen ? 2 : 1), rightOpen)))}
-          />
+          {state.leftHidden ? null : (
+            <ResizeHandle
+              label="Resize the left sidebar"
+              onDrag={(dx) => setLeftWidth((width) => clampWidth(width + dx, leftBounds(rowWidth - RESIZE_HANDLE_WIDTH * (rightOpen ? 2 : 1), rightOpen)))}
+            />
+          )}
           <div ref={beside} className="flex min-w-0 flex-1">
             <main ref={middle} className="relative flex min-w-0 flex-1">
               <div className="flex min-w-0 flex-1 flex-col">

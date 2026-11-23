@@ -64,16 +64,9 @@ export const openNewItem = ({ workbench }: ItemNavigator, ws: string, binderId: 
   workbench.openTab(ITEM_PANEL, params, undefined, { workspace: ws, title: NEW_ITEM_TITLE });
 };
 
-// The page's one count of navigations (a followed item, a Needs me row): only the latest lands, so one whose read comes
-// back after a later one started does nothing.
-let navigations = 0;
-
-/** Starts a navigation; the check it returns answers whether it is still the latest. */
-export const startNavigation = (): (() => boolean) => {
-  navigations += 1;
-  const navigation = navigations;
-  return () => navigation === navigations;
-};
+// The page's count of followed links: only the latest lands. A snapshot of what's shown can't decide it, since an
+// earlier link landing first would change the view and drop the later one.
+let follows = 0;
 
 /**
  * Shows workspace `ws`'s item where it sits: the Desk's sidebar on its binder's first view, `reveal` (default: the
@@ -86,7 +79,9 @@ export const showItem = (navigator: ItemNavigator, { ws, binderId, itemId }: Sav
 
 /** Shows workspace `ws`'s item (`ref`: its id or a handle) where it sits (`showItem`); for a ref that names no item, opens nothing and tells the user. */
 export const followItem = (navigator: ItemNavigator, ws: string, ref: string): void => {
-  const isLatest = startNavigation();
+  follows += 1;
+  const follow = follows;
+  const isLatest = (): boolean => follow === follows;
   void readItemAfresh(navigator.queryClient, ws, ref).then(
     (item) => {
       if (!isLatest()) return;

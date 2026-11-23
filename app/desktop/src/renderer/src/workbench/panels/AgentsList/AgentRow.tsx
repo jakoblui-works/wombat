@@ -6,9 +6,9 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { activityLabel } from "../../../lib/activity";
 import { AGENT_STATES } from "../../../lib/agent-state";
 import { ago } from "../../../lib/ago";
-import { StateMark } from "../../../lib/state-mark";
 import { cn } from "../../../lib/utils";
 import { agentTitle } from "../../../lib/agent-title.ts";
+import { AgentHeadLine, UNDER_TITLE } from "../../agents/AgentHeadLine/AgentHeadLine.tsx";
 import { useActionError } from "../Chat/DeleteAgentDialog/action-error.ts";
 import { DeleteAgentDialog } from "../Chat/DeleteAgentDialog/DeleteAgentDialog.tsx";
 import { canStop, useAgentActions } from "./agent-actions.ts";
@@ -38,12 +38,8 @@ export const AgentRow = ({ agent, now, selected, onOpen }: Props) => {
           selected && "bg-surface-2",
         )}
       >
-        <span className="flex w-full items-center gap-2">
-          <StateMark state={agent.state} />
-          <span className="min-w-0 flex-1 truncate text-base font-medium text-fg-primary">{title}</span>{" "}
-          <span className="shrink-0 text-xs text-fg-tertiary tabular-nums">{ago(agent.lastUserAt ?? agent.startedAt, now)}</span>
-        </span>{" "}
-        <span className="flex w-full min-w-0 items-center gap-1.5 pl-5.5 font-mono text-xs text-fg-tertiary">
+        <AgentHeadLine state={agent.state} title={title} ago={ago(agent.lastUserAt ?? agent.startedAt, now)} />{" "}
+        <span className={cn("flex w-full min-w-0 items-center gap-1.5 font-mono text-xs text-fg-tertiary", UNDER_TITLE)}>
           {agent.repo === "." ? null : <span className="min-w-0 shrink-0 truncate">{agent.repo}</span>}
           {agent.branch === undefined ? null : (
             <>
@@ -54,11 +50,11 @@ export const AgentRow = ({ agent, now, selected, onOpen }: Props) => {
           )}
         </span>{" "}
         {agent.state === "working" && agent.activity != null ? (
-          <span className="truncate pl-5.5 text-xs text-fg-secondary">
+          <span className={cn("truncate text-xs text-fg-secondary", UNDER_TITLE)}>
             {AGENT_STATES.working.label} · {activityLabel(agent.activity)}
           </span>
         ) : null}{" "}
-        {agent.lastText === undefined ? null : <span className="line-clamp-2 pl-5.5 text-sm text-fg-secondary">{agent.lastText}</span>}
+        {agent.lastText === undefined ? null : <span className={cn("line-clamp-2 text-sm text-fg-secondary", UNDER_TITLE)}>{agent.lastText}</span>}
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger

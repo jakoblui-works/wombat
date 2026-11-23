@@ -1,5 +1,5 @@
 // What "needs me" lists: every pending permission of a waiting agent, a row for a
-// waiting agent without one, newest first, ties by agent id; nothing for an agent that no longer waits.
+// waiting agent without one; nothing for an agent that no longer waits. Needs me's rows order them (allRows).
 import fc from "fast-check";
 import { expect, test } from "vitest";
 
@@ -14,7 +14,7 @@ import { needsMe, needsMeCount } from "./needs-me.ts";
 
 const pending = (requestId: string, at: string, title: string) => ({ requestId, at, title, kind: "edit" as const });
 
-test("rows for waiting agents only, one per pending permission or one for the agent, newest first, ties by agent id", () => {
+test("rows for waiting agents only, one per pending permission or one for the agent", () => {
   const agents = [
     summary("agent-c", { state: "waiting", pendingPermissions: [pending("r1", atFor(10), "Edit notes.txt"), pending("r2", atFor(30), "Run npm test")] }),
     summary("agent-b", { state: "waiting", lastActivityAt: atFor(20) }),
@@ -23,12 +23,16 @@ test("rows for waiting agents only, one per pending permission or one for the ag
     summary("agent-d", { state: "working", pendingPermissions: [pending("r9", atFor(40), "Edit hours.md")] }),
     summary("agent-e", { state: "done", lastActivityAt: atFor(50) }),
   ];
-  expect(needsMe(agents)).toEqual([
-    { agentId: "agent-a", at: atFor(30) },
-    { agentId: "agent-c", requestId: "r2", title: "Run npm test", at: atFor(30) },
-    { agentId: "agent-b", at: atFor(20) },
-    { agentId: "agent-c", requestId: "r1", title: "Edit notes.txt", at: atFor(10) },
-  ]);
+  const listed = needsMe(agents);
+  expect(listed).toHaveLength(4);
+  expect(listed).toEqual(
+    expect.arrayContaining([
+      { agentId: "agent-a", at: atFor(30) },
+      { agentId: "agent-c", requestId: "r2", title: "Run npm test", at: atFor(30) },
+      { agentId: "agent-b", at: atFor(20) },
+      { agentId: "agent-c", requestId: "r1", title: "Edit notes.txt", at: atFor(10) },
+    ]),
+  );
 
   // Answered and back to work: the rows clear with the summary.
   expect(needsMe([summary("agent-c", { state: "working" }), summary("agent-b", { state: "done" })])).toEqual([]);

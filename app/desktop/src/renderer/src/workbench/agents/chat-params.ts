@@ -8,6 +8,13 @@ export const ChatParams = z.object({ agentId: z.string() });
 /** The chat panel's id: its registration and every tab opened on it. */
 export const CHAT_PANEL = "chat";
 
+const MESSAGE_BOX_ATTRIBUTE = "data-message-box";
+
+/** Marks the chat's message box, for `MESSAGE_BOX` to find. */
+export const messageBoxMark = { [MESSAGE_BOX_ATTRIBUTE]: "" };
+
+export const MESSAGE_BOX = `[${MESSAGE_BOX_ATTRIBUTE}]`;
+
 /** A chat tab applies while its agent exists. */
 export const chatResolves = (params: unknown, { agents }: KnownContext): boolean => {
   const parsed = ChatParams.safeParse(params);

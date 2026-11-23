@@ -283,6 +283,37 @@ export const shownNavigator = (state: ShellState, workspace: string | undefined)
   return view.show === "navigator" || view.show === "tab-and-navigator" ? view.activity : undefined;
 };
 
+/** What the user sees of the shell, without the parts the page changes on its own (collapsed groups, widths). */
+export type ShownView = {
+  openAgent: string | undefined;
+  newChatWorkspace: string | undefined;
+  workspace: string | undefined;
+  tab: string | undefined;
+  rightOpen: boolean;
+  activity: string | undefined;
+  navigator: string | undefined;
+};
+
+export const shownView = (
+  state: ShellState,
+  agents: readonly Pick<AgentSummary, "id" | "workspace">[] | undefined,
+  workspaces?: readonly Pick<Workspace, "id">[],
+): ShownView => {
+  const workspace = shownWorkspace(state, agents, workspaces);
+  const shell = workspace === undefined ? emptyWorkspace : workspaceShell(state, workspace);
+  return {
+    openAgent: state.openAgent,
+    newChatWorkspace: state.newChatWorkspace,
+    workspace,
+    tab: shell.active,
+    rightOpen: shell.rightOpen,
+    activity: shell.activity,
+    navigator: shownNavigator(state, workspace),
+  };
+};
+
+export const sameView = (a: ShownView, b: ShownView): boolean => (Object.keys(a) as (keyof ShownView)[]).every((field) => a[field] === b[field]);
+
 export const navigatorToggle = (state: ShellState, workspace: string): "hide" | "show" | undefined => {
   const view = rightView(state, workspace);
   if (view.show === "tab-and-navigator") return "hide";

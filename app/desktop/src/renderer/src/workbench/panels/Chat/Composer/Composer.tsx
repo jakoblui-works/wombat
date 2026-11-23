@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 import { Button } from "../../../../components/ui/button";
 import { sendMessageVars, useCancelTurn, useSendMessage } from "../../../../data/commands.ts";
+import { messageBoxMark } from "../../../agents/chat-params.ts";
 import { appCommand, canSend, type ComposerEntryEvent, keyAction } from "./composer-state.ts";
 import { ReferenceChip } from "./ReferenceChip.tsx";
 import { sendFailure } from "./send-failure.ts";
@@ -58,6 +59,7 @@ export const Composer = ({ agentId, turnActive, connected, access, features, onO
       {reference === undefined ? null : <ReferenceChip proposalId={reference} onRemove={() => dispatch({ type: "refer", proposalId: undefined })} />}
       <div className="mx-auto flex max-w-chat items-end gap-2 rounded-lg border border-line-strong bg-surface-2 py-1.5 pr-1.5 pl-3 transition-colors focus-within:border-focus">
         <textarea
+          {...messageBoxMark}
           aria-label="Message"
           rows={1}
           placeholder="Reply to the agent…"

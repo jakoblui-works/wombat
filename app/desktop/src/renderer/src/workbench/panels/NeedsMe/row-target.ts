@@ -1,6 +1,7 @@
 import type { BinderSummary } from "@wombat/shared/items";
 
 import { binderOf } from "../../items/binders.ts";
+import { sameView, type ShownView } from "../../shell/shell-state.ts";
 import type { NeedsMeRow } from "./needs-me-rows.ts";
 
 export type RowTarget =
@@ -19,11 +20,11 @@ export const rowTarget = (row: NeedsMeRow): RowTarget => {
 };
 
 /**
- * What an open waiting on its reads does once they're back: wait while no workspace is shown, open while its own is,
- * else drop (something else was shown since the click).
+ * What an open waiting on its reads does once they're back: wait while no workspace is shown, open while the shell
+ * shows what the click left (`clicked`), else drop.
  */
-export const lateOpen = (workspace: string, shown: string | undefined): "wait" | "open" | "drop" =>
-  shown === undefined ? "wait" : shown === workspace ? "open" : "drop";
+export const lateOpen = (clicked: ShownView, now: ShownView): "wait" | "open" | "drop" =>
+  now.workspace === undefined ? "wait" : sameView(clicked, now) ? "open" : "drop";
 
 export type ItemOpen = { open: "item"; workspace: string; binderId: string; itemId: string; proposalId: string };
 

@@ -118,10 +118,17 @@ const SYMBOL_LABELS: Record<string, string> = Object.fromEntries(
     .map(([name, code]) => [code, name]),
 );
 
+/** A physical key as a label shows it: "W", "=", "Numpad0". */
+const keyLabel = (code: string): string => KEY_LABELS[code] ?? SYMBOL_LABELS[code] ?? code.replace(/^(Key|Digit)/, "");
+
 /** A chord as a menu shows it: "Ctrl+Shift+W", "Ctrl+=", "Ctrl+Numpad0". */
-const chordLabel = ({ ctrl, shift, alt, meta, code }: KeyChord): string => {
-  const key = KEY_LABELS[code] ?? SYMBOL_LABELS[code] ?? code.replace(/^(Key|Digit)/, "");
-  return [ctrl && "Ctrl", shift && "Shift", alt && "Alt", meta && "Meta", key].filter(Boolean).join("+");
+const chordLabel = ({ ctrl, shift, alt, meta, code }: KeyChord): string =>
+  [ctrl && "Ctrl", shift && "Shift", alt && "Alt", meta && "Meta", keyLabel(code)].filter(Boolean).join("+");
+
+/** A key string as `aria-keyshortcuts` writes it: "ctrl+b" as "Control+B". */
+export const ariaKeyShortcut = (keys: string): string => {
+  const { ctrl, shift, alt, meta, code } = parseKeys(keys);
+  return [ctrl && "Control", shift && "Shift", alt && "Alt", meta && "Meta", keyLabel(code)].filter(Boolean).join("+");
 };
 
 /** The command's first key (else its first shown key) as a menu shows it; undefined when it has none. */
