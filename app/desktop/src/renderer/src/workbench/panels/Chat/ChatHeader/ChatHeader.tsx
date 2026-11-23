@@ -3,6 +3,7 @@ import { Square, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "../../../../components/ui/button";
+import { useWorkspaces } from "../../../../data/hooks.ts";
 import { StateMark } from "../../../../lib/state-mark";
 import { canStop, useAgentActions } from "../../AgentsList/agent-actions.ts";
 import { agentTitle } from "../../../../lib/agent-title.ts";
@@ -13,7 +14,7 @@ type Props = { agentId: string; agent: AgentSummary | undefined; connected: bool
 
 /** The chat's header: the agent's state and title, Stop while it runs, and Delete (confirmed first). */
 export const ChatHeader = ({ agentId, agent, connected }: Props) => {
-  const title = agentTitle(agentId, agent);
+  const title = agentTitle(agentId, agent, useWorkspaces().data?.workspaces);
   const actions = useAgentActions(agentId);
   const [confirming, setConfirming] = useState(false);
   const error = useActionError(actions.error, agent?.state, confirming);

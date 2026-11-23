@@ -2,7 +2,7 @@ import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useSyncExternalStore } from "react";
 
 import { cn } from "@/lib/utils";
-import { useAgents, useProposals } from "../../../data/hooks.ts";
+import { useAgents, useProposals, useWorkspaces } from "../../../data/hooks.ts";
 import { type ActivityDescriptor, activities, getPanel, isKnown, type NavigatorParams, type ResolveContext } from "../../registry.ts";
 import { closeGuards, navigatorRevealKey, type Reveals, tabKey } from "../../tabs.ts";
 import { ActiveTabContext } from "../../workbench-context.ts";
@@ -187,7 +187,8 @@ export const RightSidebar = ({ shown, available, className, ...stores }: Stores 
   const { state } = useShell();
   const agents = useAgents().data?.agents;
   const proposals = useProposals().data?.proposals;
-  const ctx = useMemo<ResolveContext>(() => ({ agents, proposals }), [agents, proposals]);
+  const workspaces = useWorkspaces().data?.workspaces;
+  const ctx = useMemo<ResolveContext>(() => ({ agents, proposals, workspaces }), [agents, proposals, workspaces]);
   useTabUpkeep(stores.titles, ctx);
   const { width, drag } = useRightWidth(shown, available);
   const open = width !== undefined;

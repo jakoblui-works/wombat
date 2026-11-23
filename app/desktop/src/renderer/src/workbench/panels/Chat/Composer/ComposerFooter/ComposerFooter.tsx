@@ -9,7 +9,6 @@ import { footerSlot } from "./slots.ts";
 
 type Props = {
   agent: AgentSummary;
-  toolName: string;
   options: ConfigOption[] | undefined;
   usage: Usage | undefined;
   /**
@@ -27,7 +26,7 @@ type Props = {
  * defaults). For an agent without a process, the NotRunning indicator takes the `context` slot's place, whatever the
  * harness's own: the one owner of it.
  */
-export const ComposerFooter = ({ agent, toolName, options, usage, access = "running", onSet }: Props) => {
+export const ComposerFooter = ({ agent, options, usage, access = "running", onSet }: Props) => {
   const [failure, setFailure] = useState<string>();
   // Sets still waiting for the agent to start.
   const [starting, setStarting] = useState(0);
@@ -52,7 +51,6 @@ export const ComposerFooter = ({ agent, toolName, options, usage, access = "runn
     <div className="shrink-0 px-5 pb-2">
       <div className="mx-auto w-full max-w-chat">
         <div className="flex min-h-6 flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="text-sm text-fg-tertiary">{toolName}</span>
           <Settings {...slotProps} />
           {access === "running" ? <Context {...slotProps} /> : <NotRunning access={access} />}
         </div>

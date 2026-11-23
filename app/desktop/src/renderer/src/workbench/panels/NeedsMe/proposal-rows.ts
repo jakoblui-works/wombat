@@ -1,4 +1,4 @@
-import type { AgentSummary } from "@wombat/shared/api";
+import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import { isOpen, type Proposal } from "@wombat/shared/proposals";
 
 import { ago } from "../../../lib/ago";
@@ -22,7 +22,7 @@ export type ProposalRow = {
 };
 
 /** The open proposals' rows, in the list's order (`allRows` orders Needs me). */
-export const proposalRows = (proposals: readonly Proposal[], agents: readonly AgentSummary[], now: number): ProposalRow[] =>
+export const proposalRows = (proposals: readonly Proposal[], agents: readonly AgentSummary[], workspaces: readonly Workspace[] | undefined, now: number): ProposalRow[] =>
   proposals
     .filter(({ status }) => isOpen(status))
     .map((proposal) => {
@@ -38,7 +38,7 @@ export const proposalRows = (proposals: readonly Proposal[], agents: readonly Ag
         edited: proposal.editedByMe,
         outsideWorkspace: isOutsideWorkspace(proposal),
         agent,
-        agentTitle: proposalAgentTitle(proposal, agents),
+        agentTitle: proposalAgentTitle(proposal, agents, workspaces),
         ago: ago(proposal.at, now),
       };
     });

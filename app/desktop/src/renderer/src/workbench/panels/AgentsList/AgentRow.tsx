@@ -3,6 +3,7 @@ import { Ellipsis, GitBranch } from "lucide-react";
 import { useState } from "react";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../../components/ui/dropdown-menu";
+import { useWorkspaces } from "../../../data/hooks.ts";
 import { activityLabel } from "../../../lib/activity";
 import { AGENT_STATES } from "../../../lib/agent-state";
 import { ago } from "../../../lib/ago";
@@ -22,7 +23,7 @@ type Props = {
 
 /** One agent: the row opens its chat; the menu beside it stops or deletes the agent. */
 export const AgentRow = ({ agent, now, selected, onOpen }: Props) => {
-  const title = agentTitle(agent.id, agent);
+  const title = agentTitle(agent.id, agent, useWorkspaces().data?.workspaces);
   const actions = useAgentActions(agent.id);
   const [confirming, setConfirming] = useState(false);
   const error = useActionError(actions.error, agent.state, confirming);

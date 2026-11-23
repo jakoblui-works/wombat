@@ -7,7 +7,7 @@ import type { ListProposalsResponse } from "@wombat/shared/proposals";
 import type { ConnectionState } from "../../../../shared/bridge.ts";
 import { isSettled } from "@/lib/connection-state";
 import { cn } from "@/lib/utils";
-import { useAgents, useProposals } from "../../data/hooks.ts";
+import { useAgents, useProposals, useWorkspaces } from "../../data/hooks.ts";
 import { chooseItemsFolder, openFolder, showWorkspace, shownWorkspaceId } from "../../data/shown-workspace.ts";
 import { keys } from "../../data/keys.ts";
 // Registers the activities and their panels, which the workbench reads from the registry.
@@ -157,6 +157,9 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
   const proposalList = proposals.data?.proposals;
   const proposalsRef = useRef(proposalList);
   proposalsRef.current = proposalList;
+  const workspaceList = useWorkspaces().data?.workspaces;
+  const workspacesRef = useRef(workspaceList);
+  workspacesRef.current = workspaceList;
   // Whether the restore fell back to the default although a layout was saved; only a user change may replace it then.
   const fellBack = useRef(false);
   useEffect(() => {
@@ -253,7 +256,7 @@ export const Workbench = ({ openAgents }: { openAgents: OpenAgents }) => {
     setActivityStates((current) => ({ ...current, [activityId]: change(current[activityId]) }));
     saver.current?.schedule("user");
   }, []);
-  const titleContext = useCallback(() => ({ agents: agentsRef.current, proposals: proposalsRef.current }), []);
+  const titleContext = useCallback(() => ({ agents: agentsRef.current, proposals: proposalsRef.current, workspaces: workspacesRef.current }), []);
   const actions = useMemo(() => (api === undefined ? NO_ACTIONS : workbenchActions(api, reveals, titleContext)), [api, reveals, titleContext]);
   const workbench = useMemo<WorkbenchContextValue>(
     () => ({ ...actions, reveals, showActivity, titleContext }),

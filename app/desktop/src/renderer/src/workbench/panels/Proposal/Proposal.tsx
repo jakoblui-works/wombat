@@ -8,7 +8,7 @@ import { canDraft, myDraft, type ProposalDetail, ProposalErrorCode, sameAsAgents
 import { Button } from "../../../components/ui/button";
 import { ServiceError } from "../../../data/client.ts";
 import { useDecide } from "../../../data/commands.ts";
-import { useAgents, useConnection, useProposal } from "../../../data/hooks.ts";
+import { useAgents, useConnection, useProposal, useWorkspaces } from "../../../data/hooks.ts";
 import { keys } from "../../../data/keys.ts";
 import { refresh } from "../../../data/refresh.ts";
 import { useHarnessFeatures } from "../../../data/harness-features.ts";
@@ -109,6 +109,7 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: Pane
   const earlier = useProposal(proposalId, viewing);
   const [saving, setSaving] = useState(false);
   const agents = useAgents();
+  const workspaces = useWorkspaces();
   const connection = useConnection();
   const decide = useDecide();
   const features = useHarnessFeatures(agents.data?.agents.find(({ id }) => id === read.data?.agentId)?.harness);
@@ -135,7 +136,7 @@ const ProposalTab = ({ proposalId, setTitle }: ProposalParams & { setTitle: Pane
   if (proposal === undefined || label === undefined) return read.error ? <ReadError error={read.error} /> : <Note>Loading…</Note>;
 
   const agent = agents.data?.agents.find(({ id }) => id === proposal.agentId);
-  const by = agents.data === undefined ? undefined : proposalAgentTitle(proposal, agents.data.agents);
+  const by = agents.data === undefined ? undefined : proposalAgentTitle(proposal, agents.data.agents, workspaces.data?.workspaces);
   const state = proposalTabState(proposal);
   const actions = proposalActions(proposal, agent, connection.state, features);
   const busy = decide.isPending || saving;

@@ -257,6 +257,8 @@ export const hideNavigator = (state: ShellState, workspace: string, hidden: bool
 
 export const hideLeftSidebar = (state: ShellState, hidden: boolean): ShellState => ({ ...state, leftHidden: hidden });
 
+export const collapseBar = (state: ShellState, collapsed: boolean): ShellState => ({ ...state, barCollapsed: collapsed });
+
 export type RightView =
   | { show: "closed" }
   | { show: "navigator"; activity: string }

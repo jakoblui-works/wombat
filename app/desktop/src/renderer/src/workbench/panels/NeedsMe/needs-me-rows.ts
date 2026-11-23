@@ -1,4 +1,4 @@
-import type { AgentSummary } from "@wombat/shared/api";
+import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import type { Proposal } from "@wombat/shared/proposals";
 
 import { needsMe } from "../../../data/needs-me.ts";
@@ -28,7 +28,7 @@ export type RequestRow = {
 export type NeedsMeRow = RequestRow | ProposalRow;
 
 /** The request rows, from `needsMe` only. */
-export const needsMeRows = (agents: AgentSummary[], now: number): RequestRow[] =>
+export const needsMeRows = (agents: AgentSummary[], workspaces: readonly Workspace[] | undefined, now: number): RequestRow[] =>
   needsMe(agents).flatMap((item): RequestRow[] => {
     const agent = agents.find(({ id }) => id === item.agentId);
     if (agent === undefined) return [];
@@ -42,7 +42,7 @@ export const needsMeRows = (agents: AgentSummary[], now: number): RequestRow[] =
         agentId: item.agentId,
         requestId,
         agent,
-        title: agentTitle(item.agentId, agent),
+        title: agentTitle(item.agentId, agent, workspaces),
         ask: "title" in item ? item.title : WAITING_ASK,
         kind: agent.pendingPermissions.find((request) => request.requestId === requestId)?.kind,
         ago: ago(item.at, now),
@@ -51,7 +51,7 @@ export const needsMeRows = (agents: AgentSummary[], now: number): RequestRow[] =
   });
 
 /** Needs me's one list: the requests and the open proposals of every workspace, newest first, ties by key (newest id first). */
-export const allRows = (agents: AgentSummary[], proposals: readonly Proposal[], now: number): NeedsMeRow[] =>
-  [...needsMeRows(agents, now), ...proposalRows(proposals, agents, now)].sort(
+export const allRows = (agents: AgentSummary[], proposals: readonly Proposal[], workspaces: readonly Workspace[] | undefined, now: number): NeedsMeRow[] =>
+  [...needsMeRows(agents, workspaces, now), ...proposalRows(proposals, agents, workspaces, now)].sort(
     (a, b) => Date.parse(b.at) - Date.parse(a.at) || (a.key < b.key ? 1 : a.key > b.key ? -1 : 0),
   );

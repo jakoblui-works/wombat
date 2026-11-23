@@ -658,12 +658,18 @@ export const startAgent = async (sandbox: Sandbox, harness: "fake-reply" | "fake
   return (started.json as { id: string }).id;
 };
 
-type Summary = { id: string; state: string; title?: string; repo: string; lastText?: string; pendingPermissions?: { title: string }[] };
+type Summary = { id: string; workspace: string; state: string; title?: string; repo: string; lastText?: string; pendingPermissions?: { title: string }[] };
 
 /** The agent's summary from GET /agents. */
 export const agentSummary = async (sandbox: Pick<Sandbox, "api">, agentId: string): Promise<Summary | undefined> => {
   const listed = await sandbox.api("GET", "/agents");
   return (listed.json as { agents: Summary[] }).agents.find((agent) => agent.id === agentId);
+};
+
+/** The agent's title as the app shows it, from GET /agents and GET /workspaces. */
+export const agentTitleOf = async (sandbox: Pick<Sandbox, "api">, agentId: string): Promise<string> => {
+  const listed = await sandbox.api("GET", "/workspaces");
+  return agentTitle(agentId, await agentSummary(sandbox, agentId), (listed.json as { workspaces: { id: string; name: string }[] }).workspaces);
 };
 
 /** Starts a `fake-permission` agent, prompts it, and waits until it's waiting on a permission answer. */
@@ -694,7 +700,7 @@ export const tabCount = (page: Page): Promise<number> => page.locator(".dv-tab")
 export const openAgent = async (launched: LaunchedApp, agentId: string): Promise<void> => {
   await sendOpenAgent(launched.app, agentId);
   await until(`the chat of ${agentId}`, WAIT_MS, async () => {
-    const title = agentTitle(agentId, await agentSummary(launched, agentId));
+    const title = await agentTitleOf(launched, agentId);
     const header = launched.page.getByRole("main").getByRole("heading", { level: 2, name: title, exact: true });
     return (await header.count().catch(() => 0)) >= 1 ? true : undefined;
   });

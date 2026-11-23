@@ -2,13 +2,17 @@
 import type { LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
 import { z, type ZodType } from "zod";
-import type { AgentSummary } from "@wombat/shared/api";
+import type { AgentSummary, Workspace } from "@wombat/shared/api";
 import type { Proposal } from "@wombat/shared/proposals";
 import type { IsKnown } from "./layout.ts";
 
 export type PanelLocation = "tab" | "navigator";
 /** What a panel's title may look at; a list is undefined while it's loading (or couldn't be read). */
-export type ResolveContext = { agents: AgentSummary[] | undefined; proposals?: readonly Proposal[] | undefined };
+export type ResolveContext = {
+  agents: AgentSummary[] | undefined;
+  proposals?: readonly Proposal[] | undefined;
+  workspaces?: readonly Pick<Workspace, "id" | "name">[] | undefined;
+};
 /**
  * What `resolves` looks at: it's only asked once the agents list is known (until then a tab is kept). The proposals
  * may still be unknown: a panel that goes by them keeps its tab until they are.

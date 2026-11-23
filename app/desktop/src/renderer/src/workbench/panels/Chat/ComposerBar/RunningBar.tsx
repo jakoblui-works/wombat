@@ -4,8 +4,9 @@ import { ChevronDown, ChevronUp, GitBranch } from "lucide-react";
 import { useHarnesses, useWorkspaces } from "../../../../data/hooks.ts";
 import { cn } from "../../../../lib/utils";
 import { useShell } from "../../../shell/ShellProvider.tsx";
+import { collapseBar } from "../../../shell/shell-state.ts";
 import { BAR_ROW, Host, Step } from "./ComposerBar.tsx";
-import { collapseBar, runningBarValues } from "./running-bar.ts";
+import { runningBarValues } from "./running-bar.ts";
 
 const VALUE = "min-w-0 truncate px-2 text-sm text-fg-secondary";
 

@@ -25,9 +25,9 @@ export const chatResolves = (params: unknown, { agents }: KnownContext): boolean
 };
 
 /** The chat tab's title: the agent's. */
-export const chatTitle = (params: unknown, { agents }: ResolveContext): string => {
+export const chatTitle = (params: unknown, { agents, workspaces }: ResolveContext): string => {
   const parsed = ChatParams.safeParse(params);
   if (!parsed.success) return "Chat";
   const { agentId } = parsed.data;
-  return agentTitle(agentId, agents?.find(({ id }) => id === agentId));
+  return agentTitle(agentId, agents?.find(({ id }) => id === agentId), workspaces);
 };

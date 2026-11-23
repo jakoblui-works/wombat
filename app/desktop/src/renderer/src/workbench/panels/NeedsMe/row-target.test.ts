@@ -38,8 +38,8 @@ const BAKERY = "ws-bakery0001";
 const GARDEN = "ws-garden0002";
 const NOW = Date.parse(atFor(100));
 
-const requestRow = (agent: AgentSummary): NeedsMeRow => needsMeRows([agent], NOW)[0]!;
-const proposalRow = (fields: Partial<Proposal>): NeedsMeRow => proposalRows([{ ...proposal("proposal-1"), workspace: GARDEN, ...fields } as Proposal], [], NOW)[0]!;
+const requestRow = (agent: AgentSummary): NeedsMeRow => needsMeRows([agent], [], NOW)[0]!;
+const proposalRow = (fields: Partial<Proposal>): NeedsMeRow => proposalRows([{ ...proposal("proposal-1"), workspace: GARDEN, ...fields } as Proposal], [], [], NOW)[0]!;
 const fileProposal = (kind: "edit" | "create"): Partial<Proposal> => ({ target: "file", kind, path: "/home/someone/garden/notes.txt", outsideWorkspace: false });
 
 const pagesBinder: BinderSummary = {

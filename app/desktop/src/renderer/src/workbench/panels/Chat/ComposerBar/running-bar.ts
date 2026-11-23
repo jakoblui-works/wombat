@@ -1,10 +1,7 @@
-// What a running agent's composer bar shows, and its collapse, pure.
+// What a running agent's composer bar shows, pure.
 import type { AgentSummary, ListHarnessesResponse, Workspace } from "@wombat/shared/api";
 
-import type { ShellState } from "../../../shell/shell-state.ts";
-
-/** A repo path's name: the workspace root (`"."`) is named after its workspace. */
-export const repoName = (path: string, workspace: Pick<Workspace, "name">): string => (path === "." ? workspace.name : path);
+import { repoName } from "../../../../lib/agent-title.ts";
 
 /** The harness's listed name, else its id (unlisted, or the list is still loading). */
 export const harnessName = (harnesses: ListHarnessesResponse | undefined, id: string): string => harnesses?.find((listed) => listed.id === id)?.name ?? id;
@@ -25,5 +22,3 @@ export const runningBarValues = (
     branch: agent.branch,
   };
 };
-
-export const collapseBar = (state: ShellState, collapsed: boolean): ShellState => ({ ...state, barCollapsed: collapsed });

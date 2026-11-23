@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { cn } from "@/lib/utils";
-import { useAgents, useProposals } from "../../data/hooks.ts";
+import { useAgents, useProposals, useWorkspaces } from "../../data/hooks.ts";
 import { chooseItemsFolder } from "../../data/shown-workspace.ts";
 import { asError, asSentence } from "../../lib/errors.ts";
 // Registers the panels (the chat's among them) and the harnesses' UI.
@@ -130,12 +130,15 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   const proposals = useProposals().data?.proposals;
   const proposalsRef = useRef(proposals);
   proposalsRef.current = proposals;
+  const workspaces = useWorkspaces().data?.workspaces;
+  const workspacesRef = useRef(workspaces);
+  workspacesRef.current = workspaces;
   const stateRef = useRef(state);
   stateRef.current = state;
 
   const reveals = useMemo(revealStore, []);
   const titles = useMemo(tabTitleStore, []);
-  const titleContext = useCallback(() => ({ agents: agentsRef.current, proposals: proposalsRef.current }), []);
+  const titleContext = useCallback(() => ({ agents: agentsRef.current, proposals: proposalsRef.current, workspaces: workspacesRef.current }), []);
   const showActivity = useCallback(
     (activityId: string, workspace?: string) => {
       const target = workspace ?? shownRef.current;

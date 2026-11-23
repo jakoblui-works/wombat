@@ -59,7 +59,7 @@ test("the count is the request rows plus the proposal rows, for any agents and p
       );
       const proposals = proposalSpecs.map(({ status, at, agent: owner }, i) => ({ ...proposal(`proposal-${String(i)}`, `agent-${String(owner)}`), status, at: atFor(at) }));
       const now = Date.parse(atFor(100));
-      expect(needsMeCount(agents, proposals)).toBe(needsMeRows(agents, now).length + proposalRows(proposals, agents, now).length);
+      expect(needsMeCount(agents, proposals)).toBe(needsMeRows(agents, [], now).length + proposalRows(proposals, agents, [], now).length);
     }),
   );
 });
@@ -82,11 +82,11 @@ test("Needs me lists requests and proposals of every workspace in one list, newe
       );
       const proposals = proposalSpecs.map(({ ws, status, at }, i) => ({ ...proposal(`proposal-${String(i)}`), workspace: workspaces[ws]!, status, at: atFor(at) }));
       const now = Date.parse(atFor(100));
-      const rows = allRows(agents, proposals, now);
+      const rows = allRows(agents, proposals, [], now);
 
       // Every request and open proposal, of either workspace, once.
       const keys = rows.map(({ key }) => key);
-      expect([...keys].sort()).toEqual([...needsMeRows(agents, now), ...proposalRows(proposals, agents, now)].map(({ key }) => key).sort());
+      expect([...keys].sort()).toEqual([...needsMeRows(agents, [], now), ...proposalRows(proposals, agents, [], now)].map(({ key }) => key).sort());
       // Newest first; rows at the same time by key, the greater first.
       rows.slice(1).forEach((row, i) => {
         const before = rows[i]!;

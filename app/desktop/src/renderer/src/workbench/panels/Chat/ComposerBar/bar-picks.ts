@@ -1,7 +1,7 @@
 // What the composer bar starts an agent with, pure: which repos it offers and which value each picker holds.
 import type { ListReposResponse, Workspace } from "@wombat/shared/api";
 
-import { repoName } from "./running-bar.ts";
+import { repoName } from "../../../../lib/agent-title.ts";
 
 export type Repo = ListReposResponse["repos"][number];
 

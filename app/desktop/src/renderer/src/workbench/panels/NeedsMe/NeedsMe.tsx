@@ -77,7 +77,7 @@ export const NeedsMe = () => {
   const openRow = useOpenRow();
   const now = useNow();
   const listed = proposals.data?.proposals ?? [];
-  const rows = agents.data === undefined ? undefined : allRows(agents.data.agents, listed, now);
+  const rows = agents.data === undefined ? undefined : allRows(agents.data.agents, listed, workspaces, now);
   const count = useNeedsMeCount();
   const titleId = useId();
   return (

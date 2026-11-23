@@ -24,7 +24,6 @@ import { ChatHeader } from "./ChatHeader/ChatHeader.tsx";
 import { ContextDialogHost } from "./ContextDialogHost/ContextDialogHost.tsx";
 import { Composer } from "./Composer/Composer.tsx";
 import { ComposerFooter } from "./Composer/ComposerFooter/ComposerFooter.tsx";
-import { harnessName } from "./ComposerBar/running-bar.ts";
 import { RunningBar } from "./ComposerBar/RunningBar.tsx";
 import { LogError } from "../../approvals/LogError/LogError.tsx";
 import { ClippedMarkdown } from "./ClippedMarkdown/ClippedMarkdown.tsx";
@@ -301,7 +300,6 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
       {agent === undefined ? null : (
         <ComposerFooter
           agent={agent}
-          toolName={harnessName(harnesses.data, agent.harness)}
           options={model?.config}
           usage={model?.usage}
           access={access}
