@@ -8,7 +8,7 @@ import { useBinders } from "../../../data/hooks.ts";
 import { runLogged } from "../../commands/registry.ts";
 import { WORKBENCH_COMMAND } from "../../commands/workbench-commands.ts";
 import { SurfaceWorkspace } from "../../items/Reference/Reference.tsx";
-import { NavigatorParams, type PanelProps } from "../../registry.ts";
+import type { NavigatorProps } from "../../registry.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { EmptyState } from "../../EmptyState/EmptyState.tsx";
 import { READ_FAILED } from "../../items/notices/notices.tsx";
@@ -20,20 +20,16 @@ import { deskContent, showTree } from "./desk-place.ts";
 import { DeskTree } from "./DeskTree/DeskTree.tsx";
 import { NewBinder } from "./NewBinder/NewBinder.tsx";
 
-/** The Desk's navigator, on the workspace its params name. */
-export const Desk = (props: PanelProps) => {
-  const { ws } = NavigatorParams.parse(props.params);
-  return (
-    <SurfaceWorkspace ws={ws}>
-      <WorkspaceDesk ws={ws} {...props} />
-    </SurfaceWorkspace>
-  );
-};
+export const Desk = (props: NavigatorProps) => (
+  <SurfaceWorkspace ws={props.ws}>
+    <WorkspaceDesk {...props} />
+  </SurfaceWorkspace>
+);
 
 const LOADING = <p className="p-3 text-sm text-fg-tertiary">Loading…</p>;
 
 /** The tree of workspace `ws`'s drawers and binders, or one binder in place of it. */
-const WorkspaceDesk = ({ ws, reveal, onRevealed }: PanelProps & { ws: string }) => {
+const WorkspaceDesk = ({ ws, reveal, onRevealed }: NavigatorProps) => {
   const binders = useBinders(ws);
   const { deskOf, changeDesk: changeAnyDesk } = useDesk();
   const desk = deskOf(ws);

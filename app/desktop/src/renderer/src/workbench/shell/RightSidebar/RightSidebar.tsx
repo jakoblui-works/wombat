@@ -3,7 +3,7 @@ import { useCallback, useEffect, useId, useMemo, useSyncExternalStore } from "re
 
 import { cn } from "@/lib/utils";
 import { useAgents, useProposals } from "../../../data/hooks.ts";
-import { type ActivityDescriptor, activities, getPanel, isKnown, type NavigatorParams } from "../../registry.ts";
+import { type ActivityDescriptor, activities, getPanel, isKnown } from "../../registry.ts";
 import { closeGuards, navigatorRevealKey, type Reveals, type TabEntry, tabKey } from "../../tabs.ts";
 import { ActiveTabContext } from "../../workbench-context.ts";
 import { ResizeHandle } from "../../ResizeHandle/ResizeHandle.tsx";
@@ -68,7 +68,6 @@ const Navigator = ({ workspace, activity, visible, alone, shown, reveals }: Pick
   // A hidden navigator would end the reveal unseen (display:none rows can't scroll or focus), so it waits until shown.
   const reveal = useSyncExternalStore(reveals.subscribe, () => (shown && visible ? reveals.get(key) : undefined));
   const onRevealed = useCallback(() => reveals.forget(key), [reveals, key]);
-  const params = useMemo<NavigatorParams>(() => ({ ws: workspace }), [workspace]);
   const Panel = activity.navigator.component;
   return (
     <aside
@@ -77,7 +76,7 @@ const Navigator = ({ workspace, activity, visible, alone, shown, reveals }: Pick
       className={cn("flex min-h-0 min-w-0 flex-col bg-surface-0", alone ? "flex-1" : "max-w-1/2 shrink-0 border-l border-line")}
       style={alone ? undefined : { width: NAVIGATOR_WIDTH }}
     >
-      <Panel params={params} reveal={reveal} onRevealed={onRevealed} />
+      <Panel ws={workspace} reveal={reveal} onRevealed={onRevealed} />
     </aside>
   );
 };

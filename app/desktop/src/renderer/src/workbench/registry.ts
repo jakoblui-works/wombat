@@ -1,7 +1,7 @@
 // Every tab's panel and every activity is registered here once; the shell, its saved state and the tabs read them from here.
 import type { LucideIcon } from "lucide-react";
 import type { ComponentType } from "react";
-import { z, type ZodType } from "zod";
+import type { ZodType } from "zod";
 import type { AgentSummary } from "@wombat/shared/api";
 import type { Proposal } from "@wombat/shared/proposals";
 
@@ -52,22 +52,23 @@ export type PanelDescriptor = {
   saves?: (params: unknown) => boolean;
 };
 
+/** A navigator shows workspace `ws`'s list (one per workspace, all mounted); `onRevealed` as for a panel. */
+export type NavigatorProps = { ws: string } & Pick<PanelProps, "reveal" | "onRevealed">;
+
+/** One object feeds both `registerActivity` and `useActivityState`, so the hook's type is the registered schema's. */
+export type ActivityStateOf<T> = { id: string; state: { schema: ZodType<T>; initial: T } };
+
 export type ActivityDescriptor<T = unknown> = {
   id: string;
   title: string;
   icon: LucideIcon;
   /**
-   * The navigator shown beside the activity's tabs; its params are `NavigatorParams`. `wants` is the right sidebar's
-   * width, in pixels, it wants alone.
+   * The navigator shown beside the activity's tabs. `wants` is the right sidebar's width, in pixels, it wants alone.
    */
-  navigator: { component: ComponentType<PanelProps>; wants?: number };
+  navigator: { component: ComponentType<NavigatorProps>; wants?: number };
   /** Its state in each workspace, saved with the shell: `initial` until changed, and again when the saved one doesn't parse. */
   state?: { schema: ZodType<T>; initial: T };
 };
-
-/** A navigator's params: the workspace whose navigator it is (one per workspace, all mounted). */
-export const NavigatorParams = z.object({ ws: z.string() });
-export type NavigatorParams = z.infer<typeof NavigatorParams>;
 
 const panels = new Map<string, PanelDescriptor>();
 const activityList = new Map<string, ActivityDescriptor>();

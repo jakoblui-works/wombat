@@ -25,10 +25,9 @@ import {
   rightBounds,
   type ShellState,
   showWorkspace,
-  type ShownView,
   shownView,
 } from "./shell-state.ts";
-import { shellNow } from "./ShellProvider.tsx";
+import { type ShellNow, shellNow } from "./ShellProvider.tsx";
 
 // Invented workspaces and agents.
 const BAKERY = "ws-bakery0001";
@@ -46,11 +45,13 @@ const page = (n: number) => ({ panelId: ITEM_PANEL, params: { ws: BAKERY, binder
 const clicked: ShellState = [page(1), page(2)].reduce((state, tab) => openTab(state, BAKERY, tab, { temporary: false }), openAgent(emptyShell, "agent-1"));
 const bounds = rightBounds(1600);
 
-/** The view after `change`, with the agents read or not yet. */
-const after = (change: (state: ShellState) => ShellState, { agentsRead = true } = {}): ShownView =>
-  shownView(change(clicked), agentsRead ? AGENTS : undefined, WORKSPACES);
+const LISTED = WORKSPACES.map(({ id }) => ({ id, name: id, root: `/invented/${id}`, missing: false }));
 
-test.each<[string, () => ShownView, "open" | "drop" | "wait"]>([
+/** What the page knows after `change`, with the agents and the workspaces read or not yet, as the provider builds it. */
+const after = (change: (state: ShellState) => ShellState, { agentsRead = true, workspacesRead = true } = {}): ShellNow =>
+  shellNow(change(clicked), agentsRead ? AGENTS : undefined, [], workspacesRead ? LISTED : undefined);
+
+test.each<[string, () => ShellNow, "open" | "drop" | "wait"]>([
   ["nothing changed", () => after((state) => state), "open"],
   ["another agent opened", () => after((state) => openAgent(state, "agent-2")), "drop"],
   ["the empty chat opened on the same workspace", () => after((state) => newChat(state, BAKERY)), "drop"],
@@ -63,12 +64,14 @@ test.each<[string, () => ShownView, "open" | "drop" | "wait"]>([
   ["the right sidebar resized", () => after((state) => dragShownRight(fitShownRight(state, BAKERY), BAKERY, 80, bounds)), "open"],
   // The open agent's workspace isn't known until the agents are read.
   ["nothing shown yet", () => after((state) => state, { agentsRead: false }), "wait"],
+  // The shown workspace has nowhere to land until the workspaces list holds it.
+  ["the workspaces not read yet", () => after((state) => state, { workspacesRead: false }), "wait"],
 ])("the latest ticket's open lands only while the view is the one its click left: %s", (_, now, expected) => {
   expect(ticketLands({ seq: 1, view: shownView(clicked, AGENTS, WORKSPACES) }, 1, now())).toBe(expected);
 });
 
 test("a ticket taken before the latest is dropped, whatever the view: the newest click wins", () => {
-  const views: [string, ShownView][] = [
+  const views: [string, ShellNow][] = [
     ["nothing changed", after((state) => state)],
     ["nothing shown yet", after((state) => state, { agentsRead: false })],
     ["another workspace shown", after((state) => showWorkspace(state, GARDEN, AGENTS, WORKSPACES))],
@@ -79,8 +82,7 @@ test("a ticket taken before the latest is dropped, whatever the view: the newest
 test("a waiting open lands once on the recheck that finds its view again, and never once a later ticket was taken", () => {
   // What the page knows now: the clicked shell, with the agents read or not (a refetch), as the provider builds it.
   let agents: AgentSummary[] | undefined = AGENTS;
-  const listed = WORKSPACES.map(({ id }) => ({ id, name: id, root: `/invented/${id}`, missing: false }));
-  const tickets = openTickets(() => shellNow(clicked, agents, [], listed));
+  const tickets = openTickets(() => shellNow(clicked, agents, [], LISTED));
   const opened: string[] = [];
 
   // A waits while no workspace is shown; B is taken before A's view comes back.

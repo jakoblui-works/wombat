@@ -5,16 +5,17 @@ import type { ShellNow } from "./ShellProvider.tsx";
 
 export type OpenTicket = { seq: number; view: ShownView };
 
-export const ticketLands = (ticket: OpenTicket, latest: number, now: ShownView): "open" | "wait" | "drop" => {
+const viewOf = ({ state, agents, workspaces }: ShellNow, leaves: (state: ShellState) => ShellState = (same) => same): ShownView =>
+  shownView(leaves(state), agents, workspaces);
+
+/** Waits while the workspaces list doesn't hold the shown workspace (`now.shown`): until then nothing can land in it. */
+export const ticketLands = (ticket: OpenTicket, latest: number, now: ShellNow): "open" | "wait" | "drop" => {
   if (ticket.seq < latest) return "drop";
-  if (now.workspace === undefined) return "wait";
-  return sameView(ticket.view, now) ? "open" : "drop";
+  if (now.shown === undefined) return "wait";
+  return sameView(ticket.view, viewOf(now)) ? "open" : "drop";
 };
 
 type Waiting = { ticket: OpenTicket; open: () => void };
-
-const viewOf = ({ state, agents, workspaces }: ShellNow, leaves: (state: ShellState) => ShellState = (same) => same): ShownView =>
-  shownView(leaves(state), agents, workspaces);
 
 /** The page's tickets over what it knows now (`now`); `recheck` must run after each render that changed the state or a list. */
 export const openTickets = (now: () => ShellNow) => {
@@ -22,7 +23,7 @@ export const openTickets = (now: () => ShellNow) => {
   let waiting: Waiting | undefined;
 
   const land = (ticket: OpenTicket, open: () => void): void => {
-    const step = ticketLands(ticket, latest, viewOf(now()));
+    const step = ticketLands(ticket, latest, now());
     waiting = step === "wait" ? { ticket, open } : waiting?.ticket === ticket ? undefined : waiting;
     if (step === "open") open();
   };
