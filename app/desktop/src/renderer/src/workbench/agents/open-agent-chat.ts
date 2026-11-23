@@ -2,7 +2,7 @@ import { useCallback } from "react";
 
 import type { AgentSummary } from "@wombat/shared/api";
 
-import { openAgent, type ShellState } from "../shell/shell-state.ts";
+import { openAgent } from "../shell/shell-state.ts";
 import { useShell } from "../shell/ShellProvider.tsx";
 import { tabKey } from "../tabs.ts";
 import { useWorkbench } from "../workbench-context.ts";
@@ -24,17 +24,14 @@ const chatReveal = (agents: readonly AgentSummary[] | undefined, agentId: string
 /** The key the open chat reads its reveal by. */
 export const chatRevealKey = (agentId: string): string => tabKey(CHAT_PANEL, { agentId });
 
-/**
- * Shows the agent's chat in the middle and its row in the overview; `reveal` (a permission request's id) is revealed in
- * the chat. With `onlyIf`, nothing changes unless it holds for the shell state at the time of the change.
- */
-export const useOpenAgent = (): ((agentId: string, reveal?: string, onlyIf?: (state: ShellState) => boolean) => void) => {
+/** Shows the agent's chat in the middle and its row in the overview; `reveal` (a permission request's id) is revealed in the chat. */
+export const useOpenAgent = (): ((agentId: string, reveal?: string) => void) => {
   const { change, current } = useShell();
   const { reveals } = useWorkbench();
   return useCallback(
-    (agentId, reveal, onlyIf) => {
+    (agentId, reveal) => {
       reveals.set(chatRevealKey(agentId), reveal === undefined ? undefined : { target: reveal });
-      change((state) => (onlyIf?.(state) === false ? state : expandShownAgent(openAgent(state, agentId), agentId, current().agents)));
+      change((state) => expandShownAgent(openAgent(state, agentId), agentId, current().agents));
     },
     [change, current, reveals],
   );
