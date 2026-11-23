@@ -24,17 +24,23 @@ type Props = {
   onHarness: (id: string) => void;
 };
 
-const Step = () => <ChevronRight aria-hidden className="size-3.5 shrink-0 text-fg-tertiary" />;
+export const BAR_ROW = "flex min-w-0 items-center gap-1 pb-1.5";
+
+export const Step = () => <ChevronRight aria-hidden className="size-3.5 shrink-0 text-fg-tertiary" />;
+
+export const Host = () => (
+  <span className="flex shrink-0 items-center gap-1.5 px-2 text-sm text-fg-tertiary">
+    <Monitor aria-hidden className="size-3.5" />
+    <span>This Computer</span>
+  </span>
+);
 
 /** Where a new agent starts and on what: the host, the workspace (or a folder opened as one), the repo, the harness. */
 export const ComposerBar = ({ workspaces, workspace, onWorkspace, repos, repo, onRepo, harnesses, harness, onHarness }: Props) => {
   const queryClient = useQueryClient();
   return (
-    <div className="flex min-w-0 items-center gap-1 pb-1.5">
-      <span className="flex shrink-0 items-center gap-1.5 px-2 text-sm text-fg-tertiary">
-        <Monitor aria-hidden className="size-3.5" />
-        <span>This Computer</span>
-      </span>
+    <div className={BAR_ROW}>
+      <Host />
       <Step />
       <Select
         value={workspace?.id ?? null}

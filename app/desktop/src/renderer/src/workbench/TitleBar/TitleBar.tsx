@@ -96,12 +96,11 @@ const LeftSidebarToggle = ({ toggle }: { toggle: Ref<HTMLButtonElement> | undefi
 };
 
 /**
- * The window's title bar, in place of the system's: the menus on the left, the symbol and workspace as the drag strip
+ * The window's title bar, in place of the system's: the menus on the left, the symbol and name as the drag strip
  * in the middle, the left sidebar's toggle on the right, then the room the window controls (Electron's overlay) take.
  * The bar drags the window, so each control opts out of it with `no-drag`. `leftToggle` gets the toggle's element.
  */
 export const TitleBar = ({ leftToggle }: { leftToggle?: Ref<HTMLButtonElement> }) => {
-  const workspace = useShownWorkspace()?.name;
   // Edit commands (cut, paste, select all) act on the focused element, and opening a menu moves focus into the menubar.
   // So each time focus comes into the menubar from outside it (and outside its popups), it remembers where from. When
   // a menu closes, focus goes back there if the menu was opened with the pointer or a command was chosen (a menu
@@ -175,12 +174,6 @@ export const TitleBar = ({ leftToggle }: { leftToggle?: Ref<HTMLButtonElement> }
       <div className="flex min-w-0 items-center gap-2 px-4">
         <WombatSymbol className="size-5 shrink-0" />
         <span className="text-sm font-semibold text-fg-primary">Wombat</span>
-        {workspace === undefined ? null : (
-          <>
-            <span className="text-sm text-fg-tertiary">/</span>
-            <span className="truncate text-sm text-fg-secondary">{workspace}</span>
-          </>
-        )}
       </div>
       <div className="flex min-w-0 items-center justify-end gap-2">
         <LeftSidebarToggle toggle={leftToggle} />

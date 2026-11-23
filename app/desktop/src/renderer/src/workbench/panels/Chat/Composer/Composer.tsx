@@ -1,6 +1,6 @@
 import type { ChatAccess } from "@wombat/shared/api";
 import { ArrowUp, Square } from "lucide-react";
-import { useEffect } from "react";
+import { type ReactNode, useEffect } from "react";
 
 import { Button } from "../../../../components/ui/button";
 import { sendMessageVars, useCancelTurn, useSendMessage } from "../../../../data/commands.ts";
@@ -22,10 +22,12 @@ type Props = {
   /** The agent's harness features (`GET /harnesses`): which app commands the text may be; undefined until they are known. */
   features: readonly string[] | undefined;
   onOpenContext: () => void;
+  /** Shown above the box, at its width. */
+  bar?: ReactNode;
 };
 
 /** The message box: Send, and Cancel while a turn runs. */
-export const Composer = ({ agentId, turnActive, connected, access, features, onOpenContext }: Props) => {
+export const Composer = ({ agentId, turnActive, connected, access, features, onOpenContext, bar }: Props) => {
   const { composer: state, reference } = useComposerEntry(agentId);
   const dispatch = (event: ComposerEntryEvent) => composerEvent(agentId, event);
   const sending = useSendMessage();
@@ -56,6 +58,7 @@ export const Composer = ({ agentId, turnActive, connected, access, features, onO
 
   return (
     <div className="shrink-0 px-5 pt-3 pb-2.5">
+      {bar === undefined ? null : <div className="mx-auto max-w-chat">{bar}</div>}
       {reference === undefined ? null : <ReferenceChip proposalId={reference} onRemove={() => dispatch({ type: "refer", proposalId: undefined })} />}
       <div className="mx-auto flex max-w-chat items-end gap-2 rounded-lg border border-line-strong bg-surface-2 py-1.5 pr-1.5 pl-3 transition-colors focus-within:border-focus">
         <textarea

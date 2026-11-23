@@ -24,6 +24,8 @@ import { ChatHeader } from "./ChatHeader/ChatHeader.tsx";
 import { ContextDialogHost } from "./ContextDialogHost/ContextDialogHost.tsx";
 import { Composer } from "./Composer/Composer.tsx";
 import { ComposerFooter } from "./Composer/ComposerFooter/ComposerFooter.tsx";
+import { harnessName } from "./ComposerBar/running-bar.ts";
+import { RunningBar } from "./ComposerBar/RunningBar.tsx";
 import { LogError } from "../../approvals/LogError/LogError.tsx";
 import { ClippedMarkdown } from "./ClippedMarkdown/ClippedMarkdown.tsx";
 import { SurfaceWorkspace } from "../../items/Reference/Reference.tsx";
@@ -183,7 +185,6 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
   const connected = useConnection().state === "connected";
   const answers = useAnswer(agentId);
   const harnesses = useHarnesses();
-  const harness = harnesses.data?.find(({ id }) => id === agent?.harness);
   const features = useHarnessFeatures(agent?.harness);
   // While the agent is still loading it counts as running: only a known agent without a process isn't.
   const access = agent === undefined ? "running" : chatAccess(agent, featuresOrAssumed(features));
@@ -295,11 +296,12 @@ const AgentChat = ({ agentId, reveal }: { agentId: string; reveal: Reveal | unde
         access={access}
         features={features}
         onOpenContext={() => setContextOpen(true)}
+        bar={agent === undefined ? undefined : <RunningBar agent={agent} />}
       />
       {agent === undefined ? null : (
         <ComposerFooter
           agent={agent}
-          toolName={harness?.name ?? agent.harness}
+          toolName={harnessName(harnesses.data, agent.harness)}
           options={model?.config}
           usage={model?.usage}
           access={access}
