@@ -2,17 +2,21 @@
 // scenario). An agent reaches only its own workspace: its Wombat tools list and read only that workspace's binders
 // (another workspace's, hidden or not, answer exactly like missing ones) and its prompt carries only that workspace's
 // instructions. Rows a store kept from before workspaces existed reach the running service when main adds the folder
-// that adopts them: listed, announced, recovered as at a start, and answering messages, without a restart.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+// that adopts them: listed, announced, recovered as at a start, and answering messages, without a restart; its
+// proposals left applying are settled then too.
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { AgentSummary } from "@wombat/shared/api";
 import { describe, expect, onTestFinished, test } from "vitest";
 
+import { versionOfText } from "../src/items/files.ts";
 import { openStore } from "../src/store/store.ts";
 import { writeAt } from "./items-fixtures.ts";
 import { REPO, TEST_TIMEOUT_MS, WAIT_MS, waitFor } from "./manager-fixtures.ts";
+import { newV5Store } from "./old-store-fixtures.ts";
 import { addWorkspace, APP_ORIGIN, openStream, rawRequest, type Stream } from "./server-fixtures.ts";
 import { PROMPTED, promptText, startRecorded, startService, type RunningService } from "./service-fixtures.ts";
 import { summary } from "./store-fixtures.ts";
@@ -113,6 +117,25 @@ const listAgents = async (service: RunningService) => {
   return ((response.json as { agents: unknown[] }).agents ?? []).map((agent) => AgentSummary.parse(agent));
 };
 
+/** A schema 5 store with one agent and, per `applying` entry (id → absolute path), a file proposal creating `text` there left applying. */
+const writeV5Store = (path: string, text: string, applying: Record<string, string>) => {
+  const db = newV5Store(path, { dbId: randomUUID(), seq: 9 });
+  const agent = summary("agent-adopt-proposer");
+  db.prepare("INSERT INTO agents (id, started_at, summary) VALUES (?, ?, ?)").run(agent.id, agent.startedAt, JSON.stringify(agent));
+  const insert = db.prepare(
+    `INSERT INTO proposals (id, target, path, kind, reason, base_version, status, agent_id, at, intent, noted_seq, last_version)
+     VALUES (?, 'file', ?, 'create', 'Rename the footer link', NULL, 'applying', ?, '2026-11-12T12:00:00.000Z', ?, 0, 1)`,
+  );
+  const version = db.prepare(
+    "INSERT INTO proposal_versions (proposal_id, n, by, content, reason, at) VALUES (?, 1, 'agent', ?, 'Rename the footer link', '2026-11-12T12:00:00.000Z')",
+  );
+  for (const [id, target] of Object.entries(applying)) {
+    insert.run(id, target, agent.id, JSON.stringify(versionOfText(text)));
+    version.run(id, JSON.stringify({ text }));
+  }
+  db.close();
+};
+
 describe("a service with more than one workspace", () => {
   test(
     "an agent reaches only its own workspace: its tools list and read only its binders, another's (hidden ones included) answer like missing ones, and its prompt carries only its own instructions",
@@ -184,5 +207,38 @@ describe("a service with more than one workspace", () => {
       expect(process.kill(pid, 0), "the service never restarted").toBe(true);
     },
     TEST_TIMEOUT_MS * 2,
+  );
+
+  test(
+    "proposals a schema 5 store left applying are settled by the add that adopts them, without a restart: one whose write landed approved, the other pending",
+    async () => {
+      const base = realpathSync(mkdtempSync(join(tmpdir(), "wombat-adopt-settle-")));
+      onTestFinished(() => rmSync(base, { recursive: true, force: true }));
+      const root = join(base, "site");
+      mkdirSync(root);
+      const text = "<a>Imprint</a>\n";
+      const landed = { id: "0196f3c2-1a00-7000-8000-0000000000c1", path: join(root, "landed.html") };
+      const notLanded = { id: "0196f3c2-1a00-7000-8000-0000000000c2", path: join(root, "not-landed.html") };
+      writeFileSync(landed.path, text);
+
+      const service = await startService({
+        add: false,
+        seed: (storePath) => writeV5Store(storePath, text, { [landed.id]: landed.path, [notLanded.id]: notLanded.path }),
+      });
+      const pid = service.file.pid;
+      const statuses = async () => {
+        const response = await service.api("GET", "/proposals");
+        expect(response.status, `GET /proposals → ${response.text}`).toBe(200);
+        return Object.fromEntries((response.json as { proposals: { id: string; status: string }[] }).proposals.map(({ id, status }) => [id, status]));
+      };
+      expect(await statuses(), "control: nothing is listed before a workspace adopts it").toEqual({});
+
+      const added = await service.api("POST", "/workspaces", { root, adopt: true });
+      expect(added.status, `POST /workspaces with adopt → ${added.text}`).toBe(200);
+
+      expect(await statuses(), "settled once the adopting add answers").toEqual({ [landed.id]: "approved", [notLanded.id]: "pending" });
+      expect(process.kill(pid, 0), "the service never restarted").toBe(true);
+    },
+    TEST_TIMEOUT_MS,
   );
 });
