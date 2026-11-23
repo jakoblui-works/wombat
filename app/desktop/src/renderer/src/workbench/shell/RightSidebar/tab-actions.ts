@@ -17,10 +17,9 @@ export type TabActionDeps = {
 export const requestClose = (change: TabActionDeps["change"], workspace: string, key: string): void =>
   closeGuards().request(key, () => change((current) => closeTab(current, workspace, key)));
 
-/** The workspace an open or an activity goes to: the one it names, else the shown one. */
 const targetWorkspace = (named: string | undefined, shown: string | undefined): string | undefined => named ?? shown;
 
-export const shellTabActions = ({ current, change, reveals, titles }: TabActionDeps): WorkbenchActions & Pick<WorkbenchContextValue, "openTabs"> => ({
+const shellTabActions = ({ current, change, reveals, titles }: TabActionDeps): WorkbenchActions & Pick<WorkbenchContextValue, "openTabs"> => ({
   openTab: (panelId, params, reveal, options) => {
     openablePanel(panelId, params);
     const { state, shown } = current();

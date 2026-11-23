@@ -76,7 +76,7 @@ export const showItem = (navigator: ItemNavigator, { ws, binderId, itemId }: Sav
 
 /**
  * Shows workspace `ws`'s item (`ref`: its id or a handle) where it sits (`showItem`); for a ref that names no item, opens
- * nothing and tells the user. It lands through an open ticket taken at the click.
+ * nothing and tells the user. If a newer click or a view change came while the item was read, it opens and tells nothing.
  */
 export const followItem = (navigator: ItemNavigator, ws: string, ref: string): void => {
   const ticket = navigator.take();

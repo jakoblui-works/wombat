@@ -56,7 +56,7 @@ const LeftPanel = () => (
 const ShownChat = ({ agentId, reveals }: { agentId: string; reveals: Reveals }) => {
   const key = chatRevealKey(agentId);
   const reveal = useSyncExternalStore(reveals.subscribe, () => reveals.get(key));
-  return <Chat params={{ agentId }} reveal={reveal} />;
+  return <Chat agentId={agentId} reveal={reveal} />;
 };
 
 /** The open agent's chat, one at a time, or the empty chat. */
@@ -131,23 +131,23 @@ const Frame = ({ openAgents }: { openAgents: OpenAgents }) => {
   useEffect(
     () =>
       registerWorkbenchCommands({
-        newAgent: () => change((state) => newChat(state, current().shown)),
+        newAgent: () => change((before) => newChat(before, current().shown)),
         toggleLeftSidebar: () => {
           if (!current().state.leftHidden) {
             const inside = left.current?.contains(document.activeElement) === true;
             focusOnHide(inside, middle.current?.querySelector<HTMLElement>(MESSAGE_BOX) ?? null, leftToggle.current)?.focus();
           }
-          change((state) => hideLeftSidebar(state, !state.leftHidden));
+          change((before) => hideLeftSidebar(before, !before.leftHidden));
         },
         closeActiveTab: () => {
-          const { state, shown: workspace } = current();
-          const tab = shownTab(state, workspace);
+          const { state: before, shown: workspace } = current();
+          const tab = shownTab(before, workspace);
           if (workspace !== undefined && tab !== undefined) requestClose(change, workspace, tabKey(tab.panelId, tab.params));
         },
         blocked: () => blockedRef.current,
         restartService: () => restartRef.current(),
         openFolder: () =>
-          openFolderOrTell(queryClient, (id) => change((state) => newChat(state, id))),
+          openFolderOrTell(queryClient, (id) => change((before) => newChat(before, id))),
         chooseItemsFolder: async () => {
           const workspace = current().shown;
           if (workspace === undefined) {

@@ -18,7 +18,7 @@ import { DEFAULT_DESK, DeskLayout } from "./items/navigation/desk-layout.ts";
 const register = (): void => {
   registerPanel({
     id: DIFF_PANEL,
-    // The panel reports "<file name> (diff)" once it has read the request (the agents list doesn't name the file).
+    // The panel reports "<file name> (diff)" once it has read the request, which names the file.
     title: DIFF_TITLE,
     wants: 800,
     component: Diff,

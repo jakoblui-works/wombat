@@ -3,7 +3,7 @@ import { useCallback, useMemo } from "react";
 import { activityStateOf, changeActivityState } from "./shell-state.ts";
 import { useShell } from "./ShellProvider.tsx";
 
-export type ActivityState = {
+type ActivityState = {
   of: (ws: string | undefined) => unknown;
   /** Saved with the shell, as any change the user makes. */
   change: (ws: string, update: (state: unknown) => unknown) => void;

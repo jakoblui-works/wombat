@@ -13,7 +13,6 @@ export type WorkspaceShell = {
   navigatorHidden: boolean;
   rightOpen: boolean;
   activityStates: Record<string, unknown>;
-  /** The overview's group for this workspace collapsed. */
   overviewCollapsed?: boolean;
   /** Each activity's last active tab, by activity id. */
   lastActive?: Record<string, string>;

@@ -12,8 +12,7 @@ import { NavigatorParams, type PanelProps } from "../../registry.ts";
 import { SidebarHeader } from "../../SidebarHeader/SidebarHeader.tsx";
 import { EmptyState } from "../../EmptyState/EmptyState.tsx";
 import { READ_FAILED } from "../../items/notices/notices.tsx";
-import type { DeskLayout } from "../../items/navigation/desk-layout.ts";
-import { useDesk } from "../../items/navigation/desk-state.ts";
+import { type ChangeDesk, useDesk } from "../../items/navigation/desk-state.ts";
 import { useItemNavigation } from "../../items/navigation/item-navigation.ts";
 import { BinderPane } from "./BinderPane/BinderPane.tsx";
 import { revealBinder, toggleDrawer } from "./desk-tree.ts";
@@ -36,9 +35,9 @@ const LOADING = <p className="p-3 text-sm text-fg-tertiary">Loading…</p>;
 /** The tree of workspace `ws`'s drawers and binders, or one binder in place of it. */
 const WorkspaceDesk = ({ ws, reveal, onRevealed }: PanelProps & { ws: string }) => {
   const binders = useBinders(ws);
-  const { deskOf, changeDesk: changeDeskOf } = useDesk();
+  const { deskOf, changeDesk: changeAnyDesk } = useDesk();
   const desk = deskOf(ws);
-  const changeDesk = (update: (desk: DeskLayout) => DeskLayout) => changeDeskOf(update, ws);
+  const changeDesk = (update: Parameters<ChangeDesk>[0]) => changeAnyDesk(update, ws);
   const { openBinder, openItem, openNewItem } = useItemNavigation();
   const content = deskContent(binders.data?.binders, binders.error, desk);
   const [newBinder, setNewBinder] = useState<{ open: boolean; drawer: string }>({ open: false, drawer: "" });

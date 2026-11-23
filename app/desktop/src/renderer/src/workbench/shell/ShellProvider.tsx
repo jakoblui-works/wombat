@@ -6,7 +6,7 @@ import { useAgents, useProposals, useWorkspaces } from "../../data/hooks.ts";
 import { OpenTicketContext, openTickets } from "./open-ticket.ts";
 import { emptyShell, type ShellState, shownWorkspace } from "./shell-state.ts";
 
-/** The shell state, the lists as the page has read them (undefined while unread) and the shown workspace's id. */
+/** A list is undefined while unread. */
 export type ShellNow = {
   state: ShellState;
   agents: AgentSummary[] | undefined;
@@ -59,7 +59,7 @@ export const ShellProvider = ({ initial = emptyShell, children }: { initial?: Sh
   );
 };
 
-/** The shell's state and its one change function, which takes one of `shell-state.ts`'s functions. */
+/** The shell's state, its one change function (it takes one of `shell-state.ts`'s functions) and `current`, the latest state and lists. */
 export const useShell = (): Shell => {
   const shell = useContext(ShellContext);
   if (shell === undefined) throw new Error("useShell is used outside the ShellProvider; render the component inside it.");

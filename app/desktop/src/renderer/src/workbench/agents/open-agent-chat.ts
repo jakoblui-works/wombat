@@ -6,7 +6,6 @@ import { openAgent } from "../shell/shell-state.ts";
 import { useShell } from "../shell/ShellProvider.tsx";
 import { tabKey } from "../tabs.ts";
 import { useWorkbench } from "../workbench-context.ts";
-import { CHAT_PANEL } from "./chat-params.ts";
 import { expandShownAgent } from "./collapsed-groups.ts";
 
 /** The oldest open request: the smallest `at`, the first listed of equals. */
@@ -20,6 +19,8 @@ const oldestPending = (agent: AgentSummary | undefined): string | undefined => {
 
 const chatReveal = (agents: readonly AgentSummary[] | undefined, agentId: string, requestId: string | undefined): string | undefined =>
   requestId ?? oldestPending(agents?.find(({ id }) => id === agentId));
+
+const CHAT_PANEL = "chat";
 
 /** The key the open chat reads its reveal by. */
 export const chatRevealKey = (agentId: string): string => tabKey(CHAT_PANEL, { agentId });
