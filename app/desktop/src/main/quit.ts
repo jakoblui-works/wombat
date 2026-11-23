@@ -8,18 +8,24 @@ import type { QuitAnswer } from "./e2e-switches.ts";
 import type { Settings } from "./settings.ts";
 
 /**
- * How many of the service's agents have a process (agentsWithProcess): 0 when no service runs (`agents`
- * gives undefined), undefined when they couldn't be read (so the user is asked rather than told nothing runs).
+ * The service's agents that have a process (agentsWithProcess), over every workspace: none when no service runs
+ * (`agents` gives undefined), undefined when they couldn't be read (so the user is asked rather than told nothing runs).
  */
-export const runningCount = async (agents: () => Promise<AgentSummary[] | undefined>, log: (line: string) => void): Promise<number | undefined> => {
+const runningAgents = async (agents: () => Promise<AgentSummary[] | undefined>, log: (line: string) => void): Promise<AgentSummary[] | undefined> => {
   try {
-    const list = await agents();
-    return list === undefined ? 0 : agentsWithProcess(list).length;
+    return agentsWithProcess((await agents()) ?? []);
   } catch (error) {
     log(`Wombat couldn't read the service's agents: ${error instanceof Error ? error.message : String(error)}`);
     return undefined;
   }
 };
+
+/** How many of the service's agents have a process (runningAgents); undefined when they couldn't be read. */
+export const runningCount = async (agents: () => Promise<AgentSummary[] | undefined>, log: (line: string) => void): Promise<number | undefined> =>
+  (await runningAgents(agents, log))?.length;
+
+/** How many workspaces `agents` belong to. */
+export const workspaceCount = (agents: readonly Pick<AgentSummary, "workspace">[]): number => new Set(agents.map(({ workspace }) => workspace)).size;
 
 export type QuitChoice = { answer: QuitAnswer; dontAsk: boolean };
 
@@ -36,8 +42,11 @@ export type QuitDeps = {
   idle: () => Promise<void>;
   /** The service's agents; undefined when no service runs; rejects when a service may run but can't be read. */
   agents: () => Promise<AgentSummary[] | undefined>;
-  /** The question; `running` is undefined when the agents couldn't be read. */
-  ask: (running: number | undefined) => Promise<QuitChoice>;
+  /**
+   * The question; `running` is the count of agents with a process over every workspace and `workspaces` the count of
+   * workspaces they're in, both undefined when the agents couldn't be read.
+   */
+  ask: (running: number | undefined, workspaces: number | undefined) => Promise<QuitChoice>;
   /** Stops the service and its agents; resolves once they're stopped. */
   stop: () => Promise<void>;
   /**
@@ -56,7 +65,8 @@ export const decideQuit = async ({ settings, updateSettings, idle, agents, ask, 
   // A quit mid-start would otherwise look at no service while one is coming up. Each queued operation has its own
   // time limits, so this wait ends.
   await idle();
-  const running = await runningCount(agents, log);
+  const withProcess = await runningAgents(agents, log);
+  const running = withProcess?.length;
   if (running === 0) {
     // Nothing would be left behind but the service itself.
     await stop();
@@ -64,7 +74,8 @@ export const decideQuit = async ({ settings, updateSettings, idle, agents, ask, 
   }
 
   const remembered = rememberedAnswer(settings());
-  const { answer, dontAsk } = remembered === undefined ? await ask(running) : { answer: remembered, dontAsk: false };
+  const { answer, dontAsk } =
+    remembered === undefined ? await ask(running, withProcess && workspaceCount(withProcess)) : { answer: remembered, dontAsk: false };
   if (answer === "cancel") return false;
   // A start asked for while the question was open would otherwise be cut off, as above.
   await idle();

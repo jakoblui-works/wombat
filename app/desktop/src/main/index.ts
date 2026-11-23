@@ -386,9 +386,9 @@ const commands = mainCommands({
 });
 handleBridge(CHANNELS.command, (event, id) => commands.fromPage(id, BrowserWindow.fromWebContents(event.sender) ?? undefined));
 
-const askOnQuit = async (running: number | undefined): Promise<QuitChoice> => {
+const askOnQuit = async (running: number | undefined, workspaces: number | undefined): Promise<QuitChoice> => {
   if (e2e !== undefined) return { answer: e2e.quitAnswer, dontAsk: e2e.quitDontAsk };
-  const { response, checkboxChecked } = await messageBox(quitQuestion(running));
+  const { response, checkboxChecked } = await messageBox(quitQuestion(running, workspaces));
   return quitChoice(response, checkboxChecked);
 };
 
